@@ -1,0 +1,55 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore FurniSpace.sln
+
+      - name: Build
+        run: dotnet build FurniSpace.sln --no-restore -c Release
+
+      - name: Run tests
+        run: |
+          dotnet test tests/FurniSpace.Domain.Tests/FurniSpace.Domain.Tests.csproj --no-build -c Release
+          dotnet test tests/FurniSpace.Application.Tests/FurniSpace.Application.Tests.csproj --no-build -c Release
+          dotnet test tests/FurniSpace.Infrastructure.Tests/FurniSpace.Infrastructure.Tests.csproj --no-build -c Release
+          dotnet test tests/FurniSpace.API.Tests/FurniSpace.API.Tests.csproj --no-build -c Release
+
+  code-quality:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Run SonarCloud
+        uses: SonarSource/sonarcloud-github-action@v2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

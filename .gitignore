@@ -1,0 +1,38 @@
+# Build artifacts
+**/bin/
+**/obj/
+
+# Visual Studio / Rider
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs and temporary files
+TestResults/
+coverage/
+logs/
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# NuGet packages
+*.nupkg
+
+# Environment files
+.env
+.env.local
+
+# Ignore secrets and certificates
+*.pfx
+*.pem
+
+# Ignore generated files
+*.cache
+
+# Keep appsettings files in source control for Serilog config
+!appsettings.json
+!appsettings.Development.json

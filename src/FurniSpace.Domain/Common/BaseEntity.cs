@@ -1,3 +1,5 @@
+using System;
+
 namespace FurniSpace.Domain.Common;
 
 public abstract class BaseEntity

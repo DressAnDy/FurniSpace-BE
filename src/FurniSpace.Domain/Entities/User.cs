@@ -1,5 +1,8 @@
+using System.Collections.Generic;
+using System.Linq;
 using FurniSpace.Domain.Common;
 using FurniSpace.Domain.Events;
+using FurniSpace.Domain.ValueObjects;
 
 namespace FurniSpace.Domain.Entities;
 

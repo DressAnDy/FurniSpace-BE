@@ -1,3 +1,5 @@
+using System;
+
 namespace FurniSpace.Domain.Exceptions;
 
 public class DomainException : Exception

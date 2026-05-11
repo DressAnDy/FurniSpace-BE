@@ -1,3 +1,5 @@
+using System;
+
 namespace FurniSpace.Domain.Entities;
 
 public class RefreshToken

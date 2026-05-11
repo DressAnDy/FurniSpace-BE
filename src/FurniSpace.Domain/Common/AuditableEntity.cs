@@ -1,7 +1,9 @@
+using System;
+
 namespace FurniSpace.Domain.Common;
 
 public abstract class AuditableEntity : BaseEntity
 {
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
+    public new DateTime CreatedAt { get; set; }
+    public new DateTime UpdatedAt { get; set; }
 }

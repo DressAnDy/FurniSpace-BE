@@ -1,3 +1,4 @@
+using System;
 using FurniSpace.Domain.Common;
 
 namespace FurniSpace.Domain.Events;

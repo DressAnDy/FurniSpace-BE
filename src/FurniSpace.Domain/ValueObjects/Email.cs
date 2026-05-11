@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using FurniSpace.Domain.Common;
 
 namespace FurniSpace.Domain.ValueObjects;
@@ -11,12 +12,12 @@ public sealed class Email : ValueObject
     public static Result<Email> Create(string email)
     {
         if (string.IsNullOrWhiteSpace(email))
-            return Result.Failure<Email>(Error.Validation("Email.Empty", "Email cannot be empty"));
+            return Result<Email>.Failure(Error.Validation("Email.Empty", "Email cannot be empty"));
 
         if (!email.Contains('@'))
-            return Result.Failure<Email>(Error.Validation("Email.Invalid", "Email format is invalid"));
+            return Result<Email>.Failure(Error.Validation("Email.Invalid", "Email format is invalid"));
 
-        return Result.Success(new Email(email.ToLowerInvariant()));
+        return Result<Email>.Success(new Email(email.ToLowerInvariant()));
     }
 
     protected override IEnumerable<object> GetEqualityComponents()

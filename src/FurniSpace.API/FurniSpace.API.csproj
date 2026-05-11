@@ -3,6 +3,12 @@
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="5.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
+    <PackageReference Include="Serilog.Enrichers.CorrelationId" Version="3.0.1" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\FurniSpace.Application\FurniSpace.Application.csproj" />
     <ProjectReference Include="..\FurniSpace.Infrastructure\FurniSpace.Infrastructure.csproj" />
     <ProjectReference Include="..\FurniSpace.Shared\FurniSpace.Shared.csproj" />

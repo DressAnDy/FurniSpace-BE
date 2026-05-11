@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace FurniSpace.Domain.Common;
 
 public abstract class AggregateRoot : BaseEntity

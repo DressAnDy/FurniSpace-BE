@@ -6,7 +6,7 @@ namespace FurniSpace.Shared.Helpers;
 
 public static class EnvLoader
 {
-    public static void LoadEnv(string fileName = ".env")
+    public static void LoadEnv(string fileName = ".env", bool required = true)
     {
         var filePath = Path.IsPathRooted(fileName)
             ? fileName
@@ -14,6 +14,11 @@ public static class EnvLoader
 
         if (!File.Exists(filePath))
         {
+            if (!required)
+            {
+                return;
+            }
+
             throw new InvalidOperationException($"Required environment file not found: {filePath}");
         }
 

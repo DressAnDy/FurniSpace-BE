@@ -2,7 +2,7 @@ using Serilog;
 using FurniSpace.Shared.Helpers;
 using Microsoft.AspNetCore.Builder;
 
-EnvLoader.LoadEnv();
+EnvLoader.LoadEnv(required: false);
 
 var builder = WebApplication.CreateBuilder(args);
 

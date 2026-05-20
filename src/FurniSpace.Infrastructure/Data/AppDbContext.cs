@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace FurniSpace.Infrastructure.Persistence;
+namespace FurniSpace.Infrastructure.Data;
 
 public class AppDbContext : DbContext
 {

@@ -1,5 +1,5 @@
 namespace FurniSpace.Infrastructure.Persistence;
 
-public class DataSeeder
+public interface IUnitOfWork
 {
 }

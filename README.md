@@ -211,4 +211,5 @@ Hệ thống cần được thiết kế theo cấu trúc module để dễ bả
 
 ## Tài liệu liên quan
 
+- [Backend API Developer Guide](docs/backend-api-dev-guide.md)
 - [Định hướng triển khai module 3D bằng Babylon.js](docs/furnispace-babylonjs-3d-module.md)

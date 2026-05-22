@@ -53,6 +53,7 @@ Items that must be completed before the API can run fully:
 - Repository, UnitOfWork, Cache, AuthService, and JwtTokenService classes are empty.
 - `AppDbContext` does not have `DbSet` properties and does not apply entity configurations.
 - `UserConfiguration` currently configures `object`; it should be changed to `IEntityTypeConfiguration<User>`.
+- `UserMappingConfig` exists but is empty. The recommended mapper for this project is Mapster.
 - MediatR, FluentValidation, Swagger, and JWT packages are not yet added to `.csproj` files if the project will use the full CQRS + validation + OpenAPI pattern.
 
 Because of this, when implementing a new feature, developers should follow the full workflow in section 5 instead of only creating a controller.
@@ -205,6 +206,78 @@ If MediatR is installed, commands and queries should implement:
 IRequest<Result<ProductDto>>
 ```
 
+### Step 3.1: Add Mapping with Mapster
+
+FurniSpace should use Mapster as the default mapper. It is lightweight, simple to configure, and fits the current Clean Architecture structure without adding much ceremony.
+
+Install Mapster in the Application project:
+
+```powershell
+dotnet add src/FurniSpace.Application package Mapster
+```
+
+If API or Infrastructure also needs to call `.Adapt<T>()` directly, install Mapster in that project too. Prefer keeping mapping in Application handlers whenever possible.
+
+Create one mapping config per module in `FurniSpace.Application/Mappings`.
+
+Example:
+
+```csharp
+using FurniSpace.Application.DTOs;
+using FurniSpace.Domain.Entities;
+using Mapster;
+
+namespace FurniSpace.Application.Mappings;
+
+public static class ProductMappingConfig
+{
+    public static void Register()
+    {
+        TypeAdapterConfig<Product, ProductDto>
+            .NewConfig()
+            .Map(dest => dest.Id, src => src.Id)
+            .Map(dest => dest.Name, src => src.Name)
+            .Map(dest => dest.Sku, src => src.Sku)
+            .Map(dest => dest.PriceAmount, src => src.Price.Amount)
+            .Map(dest => dest.Currency, src => src.Price.Currency)
+            .Map(dest => dest.CreatedAt, src => src.CreatedAt);
+    }
+}
+```
+
+Register all mapping configs from `AddApplication`:
+
+```csharp
+public static IServiceCollection AddApplication(this IServiceCollection services)
+{
+    UserMappingConfig.Register();
+    ProductMappingConfig.Register();
+
+    services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly));
+    services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
+    services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
+
+    return services;
+}
+```
+
+Use Mapster in handlers:
+
+```csharp
+using Mapster;
+
+var dto = product.Adapt<ProductDto>();
+return Result<ProductDto>.Success(dto);
+```
+
+Mapping rules:
+
+- Keep Mapster configuration in `FurniSpace.Application/Mappings`.
+- Do not put mapping configuration in controllers.
+- Use explicit config for value objects, nested objects, computed fields, and renamed properties.
+- For very simple mappings with identical property names, `.Adapt<T>()` can be used without extra config.
+- Do not expose domain entities directly from API responses; always return DTOs.
+
 ### Step 4: Add Validation
 
 Place validators in the same folder as the related command/query:
@@ -318,6 +391,8 @@ Note: `UserConfiguration` is currently `IEntityTypeConfiguration<object>`. It sh
 The handler coordinates the use case:
 
 ```csharp
+using Mapster;
+
 public sealed class CreateProductHandler : IRequestHandler<CreateProductCommand, Result<ProductDto>>
 {
     private readonly IProductRepository _products;
@@ -347,7 +422,7 @@ public sealed class CreateProductHandler : IRequestHandler<CreateProductCommand,
         await _products.AddAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return Result<ProductDto>.Success(ProductDto.FromEntity(product));
+        return Result<ProductDto>.Success(product.Adapt<ProductDto>());
     }
 }
 ```
@@ -365,6 +440,9 @@ In `FurniSpace.Application/DependencyInjection.cs`:
 ```csharp
 public static IServiceCollection AddApplication(this IServiceCollection services)
 {
+    UserMappingConfig.Register();
+    ProductMappingConfig.Register();
+
     services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly));
     services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
     services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
@@ -517,6 +595,7 @@ Use this checklist for every API:
 - [ ] Define route, request, response, and status codes.
 - [ ] Create/update entity or value object in Domain.
 - [ ] Create DTO in Application.
+- [ ] Create/update Mapster mapping config if properties are renamed, nested, computed, or value-object based.
 - [ ] Create command/query.
 - [ ] Create validator.
 - [ ] Create handler.
@@ -541,6 +620,7 @@ Starting from the current repository state, the recommended order is:
 
 2. Complete Application infrastructure:
    - Choose MediatR + FluentValidation or a service-based pattern.
+   - Add Mapster and register mapping configs.
    - Implement `Result<T>`, `Error`, and `PagedResult<T>`.
    - Implement `ValidationBehavior`.
 
@@ -660,6 +740,7 @@ Domain:
 
 Application:
 - DTO:
+- Mapster mapping:
 - Command/query:
 - Validator:
 - Handler:
@@ -679,4 +760,3 @@ Tests:
 - Not found/conflict:
 - Auth:
 ```
-

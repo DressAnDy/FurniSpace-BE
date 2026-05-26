@@ -111,7 +111,7 @@ HTTP Request
   -> Domain Entity/Value Object
   -> Repository/UnitOfWork
   -> AppDbContext/PostgreSQL
-  -> DTO/Result
+  -> DTO/ServiceResult
   -> HTTP Response
 ```
 
@@ -203,7 +203,7 @@ public sealed record CreateProductCommand(
 If MediatR is installed, commands and queries should implement:
 
 ```csharp
-IRequest<Result<ProductDto>>
+IRequest<ServiceResult<ProductDto>>
 ```
 
 ### Step 3.1: Add Mapping with Mapster
@@ -267,7 +267,7 @@ Use Mapster in handlers:
 using Mapster;
 
 var dto = product.Adapt<ProductDto>();
-return Result<ProductDto>.Success(dto);
+return ServiceResult<ProductDto>.Success(dto);
 ```
 
 Mapping rules:
@@ -393,7 +393,7 @@ The handler coordinates the use case:
 ```csharp
 using Mapster;
 
-public sealed class CreateProductHandler : IRequestHandler<CreateProductCommand, Result<ProductDto>>
+public sealed class CreateProductHandler : IRequestHandler<CreateProductCommand, ServiceResult<ProductDto>>
 {
     private readonly IProductRepository _products;
     private readonly IUnitOfWork _unitOfWork;
@@ -404,34 +404,35 @@ public sealed class CreateProductHandler : IRequestHandler<CreateProductCommand,
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<Result<ProductDto>> Handle(CreateProductCommand request, CancellationToken cancellationToken)
+    public async Task<ServiceResult<ProductDto>> Handle(CreateProductCommand request, CancellationToken cancellationToken)
     {
         var existing = await _products.GetBySkuAsync(request.Sku, cancellationToken);
         if (existing is not null)
         {
-            return Result<ProductDto>.Failure(Error.Conflict("Product.SkuExists", "SKU already exists"));
+            return ServiceResult<ProductDto>.Failure(Error.Conflict("Product.SkuExists", "SKU already exists"));
         }
 
         var money = Money.Create(request.PriceAmount, request.Currency);
         if (!money.IsSuccess)
         {
-            return Result<ProductDto>.Failure(money.Error!);
+            return ServiceResult<ProductDto>.BadRequest(money.Error!.Message);
         }
 
         var product = Product.Create(request.Name, request.Sku, money.Value!);
         await _products.AddAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return Result<ProductDto>.Success(product.Adapt<ProductDto>());
+        return ServiceResult<ProductDto>.Created(product.Adapt<ProductDto>());
     }
 }
 ```
 
-`Application.Common.Result` and `Error` are currently empty, so the project needs one consistent Result style. Recommendation:
+The Application layer provides `ServiceResult<T>`, `Error`, and `PagedResult<T>` models under `Common/Results`. Use them consistently:
 
-- Use `Application.Common.Result<T>` for use case output.
+- Use `ServiceResult<T>` for handler output and API response envelopes.
+- Use `PagedResult<T>` as the data payload for paged endpoints.
 - Domain value objects may keep using `Domain.Common.Result<T>`.
-- Map Domain errors into Application errors if stricter layer separation is required.
+- Map Domain validation failures to `ServiceResult<T>.BadRequest(...)`, or convert them to an Application `Error`.
 
 ### Step 8: Register Dependency Injection
 
@@ -535,24 +536,24 @@ public sealed class ProductsController : BaseApiController
     {
         var result = await _sender.Send(command, cancellationToken);
 
-        if (!result.IsSuccess)
+        if (result.Status >= 400)
         {
-            return BadRequest(result.Error);
+            return StatusCode(result.Status, result);
         }
 
-        return CreatedAtAction(nameof(GetById), new { id = result.Value!.Id }, result.Value);
+        return CreatedAtAction(nameof(GetById), new { id = result.Data!.Id }, result);
     }
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken)
     {
         var result = await _sender.Send(new GetProductByIdQuery(id), cancellationToken);
-        return result.IsSuccess ? Ok(result.Value) : NotFound(result.Error);
+        return StatusCode(result.Status, result);
     }
 }
 ```
 
-Later, add a helper in `BaseApiController` to map `Result` to `IActionResult`, so every controller does not repeat `if (!result.IsSuccess)`.
+Later, add a helper in `BaseApiController` to map `IServiceResult` to `IActionResult`, so every controller does not repeat status-code handling.
 
 ### Step 11: Add Migration and Update the Database
 
@@ -621,7 +622,7 @@ Starting from the current repository state, the recommended order is:
 2. Complete Application infrastructure:
    - Choose MediatR + FluentValidation or a service-based pattern.
    - Add Mapster and register mapping configs.
-   - Implement `Result<T>`, `Error`, and `PagedResult<T>`.
+   - Implement `ServiceResult<T>`, `Error`, and `PagedResult<T>`.
    - Implement `ValidationBehavior`.
 
 3. Complete EF Core setup:

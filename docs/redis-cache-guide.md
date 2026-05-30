@@ -10,7 +10,7 @@ Already available:
 - Docker image: `redis:7-alpine`
 - Password is read from `.env` through `REDIS_PASSWORD`
 - Redis max memory is configured as `256mb`
-- Eviction policy is `allkeys-lru`
+- Eviction policy is `noeviction` to protect auth/session security keys from being evicted under memory pressure
 - Redis health check runs `redis-cli ping`
 - Application placeholder: `ICacheService`
 - Infrastructure placeholder: `RedisCacheService`
@@ -34,7 +34,7 @@ redis:
   image: redis:7-alpine
   container_name: furnispace-redis
   env_file: .env
-  command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+  command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
   volumes:
     - redis_data:/data
   healthcheck:
@@ -500,16 +500,27 @@ dotnet test tests/FurniSpace.Infrastructure.Tests/FurniSpace.Infrastructure.Test
 
 ## 16. Implementation Checklist
 
-- [ ] Add `StackExchange.Redis` to Infrastructure.
-- [ ] Add Redis connection string via `.env` or `appsettings`.
-- [ ] Fill `ICacheService`.
-- [ ] Implement `RedisCacheService`.
-- [ ] Register `IConnectionMultiplexer`.
-- [ ] Register `ICacheService`.
-- [ ] Add cache key naming helper if keys become repeated.
+- [x] Add `StackExchange.Redis` to Infrastructure.
+- [x] Add Redis connection string via `.env`.
+- [x] Fill `ICacheService`.
+- [x] Implement `RedisCacheService`.
+- [x] Register `IConnectionMultiplexer`.
+- [x] Register `ICacheService`.
+- [x] Add cache key naming helper if keys become repeated.
 - [ ] Add cache read path to selected query handlers.
 - [ ] Add invalidation to related command handlers.
-- [ ] Add auth keys for refresh token, JWT blacklist, OTP, password reset, and permission cache if needed.
-- [ ] Add atomic counter support before implementing login rate limiting.
+- [x] Add auth keys for refresh token, JWT blacklist, OTP, password reset, and permission cache if needed.
+- [x] Add atomic counter support before implementing login rate limiting.
 - [ ] Add invalidation when user roles or permissions change.
 - [ ] Add tests for serialization, cache hit, cache miss, and invalidation.
+
+Implemented auth base:
+
+- [x] Add JWT settings loaded from `.env`.
+- [x] Add JWT access token generation.
+- [x] Add refresh token generation.
+- [x] Store refresh tokens in Redis.
+- [x] Revoke refresh tokens from Redis.
+- [x] Store revoked access token `jti` values in Redis blacklist.
+- [x] Check Redis blacklist during JWT bearer validation.
+- [x] Add authorized logout endpoint that revokes refresh/access tokens.

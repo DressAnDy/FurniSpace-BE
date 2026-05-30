@@ -1,5 +1,71 @@
+using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.Caching;
+using FurniSpace.Application.Interfaces;
+using FurniSpace.Infrastructure.Caching;
+using FurniSpace.Infrastructure.Identity;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using StackExchange.Redis;
+
 namespace FurniSpace.Infrastructure;
 
 public static class DependencyInjection
 {
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
+        services.PostConfigure<JwtSettings>(settings =>
+        {
+            if (string.IsNullOrWhiteSpace(settings.SecretKey))
+            {
+                settings.SecretKey = configuration["JWT_SECRET"] ?? string.Empty;
+            }
+
+            _ = settings.GetSecretKeyBytes();
+        });
+        services.Configure<RedisSettings>(configuration.GetSection(RedisSettings.SectionName));
+
+        services.AddRedis(configuration);
+        services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddScoped<IRefreshTokenStore, RefreshTokenStore>();
+        services.AddScoped<IAuthService, AuthService>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
+    {
+        var redisConnection = configuration.GetSection(RedisSettings.SectionName)["ConnectionString"]
+            ?? configuration["REDIS_CONNECTION"];
+
+        if (string.IsNullOrWhiteSpace(redisConnection))
+        {
+            throw new InvalidOperationException("Redis connection string is missing. Set Redis__ConnectionString or REDIS_CONNECTION.");
+        }
+
+        redisConnection = AppendRedisPasswordIfNeeded(redisConnection);
+
+        services.AddSingleton<IConnectionMultiplexer>(_ =>
+            ConnectionMultiplexer.Connect(redisConnection));
+
+        services.AddScoped<ICacheService, RedisCacheService>();
+
+        return services;
+    }
+
+    private static string AppendRedisPasswordIfNeeded(string connectionString)
+    {
+        if (connectionString.Contains("password=", StringComparison.OrdinalIgnoreCase))
+        {
+            return connectionString;
+        }
+
+        var redisPassword = Environment.GetEnvironmentVariable("REDIS_PASSWORD");
+        if (string.IsNullOrWhiteSpace(redisPassword))
+        {
+            return connectionString;
+        }
+
+        return $"{connectionString},password={redisPassword},abortConnect=false";
+    }
 }

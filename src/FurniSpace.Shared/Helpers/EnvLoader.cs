@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace FurniSpace.Shared.Helpers;
 
@@ -8,18 +9,16 @@ public static class EnvLoader
 {
     public static void LoadEnv(string fileName = ".env", bool required = true)
     {
-        var filePath = Path.IsPathRooted(fileName)
-            ? fileName
-            : Path.Combine(Directory.GetCurrentDirectory(), fileName);
+        var filePath = ResolveEnvPath(fileName);
 
-        if (!File.Exists(filePath))
+        if (filePath is null)
         {
             if (!required)
             {
                 return;
             }
 
-            throw new InvalidOperationException($"Required environment file not found: {filePath}");
+            throw new InvalidOperationException($"Required environment file not found: {fileName}");
         }
 
         var lines = File.ReadAllLines(filePath)
@@ -41,7 +40,7 @@ public static class EnvLoader
             }
 
             var key = line[..separatorIndex].Trim();
-            var value = line[(separatorIndex + 1)..].Trim();
+            var value = ExpandVariables(line[(separatorIndex + 1)..].Trim());
 
             if (string.IsNullOrWhiteSpace(key))
             {
@@ -50,5 +49,36 @@ public static class EnvLoader
 
             Environment.SetEnvironmentVariable(key, value);
         }
+    }
+
+    private static string ResolveEnvPath(string fileName)
+    {
+        if (Path.IsPathRooted(fileName))
+        {
+            return File.Exists(fileName) ? fileName : null;
+        }
+
+        var directory = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (directory is not null)
+        {
+            var filePath = Path.Combine(directory.FullName, fileName);
+            if (File.Exists(filePath))
+            {
+                return filePath;
+            }
+
+            directory = directory.Parent;
+        }
+
+        return null;
+    }
+
+    private static string ExpandVariables(string value)
+    {
+        return Regex.Replace(value, @"\$\{(?<key>[A-Za-z_][A-Za-z0-9_]*)\}", match =>
+        {
+            var key = match.Groups["key"].Value;
+            return Environment.GetEnvironmentVariable(key) ?? match.Value;
+        });
     }
 }

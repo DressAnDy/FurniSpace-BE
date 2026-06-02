@@ -1,5 +1,5 @@
 using System.Text.Json;
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Infrastructure.Interfaces;
 using StackExchange.Redis;
 
 namespace FurniSpace.Infrastructure.Caching;

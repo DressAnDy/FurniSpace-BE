@@ -1,14 +1,17 @@
 using FurniSpace.Application.DTOs;
 using FurniSpace.Application.Interfaces;
+using InfrastructureJwtTokenResult = FurniSpace.Infrastructure.Interfaces.JwtTokenResult;
+using InfrastructureJwtTokenService = FurniSpace.Infrastructure.Interfaces.IJwtTokenService;
+using InfrastructureRefreshTokenStore = FurniSpace.Infrastructure.Interfaces.IRefreshTokenStore;
 
-namespace FurniSpace.Infrastructure.Identity;
+namespace FurniSpace.Application.Services;
 
 public sealed class AuthService : IAuthService
 {
-    private readonly IJwtTokenService _jwtTokenService;
-    private readonly IRefreshTokenStore _refreshTokenStore;
+    private readonly InfrastructureJwtTokenService _jwtTokenService;
+    private readonly InfrastructureRefreshTokenStore _refreshTokenStore;
 
-    public AuthService(IJwtTokenService jwtTokenService, IRefreshTokenStore refreshTokenStore)
+    public AuthService(InfrastructureJwtTokenService jwtTokenService, InfrastructureRefreshTokenStore refreshTokenStore)
     {
         _jwtTokenService = jwtTokenService;
         _refreshTokenStore = refreshTokenStore;
@@ -24,7 +27,7 @@ public sealed class AuthService : IAuthService
         var token = _jwtTokenService.CreateToken(userId, email, fullName, roles);
         await _refreshTokenStore.StoreAsync(userId, token.RefreshToken, token.RefreshTokenExpiresAt, cancellationToken);
 
-        return token;
+        return MapToken(token);
     }
 
     public Task<bool> ValidateRefreshTokenAsync(Guid userId, string refreshToken, CancellationToken cancellationToken = default)
@@ -63,5 +66,16 @@ public sealed class AuthService : IAuthService
     public Task<bool> IsAccessTokenRevokedAsync(string jti, CancellationToken cancellationToken = default)
     {
         return _refreshTokenStore.IsAccessTokenRevokedAsync(jti, cancellationToken);
+    }
+
+    private static AuthResponseDto MapToken(InfrastructureJwtTokenResult token)
+    {
+        return new AuthResponseDto
+        {
+            AccessToken = token.AccessToken,
+            RefreshToken = token.RefreshToken,
+            AccessTokenExpiresAt = token.AccessTokenExpiresAt,
+            RefreshTokenExpiresAt = token.RefreshTokenExpiresAt
+        };
     }
 }

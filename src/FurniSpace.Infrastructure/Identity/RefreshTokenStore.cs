@@ -1,4 +1,4 @@
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Infrastructure.Interfaces;
 
 namespace FurniSpace.Infrastructure.Identity;
 

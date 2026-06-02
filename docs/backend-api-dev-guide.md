@@ -7,20 +7,18 @@ The project follows a DDD-oriented layered architecture:
 ```text
 API / Presentation
   -> Application
-    -> Domain
-Infrastructure
-  -> Application contracts
-  -> Domain
+    -> Infrastructure
+      -> Domain
 ```
 
-`Infrastructure` is an adapter layer. It implements contracts defined by `Application` and persists `Domain` objects, but business rules should not live there.
+`Infrastructure` owns persistence and external-provider details. `Application` owns service orchestration and may depend on repository/provider contracts exposed by `Infrastructure`, but business rules should not live in Infrastructure.
 
 ## 1. Project Map
 
 | Project | Layer | Responsibility |
 | --- | --- | --- |
 | `FurniSpace.API` | Presentation | HTTP routing, controllers, middleware, auth pipeline, response mapping |
-| `FurniSpace.Application` | Application | Use cases, DTOs, result contracts, validation, service/repository interfaces |
+| `FurniSpace.Application` | Application | Use cases, DTOs, result contracts, validation, application services |
 | `FurniSpace.Domain` | Domain | Entities, value objects, domain events, specifications, domain exceptions |
 | `FurniSpace.Infrastructure` | Infrastructure | EF Core, PostgreSQL, Redis, JWT, repositories, external services |
 | `FurniSpace.Shared` | Shared utilities | Cross-cutting helpers that do not belong to a business layer |
@@ -29,10 +27,9 @@ Dependency direction:
 
 ```text
 API -> Application
-API -> Infrastructure
 API -> Shared
+Application -> Infrastructure
 Application -> Domain
-Infrastructure -> Application
 Infrastructure -> Domain
 Shared -> independent
 ```
@@ -40,8 +37,8 @@ Shared -> independent
 Rules:
 
 - `Domain` must not reference `Application`, `Infrastructure`, or `API`.
-- `Application` must not call EF Core, Redis, JWT libraries, HTTP clients, or external SDKs directly.
-- `Infrastructure` implements Application interfaces.
+- `Application` services may use repository/provider interfaces from `Infrastructure`, but must not call EF Core, Redis, JWT libraries, HTTP clients, or external SDK APIs directly.
+- Repository contracts and implementations live in `Infrastructure`.
 - `API` should stay thin. It should not contain business rules.
 - Cross-layer data should move through DTOs, commands, queries, results, and interfaces.
 
@@ -55,7 +52,7 @@ HTTP Request
   -> Command/Query or Application service
   -> Handler / Use case
   -> Domain entity/value object
-  -> Application interface
+  -> Infrastructure repository/provider contract
   -> Infrastructure implementation
   -> Database/Redis/external service
   -> DTO
@@ -127,10 +124,10 @@ Use `FurniSpace.Application` for:
 - DTOs.
 - Validation.
 - Result contracts.
-- Interfaces for repositories/cache/auth/email.
+- Application service interfaces.
 - Mapping configuration.
 
-Application coordinates work, but it should not know how Redis, EF Core, JWT, or SMTP are implemented.
+Application coordinates work through Infrastructure contracts, but it should not contain EF Core queries, Redis commands, JWT creation, or SMTP implementation details.
 
 Recommended feature folder:
 
@@ -200,15 +197,16 @@ Use `FurniSpace.Infrastructure` for:
 - Redis cache implementation.
 - JWT token service.
 - Refresh token store.
-- Auth service implementation.
+- Repository/provider interfaces.
+- External provider implementations.
 - Email/storage/external provider implementations.
 
-Infrastructure should implement interfaces from Application.
+Repository contracts and implementations stay in Infrastructure.
 
 Example:
 
 ```text
-Application/Interfaces/ICacheService.cs
+Infrastructure/Interfaces/ICacheService.cs
 Infrastructure/Caching/RedisCacheService.cs
 ```
 
@@ -318,25 +316,26 @@ var dto = product.Adapt<ProductDto>();
 return ServiceResult<ProductDto>.Success(dto);
 ```
 
-### Step 6: Add Application Interfaces
+### Step 6: Add Application Services
 
-If the use case needs persistence, cache, auth, email, storage, or external APIs, define the interface in Application.
+If the use case needs orchestration, define the service interface in Application and keep the service implementation in Application.
 
 Examples:
 
 ```text
-FurniSpace.Application/Interfaces/IProductRepository.cs
-FurniSpace.Application/Interfaces/ICacheService.cs
+FurniSpace.Application/Interfaces/IProductService.cs
+FurniSpace.Application/Services/ProductService.cs
 FurniSpace.Application/Interfaces/IAuthService.cs
 ```
 
-Application should depend on interfaces, not Infrastructure implementations.
+Application services should use Infrastructure repository/provider contracts, not EF Core/Redis/JWT SDKs directly.
 
 ### Step 7: Implement Infrastructure
 
 Add implementation in Infrastructure:
 
 ```text
+FurniSpace.Infrastructure/Repositories/IRepository/IProductRepository.cs
 FurniSpace.Infrastructure/Repositories/Repository/ProductRepository.cs
 FurniSpace.Infrastructure/Persistence/Configurations/ProductConfiguration.cs
 FurniSpace.Infrastructure/Caching/RedisCacheService.cs
@@ -351,17 +350,16 @@ EF Core rules:
 
 ### Step 8: Register DI
 
-Register Application and Infrastructure dependencies in their `DependencyInjection` classes.
+Register Infrastructure dependencies from `Application.DependencyInjection`, then register Application services.
 
 Infrastructure registration examples:
 
 ```csharp
 services.AddScoped<IProductRepository, ProductRepository>();
 services.AddScoped<ICacheService, RedisCacheService>();
-services.AddScoped<IAuthService, AuthService>();
 ```
 
-Do not register Infrastructure services from inside Domain or Application.
+Do not register Infrastructure services from Domain or API.
 
 ### Step 9: Add Controller
 

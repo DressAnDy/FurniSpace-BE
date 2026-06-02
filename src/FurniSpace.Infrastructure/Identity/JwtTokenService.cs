@@ -1,9 +1,8 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using FurniSpace.Application.Common.Auth;
-using FurniSpace.Application.DTOs;
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Infrastructure.Common.Auth;
+using FurniSpace.Infrastructure.Interfaces;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
@@ -19,7 +18,7 @@ public sealed class JwtTokenService : IJwtTokenService
         _settings = settings.Value;
     }
 
-    public AuthResponseDto CreateToken(Guid userId, string email, string fullName, IEnumerable<string>? roles = null)
+    public JwtTokenResult CreateToken(Guid userId, string email, string fullName, IEnumerable<string>? roles = null)
     {
         var now = DateTimeOffset.UtcNow;
         var accessTokenExpiresAt = now.AddMinutes(_settings.AccessTokenExpirationMinutes);
@@ -52,7 +51,7 @@ public sealed class JwtTokenService : IJwtTokenService
             expires: accessTokenExpiresAt.UtcDateTime,
             signingCredentials: signingCredentials);
 
-        return new AuthResponseDto
+        return new JwtTokenResult
         {
             AccessToken = _tokenHandler.WriteToken(token),
             RefreshToken = CreateRefreshToken(),

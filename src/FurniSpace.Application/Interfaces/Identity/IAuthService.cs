@@ -1,4 +1,4 @@
-namespace FurniSpace.Application.Interfaces;
+namespace FurniSpace.Application.Interfaces.Identity;
 
 using FurniSpace.Application.DTOs;
 

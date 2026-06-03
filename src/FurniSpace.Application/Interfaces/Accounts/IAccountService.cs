@@ -1,7 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Accounts;
 
-namespace FurniSpace.Application.Interfaces;
+namespace FurniSpace.Application.Interfaces.Accounts;
 
 public interface IAccountService
 {

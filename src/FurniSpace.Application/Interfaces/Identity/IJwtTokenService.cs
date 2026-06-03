@@ -1,10 +1,11 @@
 using System.Security.Claims;
+using FurniSpace.Application.DTOs;
 
-namespace FurniSpace.Infrastructure.Interfaces;
+namespace FurniSpace.Application.Interfaces.Identity;
 
 public interface IJwtTokenService
 {
-    JwtTokenResult CreateToken(
+    AuthResponseDto CreateToken(
         Guid userId,
         string email,
         string fullName,

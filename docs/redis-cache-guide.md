@@ -100,13 +100,13 @@ The Application project should not reference Redis directly. Application only de
 File:
 
 ```text
-src/FurniSpace.Application/Interfaces/ICacheService.cs
+src/FurniSpace.Infrastructure/Interfaces/ICacheService.cs
 ```
 
 Recommended contract:
 
 ```csharp
-namespace FurniSpace.Application.Interfaces;
+namespace FurniSpace.Infrastructure.Interfaces;
 
 public interface ICacheService
 {
@@ -132,7 +132,7 @@ Recommended implementation:
 
 ```csharp
 using System.Text.Json;
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Infrastructure.Interfaces;
 using StackExchange.Redis;
 
 namespace FurniSpace.Infrastructure.Caching;
@@ -209,7 +209,7 @@ src/FurniSpace.Infrastructure/DependencyInjection.cs
 Recommended registration:
 
 ```csharp
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Caching;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

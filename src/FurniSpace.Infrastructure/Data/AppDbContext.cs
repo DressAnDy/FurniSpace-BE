@@ -1,4 +1,5 @@
-﻿using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace FurniSpace.Infrastructure.Data;
@@ -127,7 +128,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.FullName).HasColumnName("full_name").HasColumnType("varchar(100)").IsRequired();
             entity.Property(e => e.Phone).HasColumnName("phone").HasColumnType("varchar(20)");
             entity.Property(e => e.AvatarUrl).HasColumnName("avatar_url").HasColumnType("text");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("account_status").HasDefaultValue("ACTIVE");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("account_status").HasDefaultValue(AccountStatus.ACTIVE);
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.DeletedAt).HasColumnName("deleted_at").HasColumnType("timestamp with time zone");
@@ -890,4 +891,5 @@ public class AppDbContext : DbContext
         }
     }
 }
+
 

@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -69,9 +70,10 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 (account.Phone != null && account.Phone.ToLower().Contains(value)));
         }
 
-        if (!string.IsNullOrWhiteSpace(status))
+        if (!string.IsNullOrWhiteSpace(status) &&
+            Enum.TryParse<AccountStatus>(status, ignoreCase: true, out var accountStatus))
         {
-            query = query.Where(account => account.Status == status);
+            query = query.Where(account => account.Status == accountStatus);
         }
 
         return query;

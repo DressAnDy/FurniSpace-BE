@@ -2,7 +2,7 @@ using Serilog;
 using System.IdentityModel.Tokens.Jwt;
 using FurniSpace.Application;
 using FurniSpace.Application.Common.Auth;
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Shared.Helpers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -112,6 +112,7 @@ using (var scope = app.Services.CreateScope())
     try
     {
         dbContext.Database.Migrate();
+        await DataSeeder.SeedAsync(dbContext);
     }
     catch (Exception exception)
     {

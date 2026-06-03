@@ -206,7 +206,7 @@ public sealed class ElasticsearchSettings
 Interface:
 
 ```csharp
-namespace FurniSpace.Application.Interfaces;
+namespace FurniSpace.Infrastructure.Interfaces;
 
 public interface ISearchIndexService
 {
@@ -232,7 +232,7 @@ Implementation skeleton:
 
 ```csharp
 using Elastic.Clients.Elasticsearch;
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Infrastructure.Interfaces;
 
 namespace FurniSpace.Infrastructure.Search;
 
@@ -296,7 +296,7 @@ Trong `src/FurniSpace.Infrastructure/DependencyInjection.cs`, them registration 
 using Elastic.Clients.Elasticsearch;
 using Elastic.Transport;
 using FurniSpace.Application.Common.Search;
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Search;
 ```
 

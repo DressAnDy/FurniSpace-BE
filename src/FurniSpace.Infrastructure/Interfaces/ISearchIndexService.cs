@@ -16,5 +16,6 @@ public interface ISearchIndexService
     Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(
         string indexName,
         string query,
+        int size = 100,
         CancellationToken cancellationToken = default);
 }

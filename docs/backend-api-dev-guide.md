@@ -1,398 +1,218 @@
-# FurniSpace Backend Developer Guide
+# FurniSpace Backend API Developer Guide
 
-This guide is the backend implementation standard for FurniSpace. It is written for human developers and coding agents. Use it as the source of truth when adding APIs, handlers, domain logic, persistence, caching, or authentication-related code.
+This guide is the source of truth for backend structure and implementation in FurniSpace. It should match the current project architecture, not a generic clean-architecture template.
 
-The project follows a DDD-oriented layered architecture:
+## 1. Architecture
+
+FurniSpace currently uses a layered backend with Application depending on Infrastructure.
 
 ```text
 API / Presentation
   -> Application
-    -> Infrastructure
-      -> Domain
+  -> Infrastructure   (startup/migration only)
+  -> Shared
+
+Application
+  -> Infrastructure
+  -> Domain
+
+Infrastructure
+  -> Domain
+
+Domain
+  -> no project dependencies
 ```
 
-`Infrastructure` owns persistence and external-provider details. `Application` owns service orchestration and may depend on repository/provider contracts exposed by `Infrastructure`, but business rules should not live in Infrastructure.
+Project references:
 
-## 1. Project Map
-
-| Project | Layer | Responsibility |
-| --- | --- | --- |
-| `FurniSpace.API` | Presentation | HTTP routing, controllers, middleware, auth pipeline, response mapping |
-| `FurniSpace.Application` | Application | Use cases, DTOs, result contracts, validation, application services |
-| `FurniSpace.Domain` | Domain | Entities, value objects, domain events, specifications, domain exceptions |
-| `FurniSpace.Infrastructure` | Infrastructure | EF Core, PostgreSQL, Redis, JWT, repositories, external services |
-| `FurniSpace.Shared` | Shared utilities | Cross-cutting helpers that do not belong to a business layer |
-
-Dependency direction:
-
-```text
-API -> Application
-API -> Shared
-Application -> Infrastructure
-Application -> Domain
-Infrastructure -> Domain
-Shared -> independent
-```
+| Project | References |
+| --- | --- |
+| `FurniSpace.API` | `Application`, `Infrastructure`, `Shared` |
+| `FurniSpace.Application` | `Domain`, `Infrastructure` |
+| `FurniSpace.Infrastructure` | `Domain` |
+| `FurniSpace.Domain` | none |
+| `FurniSpace.Shared` | independent utilities |
 
 Rules:
 
 - `Domain` must not reference `Application`, `Infrastructure`, or `API`.
-- `Application` services may use repository/provider interfaces from `Infrastructure`, but must not call EF Core, Redis, JWT libraries, HTTP clients, or external SDK APIs directly.
-- Repository contracts and implementations live in `Infrastructure`.
-- `API` should stay thin. It should not contain business rules.
-- Cross-layer data should move through DTOs, commands, queries, results, and interfaces.
+- `Application` owns use-case orchestration, DTO mapping, validation, auth session logic, and JWT token creation.
+- `Infrastructure` owns EF Core, PostgreSQL, migrations, repositories, Redis implementation, Elasticsearch implementation, and provider contracts.
+- Repository contracts and repository implementations live in `Infrastructure`.
+- `API` stays thin: controllers bind HTTP requests, call Application services, and map results to HTTP responses.
+- `API` may reference `Infrastructure` for composition/startup concerns such as `AppDbContext` migration, but controllers must not use EF, Redis, or repositories directly.
 
-## 2. Request Flow
+## 2. Project Map
 
-Normal HTTP flow:
+| Project | Responsibility |
+| --- | --- |
+| `FurniSpace.API` | Controllers, middleware, Swagger, authentication pipeline, app startup, auto migration |
+| `FurniSpace.Application` | Services, service interfaces, DTOs, results, validation, Mapster mappings, auth/JWT |
+| `FurniSpace.Domain` | Entities, value objects, enums, domain events, specifications, domain exceptions |
+| `FurniSpace.Infrastructure` | `AppDbContext`, EF configuration, migrations, repositories, Redis, Elasticsearch, provider interfaces |
+| `FurniSpace.Shared` | Cross-cutting helpers without business ownership |
+
+## 3. Folder Conventions
+
+### API
 
 ```text
-HTTP Request
-  -> Controller
-  -> Command/Query or Application service
-  -> Handler / Use case
-  -> Domain entity/value object
-  -> Infrastructure repository/provider contract
-  -> Infrastructure implementation
-  -> Database/Redis/external service
-  -> DTO
-  -> ServiceResult<T>
-  -> HTTP Response
+FurniSpace.API/
+  Controllers/
+  Middleware/
+  Filters/
+  Base/
+  Program.cs
 ```
 
-Where logic belongs:
-
-| Logic | Layer |
-| --- | --- |
-| Route, request binding, HTTP status response | API |
-| Use case orchestration | Application |
-| Validation of request shape | Application |
-| Core business invariants | Domain |
-| Entity state changes | Domain |
-| Database query/write details | Infrastructure |
-| Redis/cache/JWT/email/external APIs | Infrastructure |
-| Mapping Domain to DTO | Application |
-
-## 3. Layer Responsibilities
-
-### API Layer
-
-Use `FurniSpace.API` for:
-
-- Controllers.
-- Middleware.
-- Authentication/authorization pipeline.
-- HTTP status conversion.
-- Swagger/OpenAPI.
-- Calling Application handlers/services.
-
-Do not put these in API:
-
-- Business decisions.
-- EF Core queries.
-- Redis operations.
-- Password hashing implementation.
-- JWT token creation logic.
-
-Controller shape:
+Controllers should depend on Application interfaces such as:
 
 ```csharp
-public sealed class ProductsController : BaseApiController
-{
-    private readonly ISender _sender;
-
-    public ProductsController(ISender sender)
-    {
-        _sender = sender;
-    }
-
-    [HttpPost]
-    public async Task<IActionResult> Create(CreateProductCommand command, CancellationToken cancellationToken)
-    {
-        var result = await _sender.Send(command, cancellationToken);
-        return ToActionResult(result);
-    }
-}
+private readonly IAccountService _accounts;
+private readonly IAuthService _authService;
 ```
 
-### Application Layer
+Do not inject `AppDbContext`, repositories, Redis, Elasticsearch, or token services into controllers.
 
-Use `FurniSpace.Application` for:
-
-- Commands and queries.
-- Handlers/use cases.
-- DTOs.
-- Validation.
-- Result contracts.
-- Application service interfaces.
-- Mapping configuration.
-
-Application coordinates work through Infrastructure contracts, but it should not contain EF Core queries, Redis commands, JWT creation, or SMTP implementation details.
-
-Recommended feature folder:
+### Application
 
 ```text
 FurniSpace.Application/
+  Common/
+    Auth/
+    Results/
+    ValidationBehavior.cs
+  DTOs/
+    Accounts/
+  Interfaces/
+    Accounts/
+    Identity/
+    External/
+  Services/
+    Accounts/
+    Identity/
+  Mappings/
   Features/
-    Products/
-      Commands/
-        CreateProduct/
-          CreateProductCommand.cs
-          CreateProductHandler.cs
-          CreateProductValidator.cs
-      Queries/
-        GetProductById/
-          GetProductByIdQuery.cs
-          GetProductByIdHandler.cs
 ```
 
-### Domain Layer
+Current examples:
 
-Use `FurniSpace.Domain` for:
+```text
+Interfaces/Accounts/IAccountService.cs
+Services/Accounts/AccountService.cs
 
-- Entities.
-- Aggregate roots.
-- Value objects.
-- Domain events.
-- Specifications.
-- Domain exceptions.
+Interfaces/Identity/IAuthService.cs
+Interfaces/Identity/IJwtTokenService.cs
+Interfaces/Identity/IRefreshTokenStore.cs
+Services/Identity/AuthService.cs
+Services/Identity/JwtTokenService.cs
+Services/Identity/RefreshTokenStore.cs
+Common/Auth/JwtSettings.cs
+```
 
-Domain objects should protect their own invariants:
+Application may depend on Infrastructure contracts, for example:
 
 ```csharp
-public sealed class Product : AggregateRoot
-{
-    public string Name { get; private set; } = default!;
-    public Money Price { get; private set; } = default!;
-
-    private Product() { }
-
-    public static Product Create(string name, Money price)
-    {
-        return new Product
-        {
-            Name = name.Trim(),
-            Price = price
-        };
-    }
-
-    public void ChangePrice(Money price)
-    {
-        Price = price;
-        SetUpdatedAt();
-    }
-}
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using InfrastructureCacheService = FurniSpace.Infrastructure.Interfaces.ICacheService;
 ```
 
-Prefer value objects for fields with rules, such as `Email`, `Money`, and `Address`.
+Application must not contain EF Core query details, Redis commands, SQL, Elasticsearch client calls, or HTTP SDK implementation code.
 
-### Infrastructure Layer
+### Infrastructure
 
-Use `FurniSpace.Infrastructure` for:
+```text
+FurniSpace.Infrastructure/
+  Data/
+    AppDbContext.cs
+    DataSeeder.cs
+  Repositories/
+    Base/
+      IGenericRepository.cs
+      GenericRepository.cs
+    IRepository/
+      IAccountRepository.cs
+    Repository/
+      AccountRepository.cs
+  Interfaces/
+    ICacheService.cs
+    ISearchIndexService.cs
+  Caching/
+    RedisCacheService.cs
+    RedisKeyBuilder.cs
+  Search/
+    ElasticsearchIndexService.cs
+  Common/
+    Caching/
+    Search/
+  Migrations/
+  Persistence/
+```
 
-- EF Core `DbContext`.
-- Entity configurations.
-- Repository implementations.
-- Unit of Work implementation.
-- Redis cache implementation.
-- JWT token service.
-- Refresh token store.
-- Repository/provider interfaces.
-- External provider implementations.
-- Email/storage/external provider implementations.
+Repository convention:
 
-Repository contracts and implementations stay in Infrastructure.
+- Generic base goes in `Repositories/Base`.
+- Repository contracts go in `Repositories/IRepository`.
+- Repository implementations go in `Repositories/Repository`.
+- Repository contracts can expose domain entities because this project intentionally keeps repository ownership in Infrastructure.
 
 Example:
 
 ```text
-Infrastructure/Interfaces/ICacheService.cs
-Infrastructure/Caching/RedisCacheService.cs
+Repositories/IRepository/IAccountRepository.cs
+Repositories/Repository/AccountRepository.cs
 ```
 
-## 4. Standard API Implementation Workflow
-
-Follow this order when adding a new feature or endpoint.
-
-### Step 1: Define the API Contract
-
-Write the endpoint contract before coding:
+### Domain
 
 ```text
-POST /api/products
-Permission: Admin
-Request: name, sku, price, dimensions, material
-Response: id, name, sku, price, createdAt
-Status: 201, 400, 401, 403, 409, 500
+FurniSpace.Domain/
+  Entities/
+  Enums/
+  ValueObjects/
+  Events/
+  Specifications/
+  Exceptions/
+  Common/
 ```
 
-Clarify:
+Do not put repository interfaces in `Domain`. In this project, repositories belong to `Infrastructure`.
 
-- Who can call it?
-- What fields are required?
-- What business rules can fail?
-- Does it read, write, or both?
-- Does it need transaction handling?
-- Does it need cache read or invalidation?
+## 4. Request Flow
 
-### Step 2: Add Domain Objects
-
-Add or update entities/value objects in `FurniSpace.Domain`.
-
-Rules:
-
-- Keep setters private.
-- Use methods for state changes.
-- Put core business checks in the domain.
-- Raise domain events when meaningful.
-- Do not inject services into entities.
-
-### Step 3: Add DTOs, Commands, Queries
-
-DTOs live in:
+Normal request flow:
 
 ```text
-FurniSpace.Application/DTOs
+HTTP request
+  -> API Controller
+  -> Application service
+  -> Domain entity/value object
+  -> Infrastructure repository/provider contract
+  -> Infrastructure implementation
+  -> PostgreSQL/Redis/Elasticsearch/external provider
+  -> DTO
+  -> ServiceResult<T>
+  -> HTTP response
 ```
 
-Commands/queries live in:
+Layer ownership:
 
-```text
-FurniSpace.Application/Features/{Module}
-```
+| Logic | Layer |
+| --- | --- |
+| Route binding, auth middleware, HTTP status mapping | API |
+| Use-case orchestration | Application |
+| Request validation | Application |
+| DTO mapping | Application |
+| JWT creation and refresh-token orchestration | Application |
+| Entity invariants and domain behavior | Domain |
+| EF queries and writes | Infrastructure |
+| Redis commands and cache serialization | Infrastructure |
+| Elasticsearch client calls | Infrastructure |
+| Repository contracts and implementations | Infrastructure |
 
-Use clear names:
+## 5. Results and HTTP Responses
 
-```text
-CreateProductCommand
-UpdateProductCommand
-GetProductByIdQuery
-GetProductsPagedQuery
-```
-
-Handlers should usually return:
-
-```csharp
-ServiceResult<TDto>
-```
-
-Use `PagedResult<T>` as the `Data` payload for paged endpoints.
-
-### Step 4: Add Validation
-
-Put validators next to the command/query they validate.
-
-Validation belongs in Application when it checks request shape:
-
-- Required fields.
-- Length.
-- Format.
-- Range.
-- Basic cross-field validation.
-
-Domain invariants still belong in Domain.
-
-### Step 5: Add Mapping
-
-FurniSpace uses Mapster as the default mapper.
-
-Mapping config lives in:
-
-```text
-FurniSpace.Application/Mappings
-```
-
-Rules:
-
-- Map Domain entities to DTOs in Application.
-- Do not expose Domain entities from controllers.
-- Use explicit config for value objects, nested objects, renamed fields, and computed fields.
-- Simple same-name mappings may use `.Adapt<T>()`.
-
-Example:
-
-```csharp
-var dto = product.Adapt<ProductDto>();
-return ServiceResult<ProductDto>.Success(dto);
-```
-
-### Step 6: Add Application Services
-
-If the use case needs orchestration, define the service interface in Application and keep the service implementation in Application.
-
-Examples:
-
-```text
-FurniSpace.Application/Interfaces/IProductService.cs
-FurniSpace.Application/Services/ProductService.cs
-FurniSpace.Application/Interfaces/IAuthService.cs
-```
-
-Application services should use Infrastructure repository/provider contracts, not EF Core/Redis/JWT SDKs directly.
-
-### Step 7: Implement Infrastructure
-
-Add implementation in Infrastructure:
-
-```text
-FurniSpace.Infrastructure/Repositories/IRepository/IProductRepository.cs
-FurniSpace.Infrastructure/Repositories/Repository/ProductRepository.cs
-FurniSpace.Infrastructure/Persistence/Configurations/ProductConfiguration.cs
-FurniSpace.Infrastructure/Caching/RedisCacheService.cs
-```
-
-EF Core rules:
-
-- Add `DbSet<T>` to `AppDbContext`.
-- Add `IEntityTypeConfiguration<T>`.
-- Use value object mapping where needed.
-- Add migration when schema changes.
-
-### Step 8: Register DI
-
-Register Infrastructure dependencies from `Application.DependencyInjection`, then register Application services.
-
-Infrastructure registration examples:
-
-```csharp
-services.AddScoped<IProductRepository, ProductRepository>();
-services.AddScoped<ICacheService, RedisCacheService>();
-```
-
-Do not register Infrastructure services from Domain or API.
-
-### Step 9: Add Controller
-
-Controller responsibilities:
-
-- Bind request.
-- Call Application handler/service.
-- Return `IActionResult`.
-
-Controller should not:
-
-- Query EF directly.
-- Call Redis directly.
-- Create JWTs directly.
-- Execute business rules.
-
-Use `BaseApiController.ToActionResult(...)` for `IServiceResult`.
-
-### Step 10: Test
-
-Minimum checks:
-
-- `dotnet build FurniSpace.sln`
-- Unit tests for Application/Domain logic.
-- Infrastructure tests for repository/cache behavior when possible.
-- API tests for route/status mapping when endpoint is stable.
-- Manual Swagger/Postman/curl test for happy path and errors.
-
-## 5. Results and Response Standard
-
-Application handlers should return `ServiceResult<T>` for use cases that produce data.
-
-Use:
+Use `ServiceResult<T>` for Application service outputs.
 
 ```csharp
 ServiceResult<T>.Success(data)
@@ -405,150 +225,34 @@ ServiceResult<T>.Conflict(message)
 ServiceResult<T>.Failure(error)
 ```
 
-Use `Error` when the failure needs a stable code:
+Use `PagedResult<T>` for paged responses.
 
-```csharp
-return ServiceResult<ProductDto>.Failure(
-    Error.Conflict("Product.SkuExists", "SKU already exists"));
-```
+Controllers should return through `BaseApiController.ToActionResult(...)`.
 
-Use `PagedResult<T>` for paged data:
+## 6. Authentication and JWT
 
-```csharp
-var page = PagedResult<ProductDto>.Create(items, pageNumber, pageSize, totalItems);
-return ServiceResult<PagedResult<ProductDto>>.Success(page);
-```
-
-HTTP status mapping:
-
-| Case | Status |
-| --- | --- |
-| Success | `200` |
-| Created | `201` |
-| Validation/bad request | `400` |
-| Unauthorized | `401` |
-| Forbidden | `403` |
-| Not found | `404` |
-| Conflict | `409` |
-| Unexpected error | `500` |
-
-## 6. Redis and Cache Standard
-
-Redis is used for temporary runtime state and read-model caching. PostgreSQL remains the source of truth.
-
-Current base:
-
-- Redis runs in Docker Compose as service `redis`.
-- Redis password is loaded from `.env` through `REDIS_PASSWORD`.
-- API reads `Redis__ConnectionString` from `.env`.
-- Infrastructure registers `IConnectionMultiplexer`.
-- Application uses `ICacheService`.
-- Infrastructure implements `RedisCacheService`.
-- Redis uses `noeviction` because it stores auth/session security keys.
-
-Use Redis for:
-
-- Read-heavy DTO/read-model cache.
-- Short-lived catalog/project/user summaries.
-- Dashboard counters.
-- Login rate limiting.
-- Refresh token/session state.
-- JWT blacklist.
-- Short-lived permission cache.
-
-Do not use Redis for:
-
-- Durable business data.
-- Raw passwords.
-- Raw refresh tokens.
-- Raw OTP/reset tokens.
-- EF Core tracked entities.
-- Highly sensitive user data under shared keys.
-
-### Cache Key Convention
-
-General:
+Auth/JWT is owned by Application.
 
 ```text
-furnispace:{module}:{resource}:{id}
-furnispace:{module}:list:{hash}
+FurniSpace.Application/Common/Auth/JwtSettings.cs
+FurniSpace.Application/Interfaces/Identity/IAuthService.cs
+FurniSpace.Application/Interfaces/Identity/IJwtTokenService.cs
+FurniSpace.Application/Interfaces/Identity/IRefreshTokenStore.cs
+FurniSpace.Application/Services/Identity/AuthService.cs
+FurniSpace.Application/Services/Identity/JwtTokenService.cs
+FurniSpace.Application/Services/Identity/RefreshTokenStore.cs
 ```
 
-Auth:
+Current auth rules:
 
-```text
-furnispace:auth:refresh-token:{userId}:{refreshTokenHash}
-furnispace:auth:blacklist:{jti}
-furnispace:auth:login-attempt:{email}
-furnispace:auth:otp:{email}
-furnispace:auth:password-reset:{userId}:{tokenId}
-furnispace:auth:permissions:{userId}
-```
-
-Rules:
-
-- Always set a TTL unless there is a very clear reason not to.
-- Cache DTOs/read models only.
-- Prefer exact key deletion.
-- Use prefix invalidation only for list/search caches.
-- Never store raw tokens or secrets as keys or values.
-
-### Cache Read Pattern
-
-```csharp
-var cacheKey = $"furnispace:user:{request.Id}";
-var cached = await _cache.GetAsync<UserDto>(cacheKey, cancellationToken);
-
-if (cached is not null)
-{
-    return ServiceResult<UserDto>.Success(cached);
-}
-
-var user = await _users.GetByIdAsync(request.Id, cancellationToken);
-if (user is null)
-{
-    return ServiceResult<UserDto>.NotFound("User not found");
-}
-
-var dto = user.Adapt<UserDto>();
-await _cache.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(10), cancellationToken);
-
-return ServiceResult<UserDto>.Success(dto);
-```
-
-### Cache Invalidation Pattern
-
-After writes:
-
-```csharp
-await _cache.RemoveAsync($"furnispace:user:{userId}", cancellationToken);
-await _cache.RemoveByPrefixAsync("furnispace:users:list:", cancellationToken);
-```
-
-Invalidation rules:
-
-- Update item -> remove item key.
-- Create/update/delete item -> remove related list keys.
-- Change permissions -> remove `furnispace:auth:permissions:{userId}`.
-- Logout -> revoke refresh token and blacklist current access token.
-
-See `docs/redis-cache-guide.md` for deeper Redis details.
-
-## 7. Authentication and Authorization Base
-
-Current auth base:
-
-- JWT access token signed with HS256.
-- JWT secret is loaded from `.env`.
+- JWT access tokens are signed with HS256.
+- JWT secret is loaded from `.env` via `JWT_SECRET` or `JwtSettings__SecretKey`.
 - JWT secret must be at least 32 bytes after base64 decoding or UTF-8 conversion.
-- Refresh token is generated with cryptographically secure random bytes.
-- Refresh token is stored in Redis with TTL.
-- Refresh token key hashes the token before using it in Redis.
-- Access token revocation uses JWT `jti`.
-- JWT bearer validation rejects tokens without `jti`.
-- JWT bearer validation checks Redis blacklist.
-- `SaveToken` is disabled.
-- `POST /api/auth/logout` revokes refresh/access token state.
+- Access tokens must contain `jti`.
+- JWT bearer validation rejects revoked access tokens by checking `IAuthService`.
+- Refresh tokens are generated with secure random bytes.
+- Refresh token storage uses Redis through `Infrastructure.Interfaces.ICacheService`.
+- Raw refresh tokens must never be stored as Redis keys or values.
 
 Use `IAuthService` for auth flows:
 
@@ -561,169 +265,196 @@ Task RevokeAccessTokenAsync(...);
 Task<bool> IsAccessTokenRevokedAsync(...);
 ```
 
-When implementing login:
+## 7. Redis and Cache
 
-1. Validate credentials against user repository/password hasher.
-2. Load roles/permissions.
-3. Call `CreateSessionAsync(...)`.
-4. Return `AuthResponseDto`.
-
-When implementing refresh token:
-
-1. Validate expired access token principal if needed.
-2. Resolve user id/email/full name/roles.
-3. Call `RotateRefreshTokenAsync(...)`.
-4. Return unauthorized if rotation returns `null`.
-
-Authorization should use ASP.NET Core policies/roles. Redis may cache permission data briefly, but database remains the source of truth.
-
-## 8. Environment and Secrets
-
-`appsettings.json` is safe to push and should only contain non-secret defaults such as logging.
-
-Runtime secrets/configuration should come from `.env`, deployment variables, or a secret manager.
-
-Current `.env` style:
-
-```env
-ConnectionStrings__DefaultConnection=...
-REDIS_PASSWORD=...
-Redis__ConnectionString=redis:6379
-JWT_SECRET=...
-JwtSettings__SecretKey=...
-```
-
-Rules:
-
-- Do not put JWT secrets in `appsettings.json`.
-- Do not put Redis passwords in `appsettings.json`.
-- Do not commit production `.env` values.
-- Keep Redis private inside the Docker network unless local debugging requires exposing a port.
-
-## 9. Feature Checklist
-
-Use this for every new feature/API.
-
-Planning:
-
-- [ ] Define route, request, response, status codes.
-- [ ] Define permission/policy.
-- [ ] Identify business rules and failure cases.
-- [ ] Decide if the endpoint needs caching.
-
-Domain:
-
-- [ ] Add/update entity or aggregate.
-- [ ] Add/update value objects.
-- [ ] Add domain methods for state changes.
-- [ ] Add domain events if needed.
-
-Application:
-
-- [ ] Add DTOs.
-- [ ] Add command/query.
-- [ ] Add validator.
-- [ ] Add handler/use case.
-- [ ] Add Mapster mapping.
-- [ ] Return `ServiceResult<T>`.
-- [ ] Define interfaces for persistence/cache/external services.
-
-Infrastructure:
-
-- [ ] Implement repository/service interfaces.
-- [ ] Add EF configuration.
-- [ ] Add `DbSet<T>` if new entity.
-- [ ] Add migration if schema changes.
-- [ ] Add Redis keys and invalidation if caching.
-- [ ] Register DI.
-
-API:
-
-- [ ] Add controller action.
-- [ ] Use `ToActionResult(...)`.
-- [ ] Add `[Authorize]` or policies where needed.
-- [ ] Do not add business logic to controller.
-
-Tests:
-
-- [ ] Domain rules.
-- [ ] Application handler behavior.
-- [ ] Validation failures.
-- [ ] Cache hit/miss/invalidation if applicable.
-- [ ] Auth/authorization cases if protected.
-
-## 10. Agent Implementation Rules
-
-Agents working on this repo should follow these rules:
-
-- Read the relevant existing files before editing.
-- Keep changes scoped to the requested feature.
-- Do not bypass the architecture for speed.
-- Do not put EF/Redis/JWT logic in controllers.
-- Do not put infrastructure concerns in Domain.
-- Prefer existing project patterns over new abstractions.
-- Use `ServiceResult<T>` for use case outputs.
-- Use DTOs for API responses.
-- Add or update docs when introducing a new convention.
-- Run `dotnet test FurniSpace.sln --no-restore` after changes when restore is already complete.
-- If adding packages, run `dotnet restore FurniSpace.sln` first.
-
-## 11. Recommended Implementation Order
-
-For the current backend, prioritize:
-
-1. Complete user repository, EF configuration, and Unit of Work.
-2. Implement password hashing and user registration/login.
-3. Implement refresh-token endpoint using `RotateRefreshTokenAsync(...)`.
-4. Add role/permission model and authorization policies.
-5. Add cache read/invalidation to stable query/command handlers.
-6. Add business modules:
-   - Projects
-   - Furniture catalog
-   - 3D design data
-   - Quotation/order
-   - Production/delivery
-
-## 12. Quick Feature Template
+Redis implementation belongs to Infrastructure.
 
 ```text
-Feature:
+FurniSpace.Infrastructure/Interfaces/ICacheService.cs
+FurniSpace.Infrastructure/Caching/RedisCacheService.cs
+FurniSpace.Infrastructure/Caching/RedisKeyBuilder.cs
+FurniSpace.Infrastructure/Common/Caching/RedisSettings.cs
+```
+
+Redis is used for temporary runtime state:
+
+- Read-model cache.
+- Refresh token/session state.
+- JWT blacklist.
+- Login attempts.
+- OTP/password reset state if added later.
+- Short-lived permission cache.
+
+Redis rules:
+
+- PostgreSQL remains the source of truth.
+- Always set TTL unless there is a clear reason not to.
+- Cache DTOs/read models, not EF tracked entities.
+- Do not store raw passwords, raw refresh tokens, raw OTPs, or raw reset tokens.
+- Keep Redis private inside Docker/network boundaries.
+- Use `noeviction` for Redis instances that store auth/session security keys.
+
+Auth cache keys:
+
+```text
+furnispace:auth:refresh-token:{userId}:{refreshTokenHash}
+furnispace:auth:blacklist:{jti}
+furnispace:auth:login-attempt:{email}
+furnispace:auth:otp:{email}
+furnispace:auth:password-reset:{userId}:{tokenId}
+furnispace:auth:permissions:{userId}
+```
+
+## 8. Database and Migrations
+
+EF Core belongs to Infrastructure.
+
+```text
+FurniSpace.Infrastructure/Data/AppDbContext.cs
+FurniSpace.Infrastructure/Migrations/
+FurniSpace.Infrastructure/Persistence/Configurations/
+```
+
+`Program.cs` currently applies migrations at startup:
+
+```csharp
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    try
+    {
+        dbContext.Database.Migrate();
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to apply database migrations during startup.");
+    }
+}
+```
+
+This is a startup/composition concern. Controllers must still avoid `AppDbContext`.
+
+Useful commands:
+
+```powershell
+dotnet ef migrations list --project src\FurniSpace.Infrastructure\FurniSpace.Infrastructure.csproj --startup-project src\FurniSpace.API\FurniSpace.API.csproj
+dotnet ef database update --project src\FurniSpace.Infrastructure\FurniSpace.Infrastructure.csproj --startup-project src\FurniSpace.API\FurniSpace.API.csproj
+```
+
+## 9. Adding a Feature
+
+Use this order for a new API feature.
+
+1. Define endpoint contract:
+
+```text
 Route:
 Permission:
 Request:
 Response:
 Status codes:
-
-Domain:
-- Entity/aggregate:
-- Value objects:
-- Business rules:
-- Domain events:
-
-Application:
-- DTO:
-- Command/query:
-- Validator:
-- Handler:
-- Mapping:
-- Interfaces:
-
-Infrastructure:
-- Repository/service implementation:
-- EF configuration:
-- Migration:
-- Redis cache keys:
-- Redis invalidation:
-
-API:
-- Controller/action:
-- Auth policy:
-- Response mapping:
-
-Tests:
-- Domain:
-- Application:
-- Infrastructure:
-- API:
 ```
 
+2. Add or update Domain entities/value objects if business state changes.
+
+3. Add Application DTOs:
+
+```text
+FurniSpace.Application/DTOs/{Module}/
+```
+
+4. Add Application service interface and service implementation:
+
+```text
+FurniSpace.Application/Interfaces/{Module}/I{Module}Service.cs
+FurniSpace.Application/Services/{Module}/{Module}Service.cs
+```
+
+5. Add Infrastructure repository contract and implementation if persistence is needed:
+
+```text
+FurniSpace.Infrastructure/Repositories/IRepository/I{Entity}Repository.cs
+FurniSpace.Infrastructure/Repositories/Repository/{Entity}Repository.cs
+```
+
+6. Add EF config/`DbSet<T>`/migration if schema changes.
+
+7. Register dependencies:
+
+```csharp
+// Infrastructure/DependencyInjection.cs
+services.AddScoped<IProductRepository, ProductRepository>();
+
+// Application/DependencyInjection.cs
+services.AddScoped<IProductService, ProductService>();
+```
+
+8. Add API controller action and return via `ToActionResult(...)`.
+
+9. Run verification:
+
+```powershell
+dotnet restore FurniSpace.sln
+dotnet build FurniSpace.sln --no-restore
+dotnet test FurniSpace.sln --no-build
+```
+
+## 10. Feature Checklist
+
+Planning:
+
+- [ ] Route, request, response, status codes are defined.
+- [ ] Permission/policy is defined.
+- [ ] Business rules and failure cases are identified.
+- [ ] Cache usage is decided.
+
+Domain:
+
+- [ ] Entity/value object changes are added if needed.
+- [ ] Domain invariants stay in Domain.
+
+Application:
+
+- [ ] DTOs are added.
+- [ ] Service interface is under `Interfaces/{Module}`.
+- [ ] Service implementation is under `Services/{Module}`.
+- [ ] Mapping is under `Mappings`.
+- [ ] Results use `ServiceResult<T>`.
+- [ ] Auth/JWT logic stays in `Services/Identity`.
+
+Infrastructure:
+
+- [ ] Repository interface is under `Repositories/IRepository`.
+- [ ] Repository implementation is under `Repositories/Repository`.
+- [ ] EF configuration and `DbSet<T>` are added if needed.
+- [ ] Migration is added if schema changes.
+- [ ] Redis/search provider code stays in Infrastructure.
+
+API:
+
+- [ ] Controller is thin.
+- [ ] Uses Application services only for request handling.
+- [ ] Uses `ToActionResult(...)`.
+- [ ] Adds `[Authorize]` or policies where needed.
+
+Tests:
+
+- [ ] Domain rules.
+- [ ] Application service behavior.
+- [ ] Validation failures.
+- [ ] Infrastructure repository/cache behavior when practical.
+- [ ] API route/status mapping when endpoint is stable.
+
+## 11. Agent Rules
+
+- Read existing files before editing.
+- Keep changes scoped to the request.
+- Follow current project folders and namespaces.
+- Do not move repository interfaces into Domain.
+- Do not put EF/Redis/Elasticsearch code in Application services.
+- Do not put business rules in controllers or Infrastructure.
+- Use DTOs for API responses.
+- Use `ServiceResult<T>` for Application service outputs.
+- Update docs when changing architecture or conventions.
+- Prefer `rg` for searching.
+- Run build/tests after code changes when possible.

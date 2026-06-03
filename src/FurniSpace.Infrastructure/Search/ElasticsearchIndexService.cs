@@ -48,10 +48,12 @@ public sealed class ElasticsearchIndexService : ISearchIndexService
     public async Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(
         string indexName,
         string query,
+        int size = 100,
         CancellationToken cancellationToken = default)
     {
         var response = await _client.SearchAsync<TDocument>(s => s
                 .Indices(BuildIndexName(indexName))
+                .Size(size)
                 .Query(q => q.QueryString(qs => qs.Query(query))),
             cancellationToken);
 

@@ -2,7 +2,7 @@
 
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.Accounts;
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Application.Interfaces.Accounts;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FurniSpace.API.Controllers;

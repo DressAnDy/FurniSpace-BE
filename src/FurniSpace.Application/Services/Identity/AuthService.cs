@@ -21,7 +21,7 @@ public sealed class AuthService : IAuthService
         IEnumerable<string>? roles = null,
         CancellationToken cancellationToken = default)
     {
-        var token = _jwtTokenService.CreateToken(userId, email, fullName, roles);
+        var token = _jwtTokenService.GenerateTokenPair(userId, email, fullName, roles);
         await _refreshTokenStore.StoreAsync(userId, token.RefreshToken, token.RefreshTokenExpiresAt, cancellationToken);
 
         return token;

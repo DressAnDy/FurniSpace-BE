@@ -19,19 +19,39 @@ public sealed class JwtTokenService : IJwtTokenService
         _settings = settings.Value;
     }
 
-    public AuthResponseDto CreateToken(Guid userId, string email, string fullName, IEnumerable<string>? roles = null)
+    public AuthResponseDto GenerateTokenPair(
+        Guid userId,
+        string email,
+        string fullName,
+        IEnumerable<string>? roles = null)
     {
         var now = DateTimeOffset.UtcNow;
         var accessTokenExpiresAt = now.AddMinutes(_settings.AccessTokenExpirationMinutes);
         var refreshTokenExpiresAt = now.AddDays(_settings.RefreshTokenExpirationDays);
-        var jti = Guid.NewGuid().ToString("N");
 
+        return new AuthResponseDto
+        {
+            AccessToken = GenerateAccessToken(userId, email, fullName, roles, now, accessTokenExpiresAt),
+            RefreshToken = GenerateRefreshToken(),
+            AccessTokenExpiresAt = accessTokenExpiresAt,
+            RefreshTokenExpiresAt = refreshTokenExpiresAt
+        };
+    }
+
+    private string GenerateAccessToken(
+        Guid userId,
+        string email,
+        string fullName,
+        IEnumerable<string>? roles,
+        DateTimeOffset issuedAt,
+        DateTimeOffset expiresAt)
+    {
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, userId.ToString()),
             new(JwtRegisteredClaimNames.Email, email),
             new(JwtRegisteredClaimNames.Name, fullName),
-            new(JwtRegisteredClaimNames.Jti, jti),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N")),
             new(ClaimTypes.NameIdentifier, userId.ToString()),
             new(ClaimTypes.Email, email),
             new(ClaimTypes.Name, fullName)
@@ -48,17 +68,11 @@ public sealed class JwtTokenService : IJwtTokenService
             issuer: _settings.Issuer,
             audience: _settings.Audience,
             claims: claims,
-            notBefore: now.UtcDateTime,
-            expires: accessTokenExpiresAt.UtcDateTime,
+            notBefore: issuedAt.UtcDateTime,
+            expires: expiresAt.UtcDateTime,
             signingCredentials: signingCredentials);
 
-        return new AuthResponseDto
-        {
-            AccessToken = _tokenHandler.WriteToken(token),
-            RefreshToken = CreateRefreshToken(),
-            AccessTokenExpiresAt = accessTokenExpiresAt,
-            RefreshTokenExpiresAt = refreshTokenExpiresAt
-        };
+        return _tokenHandler.WriteToken(token);
     }
 
     public ClaimsPrincipal? GetPrincipalFromExpiredToken(string accessToken)
@@ -96,7 +110,7 @@ public sealed class JwtTokenService : IJwtTokenService
         return new SymmetricSecurityKey(_settings.GetSecretKeyBytes());
     }
 
-    private static string CreateRefreshToken()
+    private static string GenerateRefreshToken()
     {
         var bytes = RandomNumberGenerator.GetBytes(64);
         return Convert.ToBase64String(bytes);

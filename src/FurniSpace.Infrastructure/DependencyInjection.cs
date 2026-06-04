@@ -1,8 +1,10 @@
 using Elastic.Clients.Elasticsearch;
 using FurniSpace.Infrastructure.Caching;
 using FurniSpace.Infrastructure.Common.Caching;
+using FurniSpace.Infrastructure.Common.Email;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.Email;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Repositories.Repository;
@@ -23,11 +25,13 @@ public static class DependencyInjection
     {
         services.Configure<RedisSettings>(configuration.GetSection(RedisSettings.SectionName));
         services.Configure<ElasticsearchSettings>(configuration.GetSection(ElasticsearchSettings.SectionName));
+        services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
 
         services.AddPostgres(configuration);
         services.AddRedis(configuration);
         services.AddElasticsearch(configuration);
         services.AddScoped<IAccountRepository, AccountRepository>();
+        services.AddScoped<IEmailService, SmtpEmailService>();
 
         return services;
     }

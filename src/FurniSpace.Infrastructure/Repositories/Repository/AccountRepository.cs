@@ -18,6 +18,22 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         return DbSet.FirstOrDefaultAsync(account => account.Email == email, cancellationToken);
     }
 
+    public Task<string?> GetRoleNameAsync(Guid roleId, CancellationToken cancellationToken = default)
+    {
+        return DbContext.RoleSet
+            .Where(role => role.RoleId == roleId)
+            .Select(role => role.RoleName)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default)
+    {
+        return DbContext.RoleSet
+            .Where(role => role.RoleName == roleName)
+            .Select(role => (Guid?)role.RoleId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default)
     {
         return DbContext.RoleSet.AnyAsync(role => role.RoleId == roleId, cancellationToken);

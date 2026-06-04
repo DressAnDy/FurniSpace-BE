@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using System.Text.Json;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs;
+using FurniSpace.Application.Services.Identity;
+using Microsoft.Extensions.Options;
+using System.IdentityModel.Tokens.Jwt;
 using Xunit;
 
 namespace FurniSpace.Application.Tests;
@@ -92,5 +96,48 @@ public class ApplicationTests
         var keyBytes = settings.GetSecretKeyBytes();
 
         Assert.True(keyBytes.Length >= JwtSettings.MinimumSecretKeyBytes);
+    }
+
+    [Fact]
+    public void JwtTokenService_GenerateTokenPair_IssuesAccessAndRefreshTokens()
+    {
+        var settings = Options.Create(new JwtSettings
+        {
+            SecretKey = "this-secret-has-at-least-32-bytes",
+            Issuer = "FurniSpace",
+            Audience = "FurniSpace",
+            AccessTokenExpirationMinutes = 15,
+            RefreshTokenExpirationDays = 7
+        });
+        var service = new JwtTokenService(settings);
+        var userId = Guid.NewGuid();
+
+        var result = service.GenerateTokenPair(userId, "user@example.com", "Test User", ["CUSTOMER"]);
+        var accessToken = new JwtSecurityTokenHandler().ReadJwtToken(result.AccessToken);
+
+        Assert.False(string.IsNullOrWhiteSpace(result.AccessToken));
+        Assert.False(string.IsNullOrWhiteSpace(result.RefreshToken));
+        Assert.NotEqual(result.AccessToken, result.RefreshToken);
+        Assert.Equal(userId.ToString(), accessToken.Subject);
+        Assert.Contains(accessToken.Claims, claim => claim.Type == JwtRegisteredClaimNames.Jti);
+        Assert.True(result.AccessTokenExpiresAt < result.RefreshTokenExpiresAt);
+    }
+
+    [Fact]
+    public void AuthResponseDto_SerializesTokenContractAsSnakeCase()
+    {
+        var response = new AuthResponseDto
+        {
+            AccessToken = "access",
+            RefreshToken = "refresh",
+            AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15),
+            RefreshTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(7)
+        };
+
+        var json = JsonSerializer.Serialize(response);
+
+        Assert.Contains("\"access_token\":\"access\"", json);
+        Assert.Contains("\"refresh_token\":\"refresh\"", json);
+        Assert.Contains("\"expires_in\":", json);
     }
 }

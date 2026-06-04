@@ -5,7 +5,7 @@ namespace FurniSpace.Application.Interfaces.Identity;
 
 public interface IJwtTokenService
 {
-    AuthResponseDto CreateToken(
+    AuthResponseDto GenerateTokenPair(
         Guid userId,
         string email,
         string fullName,

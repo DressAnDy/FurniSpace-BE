@@ -445,7 +445,53 @@ Tests:
 - [ ] Infrastructure repository/cache behavior when practical.
 - [ ] API route/status mapping when endpoint is stable.
 
-## 11. Agent Rules
+## 11. Logging
+
+Serilog configuration belongs in:
+
+```text
+FurniSpace.Infrastructure/Logging/SerilogConfiguration.cs
+```
+
+Logging middleware belongs in:
+
+```text
+FurniSpace.API/Middleware/CorrelationIdMiddleware.cs
+FurniSpace.API/Middleware/RequestLoggingMiddleware.cs
+FurniSpace.API/Middleware/ExceptionHandlingMiddleware.cs
+```
+
+Logging behavior:
+
+- Development writes readable text to console and `logs/furnispace-YYYYMMDD.log`.
+- Other environments write structured JSON to console and `logs/furnispace-YYYYMMDD.json`.
+- Log events include `Application`, `CorrelationId`, and `TraceId`.
+- Authenticated request logs include `UserId`.
+- HTTP completion logs include `EventType`, `RequestMethod`, `RequestPath`, `StatusCode`, and `ElapsedMs`.
+- HTTP `4xx` responses and requests taking at least one second log at `Warning`.
+- HTTP `5xx` responses log at `Error`.
+- Unhandled exceptions are logged once by `ExceptionHandlingMiddleware`.
+- Error responses include the correlation ID for support and investigation.
+
+Use structured message templates:
+
+```csharp
+logger.LogInformation(
+    "Account {AccountId} was created by user {ActorUserId}",
+    accountId,
+    actorUserId);
+```
+
+Do not use string interpolation because it discards searchable properties:
+
+```csharp
+logger.LogInformation($"Account {accountId} was created");
+```
+
+Never log passwords, access tokens, refresh tokens, OTPs, reset tokens, authorization headers,
+connection strings, or full request bodies containing sensitive data.
+
+## 12. Agent Rules
 
 - Read existing files before editing.
 - Keep changes scoped to the request.

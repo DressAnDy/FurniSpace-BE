@@ -3,7 +3,9 @@ using System.IdentityModel.Tokens.Jwt;
 using FurniSpace.Application;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Interfaces.Identity;
+using FurniSpace.API.Middleware;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.Logging;
 using FurniSpace.Shared.Helpers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
@@ -23,17 +25,9 @@ if (string.IsNullOrWhiteSpace(jwtSettings.SecretKey))
 
 _ = jwtSettings.GetSecretKeyBytes();
 
-Log.Logger = new LoggerConfiguration()
-    .ReadFrom.Configuration(builder.Configuration)
-    .Enrich.FromLogContext()
-    .Enrich.WithCorrelationId()
-    .Enrich.WithProperty("Application", "FurniSpace")
-    .Enrich.WithProperty("Environment", builder.Environment.EnvironmentName)
-    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {CorrelationId} {Message:lj}{NewLine}{Exception}")
-    .WriteTo.File("logs/furnispace-.log", rollingInterval: RollingInterval.Day,
-               retainedFileCountLimit: 30,
-               outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {CorrelationId} {Message:lj}{NewLine}{Exception}")
-    .CreateLogger();
+Log.Logger = SerilogConfiguration.CreateLogger(
+    builder.Configuration,
+    useJsonFormatting: !builder.Environment.IsDevelopment());
 
 builder.Host.UseSerilog();
 
@@ -130,8 +124,12 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseAuthentication();
+app.UseMiddleware<RequestLoggingMiddleware>();
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 app.MapGet("/", () => "FurniSpace API");
 app.Run();
+Log.CloseAndFlush();

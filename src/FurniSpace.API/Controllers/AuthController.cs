@@ -1,7 +1,7 @@
 using FurniSpace.API.Base;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs;
-using FurniSpace.Application.Interfaces;
+using FurniSpace.Application.Interfaces.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.IdentityModel.Tokens.Jwt;

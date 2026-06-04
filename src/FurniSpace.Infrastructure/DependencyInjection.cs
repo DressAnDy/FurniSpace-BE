@@ -1,10 +1,18 @@
-using FurniSpace.Application.Common.Auth;
-using FurniSpace.Application.Common.Caching;
-using FurniSpace.Application.Interfaces;
+using Elastic.Clients.Elasticsearch;
 using FurniSpace.Infrastructure.Caching;
-using FurniSpace.Infrastructure.Identity;
+using FurniSpace.Infrastructure.Common.Caching;
+using FurniSpace.Infrastructure.Common.Search;
+using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Repositories.Repository;
+using FurniSpace.Infrastructure.Search;
+using FurniSpace.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
+using Npgsql.NameTranslation;
 using StackExchange.Redis;
 
 namespace FurniSpace.Infrastructure;
@@ -13,26 +21,41 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
-        services.PostConfigure<JwtSettings>(settings =>
-        {
-            if (string.IsNullOrWhiteSpace(settings.SecretKey))
-            {
-                settings.SecretKey = configuration["JWT_SECRET"] ?? string.Empty;
-            }
-
-            _ = settings.GetSecretKeyBytes();
-        });
         services.Configure<RedisSettings>(configuration.GetSection(RedisSettings.SectionName));
+        services.Configure<ElasticsearchSettings>(configuration.GetSection(ElasticsearchSettings.SectionName));
 
+        services.AddPostgres(configuration);
         services.AddRedis(configuration);
-        services.AddScoped<IJwtTokenService, JwtTokenService>();
-        services.AddScoped<IRefreshTokenStore, RefreshTokenStore>();
-        services.AddScoped<IAuthService, AuthService>();
+        services.AddElasticsearch(configuration);
+        services.AddScoped<IAccountRepository, AccountRepository>();
 
         return services;
     }
 
+    private static IServiceCollection AddPostgres(this IServiceCollection services, IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("MigrationConnection")
+            ?? configuration["ConnectionStrings__MigrationConnection"]
+            ?? configuration.GetConnectionString("DefaultConnection")
+            ?? configuration["ConnectionStrings__DefaultConnection"];
+
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException(
+                "PostgreSQL connection string is missing. Set ConnectionStrings__DefaultConnection.");
+        }
+
+        var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+        dataSourceBuilder.MapEnum<AccountStatus>("account_status", new NpgsqlNullNameTranslator());
+        var dataSource = dataSourceBuilder.Build();
+
+        services.AddSingleton(dataSource);
+        services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+            options.UseNpgsql(serviceProvider.GetRequiredService<NpgsqlDataSource>(), npgsql =>
+                npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
+
+        return services;
+    }
     private static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
     {
         var redisConnection = configuration.GetSection(RedisSettings.SectionName)["ConnectionString"]
@@ -49,6 +72,30 @@ public static class DependencyInjection
             ConnectionMultiplexer.Connect(redisConnection));
 
         services.AddScoped<ICacheService, RedisCacheService>();
+
+        return services;
+    }
+
+    private static IServiceCollection AddElasticsearch(this IServiceCollection services, IConfiguration configuration)
+    {
+        var url = configuration.GetSection(ElasticsearchSettings.SectionName)["Url"]
+            ?? configuration["ELASTICSEARCH_URL"];
+
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            throw new InvalidOperationException(
+                "Elasticsearch URL is missing. Set Elasticsearch__Url or ELASTICSEARCH_URL.");
+        }
+
+        var indexPrefix = configuration.GetSection(ElasticsearchSettings.SectionName)["IndexPrefix"]
+            ?? configuration["ELASTICSEARCH_INDEX_PREFIX"]
+            ?? "furnispace";
+
+        var settings = new ElasticsearchClientSettings(new Uri(url))
+            .DefaultIndex(indexPrefix);
+
+        services.AddSingleton(new ElasticsearchClient(settings));
+        services.AddScoped<ISearchIndexService, ElasticsearchIndexService>();
 
         return services;
     }

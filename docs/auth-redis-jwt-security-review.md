@@ -7,9 +7,9 @@ This document records the current security review notes for the FurniSpace authe
 Reviewed areas:
 
 - JWT bearer validation in `src/FurniSpace.API/Program.cs`
-- Token creation in `src/FurniSpace.Infrastructure/Identity/JwtTokenService.cs`
-- Refresh token and access token revocation storage in `src/FurniSpace.Infrastructure/Identity/RefreshTokenStore.cs`
-- Redis key generation in `src/FurniSpace.Infrastructure/Caching/RedisKeyBuilder.cs`
+- Token creation in `src/FurniSpace.Application/Services/Identity/JwtTokenService.cs`
+- Refresh token and access token revocation storage in `src/FurniSpace.Application/Services/Identity/RefreshTokenStore.cs`
+- Auth Redis key generation in `src/FurniSpace.Application/Services/Identity/RefreshTokenStore.cs`
 - Redis cache implementation in `src/FurniSpace.Infrastructure/Caching/RedisCacheService.cs`
 - Redis container configuration in `docker-compose.yml`
 
@@ -42,7 +42,7 @@ The original main security risks were weak JWT secret enforcement, Redis evictio
 Files:
 
 - `src/FurniSpace.API/Program.cs`
-- `src/FurniSpace.Infrastructure/Identity/JwtTokenService.cs`
+- `src/FurniSpace.Application/Services/Identity/JwtTokenService.cs`
 - `src/FurniSpace.Application/Common/Auth/JwtSettings.cs`
 
 Current risk:
@@ -124,9 +124,9 @@ Valid JWT signature + issuer + audience + lifetime + required jti + not blacklis
 
 Files:
 
-- `src/FurniSpace.Infrastructure/Identity/AuthService.cs`
-- `src/FurniSpace.Infrastructure/Identity/RefreshTokenStore.cs`
-- `src/FurniSpace.Application/Interfaces/IAuthService.cs`
+- `src/FurniSpace.Application/Services/Identity/AuthService.cs`
+- `src/FurniSpace.Application/Services/Identity/RefreshTokenStore.cs`
+- `src/FurniSpace.Application/Interfaces/Identity/IAuthService.cs`
 - Future refresh endpoint/controller code
 
 Current behavior:

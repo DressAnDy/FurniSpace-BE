@@ -79,11 +79,11 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var value = search.Trim().ToLower();
+            var pattern = BuildSearchPattern(search);
             query = query.Where(account =>
-                account.Email.ToLower().Contains(value) ||
-                account.FullName.ToLower().Contains(value) ||
-                (account.Phone != null && account.Phone.ToLower().Contains(value)));
+                EF.Functions.ILike(account.Email, pattern) ||
+                EF.Functions.ILike(account.FullName, pattern) ||
+                (account.Phone != null && EF.Functions.ILike(account.Phone, pattern)));
         }
 
         if (!string.IsNullOrWhiteSpace(status) &&
@@ -93,5 +93,10 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         }
 
         return query;
+    }
+
+    private static string BuildSearchPattern(string search)
+    {
+        return $"%{search.Trim()}%";
     }
 }

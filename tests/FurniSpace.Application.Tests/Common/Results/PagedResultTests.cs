@@ -7,10 +7,12 @@ namespace FurniSpace.Application.Tests.Common.Results;
 
 public sealed class PagedResultTests
 {
+    private static readonly int[] PageItems = [21, 22];
+
     [Fact]
     public void Create_CalculatesPageMetadata()
     {
-        var result = PagedResult<int>.Create(new[] { 21, 22 }, page: 3, pageSize: 10, totalItems: 22);
+        var result = PagedResult<int>.Create(PageItems, page: 3, pageSize: 10, totalItems: 22);
 
         Assert.Equal(3, result.Page);
         Assert.Equal(10, result.PageSize);

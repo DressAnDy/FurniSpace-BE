@@ -36,7 +36,7 @@ public static class DependencyInjection
         return services;
     }
 
-    private static IServiceCollection AddPostgres(this IServiceCollection services, IConfiguration configuration)
+    private static void AddPostgres(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("MigrationConnection")
             ?? configuration["ConnectionStrings__MigrationConnection"]
@@ -57,8 +57,6 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>((serviceProvider, options) =>
             options.UseNpgsql(serviceProvider.GetRequiredService<NpgsqlDataSource>(), npgsql =>
                 npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
-
-        return services;
     }
     private static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
     {
@@ -80,7 +78,7 @@ public static class DependencyInjection
         return services;
     }
 
-    private static IServiceCollection AddElasticsearch(this IServiceCollection services, IConfiguration configuration)
+    private static void AddElasticsearch(this IServiceCollection services, IConfiguration configuration)
     {
         var url = configuration.GetSection(ElasticsearchSettings.SectionName)["Url"]
             ?? configuration["ELASTICSEARCH_URL"];
@@ -100,8 +98,6 @@ public static class DependencyInjection
 
         services.AddSingleton(new ElasticsearchClient(settings));
         services.AddScoped<ISearchIndexService, ElasticsearchIndexService>();
-
-        return services;
     }
 
     private static string AppendRedisPasswordIfNeeded(string connectionString)

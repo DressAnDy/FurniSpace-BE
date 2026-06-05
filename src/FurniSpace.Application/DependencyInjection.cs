@@ -1,8 +1,10 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Interfaces.Accounts;
+using FurniSpace.Application.Interfaces.Categories;
 using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Application.Services.Accounts;
+using FurniSpace.Application.Services.Categories;
 using FurniSpace.Application.Services.Identity;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure;
@@ -30,6 +32,7 @@ public static class DependencyInjection
         });
         services.AddInfrastructure(configuration);
         services.AddScoped<IAccountService, AccountService>();
+        services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();

@@ -31,6 +31,7 @@ public static class DependencyInjection
         services.AddRedis(configuration);
         services.AddElasticsearch(configuration);
         services.AddScoped<IAccountRepository, AccountRepository>();
+        services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IEmailService, SmtpEmailService>();
 
         return services;

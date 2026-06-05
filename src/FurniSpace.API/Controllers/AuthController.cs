@@ -16,6 +16,8 @@ namespace FurniSpace.API.Controllers;
 [Route("auth")]
 public class AuthController : BaseApiController
 {
+    private const string RefreshTokenCookieName = "refresh_token";
+
     private readonly IAuthService _authService;
     private readonly IIdentityService _identityService;
 
@@ -71,7 +73,7 @@ public class AuthController : BaseApiController
     {
         request ??= new RefreshRequestDto();
         if (string.IsNullOrWhiteSpace(request.RefreshToken) &&
-            Request.Cookies.TryGetValue("refresh_token", out var cookieToken))
+            Request.Cookies.TryGetValue(RefreshTokenCookieName, out var cookieToken))
         {
             request.RefreshToken = cookieToken;
         }
@@ -139,7 +141,7 @@ public class AuthController : BaseApiController
         {
             await _authService.RevokeRefreshTokenAsync(userId, request.RefreshToken, cancellationToken);
         }
-        else if (Request.Cookies.TryGetValue("refresh_token", out var cookieToken))
+        else if (Request.Cookies.TryGetValue(RefreshTokenCookieName, out var cookieToken))
         {
             await _authService.RevokeRefreshTokenAsync(userId, cookieToken, cancellationToken);
         }
@@ -152,7 +154,7 @@ public class AuthController : BaseApiController
             await _authService.RevokeAccessTokenAsync(jti, expiresAt.Value, cancellationToken);
         }
 
-        Response.Cookies.Delete("refresh_token");
+        Response.Cookies.Delete(RefreshTokenCookieName);
         return ToActionResult(ServiceResult.Success("Logged out successfully"));
     }
 
@@ -168,7 +170,7 @@ public class AuthController : BaseApiController
             return;
         }
 
-        Response.Cookies.Append("refresh_token", auth.RefreshToken, new CookieOptions
+        Response.Cookies.Append(RefreshTokenCookieName, auth.RefreshToken, new CookieOptions
         {
             HttpOnly = true,
             Secure = true,

@@ -1,8 +1,10 @@
 using Elastic.Clients.Elasticsearch;
 using FurniSpace.Infrastructure.Caching;
 using FurniSpace.Infrastructure.Common.Caching;
+using FurniSpace.Infrastructure.Common.Email;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.Email;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Repositories.Repository;
@@ -23,16 +25,18 @@ public static class DependencyInjection
     {
         services.Configure<RedisSettings>(configuration.GetSection(RedisSettings.SectionName));
         services.Configure<ElasticsearchSettings>(configuration.GetSection(ElasticsearchSettings.SectionName));
+        services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
 
         services.AddPostgres(configuration);
         services.AddRedis(configuration);
         services.AddElasticsearch(configuration);
         services.AddScoped<IAccountRepository, AccountRepository>();
+        services.AddScoped<IEmailService, SmtpEmailService>();
 
         return services;
     }
 
-    private static IServiceCollection AddPostgres(this IServiceCollection services, IConfiguration configuration)
+    private static void AddPostgres(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("MigrationConnection")
             ?? configuration["ConnectionStrings__MigrationConnection"]
@@ -53,8 +57,6 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>((serviceProvider, options) =>
             options.UseNpgsql(serviceProvider.GetRequiredService<NpgsqlDataSource>(), npgsql =>
                 npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
-
-        return services;
     }
     private static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
     {
@@ -76,7 +78,7 @@ public static class DependencyInjection
         return services;
     }
 
-    private static IServiceCollection AddElasticsearch(this IServiceCollection services, IConfiguration configuration)
+    private static void AddElasticsearch(this IServiceCollection services, IConfiguration configuration)
     {
         var url = configuration.GetSection(ElasticsearchSettings.SectionName)["Url"]
             ?? configuration["ELASTICSEARCH_URL"];
@@ -96,8 +98,6 @@ public static class DependencyInjection
 
         services.AddSingleton(new ElasticsearchClient(settings));
         services.AddScoped<ISearchIndexService, ElasticsearchIndexService>();
-
-        return services;
     }
 
     private static string AppendRedisPasswordIfNeeded(string connectionString)

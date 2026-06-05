@@ -16,9 +16,9 @@ public sealed class CategoryRepository : GenericRepository<Category>, ICategoryR
         string categoryName,
         CancellationToken cancellationToken = default)
     {
-        var normalizedName = categoryName.Trim().ToLower();
+        var normalizedName = EscapeLikePattern(categoryName.Trim());
         return Query().AnyAsync(
-            category => category.CategoryName.ToLower() == normalizedName,
+            category => EF.Functions.ILike(category.CategoryName, normalizedName, "\\"),
             cancellationToken);
     }
 
@@ -27,12 +27,20 @@ public sealed class CategoryRepository : GenericRepository<Category>, ICategoryR
         Guid excludedCategoryId,
         CancellationToken cancellationToken = default)
     {
-        var normalizedName = categoryName.Trim().ToLower();
+        var normalizedName = EscapeLikePattern(categoryName.Trim());
         return Query().AnyAsync(
             category =>
                 category.CategoryId != excludedCategoryId &&
-                category.CategoryName.ToLower() == normalizedName,
+                EF.Functions.ILike(category.CategoryName, normalizedName, "\\"),
             cancellationToken);
+    }
+
+    private static string EscapeLikePattern(string value)
+    {
+        return value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
     }
 
     public async Task<IReadOnlyList<Category>> GetPagedAsync(

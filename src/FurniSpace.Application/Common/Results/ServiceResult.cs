@@ -90,6 +90,11 @@ public class ServiceResult : IServiceResult
         return new ServiceResult(409, message);
     }
 
+    public static ServiceResult TooManyRequests(string message = "Too many requests")
+    {
+        return new ServiceResult(429, message);
+    }
+
     public static ServiceResult Failure(Error error)
     {
         return new ServiceResult(error.Status, error.Message);
@@ -180,6 +185,11 @@ public class ServiceResult<T> : IServiceResult
     public static ServiceResult<T> Conflict(string message = "Resource conflict")
     {
         return new ServiceResult<T>(409, message);
+    }
+
+    public static ServiceResult<T> TooManyRequests(string message = "Too many requests")
+    {
+        return new ServiceResult<T>(429, message);
     }
 
     public static ServiceResult<T> Failure(Error error)

@@ -8,12 +8,14 @@ public sealed class AuthResponseDto
     public string AccessToken { get; set; } = string.Empty;
 
     [JsonPropertyName("refresh_token")]
+    [JsonIgnore]
     public string RefreshToken { get; set; } = string.Empty;
 
     [JsonPropertyName("access_token_expires_at")]
     public DateTimeOffset AccessTokenExpiresAt { get; set; }
 
     [JsonPropertyName("refresh_token_expires_at")]
+    [JsonIgnore]
     public DateTimeOffset RefreshTokenExpiresAt { get; set; }
 
     [JsonPropertyName("token_type")]

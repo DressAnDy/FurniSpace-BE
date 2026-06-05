@@ -6,7 +6,9 @@ namespace FurniSpace.Application.Interfaces.Identity;
 
 public interface IIdentityService
 {
-    Task<ServiceResult<AuthResponseDto>> RegisterAsync(RegisterRequestDto request, CancellationToken cancellationToken = default);
+    Task<ServiceResult> RegisterAsync(RegisterRequestDto request, CancellationToken cancellationToken = default);
+    Task<ServiceResult<AuthResponseDto>> VerifyEmailAsync(VerifyEmailRequestDto request, CancellationToken cancellationToken = default);
+    Task<ServiceResult> ResendVerificationOtpAsync(ResendVerificationOtpRequestDto request, CancellationToken cancellationToken = default);
     Task<ServiceResult<AuthResponseDto>> LoginAsync(LoginRequestDto request, CancellationToken cancellationToken = default);
     Task<ServiceResult<AuthResponseDto>> RefreshAsync(RefreshRequestDto request, CancellationToken cancellationToken = default);
     Task<ServiceResult> ForgotPasswordAsync(ForgotPasswordRequestDto request, CancellationToken cancellationToken = default);

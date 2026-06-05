@@ -38,6 +38,19 @@ public sealed class RefreshTokenStore : IRefreshTokenStore
         return _cache.ExistsAsync(key, cancellationToken);
     }
 
+    public async Task<bool> ConsumeAsync(Guid userId, string refreshToken, CancellationToken cancellationToken = default)
+    {
+        var key = RefreshTokenKey(userId, refreshToken);
+        var entry = await _cache.GetAndRemoveAsync<RefreshTokenCacheEntry>(key, cancellationToken);
+        if (entry is null)
+        {
+            return false;
+        }
+
+        await _cache.RemoveAsync(RefreshTokenLookupKey(refreshToken), cancellationToken);
+        return true;
+    }
+
     public async Task RevokeAsync(Guid userId, string refreshToken, CancellationToken cancellationToken = default)
     {
         await _cache.RemoveAsync(RefreshTokenKey(userId, refreshToken), cancellationToken);
@@ -61,10 +74,33 @@ public sealed class RefreshTokenStore : IRefreshTokenStore
         return _cache.SetAsync(key, true, ttl, cancellationToken);
     }
 
+    public Task RevokeUserAccessTokensAsync(
+        Guid userId,
+        DateTimeOffset revokedAt,
+        TimeSpan ttl,
+        CancellationToken cancellationToken = default)
+    {
+        if (ttl <= TimeSpan.Zero)
+        {
+            return Task.CompletedTask;
+        }
+
+        return _cache.SetAsync(UserAccessRevokedBeforeKey(userId), revokedAt.ToUnixTimeSeconds(), ttl, cancellationToken);
+    }
+
     public Task<bool> IsAccessTokenRevokedAsync(string jti, CancellationToken cancellationToken = default)
     {
         var key = AccessTokenBlacklistKey(jti);
         return _cache.ExistsAsync(key, cancellationToken);
+    }
+
+    public async Task<bool> AreUserAccessTokensRevokedAsync(
+        Guid userId,
+        DateTimeOffset issuedAt,
+        CancellationToken cancellationToken = default)
+    {
+        var revokedBefore = await _cache.GetAsync<long?>(UserAccessRevokedBeforeKey(userId), cancellationToken);
+        return revokedBefore.HasValue && issuedAt.ToUnixTimeSeconds() <= revokedBefore.Value;
     }
 
     private static string RefreshTokenKey(Guid userId, string refreshToken)
@@ -80,6 +116,11 @@ public sealed class RefreshTokenStore : IRefreshTokenStore
     private static string AccessTokenBlacklistKey(string jti)
     {
         return $"{Prefix}:auth:blacklist:{jti}";
+    }
+
+    private static string UserAccessRevokedBeforeKey(Guid userId)
+    {
+        return $"{Prefix}:auth:access-revoked-before:{userId}";
     }
 
     private static string Sha256(string value)

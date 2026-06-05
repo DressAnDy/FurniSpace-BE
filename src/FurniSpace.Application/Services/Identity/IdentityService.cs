@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs;
 using FurniSpace.Application.DTOs.Identity;
@@ -7,55 +9,68 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.AspNetCore.Identity;
+using InfrastructureCacheService = FurniSpace.Infrastructure.Interfaces.ICacheService;
 
 namespace FurniSpace.Application.Services.Identity;
 
 public sealed class IdentityService : IIdentityService
 {
     private const string CustomerRole = "CUSTOMER";
+    private static readonly TimeSpan EmailRateLimitWindow = TimeSpan.FromMinutes(5);
     private readonly IAccountRepository _accounts;
     private readonly IAuthService _auth;
     private readonly IPasswordHasher<Account> _passwordHasher;
     private readonly IPasswordResetStore _passwordResetStore;
+    private readonly IEmailOtpStore _emailOtpStore;
     private readonly IRefreshTokenStore _refreshTokens;
     private readonly IEmailService _email;
+    private readonly InfrastructureCacheService _cache;
 
     public IdentityService(
         IAccountRepository accounts,
         IAuthService auth,
         IPasswordHasher<Account> passwordHasher,
         IPasswordResetStore passwordResetStore,
+        IEmailOtpStore emailOtpStore,
         IRefreshTokenStore refreshTokens,
-        IEmailService email)
+        IEmailService email,
+        InfrastructureCacheService cache)
     {
         _accounts = accounts;
         _auth = auth;
         _passwordHasher = passwordHasher;
         _passwordResetStore = passwordResetStore;
+        _emailOtpStore = emailOtpStore;
         _refreshTokens = refreshTokens;
         _email = email;
+        _cache = cache;
     }
 
-    public async Task<ServiceResult<AuthResponseDto>> RegisterAsync(
+    public async Task<ServiceResult> RegisterAsync(
         RegisterRequestDto request,
         CancellationToken cancellationToken = default)
     {
         var errors = ValidateRegistration(request);
         if (errors.Count > 0)
         {
-            return ServiceResult<AuthResponseDto>.BadRequest(errors);
+            return ServiceResult.BadRequest(errors);
         }
 
         var email = NormalizeEmail(request.Email);
+        if (!await AllowEmailAttemptAsync("register", email, 5, cancellationToken))
+        {
+            return ServiceResult.TooManyRequests("Too many registration attempts. Please try again later.");
+        }
+
         if (await _accounts.EmailExistsAsync(email, cancellationToken: cancellationToken))
         {
-            return ServiceResult<AuthResponseDto>.Conflict("Email already exists.");
+            return ServiceResult.Conflict("Email already exists.");
         }
 
         var customerRoleId = await _accounts.GetRoleIdByNameAsync(CustomerRole, cancellationToken);
         if (!customerRoleId.HasValue)
         {
-            return ServiceResult<AuthResponseDto>.InternalServerError("Customer role is not configured.");
+            return ServiceResult.InternalServerError("Customer role is not configured.");
         }
 
         var account = new Account
@@ -65,20 +80,84 @@ public sealed class IdentityService : IIdentityService
             Email = email,
             FullName = request.FullName.Trim(),
             Phone = NormalizeOptional(request.Phone),
-            Status = AccountStatus.ACTIVE
+            Status = AccountStatus.INACTIVE
         };
         account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
 
         await _accounts.AddAsync(account, cancellationToken);
         await _accounts.SaveChangesAsync(cancellationToken);
+        await SendVerificationOtpAsync(account, cancellationToken);
 
+        return ServiceResult.Created(new { account.AccountId, account.Email }, "Account registered. Please verify your email with the OTP sent to your inbox.");
+    }
+
+    public async Task<ServiceResult<AuthResponseDto>> VerifyEmailAsync(
+        VerifyEmailRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.OtpCode))
+        {
+            return ServiceResult<AuthResponseDto>.BadRequest("Email and OTP code are required.");
+        }
+
+        var email = NormalizeEmail(request.Email);
+        if (!await AllowEmailAttemptAsync("verify-email", email, 10, cancellationToken))
+        {
+            return ServiceResult<AuthResponseDto>.TooManyRequests("Too many verification attempts. Please try again later.");
+        }
+
+        var account = await _accounts.GetByEmailAsync(email, cancellationToken);
+        if (account is null || account.DeletedAt is not null)
+        {
+            return ServiceResult<AuthResponseDto>.BadRequest("OTP code is invalid or expired.");
+        }
+
+        if (account.Status == AccountStatus.ACTIVE)
+        {
+            return ServiceResult<AuthResponseDto>.Conflict("Email is already verified.");
+        }
+
+        if (!await _emailOtpStore.ConsumeAsync(email, request.OtpCode, cancellationToken))
+        {
+            return ServiceResult<AuthResponseDto>.BadRequest("OTP code is invalid or expired.");
+        }
+
+        account.Status = AccountStatus.ACTIVE;
+        await _accounts.SaveChangesAsync(cancellationToken);
+
+        var role = await _accounts.GetRoleNameAsync(account.RoleId, cancellationToken);
         var session = await _auth.CreateSessionAsync(
             account.AccountId,
             account.Email,
             account.FullName,
-            [CustomerRole],
+            RoleList(role),
             cancellationToken);
-        return ServiceResult<AuthResponseDto>.Created(session, "Account registered successfully.");
+
+        return ServiceResult<AuthResponseDto>.Success(session, "Email verified successfully.");
+    }
+
+    public async Task<ServiceResult> ResendVerificationOtpAsync(
+        ResendVerificationOtpRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            return ServiceResult.BadRequest("Email is required.");
+        }
+
+        var email = NormalizeEmail(request.Email);
+        if (!await AllowEmailAttemptAsync("resend-verification", email, 3, cancellationToken))
+        {
+            return ServiceResult.TooManyRequests("Too many OTP requests. Please try again later.");
+        }
+
+        var account = await _accounts.GetByEmailAsync(email, cancellationToken);
+        if (account is not null && account.DeletedAt is null && account.Status != AccountStatus.ACTIVE)
+        {
+            await SendVerificationOtpAsync(account, cancellationToken);
+        }
+
+        return ServiceResult.Success("If the account requires verification, an OTP has been sent.");
     }
 
     public async Task<ServiceResult<AuthResponseDto>> LoginAsync(
@@ -90,7 +169,13 @@ public sealed class IdentityService : IIdentityService
             return ServiceResult<AuthResponseDto>.BadRequest("Email and password are required.");
         }
 
-        var account = await _accounts.GetByEmailAsync(NormalizeEmail(request.Email), cancellationToken);
+        var email = NormalizeEmail(request.Email);
+        if (!await AllowEmailAttemptAsync("login", email, 10, cancellationToken))
+        {
+            return ServiceResult<AuthResponseDto>.TooManyRequests("Too many login attempts. Please try again later.");
+        }
+
+        var account = await _accounts.GetByEmailAsync(email, cancellationToken);
         if (!CanAuthenticate(account))
         {
             return ServiceResult<AuthResponseDto>.Unauthorized("Email or password is invalid.");
@@ -166,7 +251,13 @@ public sealed class IdentityService : IIdentityService
             return ServiceResult.BadRequest("Email is required.");
         }
 
-        var account = await _accounts.GetByEmailAsync(NormalizeEmail(request.Email), cancellationToken);
+        var email = NormalizeEmail(request.Email);
+        if (!await AllowEmailAttemptAsync("forgot-password", email, 3, cancellationToken))
+        {
+            return ServiceResult.TooManyRequests("Too many password reset requests. Please try again later.");
+        }
+
+        var account = await _accounts.GetByEmailAsync(email, cancellationToken);
         if (account is not null && account.DeletedAt is null)
         {
             var token = await _passwordResetStore.CreateAsync(account.AccountId, cancellationToken);
@@ -191,7 +282,13 @@ public sealed class IdentityService : IIdentityService
             return ServiceResult.BadRequest(passwordError);
         }
 
-        var account = await _accounts.GetByEmailAsync(NormalizeEmail(request.Email), cancellationToken);
+        var email = NormalizeEmail(request.Email);
+        if (!await AllowEmailAttemptAsync("reset-password", email, 5, cancellationToken))
+        {
+            return ServiceResult.TooManyRequests("Too many password reset attempts. Please try again later.");
+        }
+
+        var account = await _accounts.GetByEmailAsync(email, cancellationToken);
         if (account is null ||
             account.DeletedAt is not null ||
             !await _passwordResetStore.ConsumeAsync(account.AccountId, request.Token, cancellationToken))
@@ -202,6 +299,7 @@ public sealed class IdentityService : IIdentityService
         account.PasswordHash = _passwordHasher.HashPassword(account, request.NewPassword);
         await _accounts.SaveChangesAsync(cancellationToken);
         await _refreshTokens.RevokeAllAsync(account.AccountId, cancellationToken);
+        await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
         return ServiceResult.Success("Password reset successfully.");
     }
 
@@ -278,6 +376,7 @@ public sealed class IdentityService : IIdentityService
         account.PasswordHash = _passwordHasher.HashPassword(account, request.NewPassword);
         await _accounts.SaveChangesAsync(cancellationToken);
         await _refreshTokens.RevokeAllAsync(account.AccountId, cancellationToken);
+        await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
         return ServiceResult.Success("Password changed successfully.");
     }
 
@@ -303,6 +402,23 @@ public sealed class IdentityService : IIdentityService
     private static IEnumerable<string> RoleList(string? role)
     {
         return string.IsNullOrWhiteSpace(role) ? [] : [role];
+    }
+
+    private async Task SendVerificationOtpAsync(Account account, CancellationToken cancellationToken)
+    {
+        var otpCode = await _emailOtpStore.CreateAsync(account.Email, cancellationToken);
+        await _email.SendEmailVerificationOtpAsync(account.Email, account.FullName, otpCode, cancellationToken);
+    }
+
+    private async Task<bool> AllowEmailAttemptAsync(
+        string purpose,
+        string email,
+        long maxAttempts,
+        CancellationToken cancellationToken)
+    {
+        var key = $"furnispace:auth:rate-limit:{purpose}:{Sha256(email)}";
+        var attempts = await _cache.IncrementAsync(key, EmailRateLimitWindow, cancellationToken);
+        return attempts <= maxAttempts;
     }
 
     private static List<string> ValidateRegistration(RegisterRequestDto request)
@@ -350,4 +466,10 @@ public sealed class IdentityService : IIdentityService
 
     private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();
     private static string? NormalizeOptional(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string Sha256(string value)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
 }

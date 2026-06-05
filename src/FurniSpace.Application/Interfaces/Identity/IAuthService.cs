@@ -34,7 +34,17 @@ public interface IAuthService
         DateTimeOffset expiresAt,
         CancellationToken cancellationToken = default);
 
+    Task RevokeUserAccessTokensAsync(
+        Guid userId,
+        CancellationToken cancellationToken = default);
+
     Task<bool> IsAccessTokenRevokedAsync(
         string jti,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> IsAccessTokenRevokedAsync(
+        string jti,
+        Guid userId,
+        DateTimeOffset issuedAt,
         CancellationToken cancellationToken = default);
 }

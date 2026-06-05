@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Accounts;
 using FurniSpace.Application.Interfaces.Accounts;
+using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -21,15 +22,18 @@ public sealed class AccountService : IAccountService
     private static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(2);
 
     private readonly IAccountRepository _accounts;
+    private readonly IAuthService _auth;
     private readonly InfrastructureCacheService _cache;
     private readonly InfrastructureSearchIndexService _search;
 
     public AccountService(
         IAccountRepository accounts,
+        IAuthService auth,
         InfrastructureCacheService cache,
         InfrastructureSearchIndexService search)
     {
         _accounts = accounts;
+        _auth = auth;
         _cache = cache;
         _search = search;
     }
@@ -162,6 +166,7 @@ public sealed class AccountService : IAccountService
             return ServiceResult<AccountDto>.Conflict("Email already exists.");
         }
 
+        var wasActive = account.Status == AccountStatus.ACTIVE;
         account.RoleId = request.RoleId;
         account.Email = email;
         account.FullName = request.FullName.Trim();
@@ -175,6 +180,10 @@ public sealed class AccountService : IAccountService
         await CacheAccountAsync(dto, cancellationToken);
         await InvalidateAccountListsAsync(cancellationToken);
         await IndexAccountAsync(dto, cancellationToken);
+        if (wasActive && account.Status != AccountStatus.ACTIVE)
+        {
+            await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
+        }
 
         return ServiceResult<AccountDto>.Success(dto);
     }
@@ -194,6 +203,7 @@ public sealed class AccountService : IAccountService
         await TryRemoveCacheAsync(AccountItemCacheKey(accountId), cancellationToken);
         await InvalidateAccountListsAsync(cancellationToken);
         await TryDeleteIndexAsync(accountId, cancellationToken);
+        await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
 
         return ServiceResult.Success("Account deleted successfully.");
     }

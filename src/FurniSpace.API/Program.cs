@@ -1,5 +1,8 @@
 using Serilog;
 using System.IdentityModel.Tokens.Jwt;
+using System.Net;
+using System.Security.Claims;
+using System.Threading.RateLimiting;
 using FurniSpace.Application;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Interfaces.Identity;
@@ -10,6 +13,8 @@ using FurniSpace.Shared.Helpers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 
 EnvLoader.LoadEnv(required: false);
@@ -32,6 +37,41 @@ Log.Logger = SerilogConfiguration.CreateLogger(
 builder.Host.UseSerilog();
 
 builder.Services.AddControllers();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+    foreach (var proxy in builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [])
+    {
+        if (IPAddress.TryParse(proxy, out var address))
+        {
+            options.KnownProxies.Add(address);
+        }
+    }
+
+    if (builder.Configuration.GetValue<bool>("ForwardedHeaders:TrustAll"))
+    {
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    }
+});
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth-public", httpContext =>
+    {
+        var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey,
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+});
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new() { Title = "FurniSpace API", Version = "v1", Description = "FurniSpace Backend API" });
@@ -82,14 +122,20 @@ builder.Services
             OnTokenValidated = async context =>
             {
                 var jti = context.Principal?.FindFirst(JwtRegisteredClaimNames.Jti)?.Value;
-                if (string.IsNullOrWhiteSpace(jti))
+                var userIdValue = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                var issuedAtValue = context.Principal?.FindFirst(JwtRegisteredClaimNames.Iat)?.Value;
+
+                if (string.IsNullOrWhiteSpace(jti) ||
+                    !Guid.TryParse(userIdValue, out var userId) ||
+                    !long.TryParse(issuedAtValue, out var issuedAtUnixSeconds))
                 {
-                    context.Fail("Access token is missing the required jti claim.");
+                    context.Fail("Access token is missing required security claims.");
                     return;
                 }
 
+                var issuedAt = DateTimeOffset.FromUnixTimeSeconds(issuedAtUnixSeconds);
                 var authService = context.HttpContext.RequestServices.GetRequiredService<IAuthService>();
-                if (await authService.IsAccessTokenRevokedAsync(jti))
+                if (await authService.IsAccessTokenRevokedAsync(jti, userId, issuedAt))
                 {
                     context.Fail("Access token has been revoked.");
                 }
@@ -124,7 +170,15 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+app.UseForwardedHeaders();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();

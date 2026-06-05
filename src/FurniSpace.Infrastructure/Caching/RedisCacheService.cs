@@ -20,6 +20,36 @@ public sealed class RedisCacheService : ICacheService
     public async Task<T?> GetAsync<T>(string key, CancellationToken cancellationToken = default)
     {
         var value = await _database.StringGetAsync(key);
+        return Deserialize<T>(value);
+    }
+
+    public async Task<T?> GetAndRemoveAsync<T>(string key, CancellationToken cancellationToken = default)
+    {
+        var value = await _database.StringGetDeleteAsync(key);
+        return Deserialize<T>(value);
+    }
+
+    public async Task<bool> CompareAndRemoveAsync<T>(
+        string key,
+        T expectedValue,
+        CancellationToken cancellationToken = default)
+    {
+        const string script = """
+            if redis.call("GET", KEYS[1]) == ARGV[1] then
+                return redis.call("DEL", KEYS[1])
+            end
+            return 0
+            """;
+        var serialized = JsonSerializer.Serialize(expectedValue, JsonOptions);
+        var result = await _database.ScriptEvaluateAsync(
+            script,
+            [new RedisKey(key)],
+            [new RedisValue(serialized)]);
+        return (int)result == 1;
+    }
+
+    private static T? Deserialize<T>(RedisValue value)
+    {
         if (value.IsNullOrEmpty)
         {
             return default;

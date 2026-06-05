@@ -25,13 +25,7 @@ public sealed class PasswordResetStore : IPasswordResetStore
     public async Task<bool> ConsumeAsync(Guid userId, string token, CancellationToken cancellationToken = default)
     {
         var key = Key(userId, token);
-        if (!await _cache.ExistsAsync(key, cancellationToken))
-        {
-            return false;
-        }
-
-        await _cache.RemoveAsync(key, cancellationToken);
-        return true;
+        return await _cache.GetAndRemoveAsync<bool?>(key, cancellationToken) == true;
     }
 
     private static string Key(Guid userId, string token)

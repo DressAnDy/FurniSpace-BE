@@ -36,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<IRefreshTokenStore, RefreshTokenStore>();
         services.AddScoped<IPasswordHasher<Account>, PasswordHasher<Account>>();
         services.AddScoped<IPasswordResetStore, PasswordResetStore>();
+        services.AddScoped<IEmailOtpStore, EmailOtpStore>();
 
         return services;
     }

@@ -7,6 +7,7 @@ using FurniSpace.Application.DTOs.Identity;
 using FurniSpace.Application.Interfaces.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
@@ -25,15 +26,36 @@ public class AuthController : BaseApiController
     }
 
     [AllowAnonymous]
+    [EnableRateLimiting("auth-public")]
     [HttpPost("register")]
     public async Task<IActionResult> Register(RegisterRequestDto request, CancellationToken cancellationToken)
     {
         var result = await _identityService.RegisterAsync(request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("auth-public")]
+    [HttpPost("verify-email")]
+    public async Task<IActionResult> VerifyEmail(VerifyEmailRequestDto request, CancellationToken cancellationToken)
+    {
+        var result = await _identityService.VerifyEmailAsync(request, cancellationToken);
         SetRefreshTokenCookie(result.Data);
         return ToActionResult(result);
     }
 
     [AllowAnonymous]
+    [EnableRateLimiting("auth-public")]
+    [HttpPost("resend-verification-otp")]
+    public async Task<IActionResult> ResendVerificationOtp(
+        ResendVerificationOtpRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        return ToActionResult(await _identityService.ResendVerificationOtpAsync(request, cancellationToken));
+    }
+
+    [AllowAnonymous]
+    [EnableRateLimiting("auth-public")]
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginRequestDto request, CancellationToken cancellationToken)
     {
@@ -43,6 +65,7 @@ public class AuthController : BaseApiController
     }
 
     [AllowAnonymous]
+    [EnableRateLimiting("auth-public")]
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh(RefreshRequestDto? request, CancellationToken cancellationToken)
     {
@@ -59,6 +82,7 @@ public class AuthController : BaseApiController
     }
 
     [AllowAnonymous]
+    [EnableRateLimiting("auth-public")]
     [HttpPost("forgot-password")]
     public async Task<IActionResult> ForgotPassword(ForgotPasswordRequestDto request, CancellationToken cancellationToken)
     {
@@ -66,6 +90,7 @@ public class AuthController : BaseApiController
     }
 
     [AllowAnonymous]
+    [EnableRateLimiting("auth-public")]
     [HttpPost("reset-password")]
     public async Task<IActionResult> ResetPassword(ResetPasswordRequestDto request, CancellationToken cancellationToken)
     {

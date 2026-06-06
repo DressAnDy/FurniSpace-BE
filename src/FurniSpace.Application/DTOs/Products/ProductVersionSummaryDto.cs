@@ -1,4 +1,4 @@
-using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.DTOs.Products;
 
 namespace FurniSpace.Application.DTOs.Products;
 

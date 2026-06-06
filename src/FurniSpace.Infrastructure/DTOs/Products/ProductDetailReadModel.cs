@@ -1,6 +1,6 @@
 using FurniSpace.Domain.Enums;
 
-namespace FurniSpace.Infrastructure.Repositories.IRepository;
+namespace FurniSpace.Infrastructure.DTOs.Products;
 
 public sealed class ProductDetailReadModel
 {
@@ -10,6 +10,8 @@ public sealed class ProductDetailReadModel
     public string? ProductCode { get; set; }
     public string ProductName { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? ProductType { get; set; }
     public ProductStatus? Status { get; set; }
+    public ProductVersionReadModel? DefaultVersion { get; set; }
     public IReadOnlyList<ProductVersionReadModel> Versions { get; set; } = [];
 }

@@ -1,4 +1,4 @@
-namespace FurniSpace.Infrastructure.Repositories.IRepository;
+namespace FurniSpace.Infrastructure.DTOs.Products;
 
 public sealed class ProductVersionReadModel : ProductVersionModelBase
 {

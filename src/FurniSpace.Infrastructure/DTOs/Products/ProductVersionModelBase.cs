@@ -1,6 +1,6 @@
 using FurniSpace.Domain.Enums;
 
-namespace FurniSpace.Infrastructure.Repositories.IRepository;
+namespace FurniSpace.Infrastructure.DTOs.Products;
 
 public abstract class ProductVersionModelBase
 {

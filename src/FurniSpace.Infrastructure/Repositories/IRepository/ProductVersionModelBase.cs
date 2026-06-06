@@ -1,3 +1,5 @@
+using FurniSpace.Domain.Enums;
+
 namespace FurniSpace.Infrastructure.Repositories.IRepository;
 
 public abstract class ProductVersionModelBase
@@ -5,7 +7,7 @@ public abstract class ProductVersionModelBase
     public Guid ProductVersionId { get; set; }
     public string VersionCode { get; set; } = string.Empty;
     public string VersionName { get; set; } = string.Empty;
-    public string? VersionType { get; set; }
+    public ProductVersionType? VersionType { get; set; }
     public string? Material { get; set; }
     public string? Color { get; set; }
     public decimal? Width { get; set; }
@@ -15,5 +17,5 @@ public abstract class ProductVersionModelBase
     public bool? IsDefault { get; set; }
     public bool? IsPublic { get; set; }
     public bool? IsProjectSpecific { get; set; }
-    public string? Status { get; set; }
+    public ProductStatus? Status { get; set; }
 }

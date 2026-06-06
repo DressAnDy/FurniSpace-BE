@@ -1,4 +1,5 @@
 using System;
+using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
 
@@ -8,7 +9,7 @@ public class ProductVersion
     public Guid ProductId { get; set; }
     public string VersionCode { get; set; } = null!;
     public string VersionName { get; set; } = null!;
-    public string? VersionType { get; set; }
+    public ProductVersionType? VersionType { get; set; }
     public string? Material { get; set; }
     public string? Color { get; set; }
     public decimal? Width { get; set; }
@@ -18,7 +19,7 @@ public class ProductVersion
     public bool? IsDefault { get; set; }
     public bool? IsPublic { get; set; }
     public bool? IsProjectSpecific { get; set; }
-    public string? Status { get; set; }
+    public ProductStatus? Status { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

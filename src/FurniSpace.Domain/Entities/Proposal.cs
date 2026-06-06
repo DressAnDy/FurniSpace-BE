@@ -1,4 +1,5 @@
 ﻿using System;
+using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
 
@@ -12,7 +13,7 @@ public class Proposal
     public string? DesignConcept { get; set; }
     public int? VersionNo { get; set; }
     public decimal? EstimatedPrice { get; set; }
-    public string? Status { get; set; }
+    public ProposalStatus? Status { get; set; }
     public Guid? CreatedBy { get; set; }
     public DateTime? PublishedAt { get; set; }
     public DateTime? SelectedAt { get; set; }
@@ -20,5 +21,4 @@ public class Proposal
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
-
 

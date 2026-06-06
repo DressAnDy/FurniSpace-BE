@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Categories;
 using FurniSpace.Application.Interfaces.Categories;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 
@@ -36,7 +37,7 @@ public sealed class CategoryService : ICategoryService
             CategoryId = Guid.NewGuid(),
             CategoryName = categoryName,
             Description = NormalizeOptional(request.Description),
-            Status = "ACTIVE"
+            Status = ProductStatus.ACTIVE
         };
 
         await _categories.AddAsync(category, cancellationToken);
@@ -77,7 +78,7 @@ public sealed class CategoryService : ICategoryService
 
         category.CategoryName = categoryName;
         category.Description = NormalizeOptional(request.Description);
-        category.Status ??= "ACTIVE";
+        category.Status ??= ProductStatus.ACTIVE;
 
         await _categories.SaveChangesAsync(cancellationToken);
 

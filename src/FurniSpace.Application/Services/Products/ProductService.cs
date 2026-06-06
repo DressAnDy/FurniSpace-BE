@@ -2,6 +2,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 
@@ -44,13 +45,12 @@ public sealed class ProductService : IProductService
             CategoryId = request.CategoryId,
             ProductCode = productCode,
             ProductName = request.ProductName.Trim(),
-            Description = NormalizeOptional(request.Description),
-            ProductType = NormalizeOptional(request.ProductType) ?? "SINGLE"
+            Description = NormalizeOptional(request.Description)
         };
 
         await _products.AddAsync(product, cancellationToken);
         await _products.SaveChangesAsync(cancellationToken);
-        product.Status ??= "ACTIVE";
+        product.Status ??= ProductStatus.ACTIVE;
 
         return ServiceResult<ProductDto>.Created(product.Adapt<ProductDto>(), "Product master created successfully.");
     }
@@ -177,11 +177,6 @@ public sealed class ProductService : IProductService
             errors.Add("Product name must not exceed 150 characters.");
         }
 
-        if (request.ProductType?.Trim().Length > 30)
-        {
-            errors.Add("Product type must not exceed 30 characters.");
-        }
-
         return errors;
     }
 
@@ -206,7 +201,7 @@ public sealed class ProductService : IProductService
 
     private static bool IsUsablePublicVersion(ProductVersionReadModel version)
     {
-        return string.Equals(version.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase) &&
+        return version.Status == ProductStatus.ACTIVE &&
             version.IsPublic == true;
     }
 }

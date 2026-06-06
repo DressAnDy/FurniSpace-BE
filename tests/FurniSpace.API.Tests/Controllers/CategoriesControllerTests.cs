@@ -8,6 +8,7 @@ using FurniSpace.API.Controllers;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Categories;
 using FurniSpace.Application.Interfaces.Categories;
+using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
@@ -50,7 +51,7 @@ public sealed class CategoriesControllerTests
             CategoryId = Guid.NewGuid(),
             CategoryName = "Lighting",
             Description = "Lighting and decorative lighting items",
-            Status = "ACTIVE"
+            Status = ProductStatus.ACTIVE
         };
         var service = new FakeCategoryService(
             createResult: ServiceResult<CategoryDto>.Created(response, "Category created successfully."),
@@ -83,7 +84,7 @@ public sealed class CategoriesControllerTests
             CategoryId = categoryId,
             CategoryName = "Lighting",
             Description = "Lighting and decorative lighting items",
-            Status = "ACTIVE"
+            Status = ProductStatus.ACTIVE
         };
         var service = new FakeCategoryService(
             createResult: ServiceResult<CategoryDto>.Created(new CategoryDto(), "Category created successfully."),
@@ -123,7 +124,7 @@ public sealed class CategoriesControllerTests
                     CategoryId = Guid.NewGuid(),
                     CategoryName = "Counter",
                     Description = "Counter and cashier furniture",
-                    Status = "ACTIVE"
+                    Status = ProductStatus.ACTIVE
                 }
             ]
         };

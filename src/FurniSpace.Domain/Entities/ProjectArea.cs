@@ -1,4 +1,5 @@
 ﻿using System;
+using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
 
@@ -8,7 +9,7 @@ public class ProjectArea
     public Guid ProjectId { get; set; }
     public Guid? ParentAreaId { get; set; }
     public string AreaName { get; set; } = null!;
-    public string? AreaType { get; set; }
+    public ProjectAreaType? AreaType { get; set; }
     public int? FloorNumber { get; set; }
     public string? Description { get; set; }
     public decimal? AreaSqm { get; set; }
@@ -17,10 +18,9 @@ public class ProjectArea
     public decimal? Height { get; set; }
     public string? CurrentCondition { get; set; }
     public string? RequirementNote { get; set; }
-    public string? Status { get; set; }
+    public ProjectAreaStatus? Status { get; set; }
     public Guid? CreatedBy { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
-
 

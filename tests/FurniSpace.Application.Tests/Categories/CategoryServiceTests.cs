@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Categories;
 using FurniSpace.Application.Services.Categories;
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 
@@ -34,7 +35,7 @@ public sealed class CategoryServiceTests
         Assert.NotEqual(Guid.Empty, result.Data.CategoryId);
         Assert.Equal("Lighting", result.Data.CategoryName);
         Assert.Equal("Lighting and decorative lighting items", result.Data.Description);
-        Assert.Equal("ACTIVE", result.Data.Status);
+        Assert.Equal(ProductStatus.ACTIVE, result.Data.Status);
         Assert.Equal(1, repository.NameExistsCallCount);
         Assert.Equal(1, repository.AddCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
@@ -108,7 +109,7 @@ public sealed class CategoryServiceTests
             {
                 CategoryId = Guid.NewGuid(),
                 CategoryName = "Lighting",
-                Status = "ACTIVE"
+                Status = ProductStatus.ACTIVE
             }
         ]);
         var service = new CategoryService(repository);
@@ -137,7 +138,7 @@ public sealed class CategoryServiceTests
                 CategoryId = categoryId,
                 CategoryName = "Old Lighting",
                 Description = "Old description",
-                Status = "ACTIVE"
+                Status = ProductStatus.ACTIVE
             }
         ]);
         var service = new CategoryService(repository);
@@ -154,7 +155,7 @@ public sealed class CategoryServiceTests
         Assert.Equal(categoryId, result.Data.CategoryId);
         Assert.Equal("Lighting", result.Data.CategoryName);
         Assert.Equal("Lighting and decorative lighting items", result.Data.Description);
-        Assert.Equal("ACTIVE", result.Data.Status);
+        Assert.Equal(ProductStatus.ACTIVE, result.Data.Status);
         Assert.Equal(1, repository.GetByIdCallCount);
         Assert.Equal(1, repository.NameExistsExcludingCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
@@ -183,7 +184,7 @@ public sealed class CategoryServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
-        Assert.Equal("ACTIVE", result.Data.Status);
+        Assert.Equal(ProductStatus.ACTIVE, result.Data.Status);
         Assert.Null(result.Data.Description);
     }
 
@@ -269,8 +270,8 @@ public sealed class CategoryServiceTests
         var categoryId = Guid.NewGuid();
         var repository = new FakeCategoryRepository(
         [
-            new Category { CategoryId = categoryId, CategoryName = "Lighting", Status = "ACTIVE" },
-            new Category { CategoryId = Guid.NewGuid(), CategoryName = "Decor", Status = "ACTIVE" }
+            new Category { CategoryId = categoryId, CategoryName = "Lighting", Status = ProductStatus.ACTIVE },
+            new Category { CategoryId = Guid.NewGuid(), CategoryName = "Decor", Status = ProductStatus.ACTIVE }
         ]);
         var service = new CategoryService(repository);
 
@@ -297,14 +298,14 @@ public sealed class CategoryServiceTests
                 CategoryId = Guid.NewGuid(),
                 CategoryName = "Counter",
                 Description = "Counter and cashier furniture",
-                Status = "ACTIVE"
+                Status = ProductStatus.ACTIVE
             },
             new Category
             {
                 CategoryId = Guid.NewGuid(),
                 CategoryName = "Display",
                 Description = "Display furniture",
-                Status = "INACTIVE"
+                Status = ProductStatus.INACTIVE
             }
         ]);
         var service = new CategoryService(repository);
@@ -323,7 +324,7 @@ public sealed class CategoryServiceTests
             {
                 Assert.Equal("Counter", item.CategoryName);
                 Assert.Equal("Counter and cashier furniture", item.Description);
-                Assert.Equal("ACTIVE", item.Status);
+                Assert.Equal(ProductStatus.ACTIVE, item.Status);
             },
             item => Assert.Equal("Display", item.CategoryName));
         Assert.Equal(1, repository.GetPagedCallCount);
@@ -335,9 +336,9 @@ public sealed class CategoryServiceTests
     {
         var repository = new FakeCategoryRepository(
         [
-            new Category { CategoryId = Guid.NewGuid(), CategoryName = "A", Status = "ACTIVE" },
-            new Category { CategoryId = Guid.NewGuid(), CategoryName = "B", Status = "ACTIVE" },
-            new Category { CategoryId = Guid.NewGuid(), CategoryName = "C", Status = "ACTIVE" }
+            new Category { CategoryId = Guid.NewGuid(), CategoryName = "A", Status = ProductStatus.ACTIVE },
+            new Category { CategoryId = Guid.NewGuid(), CategoryName = "B", Status = ProductStatus.ACTIVE },
+            new Category { CategoryId = Guid.NewGuid(), CategoryName = "C", Status = ProductStatus.ACTIVE }
         ]);
         var service = new CategoryService(repository);
 

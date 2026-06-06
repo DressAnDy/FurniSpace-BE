@@ -1,4 +1,5 @@
 ﻿using System;
+using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
 
@@ -8,7 +9,7 @@ public class ProposalScene
     public Guid ProposalId { get; set; }
     public Guid? ProjectAreaId { get; set; }
     public string? SceneName { get; set; }
-    public string? SceneType { get; set; }
+    public ProposalSceneType? SceneType { get; set; }
     public string? MongoSceneId { get; set; }
     public Guid? PreviewFileId { get; set; }
     public int? VersionNo { get; set; }
@@ -17,5 +18,4 @@ public class ProposalScene
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
-
 

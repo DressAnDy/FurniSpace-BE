@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -60,7 +61,6 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
                 ProductCode = item.ProductCode,
                 ProductName = item.ProductName,
                 Description = item.Description,
-                ProductType = item.ProductType,
                 Status = item.Status
             })
             .FirstOrDefaultAsync(cancellationToken);
@@ -143,13 +143,12 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
                 ProductCode = product.ProductCode,
                 ProductName = product.ProductName,
                 Description = product.Description,
-                ProductType = product.ProductType,
                 Status = product.Status,
                 DefaultVersion = includeDefaultVersion
                     ? DbContext.ProductVersionSet
                         .Where(version =>
                             version.ProductId == product.ProductId &&
-                            version.Status == "ACTIVE" &&
+                            version.Status == ProductStatus.ACTIVE &&
                             version.IsPublic == true)
                         .OrderByDescending(version => version.IsDefault == true)
                         .ThenBy(version => version.CreatedAt)

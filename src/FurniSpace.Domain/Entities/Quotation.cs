@@ -1,4 +1,5 @@
 ﻿using System;
+using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
 
@@ -16,7 +17,7 @@ public class Quotation
     public decimal? CustomizationFee { get; set; }
     public decimal? DeliveryFee { get; set; }
     public decimal? TotalAmount { get; set; }
-    public string? Status { get; set; }
+    public QuotationStatus? Status { get; set; }
     public DateOnly? ValidUntil { get; set; }
     public string? CustomerNote { get; set; }
     public string? SalesNote { get; set; }
@@ -27,5 +28,4 @@ public class Quotation
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
-
 

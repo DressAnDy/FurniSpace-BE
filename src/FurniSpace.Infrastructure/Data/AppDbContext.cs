@@ -16,12 +16,11 @@ public class AppDbContext : DbContext
     public DbSet<StoredFile> StoredFileSet => Set<StoredFile>();
     public DbSet<FileLink> FileLinkSet => Set<FileLink>();
     public DbSet<Project> ProjectSet => Set<Project>();
-    public DbSet<ProjectAssignment> ProjectAssignmentSet => Set<ProjectAssignment>();
     public DbSet<Notification> NotificationSet => Set<Notification>();
     public DbSet<ProjectChat> ProjectChatSet => Set<ProjectChat>();
     public DbSet<ProjectChatMessage> ProjectChatMessageSet => Set<ProjectChatMessage>();
     public DbSet<ProjectArea> ProjectAreaSet => Set<ProjectArea>();
-    public DbSet<MeasurementAppointment> MeasurementAppointmentSet => Set<MeasurementAppointment>();
+    public DbSet<ProjectSchedule> ProjectScheduleSet => Set<ProjectSchedule>();
     public DbSet<Proposal> ProposalSet => Set<Proposal>();
     public DbSet<ProposalScene> ProposalSceneSet => Set<ProposalScene>();
     public DbSet<ProposalItem> ProposalItemSet => Set<ProposalItem>();
@@ -33,8 +32,6 @@ public class AppDbContext : DbContext
     public DbSet<Payment> PaymentSet => Set<Payment>();
     public DbSet<ProductionRequest> ProductionRequestSet => Set<ProductionRequest>();
     public DbSet<ProductionItem> ProductionItemSet => Set<ProductionItem>();
-    public DbSet<Delivery> DeliverySet => Set<Delivery>();
-    public DbSet<DeliveryItem> DeliveryItemSet => Set<DeliveryItem>();
     public DbSet<ProjectReview> ProjectReviewSet => Set<ProjectReview>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -42,29 +39,26 @@ public class AppDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.HasAnnotation("Npgsql:Enum:account_status", "ACTIVE,INACTIVE,SUSPENDED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:project_status", "DRAFT,SUBMITTED,SALES_ASSIGNED,IN_CONSULTATION,NEED_BASIC_INFORMATION,WAITING_FOR_DESIGNER_ASSIGNMENT,SPACE_INPUT_REVIEW,MEASUREMENT_REQUIRED,WAITING_FOR_SCHEDULE_CONFIRMATION,MEASUREMENT_SCHEDULED,MEASUREMENT_COMPLETED,SPACE_VERIFICATION_REQUIRED,SPACE_VERIFIED,LAYOUT_DESIGNING,PROPOSAL_DRAFTING,WAITING_FOR_CUSTOMER_REVIEW,REVISION_REQUESTED,PROPOSAL_SELECTED,QUOTATION_PREPARING,QUOTATION_SENT,QUOTATION_REVISION_REQUESTED,QUOTATION_ACCEPTED,ORDER_CONFIRMED,IN_PRODUCTION,PRODUCTION_BLOCKED,READY_FOR_DELIVERY,DELIVERY_SCHEDULED,DELIVERING,DELIVERED,COMPLETED,REJECTED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:project_assignment_status", "ACTIVE,INACTIVE,REASSIGNED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:project_assignment_role", "SALES_CONSULTANT,DESIGNER_STAFF,PRODUCTION_STAFF,DELIVERY_STAFF,ADMIN_SUPPORT");
+        modelBuilder.HasAnnotation("Npgsql:Enum:project_status", "SUBMITTED,IN_CONSULTATION,NEED_BASIC_INFORMATION,WAITING_FOR_DESIGNER_ASSIGNMENT,MEASUREMENT_REQUIRED,SPACE_VERIFIED,PROPOSAL_DRAFTING,WAITING_FOR_CUSTOMER_REVIEW,REVISION_REQUESTED,PROPOSAL_SELECTED,QUOTATION_SENT,QUOTATION_REVISION_REQUESTED,ORDER_CONFIRMED,IN_PRODUCTION,PRODUCTION_BLOCKED,READY_FOR_DELIVERY,DELIVERING,DELIVERED,COMPLETED,REJECTED");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_area_type", "STORE,FLOOR,ROOM,ZONE,OUTDOOR_AREA,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_area_status", "DRAFT,NEED_MEASUREMENT,MEASURED,VERIFIED,DESIGNING,DESIGNED,APPROVED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:measurement_appointment_status", "PENDING_CONFIRMATION,CONFIRMED,RESCHEDULED,COMPLETED,CANCELLED,NO_SHOW");
+        modelBuilder.HasAnnotation("Npgsql:Enum:project_schedule_type", "MEASUREMENT,CONSULTATION,DESIGN_REVIEW,DELIVERY,HANDOVER,OTHER");
+        modelBuilder.HasAnnotation("Npgsql:Enum:project_schedule_status", "PENDING_CONFIRMATION,CONFIRMED,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_status", "DRAFT,PUBLISHED,VIEWED,SELECTED,REVISION_REQUESTED,REJECTED,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_type", "TWO_D,THREE_D");
-        modelBuilder.HasAnnotation("Npgsql:Enum:customization_status", "SUBMITTED,DESIGN_REVIEWING,PRODUCTION_REVIEWING,WAITING_FOR_CUSTOMER_APPROVAL,ACCEPTED,REJECTED_BY_CUSTOMER,NOT_FEASIBLE,CANCELLED,CONVERTED_TO_VERSION");
-        modelBuilder.HasAnnotation("Npgsql:Enum:customization_feasibility_status", "PENDING,FEASIBLE,NOT_FEASIBLE,NEED_REVISION");
+        modelBuilder.HasAnnotation("Npgsql:Enum:customization_status", "SUBMITTED,DESIGN_REVIEWING,WAITING_FOR_DESIGN_APPROVAL,DESIGN_REVISION_REQUESTED,PRODUCTION_REVIEWING,NOT_FEASIBLE,ACCEPTED,REJECTED_BY_CUSTOMER,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:quotation_status", "DRAFT,SENT,REVISION_REQUESTED,REVISED,ACCEPTED,REJECTED,EXPIRED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:order_status", "CREATED,CONFIRMED,PENDING_PAYMENT,IN_PRODUCTION,READY_FOR_DELIVERY,DELIVERING,DELIVERED,COMPLETED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:order_status", "CREATED,DEPOSIT_PENDING,DEPOSIT_PAID,IN_PRODUCTION,PRODUCTION_PARTIALLY_FAILED,PRODUCTION_COMPLETED,READY_FOR_DELIVERY,DELIVERY_SCHEDULED,DELIVERING,DELIVERED,FINAL_PAYMENT_PENDING,COMPLETED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:order_item_status", "PENDING,IN_PRODUCTION,READY,UNAVAILABLE,DELIVERED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_status", "PENDING,PAID,FAILED,REFUNDED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_type", "DEPOSIT,REMAINING_PAYMENT,FULL_PAYMENT,MEASUREMENT_FEE,DESIGN_FEE,CUSTOMIZATION_FEE,DELIVERY_FEE,CANCELLATION_FEE,REFUND,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:production_request_status", "PENDING_REVIEW,FEASIBLE,IN_PRODUCTION,COMPLETED,BLOCKED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:production_item_status", "PENDING,IN_PRODUCTION,COMPLETED,BLOCKED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:delivery_status", "PENDING_SCHEDULE,SCHEDULED,DELIVERING,DELIVERED,FAILED,RESCHEDULED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:delivery_item_status", "PENDING,LOADED,DELIVERED,FAILED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:notification_status", "UNREAD,READ");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,PRODUCTION,DELIVERY,GENERAL,INTERNAL");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_status", "OPEN,CLOSED,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_message_type", "TEXT,FILE,SYSTEM");
-        modelBuilder.HasAnnotation("Npgsql:Enum:file_visibility", "CUSTOMER_VISIBLE,INTERNAL,STAFF_ONLY,PRIVATE");
+        modelBuilder.HasAnnotation("Npgsql:Enum:file_visibility", "CUSTOMER_VISIBLE,STAFF_ONLY,PRIVATE");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_type", "SPACE_IMAGE,FLOOR_PLAN,REFERENCE_IMAGE,BRAND_ASSET,CAD_FILE,PDF_DRAWING,MEASUREMENT_REPORT,LIDAR_SCAN,MODEL_3D,TEXTURE,PRODUCT_PREVIEW,PROPOSAL_PREVIEW,PROPOSAL_FILE,QUOTATION_FILE,ORDER_DOCUMENT,PRODUCTION_FILE,DELIVERY_PHOTO,DELIVERY_NOTE,REVIEW_IMAGE,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:product_status", "ACTIVE,INACTIVE,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:product_version_type", "STANDARD,CUSTOM,PROJECT_SPECIFIC");
@@ -77,12 +71,11 @@ public class AppDbContext : DbContext
         ConfigureFiles(modelBuilder);
         ConfigureFileLinks(modelBuilder);
         ConfigureProjects(modelBuilder);
-        ConfigureProjectAssignments(modelBuilder);
         ConfigureNotifications(modelBuilder);
         ConfigureProjectChats(modelBuilder);
         ConfigureProjectChatMessages(modelBuilder);
         ConfigureProjectAreas(modelBuilder);
-        ConfigureMeasurementAppointments(modelBuilder);
+        ConfigureProjectSchedules(modelBuilder);
         ConfigureProposals(modelBuilder);
         ConfigureProposalScenes(modelBuilder);
         ConfigureProposalItems(modelBuilder);
@@ -94,8 +87,6 @@ public class AppDbContext : DbContext
         ConfigurePayments(modelBuilder);
         ConfigureProductionRequests(modelBuilder);
         ConfigureProductionItems(modelBuilder);
-        ConfigureDeliveries(modelBuilder);
-        ConfigureDeliveryItems(modelBuilder);
         ConfigureProjectReviews(modelBuilder);
     }
 
@@ -127,7 +118,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.FullName).HasColumnName("full_name").HasColumnType("varchar(100)").IsRequired();
             entity.Property(e => e.Phone).HasColumnName("phone").HasColumnType("varchar(20)");
             entity.Property(e => e.AvatarUrl).HasColumnName("avatar_url").HasColumnType("text");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("account_status").HasDefaultValue(AccountStatus.ACTIVE);
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("account_status").HasDefaultValueSql("'ACTIVE'::account_status");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.DeletedAt).HasColumnName("deleted_at").HasColumnType("timestamp with time zone");
@@ -145,7 +136,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CategoryId).HasColumnName("category_id").HasColumnType("uuid");
             entity.Property(e => e.CategoryName).HasColumnName("category_name").HasColumnType("varchar(100)").IsRequired();
             entity.Property(e => e.Description).HasColumnName("description").HasColumnType("text");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("varchar(30)").HasDefaultValue("ACTIVE");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("product_status").HasDefaultValueSql("'ACTIVE'::product_status");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamp with time zone");
         });
@@ -162,8 +153,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductCode).HasColumnName("product_code").HasColumnType("varchar(50)");
             entity.Property(e => e.ProductName).HasColumnName("product_name").HasColumnType("varchar(150)").IsRequired();
             entity.Property(e => e.Description).HasColumnName("description").HasColumnType("text");
-            entity.Property(e => e.ProductType).HasColumnName("product_type").HasColumnType("varchar(30)").HasDefaultValue("SINGLE");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("product_status").HasDefaultValueSql("\'ACTIVE\'::product_status");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("product_status").HasDefaultValueSql("'ACTIVE'::product_status");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamp with time zone");
             entity.HasIndex(e => e.ProductCode).IsUnique();
@@ -181,7 +171,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductId).HasColumnName("product_id").HasColumnType("uuid");
             entity.Property(e => e.VersionCode).HasColumnName("version_code").HasColumnType("varchar(50)").IsRequired();
             entity.Property(e => e.VersionName).HasColumnName("version_name").HasColumnType("varchar(150)").IsRequired();
-            entity.Property(e => e.VersionType).HasColumnName("version_type").HasColumnType("product_version_type").HasDefaultValueSql("\'STANDARD\'::product_version_type");
+            entity.Property(e => e.VersionType).HasColumnName("version_type").HasColumnType("product_version_type").HasDefaultValueSql("'STANDARD'::product_version_type");
             entity.Property(e => e.Material).HasColumnName("material").HasColumnType("varchar(100)");
             entity.Property(e => e.Color).HasColumnName("color").HasColumnType("varchar(100)");
             entity.Property(e => e.Width).HasColumnName("width").HasColumnType("numeric(10,2)");
@@ -191,7 +181,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.IsDefault).HasColumnName("is_default").HasColumnType("boolean").HasDefaultValue(false);
             entity.Property(e => e.IsPublic).HasColumnName("is_public").HasColumnType("boolean").HasDefaultValue(true);
             entity.Property(e => e.IsProjectSpecific).HasColumnName("is_project_specific").HasColumnType("boolean").HasDefaultValue(false);
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("product_status").HasDefaultValueSql("\'ACTIVE\'::product_status");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("product_status").HasDefaultValueSql("'ACTIVE'::product_status");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamp with time zone");
             entity.HasIndex(e => e.VersionCode).IsUnique();
@@ -225,10 +215,10 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.FileLinkId);
             entity.Property(e => e.FileLinkId).HasColumnName("file_link_id").HasColumnType("uuid");
             entity.Property(e => e.FileId).HasColumnName("file_id").HasColumnType("uuid");
-            entity.Property(e => e.OwnerType).HasColumnName("owner_type").HasColumnType("varchar(50)").IsRequired();
-            entity.Property(e => e.OwnerId).HasColumnName("owner_id").HasColumnType("uuid");
-            entity.Property(e => e.FileType).HasColumnName("file_type").HasColumnType("file_type").HasDefaultValue("OTHER");
-            entity.Property(e => e.Visibility).HasColumnName("visibility").HasColumnType("file_visibility").HasDefaultValue("INTERNAL");
+            entity.Property(e => e.ReferenceType).HasColumnName("reference_type").HasColumnType("varchar(50)").IsRequired();
+            entity.Property(e => e.ReferenceId).HasColumnName("reference_id").HasColumnType("uuid");
+            entity.Property(e => e.FileType).HasColumnName("file_type").HasColumnType("file_type").HasDefaultValueSql("'OTHER'::file_type");
+            entity.Property(e => e.Visibility).HasColumnName("visibility").HasColumnType("file_visibility").HasDefaultValueSql("'STAFF_ONLY'::file_visibility");
             entity.Property(e => e.Description).HasColumnName("description").HasColumnType("text");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.HasOne<StoredFile>().WithMany().HasForeignKey(e => e.FileId).OnDelete(DeleteBehavior.Restrict);
@@ -250,55 +240,27 @@ public class AppDbContext : DbContext
             entity.Property(e => e.BusinessType).HasColumnName("business_type").HasColumnType("varchar(100)");
             entity.Property(e => e.ProjectAddress).HasColumnName("project_address").HasColumnType("text");
             entity.Property(e => e.BusinessPurpose).HasColumnName("business_purpose").HasColumnType("text");
-            entity.Property(e => e.PreferredStyle).HasColumnName("preferred_style").HasColumnType("varchar(100)");
             entity.Property(e => e.FurnitureRequirement).HasColumnName("furniture_requirement").HasColumnType("text");
             entity.Property(e => e.Description).HasColumnName("description").HasColumnType("text");
             entity.Property(e => e.TotalAreaSqm).HasColumnName("total_area_sqm").HasColumnType("numeric(10,2)");
             entity.Property(e => e.NumberOfFloors).HasColumnName("number_of_floors").HasColumnType("integer");
             entity.Property(e => e.BudgetMin).HasColumnName("budget_min").HasColumnType("numeric(12,2)");
             entity.Property(e => e.BudgetMax).HasColumnName("budget_max").HasColumnType("numeric(12,2)");
-            entity.Property(e => e.ExpectedStartDate).HasColumnName("expected_start_date").HasColumnType("date");
-            entity.Property(e => e.ExpectedCompletionDate).HasColumnName("expected_completion_date").HasColumnType("date");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("project_status").HasDefaultValue("DRAFT");
+            entity.Property(e => e.TargetCompletionDate).HasColumnName("target_completion_date").HasColumnType("date");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("project_status").HasDefaultValueSql("'SUBMITTED'::project_status");
             entity.Property(e => e.SubmittedAt).HasColumnName("submitted_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.SalesAssignedAt).HasColumnName("sales_assigned_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.ApprovedAt).HasColumnName("approved_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.DesignerAssignedAt).HasColumnName("designer_assigned_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.CompletedAt).HasColumnName("completed_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.RejectedAt).HasColumnName("rejected_at").HasColumnType("timestamp with time zone");
-            entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.RejectionReason).HasColumnName("rejection_reason").HasColumnType("text");
-            entity.Property(e => e.CancellationReason).HasColumnName("cancellation_reason").HasColumnType("text");
-            entity.Property(e => e.CreatedBy).HasColumnName("created_by").HasColumnType("uuid");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamp with time zone");
-            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at").HasColumnType("timestamp with time zone");
             entity.HasIndex(e => e.ProjectCode).IsUnique();
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AssignedSalesId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AssignedDesignerId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
-        });
-    }
-
-    private static void ConfigureProjectAssignments(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<ProjectAssignment>(entity =>
-        {
-            entity.ToTable("project_assignments");
-            entity.HasKey(e => e.AssignmentId);
-            entity.Property(e => e.AssignmentId).HasColumnName("assignment_id").HasColumnType("uuid");
-            entity.Property(e => e.ProjectId).HasColumnName("project_id").HasColumnType("uuid");
-            entity.Property(e => e.AccountId).HasColumnName("account_id").HasColumnType("uuid");
-            entity.Property(e => e.AssignmentRole).HasColumnName("assignment_role").HasColumnType("project_assignment_role").IsRequired();
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("project_assignment_status").HasDefaultValue("ACTIVE");
-            entity.Property(e => e.AssignedBy).HasColumnName("assigned_by").HasColumnType("uuid");
-            entity.Property(e => e.AssignedAt).HasColumnName("assigned_at").HasColumnType("timestamp with time zone");
-            entity.Property(e => e.UnassignedAt).HasColumnName("unassigned_at").HasColumnType("timestamp with time zone");
-            entity.Property(e => e.Note).HasColumnName("note").HasColumnType("text");
-            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AccountId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AssignedBy).OnDelete(DeleteBehavior.Restrict);
         });
     }
 
@@ -314,7 +276,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Title).HasColumnName("title").HasColumnType("varchar(150)").IsRequired();
             entity.Property(e => e.Message).HasColumnName("message").HasColumnType("text");
             entity.Property(e => e.NotificationType).HasColumnName("notification_type").HasColumnType("varchar(50)");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("notification_status").HasDefaultValue("UNREAD");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("notification_status").HasDefaultValueSql("'UNREAD'::notification_status");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.ReadAt).HasColumnName("read_at").HasColumnType("timestamp with time zone");
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ReceiverId).OnDelete(DeleteBehavior.Restrict);
@@ -333,7 +295,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ChatType).HasColumnName("chat_type").HasColumnType("project_chat_type").IsRequired();
             entity.Property(e => e.StaffId).HasColumnName("staff_id").HasColumnType("uuid");
             entity.Property(e => e.Title).HasColumnName("title").HasColumnType("varchar(150)");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("project_chat_status").HasDefaultValue("OPEN");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("project_chat_status").HasDefaultValueSql("'OPEN'::project_chat_status");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.ClosedAt).HasColumnName("closed_at").HasColumnType("timestamp with time zone");
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
@@ -350,7 +312,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.MessageId).HasColumnName("message_id").HasColumnType("uuid");
             entity.Property(e => e.ChatId).HasColumnName("chat_id").HasColumnType("uuid");
             entity.Property(e => e.SenderId).HasColumnName("sender_id").HasColumnType("uuid");
-            entity.Property(e => e.MessageType).HasColumnName("message_type").HasColumnType("project_chat_message_type").HasDefaultValue("TEXT");
+            entity.Property(e => e.MessageType).HasColumnName("message_type").HasColumnType("project_chat_message_type").HasDefaultValueSql("'TEXT'::project_chat_message_type");
             entity.Property(e => e.Content).HasColumnName("content").HasColumnType("text");
             entity.Property(e => e.AttachmentFileId).HasColumnName("attachment_file_id").HasColumnType("uuid");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
@@ -373,7 +335,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProjectId).HasColumnName("project_id").HasColumnType("uuid");
             entity.Property(e => e.ParentAreaId).HasColumnName("parent_area_id").HasColumnType("uuid");
             entity.Property(e => e.AreaName).HasColumnName("area_name").HasColumnType("varchar(150)").IsRequired();
-            entity.Property(e => e.AreaType).HasColumnName("area_type").HasColumnType("project_area_type").HasDefaultValue("ZONE");
+            entity.Property(e => e.AreaType).HasColumnName("area_type").HasColumnType("project_area_type").HasDefaultValueSql("'ZONE'::project_area_type");
             entity.Property(e => e.FloorNumber).HasColumnName("floor_number").HasColumnType("integer");
             entity.Property(e => e.Description).HasColumnName("description").HasColumnType("text");
             entity.Property(e => e.AreaSqm).HasColumnName("area_sqm").HasColumnType("numeric(10,2)");
@@ -382,7 +344,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Height).HasColumnName("height").HasColumnType("numeric(10,2)");
             entity.Property(e => e.CurrentCondition).HasColumnName("current_condition").HasColumnType("text");
             entity.Property(e => e.RequirementNote).HasColumnName("requirement_note").HasColumnType("text");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("project_area_status").HasDefaultValue("DRAFT");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("project_area_status").HasDefaultValueSql("'DRAFT'::project_area_status");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by").HasColumnType("uuid");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamp with time zone");
@@ -392,20 +354,24 @@ public class AppDbContext : DbContext
         });
     }
 
-    private static void ConfigureMeasurementAppointments(ModelBuilder modelBuilder)
+    private static void ConfigureProjectSchedules(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<MeasurementAppointment>(entity =>
+        modelBuilder.Entity<ProjectSchedule>(entity =>
         {
-            entity.ToTable("measurement_appointments");
-            entity.HasKey(e => e.AppointmentId);
-            entity.Property(e => e.AppointmentId).HasColumnName("appointment_id").HasColumnType("uuid");
+            entity.ToTable("project_schedules");
+            entity.HasKey(e => e.ScheduleId);
+            entity.Property(e => e.ScheduleId).HasColumnName("schedule_id").HasColumnType("uuid");
             entity.Property(e => e.ProjectId).HasColumnName("project_id").HasColumnType("uuid");
             entity.Property(e => e.ProjectAreaId).HasColumnName("project_area_id").HasColumnType("uuid");
-            entity.Property(e => e.ScheduledBySalesId).HasColumnName("scheduled_by_sales_id").HasColumnType("uuid");
-            entity.Property(e => e.DesignerId).HasColumnName("designer_id").HasColumnType("uuid");
-            entity.Property(e => e.AppointmentTime).HasColumnName("appointment_time").HasColumnType("timestamp with time zone");
-            entity.Property(e => e.AppointmentAddress).HasColumnName("appointment_address").HasColumnType("text");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("measurement_appointment_status").HasDefaultValue("PENDING_CONFIRMATION");
+            entity.Property(e => e.ScheduleType).HasColumnName("schedule_type").HasColumnType("project_schedule_type").HasDefaultValueSql("'MEASUREMENT'::project_schedule_type");
+            entity.Property(e => e.Title).HasColumnName("title").HasColumnType("varchar(150)");
+            entity.Property(e => e.Description).HasColumnName("description").HasColumnType("text");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by").HasColumnType("uuid");
+            entity.Property(e => e.AssignedStaffId).HasColumnName("assigned_staff_id").HasColumnType("uuid");
+            entity.Property(e => e.ScheduledStart).HasColumnName("scheduled_start").HasColumnType("timestamp with time zone");
+            entity.Property(e => e.ScheduledEnd).HasColumnName("scheduled_end").HasColumnType("timestamp with time zone");
+            entity.Property(e => e.Location).HasColumnName("location").HasColumnType("text");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("project_schedule_status").HasDefaultValueSql("'PENDING_CONFIRMATION'::project_schedule_status");
             entity.Property(e => e.CustomerNote).HasColumnName("customer_note").HasColumnType("text");
             entity.Property(e => e.InternalNote).HasColumnName("internal_note").HasColumnType("text");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
@@ -413,8 +379,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at").HasColumnType("timestamp with time zone");
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ScheduledBySalesId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.DesignerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AssignedStaffId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 
@@ -432,7 +398,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.DesignConcept).HasColumnName("design_concept").HasColumnType("text");
             entity.Property(e => e.VersionNo).HasColumnName("version_no").HasColumnType("integer").HasDefaultValue(1);
             entity.Property(e => e.EstimatedPrice).HasColumnName("estimated_price").HasColumnType("numeric(12,2)");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("proposal_status").HasDefaultValue("DRAFT");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("proposal_status").HasDefaultValueSql("'DRAFT'::proposal_status");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by").HasColumnType("uuid");
             entity.Property(e => e.PublishedAt).HasColumnName("published_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.SelectedAt).HasColumnName("selected_at").HasColumnType("timestamp with time zone");
@@ -455,7 +421,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProposalId).HasColumnName("proposal_id").HasColumnType("uuid");
             entity.Property(e => e.ProjectAreaId).HasColumnName("project_area_id").HasColumnType("uuid");
             entity.Property(e => e.SceneName).HasColumnName("scene_name").HasColumnType("varchar(150)");
-            entity.Property(e => e.SceneType).HasColumnName("scene_type").HasColumnType("proposal_scene_type").HasDefaultValue("THREE_D");
+            entity.Property(e => e.SceneType).HasColumnName("scene_type").HasColumnType("proposal_scene_type").HasDefaultValueSql("'THREE_D'::proposal_scene_type");
             entity.Property(e => e.MongoSceneId).HasColumnName("mongo_scene_id").HasColumnType("varchar(100)");
             entity.Property(e => e.PreviewFileId).HasColumnName("preview_file_id").HasColumnType("uuid");
             entity.Property(e => e.VersionNo).HasColumnName("version_no").HasColumnType("integer").HasDefaultValue(1);
@@ -519,12 +485,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.RequestedDepth).HasColumnName("requested_depth").HasColumnType("numeric(10,2)");
             entity.Property(e => e.RequestedMaterial).HasColumnName("requested_material").HasColumnType("varchar(100)");
             entity.Property(e => e.RequestedColor).HasColumnName("requested_color").HasColumnType("varchar(100)");
-            entity.Property(e => e.RequestedFinish).HasColumnName("requested_finish").HasColumnType("varchar(100)");
             entity.Property(e => e.RequestedChangeNote).HasColumnName("requested_change_note").HasColumnType("text");
             entity.Property(e => e.DesignerId).HasColumnName("designer_id").HasColumnType("uuid");
             entity.Property(e => e.DesignerSpecNote).HasColumnName("designer_spec_note").HasColumnType("text");
             entity.Property(e => e.ProductionReviewBy).HasColumnName("production_review_by").HasColumnType("uuid");
-            entity.Property(e => e.FeasibilityStatus).HasColumnName("feasibility_status").HasColumnType("customization_feasibility_status").HasDefaultValue("PENDING");
             entity.Property(e => e.FeasibilityNote).HasColumnName("feasibility_note").HasColumnType("text");
             entity.Property(e => e.EstimatedProductionDays).HasColumnName("estimated_production_days").HasColumnType("integer");
             entity.Property(e => e.EstimatedAdditionalCost).HasColumnName("estimated_additional_cost").HasColumnType("numeric(12,2)");
@@ -532,7 +496,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductionRiskNote).HasColumnName("production_risk_note").HasColumnType("text");
             entity.Property(e => e.SalesReviewBy).HasColumnName("sales_review_by").HasColumnType("uuid");
             entity.Property(e => e.ApprovedProductVersionId).HasColumnName("approved_product_version_id").HasColumnType("uuid");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("customization_status").HasDefaultValue("SUBMITTED");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("customization_status").HasDefaultValueSql("'SUBMITTED'::customization_status");
             entity.Property(e => e.CustomerAcceptedAt).HasColumnName("customer_accepted_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.CustomerRejectedAt).HasColumnName("customer_rejected_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
@@ -566,7 +530,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CustomizationFee).HasColumnName("customization_fee").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
             entity.Property(e => e.DeliveryFee).HasColumnName("delivery_fee").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
             entity.Property(e => e.TotalAmount).HasColumnName("total_amount").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("quotation_status").HasDefaultValue("DRAFT");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("quotation_status").HasDefaultValueSql("'DRAFT'::quotation_status");
             entity.Property(e => e.ValidUntil).HasColumnName("valid_until").HasColumnType("date");
             entity.Property(e => e.CustomerNote).HasColumnName("customer_note").HasColumnType("text");
             entity.Property(e => e.SalesNote).HasColumnName("sales_note").HasColumnType("text");
@@ -621,10 +585,20 @@ public class AppDbContext : DbContext
             entity.Property(e => e.OrderCode).HasColumnName("order_code").HasColumnType("varchar(50)").IsRequired();
             entity.Property(e => e.CustomerId).HasColumnName("customer_id").HasColumnType("uuid");
             entity.Property(e => e.SalesId).HasColumnName("sales_id").HasColumnType("uuid");
-            entity.Property(e => e.TotalAmount).HasColumnName("total_amount").HasColumnType("numeric(12,2)");
+            entity.Property(e => e.OriginalTotalAmount).HasColumnName("original_total_amount").HasColumnType("numeric(12,2)");
+            entity.Property(e => e.ItemAdjustmentAmount).HasColumnName("item_adjustment_amount").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
+            entity.Property(e => e.AdditionalDiscountAmount).HasColumnName("additional_discount_amount").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
+            entity.Property(e => e.FinalTotalAmount).HasColumnName("final_total_amount").HasColumnType("numeric(12,2)");
+            entity.Property(e => e.DepositAmount).HasColumnName("deposit_amount").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
             entity.Property(e => e.PaidAmount).HasColumnName("paid_amount").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
             entity.Property(e => e.RemainingAmount).HasColumnName("remaining_amount").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("order_status").HasDefaultValue("CREATED");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("order_status").HasDefaultValueSql("'CREATED'::order_status");
+            entity.Property(e => e.DeliveryAddress).HasColumnName("delivery_address").HasColumnType("text");
+            entity.Property(e => e.ReceiverName).HasColumnName("receiver_name").HasColumnType("varchar(150)");
+            entity.Property(e => e.ReceiverPhone).HasColumnName("receiver_phone").HasColumnType("varchar(20)");
+            entity.Property(e => e.DeliveryNote).HasColumnName("delivery_note").HasColumnType("text");
+            entity.Property(e => e.CustomerDeliveryNote).HasColumnName("customer_delivery_note").HasColumnType("text");
+            entity.Property(e => e.CustomerConfirmedDeliveryAt).HasColumnName("customer_confirmed_delivery_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.ConfirmedBy).HasColumnName("confirmed_by").HasColumnType("uuid");
             entity.Property(e => e.ConfirmedAt).HasColumnName("confirmed_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at").HasColumnType("timestamp with time zone");
@@ -656,14 +630,23 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductVersionNameSnapshot).HasColumnName("product_version_name_snapshot").HasColumnType("varchar(150)");
             entity.Property(e => e.ProductVersionCodeSnapshot).HasColumnName("product_version_code_snapshot").HasColumnType("varchar(50)");
             entity.Property(e => e.Quantity).HasColumnName("quantity").HasColumnType("integer").HasDefaultValue(1);
+            entity.Property(e => e.DeliveredQuantity).HasColumnName("delivered_quantity").HasColumnType("integer").HasDefaultValue(0);
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("order_item_status").HasDefaultValueSql("'PENDING'::order_item_status");
             entity.Property(e => e.UnitPrice).HasColumnName("unit_price").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
             entity.Property(e => e.CustomizationFee).HasColumnName("customization_fee").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
             entity.Property(e => e.DiscountAmount).HasColumnName("discount_amount").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
             entity.Property(e => e.SubtotalAmount).HasColumnName("subtotal_amount").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
+            entity.Property(e => e.AdjustmentAmount).HasColumnName("adjustment_amount").HasColumnType("numeric(12,2)").HasDefaultValue(0m);
+            entity.Property(e => e.UnavailableReason).HasColumnName("unavailable_reason").HasColumnType("text");
             entity.Property(e => e.ProductionNote).HasColumnName("production_note").HasColumnType("text");
+            entity.Property(e => e.DeliveryNote).HasColumnName("delivery_note").HasColumnType("text");
+            entity.Property(e => e.LastDeliveredAt).HasColumnName("last_delivered_at").HasColumnType("timestamp with time zone");
+            entity.Property(e => e.LastDeliveredBy).HasColumnName("last_delivered_by").HasColumnType("uuid");
+            entity.Property(e => e.CustomerConfirmedAt).HasColumnName("customer_confirmed_at").HasColumnType("timestamp with time zone");
             entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<QuotationItem>().WithMany().HasForeignKey(e => e.QuotationItemId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.LastDeliveredBy).OnDelete(DeleteBehavior.Restrict);
         });
     }
 
@@ -678,11 +661,11 @@ public class AppDbContext : DbContext
             entity.Property(e => e.OrderId).HasColumnName("order_id").HasColumnType("uuid");
             entity.Property(e => e.QuotationId).HasColumnName("quotation_id").HasColumnType("uuid");
             entity.Property(e => e.PaidBy).HasColumnName("paid_by").HasColumnType("uuid");
-            entity.Property(e => e.PaymentType).HasColumnName("payment_type").HasColumnType("payment_type").HasDefaultValue("OTHER");
+            entity.Property(e => e.PaymentType).HasColumnName("payment_type").HasColumnType("payment_type").HasDefaultValueSql("'OTHER'::payment_type");
             entity.Property(e => e.Amount).HasColumnName("amount").HasColumnType("numeric(12,2)");
             entity.Property(e => e.PaymentMethod).HasColumnName("payment_method").HasColumnType("varchar(50)");
             entity.Property(e => e.TransactionReference).HasColumnName("transaction_reference").HasColumnType("varchar(150)");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("payment_status").HasDefaultValue("PENDING");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("payment_status").HasDefaultValueSql("'PENDING'::payment_status");
             entity.Property(e => e.DueDate).HasColumnName("due_date").HasColumnType("date");
             entity.Property(e => e.PaidAt).HasColumnName("paid_at").HasColumnType("timestamp with time zone");
             entity.Property(e => e.Note).HasColumnName("note").HasColumnType("text");
@@ -706,7 +689,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProjectId).HasColumnName("project_id").HasColumnType("uuid");
             entity.Property(e => e.OrderId).HasColumnName("order_id").HasColumnType("uuid");
             entity.Property(e => e.AssignedTo).HasColumnName("assigned_to").HasColumnType("uuid");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("production_request_status").HasDefaultValue("PENDING_REVIEW");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("production_request_status").HasDefaultValueSql("'PENDING_REVIEW'::production_request_status");
             entity.Property(e => e.Priority).HasColumnName("priority").HasColumnType("varchar(30)");
             entity.Property(e => e.EstimatedStartDate).HasColumnName("estimated_start_date").HasColumnType("date");
             entity.Property(e => e.EstimatedCompletionDate).HasColumnName("estimated_completion_date").HasColumnType("date");
@@ -735,7 +718,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductNameSnapshot).HasColumnName("product_name_snapshot").HasColumnType("varchar(150)");
             entity.Property(e => e.ProductVersionNameSnapshot).HasColumnName("product_version_name_snapshot").HasColumnType("varchar(150)");
             entity.Property(e => e.Quantity).HasColumnName("quantity").HasColumnType("integer").HasDefaultValue(1);
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("production_item_status").HasDefaultValue("PENDING");
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("production_item_status").HasDefaultValueSql("'PENDING'::production_item_status");
             entity.Property(e => e.MaterialNote).HasColumnName("material_note").HasColumnType("text");
             entity.Property(e => e.ProductionNote).HasColumnName("production_note").HasColumnType("text");
             entity.Property(e => e.EstimatedCompletionDate).HasColumnName("estimated_completion_date").HasColumnType("date");
@@ -743,53 +726,6 @@ public class AppDbContext : DbContext
             entity.HasOne<ProductionRequest>().WithMany().HasForeignKey(e => e.ProductionRequestId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<OrderItem>().WithMany().HasForeignKey(e => e.OrderItemId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
-        });
-    }
-
-    private static void ConfigureDeliveries(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<Delivery>(entity =>
-        {
-            entity.ToTable("deliveries");
-            entity.HasKey(e => e.DeliveryId);
-            entity.Property(e => e.DeliveryId).HasColumnName("delivery_id").HasColumnType("uuid");
-            entity.Property(e => e.DeliveryCode).HasColumnName("delivery_code").HasColumnType("varchar(50)");
-            entity.Property(e => e.ProjectId).HasColumnName("project_id").HasColumnType("uuid");
-            entity.Property(e => e.OrderId).HasColumnName("order_id").HasColumnType("uuid");
-            entity.Property(e => e.AssignedDeliveryStaffId).HasColumnName("assigned_delivery_staff_id").HasColumnType("uuid");
-            entity.Property(e => e.DeliveryAddress).HasColumnName("delivery_address").HasColumnType("text");
-            entity.Property(e => e.ReceiverName).HasColumnName("receiver_name").HasColumnType("varchar(150)");
-            entity.Property(e => e.ReceiverPhone).HasColumnName("receiver_phone").HasColumnType("varchar(20)");
-            entity.Property(e => e.ScheduledDeliveryDate).HasColumnName("scheduled_delivery_date").HasColumnType("timestamp with time zone");
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("delivery_status").HasDefaultValue("PENDING_SCHEDULE");
-            entity.Property(e => e.DeliveryNote).HasColumnName("delivery_note").HasColumnType("text");
-            entity.Property(e => e.FailedReason).HasColumnName("failed_reason").HasColumnType("text");
-            entity.Property(e => e.DeliveredAt).HasColumnName("delivered_at").HasColumnType("timestamp with time zone");
-            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType("timestamp with time zone");
-            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at").HasColumnType("timestamp with time zone");
-            entity.HasIndex(e => e.DeliveryCode).IsUnique();
-            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AssignedDeliveryStaffId).OnDelete(DeleteBehavior.Restrict);
-        });
-    }
-
-    private static void ConfigureDeliveryItems(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<DeliveryItem>(entity =>
-        {
-            entity.ToTable("delivery_items");
-            entity.HasKey(e => e.DeliveryItemId);
-            entity.Property(e => e.DeliveryItemId).HasColumnName("delivery_item_id").HasColumnType("uuid");
-            entity.Property(e => e.DeliveryId).HasColumnName("delivery_id").HasColumnType("uuid");
-            entity.Property(e => e.OrderItemId).HasColumnName("order_item_id").HasColumnType("uuid");
-            entity.Property(e => e.ProjectAreaId).HasColumnName("project_area_id").HasColumnType("uuid");
-            entity.Property(e => e.Quantity).HasColumnName("quantity").HasColumnType("integer").HasDefaultValue(1);
-            entity.Property(e => e.Status).HasColumnName("status").HasColumnType("delivery_item_status").HasDefaultValue("PENDING");
-            entity.Property(e => e.Note).HasColumnName("note").HasColumnType("text");
-            entity.HasOne<Delivery>().WithMany().HasForeignKey(e => e.DeliveryId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<OrderItem>().WithMany().HasForeignKey(e => e.OrderItemId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

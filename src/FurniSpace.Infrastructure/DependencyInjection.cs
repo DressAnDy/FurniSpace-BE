@@ -52,7 +52,7 @@ public static class DependencyInjection
         }
 
         var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
-        dataSourceBuilder.MapEnum<AccountStatus>("account_status", new NpgsqlNullNameTranslator());
+        MapPostgresEnums(dataSourceBuilder);
         var dataSource = dataSourceBuilder.Build();
 
         services.AddSingleton(dataSource);
@@ -60,6 +60,37 @@ public static class DependencyInjection
             options.UseNpgsql(serviceProvider.GetRequiredService<NpgsqlDataSource>(), npgsql =>
                 npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
     }
+
+    private static void MapPostgresEnums(NpgsqlDataSourceBuilder builder)
+    {
+        var translator = new NpgsqlNullNameTranslator();
+
+        builder.MapEnum<AccountStatus>("account_status", translator);
+        builder.MapEnum<ProjectStatus>("project_status", translator);
+        builder.MapEnum<ProjectAreaType>("project_area_type", translator);
+        builder.MapEnum<ProjectAreaStatus>("project_area_status", translator);
+        builder.MapEnum<ProjectScheduleType>("project_schedule_type", translator);
+        builder.MapEnum<ProjectScheduleStatus>("project_schedule_status", translator);
+        builder.MapEnum<ProposalStatus>("proposal_status", translator);
+        builder.MapEnum<ProposalSceneType>("proposal_scene_type", translator);
+        builder.MapEnum<CustomizationStatus>("customization_status", translator);
+        builder.MapEnum<QuotationStatus>("quotation_status", translator);
+        builder.MapEnum<OrderStatus>("order_status", translator);
+        builder.MapEnum<OrderItemStatus>("order_item_status", translator);
+        builder.MapEnum<PaymentStatus>("payment_status", translator);
+        builder.MapEnum<PaymentType>("payment_type", translator);
+        builder.MapEnum<ProductionRequestStatus>("production_request_status", translator);
+        builder.MapEnum<ProductionItemStatus>("production_item_status", translator);
+        builder.MapEnum<NotificationStatus>("notification_status", translator);
+        builder.MapEnum<ProjectChatType>("project_chat_type", translator);
+        builder.MapEnum<ProjectChatStatus>("project_chat_status", translator);
+        builder.MapEnum<ProjectChatMessageType>("project_chat_message_type", translator);
+        builder.MapEnum<FileVisibility>("file_visibility", translator);
+        builder.MapEnum<FileType>("file_type", translator);
+        builder.MapEnum<ProductStatus>("product_status", translator);
+        builder.MapEnum<ProductVersionType>("product_version_type", translator);
+    }
+
     private static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
     {
         var redisConnection = configuration.GetSection(RedisSettings.SectionName)["ConnectionString"]

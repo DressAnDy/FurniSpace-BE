@@ -8,6 +8,7 @@ using FurniSpace.API.Controllers;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
+using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
@@ -55,8 +56,7 @@ public sealed class ProductsControllerTests
             ProductCode = "PM-COUNTER-001",
             ProductName = "Coffee Counter",
             Description = "Counter template for cafe projects",
-            ProductType = "SINGLE",
-            Status = "ACTIVE"
+            Status = ProductStatus.ACTIVE
         };
         var service = new FakeProductService(
             getAllResult: ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty),
@@ -69,8 +69,7 @@ public sealed class ProductsControllerTests
             CategoryId = response.CategoryId!.Value,
             ProductCode = "PM-COUNTER-001",
             ProductName = "Coffee Counter",
-            Description = "Counter template for cafe projects",
-            ProductType = "SINGLE"
+            Description = "Counter template for cafe projects"
         };
 
         var actionResult = await controller.Create(request);
@@ -103,7 +102,7 @@ public sealed class ProductsControllerTests
                         ProductVersionId = Guid.NewGuid(),
                         VersionCode = "PV-COUNTER-001-V1",
                         VersionName = "Coffee Counter - Standard Wood",
-                        Status = "ACTIVE",
+                        Status = ProductStatus.ACTIVE,
                         IsPublic = true
                     }
                 }

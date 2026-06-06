@@ -1,4 +1,5 @@
 ﻿using System;
+using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
 
@@ -9,7 +10,7 @@ public class ProductionRequest
     public Guid ProjectId { get; set; }
     public Guid OrderId { get; set; }
     public Guid? AssignedTo { get; set; }
-    public string? Status { get; set; }
+    public ProductionRequestStatus? Status { get; set; }
     public string? Priority { get; set; }
     public DateOnly? EstimatedStartDate { get; set; }
     public DateOnly? EstimatedCompletionDate { get; set; }
@@ -19,5 +20,4 @@ public class ProductionRequest
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
-
 

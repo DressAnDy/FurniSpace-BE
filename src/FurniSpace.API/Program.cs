@@ -2,6 +2,7 @@ using Serilog;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Security.Claims;
+using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FurniSpace.Application;
 using FurniSpace.Application.Common.Auth;
@@ -28,7 +29,9 @@ Log.Logger = SerilogConfiguration.CreateLogger(
 
 builder.Host.UseSerilog();
 
-builder.Services.AddControllers();
+builder.Services
+    .AddControllers()
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 ConfigureForwardedHeaders(builder.Services, builder.Configuration);
 AddPublicAuthRateLimiter(builder.Services);
 AddApiSwagger(builder.Services);

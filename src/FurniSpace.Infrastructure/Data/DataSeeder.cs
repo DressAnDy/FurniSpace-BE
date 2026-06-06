@@ -49,10 +49,10 @@ public static class DataSeeder
             """
             INSERT INTO categories (category_id, category_name, description, status, created_at, updated_at)
             VALUES
-                ('10000000-0000-0000-0000-000000000001', 'Living Room', 'Sofas, shelves, and media furniture', 'ACTIVE', now(), now()),
-                ('10000000-0000-0000-0000-000000000002', 'Bedroom', 'Beds, wardrobes, and nightstands', 'ACTIVE', now(), now()),
-                ('10000000-0000-0000-0000-000000000003', 'Kitchen', 'Kitchen cabinets and storage', 'ACTIVE', now(), now()),
-                ('10000000-0000-0000-0000-000000000004', 'Office', 'Desks, cabinets, and work furniture', 'ACTIVE', now(), now())
+                ('10000000-0000-0000-0000-000000000001', 'Living Room', 'Sofas, shelves, and media furniture', 'ACTIVE'::product_status, now(), now()),
+                ('10000000-0000-0000-0000-000000000002', 'Bedroom', 'Beds, wardrobes, and nightstands', 'ACTIVE'::product_status, now(), now()),
+                ('10000000-0000-0000-0000-000000000003', 'Kitchen', 'Kitchen cabinets and storage', 'ACTIVE'::product_status, now(), now()),
+                ('10000000-0000-0000-0000-000000000004', 'Office', 'Desks, cabinets, and work furniture', 'ACTIVE'::product_status, now(), now())
             ON CONFLICT (category_id) DO NOTHING;
             """,
             cancellationToken);
@@ -62,12 +62,12 @@ public static class DataSeeder
     {
         return dbContext.Database.ExecuteSqlRawAsync(
             """
-            INSERT INTO products (product_id, category_id, product_code, product_name, description, product_type, status, created_at, updated_at)
+            INSERT INTO products (product_id, category_id, product_code, product_name, description, status, created_at, updated_at)
             VALUES
-                ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'SOFA-LUX-001', 'Luxe Modular Sofa', 'Custom modular sofa for living spaces', 'SINGLE', 'ACTIVE'::product_status, now(), now()),
-                ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', 'WARD-STD-001', 'Sliding Door Wardrobe', 'Built-in wardrobe with sliding doors', 'SINGLE', 'ACTIVE'::product_status, now(), now()),
-                ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000003', 'KITCH-CAB-001', 'Modern Kitchen Cabinet', 'Upper and lower kitchen cabinet set', 'SET', 'ACTIVE'::product_status, now(), now()),
-                ('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000004', 'DESK-OAK-001', 'Oak Work Desk', 'Minimal office desk with drawer module', 'SINGLE', 'ACTIVE'::product_status, now(), now())
+                ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'SOFA-LUX-001', 'Luxe Modular Sofa', 'Custom modular sofa for living spaces', 'ACTIVE'::product_status, now(), now()),
+                ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', 'WARD-STD-001', 'Sliding Door Wardrobe', 'Built-in wardrobe with sliding doors', 'ACTIVE'::product_status, now(), now()),
+                ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000003', 'KITCH-CAB-001', 'Modern Kitchen Cabinet', 'Upper and lower kitchen cabinet set', 'ACTIVE'::product_status, now(), now()),
+                ('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000004', 'DESK-OAK-001', 'Oak Work Desk', 'Minimal office desk with drawer module', 'ACTIVE'::product_status, now(), now())
             ON CONFLICT (product_code) DO NOTHING;
             """,
             cancellationToken);

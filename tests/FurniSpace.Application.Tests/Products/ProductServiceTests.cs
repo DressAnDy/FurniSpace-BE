@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 
@@ -36,8 +37,7 @@ public sealed class ProductServiceTests
             CategoryId = categoryId,
             ProductCode = " PM-COUNTER-001 ",
             ProductName = " Coffee Counter ",
-            Description = " Counter template for cafe projects ",
-            ProductType = " SINGLE "
+            Description = " Counter template for cafe projects "
         });
 
         Assert.Equal(201, result.Status);
@@ -48,8 +48,7 @@ public sealed class ProductServiceTests
         Assert.Equal("PM-COUNTER-001", result.Data.ProductCode);
         Assert.Equal("Coffee Counter", result.Data.ProductName);
         Assert.Equal("Counter template for cafe projects", result.Data.Description);
-        Assert.Equal("SINGLE", result.Data.ProductType);
-        Assert.Equal("ACTIVE", result.Data.Status);
+        Assert.Equal(ProductStatus.ACTIVE, result.Data.Status);
         Assert.Equal(1, repository.GetCategoryCallCount);
         Assert.Equal(1, repository.ProductCodeExistsCallCount);
         Assert.Equal(1, repository.AddCallCount);
@@ -78,15 +77,13 @@ public sealed class ProductServiceTests
             CategoryId = categoryId,
             ProductCode = " ",
             ProductName = "Coffee Counter",
-            Description = " ",
-            ProductType = " "
+            Description = " "
         });
 
         Assert.Equal(201, result.Status);
         Assert.NotNull(result.Data);
         Assert.Null(result.Data.ProductCode);
         Assert.Null(result.Data.Description);
-        Assert.Equal("SINGLE", result.Data.ProductType);
         Assert.Equal(0, repository.ProductCodeExistsCallCount);
     }
 
@@ -100,8 +97,7 @@ public sealed class ProductServiceTests
         {
             CategoryId = Guid.Empty,
             ProductCode = new string('P', 51),
-            ProductName = " ",
-            ProductType = new string('T', 31)
+            ProductName = " "
         });
 
         Assert.Equal(400, result.Status);
@@ -109,7 +105,6 @@ public sealed class ProductServiceTests
         Assert.Contains("Category id is required.", result.Errors!);
         Assert.Contains("Product code must not exceed 50 characters.", result.Errors!);
         Assert.Contains("Product name is required.", result.Errors!);
-        Assert.Contains("Product type must not exceed 30 characters.", result.Errors!);
         Assert.Null(result.Data);
         Assert.Equal(0, repository.GetCategoryCallCount);
         Assert.Equal(0, repository.AddCallCount);
@@ -212,8 +207,7 @@ public sealed class ProductServiceTests
                     ProductCode = "PM-COUNTER-001",
                     ProductName = "Coffee Counter",
                     Description = "Counter template for cafe projects",
-                    ProductType = "SINGLE",
-                    Status = "ACTIVE",
+                    Status = ProductStatus.ACTIVE,
                     Versions =
                     [
                         new ProductVersionReadModel
@@ -223,7 +217,7 @@ public sealed class ProductServiceTests
                             VersionName = "Private Default",
                             IsDefault = true,
                             IsPublic = false,
-                            Status = "ACTIVE",
+                            Status = ProductStatus.ACTIVE,
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                         },
                         new ProductVersionReadModel
@@ -231,7 +225,7 @@ public sealed class ProductServiceTests
                             ProductVersionId = defaultVersionId,
                             VersionCode = "PV-COUNTER-001-V1",
                             VersionName = "Coffee Counter - Standard Wood",
-                            VersionType = "STANDARD",
+                            VersionType = ProductVersionType.STANDARD,
                             Material = "Plywood",
                             Color = "Wood Brown",
                             Width = 2000m,
@@ -241,7 +235,7 @@ public sealed class ProductServiceTests
                             IsDefault = false,
                             IsPublic = true,
                             IsProjectSpecific = false,
-                            Status = "ACTIVE",
+                            Status = ProductStatus.ACTIVE,
                             CreatedAt = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
                         }
                     ]
@@ -259,14 +253,13 @@ public sealed class ProductServiceTests
         Assert.Equal("PM-COUNTER-001", result.Data.ProductCode);
         Assert.Equal("Coffee Counter", result.Data.ProductName);
         Assert.Equal("Counter template for cafe projects", result.Data.Description);
-        Assert.Equal("SINGLE", result.Data.ProductType);
-        Assert.Equal("ACTIVE", result.Data.Status);
+        Assert.Equal(ProductStatus.ACTIVE, result.Data.Status);
         Assert.Equal(2, result.Data.Versions.Count);
         Assert.NotNull(result.Data.DefaultVersion);
         Assert.Equal(defaultVersionId, result.Data.DefaultVersion.ProductVersionId);
         Assert.Equal("PV-COUNTER-001-V1", result.Data.DefaultVersion.VersionCode);
         Assert.Equal("Coffee Counter - Standard Wood", result.Data.DefaultVersion.VersionName);
-        Assert.Equal("STANDARD", result.Data.DefaultVersion.VersionType);
+        Assert.Equal(ProductVersionType.STANDARD, result.Data.DefaultVersion.VersionType);
         Assert.Equal("Plywood", result.Data.DefaultVersion.Material);
         Assert.Equal("Wood Brown", result.Data.DefaultVersion.Color);
         Assert.Equal(2000m, result.Data.DefaultVersion.Width);
@@ -276,7 +269,7 @@ public sealed class ProductServiceTests
         Assert.False(result.Data.DefaultVersion.IsDefault);
         Assert.True(result.Data.DefaultVersion.IsPublic);
         Assert.False(result.Data.DefaultVersion.IsProjectSpecific);
-        Assert.Equal("ACTIVE", result.Data.DefaultVersion.Status);
+        Assert.Equal(ProductStatus.ACTIVE, result.Data.DefaultVersion.Status);
         Assert.Equal(1, repository.GetDetailCallCount);
     }
 
@@ -300,7 +293,7 @@ public sealed class ProductServiceTests
                             VersionCode = "INACTIVE",
                             VersionName = "Inactive",
                             IsPublic = true,
-                            Status = "INACTIVE"
+                            Status = ProductStatus.INACTIVE
                         },
                         new ProductVersionReadModel
                         {
@@ -308,7 +301,7 @@ public sealed class ProductServiceTests
                             VersionCode = "PRIVATE",
                             VersionName = "Private",
                             IsPublic = false,
-                            Status = "ACTIVE"
+                            Status = ProductStatus.ACTIVE
                         }
                     ]
                 }
@@ -365,7 +358,7 @@ public sealed class ProductServiceTests
                     CategoryName = "Counter",
                     ProductCode = "PM-COUNTER-001",
                     ProductName = "Coffee Counter",
-                    Status = "ACTIVE",
+                    Status = ProductStatus.ACTIVE,
                     DefaultVersion = new ProductVersionReadModel
                     {
                         ProductVersionId = Guid.NewGuid(),
@@ -373,7 +366,7 @@ public sealed class ProductServiceTests
                         VersionName = "Coffee Counter - Standard Wood",
                         IsDefault = true,
                         IsPublic = true,
-                        Status = "ACTIVE"
+                        Status = ProductStatus.ACTIVE
                     }
                 }
             ],
@@ -526,14 +519,13 @@ public sealed class ProductServiceTests
                 ProductCode = "PM-COUNTER-001",
                 ProductName = "Coffee Counter",
                 Description = "Counter template for cafe projects",
-                ProductType = "SINGLE",
-                Status = "ACTIVE",
+                Status = ProductStatus.ACTIVE,
                 DefaultVersion = new ProductVersionReadModel
                 {
                     ProductVersionId = versionId,
                     VersionCode = "PV-COUNTER-001-V1",
                     VersionName = "Coffee Counter - Standard Wood",
-                    VersionType = "STANDARD",
+                    VersionType = ProductVersionType.STANDARD,
                     Material = "Plywood",
                     Color = "Wood Brown",
                     Width = 2000m,
@@ -543,7 +535,7 @@ public sealed class ProductServiceTests
                     IsDefault = true,
                     IsPublic = true,
                     IsProjectSpecific = false,
-                    Status = "ACTIVE"
+                    Status = ProductStatus.ACTIVE
                 }
             }
         ]);
@@ -565,7 +557,7 @@ public sealed class ProductServiceTests
         Assert.Equal(versionId, item.DefaultVersion.ProductVersionId);
         Assert.Equal("PV-COUNTER-001-V1", item.DefaultVersion.VersionCode);
         Assert.Equal("Coffee Counter - Standard Wood", item.DefaultVersion.VersionName);
-        Assert.Equal("STANDARD", item.DefaultVersion.VersionType);
+        Assert.Equal(ProductVersionType.STANDARD, item.DefaultVersion.VersionType);
         Assert.Equal("Plywood", item.DefaultVersion.Material);
         Assert.Equal("Wood Brown", item.DefaultVersion.Color);
         Assert.Equal(2000m, item.DefaultVersion.Width);
@@ -575,7 +567,7 @@ public sealed class ProductServiceTests
         Assert.True(item.DefaultVersion.IsDefault);
         Assert.True(item.DefaultVersion.IsPublic);
         Assert.False(item.DefaultVersion.IsProjectSpecific);
-        Assert.Equal("ACTIVE", item.DefaultVersion.Status);
+        Assert.Equal(ProductStatus.ACTIVE, item.DefaultVersion.Status);
         Assert.Equal(1, repository.GetPublicListCallCount);
         Assert.Equal(1, repository.CountCallCount);
     }
@@ -589,7 +581,7 @@ public sealed class ProductServiceTests
             {
                 ProductId = Guid.NewGuid(),
                 ProductName = "Coffee Counter",
-                Status = "ACTIVE",
+                Status = ProductStatus.ACTIVE,
                 DefaultVersion = null
             }
         ]);
@@ -755,7 +747,6 @@ public sealed class ProductServiceTests
                             ProductCode = product.ProductCode,
                             ProductName = product.ProductName,
                             Description = product.Description,
-                            ProductType = product.ProductType,
                             Status = product.Status,
                             DefaultVersion = null
                         })

@@ -1,0 +1,14 @@
+namespace FurniSpace.Domain.Enums;
+
+public enum CustomizationStatus
+{
+    SUBMITTED,
+    DESIGN_REVIEWING,
+    WAITING_FOR_DESIGN_APPROVAL,
+    DESIGN_REVISION_REQUESTED,
+    PRODUCTION_REVIEWING,
+    NOT_FEASIBLE,
+    ACCEPTED,
+    REJECTED_BY_CUSTOMER,
+    CANCELLED
+}

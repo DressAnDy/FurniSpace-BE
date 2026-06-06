@@ -1,3 +1,5 @@
+using FurniSpace.Domain.Enums;
+
 namespace FurniSpace.Application.DTOs.Products;
 
 public sealed class ProductDetailDto
@@ -8,8 +10,7 @@ public sealed class ProductDetailDto
     public string? ProductCode { get; set; }
     public string ProductName { get; set; } = string.Empty;
     public string? Description { get; set; }
-    public string? ProductType { get; set; }
-    public string? Status { get; set; }
+    public ProductStatus? Status { get; set; }
     public ProductVersionSummaryDto? DefaultVersion { get; set; }
     public IReadOnlyList<ProductVersionSummaryDto> Versions { get; set; } = [];
 }

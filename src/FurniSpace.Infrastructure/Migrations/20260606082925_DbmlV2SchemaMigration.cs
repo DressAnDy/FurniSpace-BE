@@ -1,4 +1,5 @@
 ﻿using System;
+using FurniSpace.Domain.Enums;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,37 +7,33 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace FurniSpace.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialFurniSpaceSchema : Migration
+    public partial class DbmlV2SchemaMigration : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.AlterDatabase()
                 .Annotation("Npgsql:Enum:account_status", "ACTIVE,INACTIVE,SUSPENDED")
-                .Annotation("Npgsql:Enum:customization_feasibility_status", "PENDING,FEASIBLE,NOT_FEASIBLE,NEED_REVISION")
-                .Annotation("Npgsql:Enum:customization_status", "SUBMITTED,DESIGN_REVIEWING,PRODUCTION_REVIEWING,WAITING_FOR_CUSTOMER_APPROVAL,ACCEPTED,REJECTED_BY_CUSTOMER,NOT_FEASIBLE,CANCELLED,CONVERTED_TO_VERSION")
-                .Annotation("Npgsql:Enum:delivery_item_status", "PENDING,LOADED,DELIVERED,FAILED,CANCELLED")
-                .Annotation("Npgsql:Enum:delivery_status", "PENDING_SCHEDULE,SCHEDULED,DELIVERING,DELIVERED,FAILED,RESCHEDULED,CANCELLED")
+                .Annotation("Npgsql:Enum:customization_status", "SUBMITTED,DESIGN_REVIEWING,WAITING_FOR_DESIGN_APPROVAL,DESIGN_REVISION_REQUESTED,PRODUCTION_REVIEWING,NOT_FEASIBLE,ACCEPTED,REJECTED_BY_CUSTOMER,CANCELLED")
                 .Annotation("Npgsql:Enum:file_type", "SPACE_IMAGE,FLOOR_PLAN,REFERENCE_IMAGE,BRAND_ASSET,CAD_FILE,PDF_DRAWING,MEASUREMENT_REPORT,LIDAR_SCAN,MODEL_3D,TEXTURE,PRODUCT_PREVIEW,PROPOSAL_PREVIEW,PROPOSAL_FILE,QUOTATION_FILE,ORDER_DOCUMENT,PRODUCTION_FILE,DELIVERY_PHOTO,DELIVERY_NOTE,REVIEW_IMAGE,OTHER")
-                .Annotation("Npgsql:Enum:file_visibility", "CUSTOMER_VISIBLE,INTERNAL,STAFF_ONLY,PRIVATE")
-                .Annotation("Npgsql:Enum:measurement_appointment_status", "PENDING_CONFIRMATION,CONFIRMED,RESCHEDULED,COMPLETED,CANCELLED,NO_SHOW")
+                .Annotation("Npgsql:Enum:file_visibility", "CUSTOMER_VISIBLE,STAFF_ONLY,PRIVATE")
                 .Annotation("Npgsql:Enum:notification_status", "UNREAD,READ")
-                .Annotation("Npgsql:Enum:order_status", "CREATED,CONFIRMED,PENDING_PAYMENT,IN_PRODUCTION,READY_FOR_DELIVERY,DELIVERING,DELIVERED,COMPLETED,CANCELLED")
+                .Annotation("Npgsql:Enum:order_item_status", "PENDING,IN_PRODUCTION,READY,UNAVAILABLE,DELIVERED,CANCELLED")
+                .Annotation("Npgsql:Enum:order_status", "CREATED,DEPOSIT_PENDING,DEPOSIT_PAID,IN_PRODUCTION,PRODUCTION_PARTIALLY_FAILED,PRODUCTION_COMPLETED,READY_FOR_DELIVERY,DELIVERY_SCHEDULED,DELIVERING,DELIVERED,FINAL_PAYMENT_PENDING,COMPLETED,CANCELLED")
                 .Annotation("Npgsql:Enum:payment_status", "PENDING,PAID,FAILED,REFUNDED,CANCELLED")
                 .Annotation("Npgsql:Enum:payment_type", "DEPOSIT,REMAINING_PAYMENT,FULL_PAYMENT,MEASUREMENT_FEE,DESIGN_FEE,CUSTOMIZATION_FEE,DELIVERY_FEE,CANCELLATION_FEE,REFUND,OTHER")
                 .Annotation("Npgsql:Enum:product_status", "ACTIVE,INACTIVE,ARCHIVED")
-                .Annotation("Npgsql:Enum:product_version_status", "ACTIVE,INACTIVE,ARCHIVED")
                 .Annotation("Npgsql:Enum:product_version_type", "STANDARD,CUSTOM,PROJECT_SPECIFIC")
                 .Annotation("Npgsql:Enum:production_item_status", "PENDING,IN_PRODUCTION,COMPLETED,BLOCKED,CANCELLED")
                 .Annotation("Npgsql:Enum:production_request_status", "PENDING_REVIEW,FEASIBLE,IN_PRODUCTION,COMPLETED,BLOCKED,CANCELLED")
                 .Annotation("Npgsql:Enum:project_area_status", "DRAFT,NEED_MEASUREMENT,MEASURED,VERIFIED,DESIGNING,DESIGNED,APPROVED,CANCELLED")
                 .Annotation("Npgsql:Enum:project_area_type", "STORE,FLOOR,ROOM,ZONE,OUTDOOR_AREA,OTHER")
-                .Annotation("Npgsql:Enum:project_assignment_role", "SALES_CONSULTANT,DESIGNER_STAFF,PRODUCTION_STAFF,DELIVERY_STAFF,ADMIN_SUPPORT")
-                .Annotation("Npgsql:Enum:project_assignment_status", "ACTIVE,INACTIVE,REASSIGNED,CANCELLED")
                 .Annotation("Npgsql:Enum:project_chat_message_type", "TEXT,FILE,SYSTEM")
                 .Annotation("Npgsql:Enum:project_chat_status", "OPEN,CLOSED,ARCHIVED")
                 .Annotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,PRODUCTION,DELIVERY,GENERAL,INTERNAL")
-                .Annotation("Npgsql:Enum:project_status", "DRAFT,SUBMITTED,SALES_ASSIGNED,IN_CONSULTATION,NEED_BASIC_INFORMATION,WAITING_FOR_DESIGNER_ASSIGNMENT,SPACE_INPUT_REVIEW,MEASUREMENT_REQUIRED,WAITING_FOR_SCHEDULE_CONFIRMATION,MEASUREMENT_SCHEDULED,MEASUREMENT_COMPLETED,SPACE_VERIFICATION_REQUIRED,SPACE_VERIFIED,LAYOUT_DESIGNING,PROPOSAL_DRAFTING,WAITING_FOR_CUSTOMER_REVIEW,REVISION_REQUESTED,PROPOSAL_SELECTED,QUOTATION_PREPARING,QUOTATION_SENT,QUOTATION_REVISION_REQUESTED,QUOTATION_ACCEPTED,ORDER_CONFIRMED,IN_PRODUCTION,PRODUCTION_BLOCKED,READY_FOR_DELIVERY,DELIVERY_SCHEDULED,DELIVERING,DELIVERED,COMPLETED,REJECTED,CANCELLED")
+                .Annotation("Npgsql:Enum:project_schedule_status", "PENDING_CONFIRMATION,CONFIRMED,COMPLETED,CANCELLED")
+                .Annotation("Npgsql:Enum:project_schedule_type", "MEASUREMENT,CONSULTATION,DESIGN_REVIEW,DELIVERY,HANDOVER,OTHER")
+                .Annotation("Npgsql:Enum:project_status", "SUBMITTED,IN_CONSULTATION,NEED_BASIC_INFORMATION,WAITING_FOR_DESIGNER_ASSIGNMENT,MEASUREMENT_REQUIRED,SPACE_VERIFIED,PROPOSAL_DRAFTING,WAITING_FOR_CUSTOMER_REVIEW,REVISION_REQUESTED,PROPOSAL_SELECTED,QUOTATION_SENT,QUOTATION_REVISION_REQUESTED,ORDER_CONFIRMED,IN_PRODUCTION,PRODUCTION_BLOCKED,READY_FOR_DELIVERY,DELIVERING,DELIVERED,COMPLETED,REJECTED")
                 .Annotation("Npgsql:Enum:proposal_scene_type", "TWO_D,THREE_D")
                 .Annotation("Npgsql:Enum:proposal_status", "DRAFT,PUBLISHED,VIEWED,SELECTED,REVISION_REQUESTED,REJECTED,ARCHIVED")
                 .Annotation("Npgsql:Enum:quotation_status", "DRAFT,SENT,REVISION_REQUESTED,REVISED,ACCEPTED,REJECTED,EXPIRED,CANCELLED");
@@ -48,7 +45,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     category_id = table.Column<Guid>(type: "uuid", nullable: false),
                     category_name = table.Column<string>(type: "varchar(100)", nullable: false),
                     description = table.Column<string>(type: "text", nullable: true),
-                    status = table.Column<string>(type: "product_status", nullable: true, defaultValue: "ACTIVE"),
+                    status = table.Column<ProductStatus>(type: "product_status", nullable: true, defaultValueSql: "'ACTIVE'::product_status"),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
@@ -73,6 +70,30 @@ namespace FurniSpace.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "products",
+                columns: table => new
+                {
+                    product_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    category_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    product_code = table.Column<string>(type: "varchar(50)", nullable: true),
+                    product_name = table.Column<string>(type: "varchar(150)", nullable: false),
+                    description = table.Column<string>(type: "text", nullable: true),
+                    status = table.Column<ProductStatus>(type: "product_status", nullable: true, defaultValueSql: "'ACTIVE'::product_status"),
+                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_products", x => x.product_id);
+                    table.ForeignKey(
+                        name: "FK_products_categories_category_id",
+                        column: x => x.category_id,
+                        principalTable: "categories",
+                        principalColumn: "category_id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "accounts",
                 columns: table => new
                 {
@@ -83,7 +104,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     full_name = table.Column<string>(type: "varchar(100)", nullable: false),
                     phone = table.Column<string>(type: "varchar(20)", nullable: true),
                     avatar_url = table.Column<string>(type: "text", nullable: true),
-                    status = table.Column<string>(type: "account_status", nullable: true, defaultValue: "ACTIVE"),
+                    status = table.Column<AccountStatus>(type: "account_status", nullable: true, defaultValueSql: "'ACTIVE'::account_status"),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     deleted_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
@@ -96,6 +117,39 @@ namespace FurniSpace.Infrastructure.Migrations
                         column: x => x.role_id,
                         principalTable: "roles",
                         principalColumn: "role_id",
+                        onDelete: ReferentialAction.Restrict);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "product_versions",
+                columns: table => new
+                {
+                    product_version_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    product_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    version_code = table.Column<string>(type: "varchar(50)", nullable: false),
+                    version_name = table.Column<string>(type: "varchar(150)", nullable: false),
+                    version_type = table.Column<ProductVersionType>(type: "product_version_type", nullable: true, defaultValueSql: "'STANDARD'::product_version_type"),
+                    material = table.Column<string>(type: "varchar(100)", nullable: true),
+                    color = table.Column<string>(type: "varchar(100)", nullable: true),
+                    width = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
+                    height = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
+                    depth = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
+                    estimated_price = table.Column<decimal>(type: "numeric(12,2)", nullable: true),
+                    is_default = table.Column<bool>(type: "boolean", nullable: true, defaultValue: false),
+                    is_public = table.Column<bool>(type: "boolean", nullable: true, defaultValue: true),
+                    is_project_specific = table.Column<bool>(type: "boolean", nullable: true, defaultValue: false),
+                    status = table.Column<ProductStatus>(type: "product_status", nullable: true, defaultValueSql: "'ACTIVE'::product_status"),
+                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_product_versions", x => x.product_version_id);
+                    table.ForeignKey(
+                        name: "FK_product_versions_products_product_id",
+                        column: x => x.product_id,
+                        principalTable: "products",
+                        principalColumn: "product_id",
                         onDelete: ReferentialAction.Restrict);
                 });
 
@@ -124,38 +178,6 @@ namespace FurniSpace.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "products",
-                columns: table => new
-                {
-                    product_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    category_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    product_code = table.Column<string>(type: "varchar(50)", nullable: true),
-                    product_name = table.Column<string>(type: "varchar(150)", nullable: false),
-                    description = table.Column<string>(type: "text", nullable: true),
-                    status = table.Column<string>(type: "product_status", nullable: true, defaultValue: "ACTIVE"),
-                    created_by = table.Column<Guid>(type: "uuid", nullable: true),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    deleted_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_products", x => x.product_id);
-                    table.ForeignKey(
-                        name: "FK_products_accounts_created_by",
-                        column: x => x.created_by,
-                        principalTable: "accounts",
-                        principalColumn: "account_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_products_categories_category_id",
-                        column: x => x.category_id,
-                        principalTable: "categories",
-                        principalColumn: "category_id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "projects",
                 columns: table => new
                 {
@@ -168,29 +190,23 @@ namespace FurniSpace.Infrastructure.Migrations
                     business_type = table.Column<string>(type: "varchar(100)", nullable: true),
                     project_address = table.Column<string>(type: "text", nullable: true),
                     business_purpose = table.Column<string>(type: "text", nullable: true),
-                    preferred_style = table.Column<string>(type: "varchar(100)", nullable: true),
                     furniture_requirement = table.Column<string>(type: "text", nullable: true),
                     description = table.Column<string>(type: "text", nullable: true),
                     total_area_sqm = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
                     number_of_floors = table.Column<int>(type: "integer", nullable: true),
                     budget_min = table.Column<decimal>(type: "numeric(12,2)", nullable: true),
                     budget_max = table.Column<decimal>(type: "numeric(12,2)", nullable: true),
-                    expected_start_date = table.Column<DateOnly>(type: "date", nullable: true),
-                    expected_completion_date = table.Column<DateOnly>(type: "date", nullable: true),
-                    status = table.Column<string>(type: "project_status", nullable: true, defaultValue: "DRAFT"),
+                    target_completion_date = table.Column<DateOnly>(type: "date", nullable: true),
+                    status = table.Column<ProjectStatus>(type: "project_status", nullable: true, defaultValueSql: "'SUBMITTED'::project_status"),
                     submitted_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     sales_assigned_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     approved_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     designer_assigned_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     completed_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     rejected_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    cancelled_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     rejection_reason = table.Column<string>(type: "text", nullable: true),
-                    cancellation_reason = table.Column<string>(type: "text", nullable: true),
-                    created_by = table.Column<Guid>(type: "uuid", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    deleted_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
+                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -208,12 +224,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         principalColumn: "account_id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_projects_accounts_created_by",
-                        column: x => x.created_by,
-                        principalTable: "accounts",
-                        principalColumn: "account_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
                         name: "FK_projects_accounts_customer_id",
                         column: x => x.customer_id,
                         principalTable: "accounts",
@@ -227,10 +237,10 @@ namespace FurniSpace.Infrastructure.Migrations
                 {
                     file_link_id = table.Column<Guid>(type: "uuid", nullable: false),
                     file_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    owner_type = table.Column<string>(type: "varchar(50)", nullable: false),
-                    owner_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    file_type = table.Column<string>(type: "file_type", nullable: true, defaultValue: "OTHER"),
-                    visibility = table.Column<string>(type: "file_visibility", nullable: true, defaultValue: "INTERNAL"),
+                    reference_type = table.Column<string>(type: "varchar(50)", nullable: false),
+                    reference_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    file_type = table.Column<FileType>(type: "file_type", nullable: true, defaultValueSql: "'OTHER'::file_type"),
+                    visibility = table.Column<FileVisibility>(type: "file_visibility", nullable: true, defaultValueSql: "'STAFF_ONLY'::file_visibility"),
                     description = table.Column<string>(type: "text", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
@@ -255,7 +265,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     title = table.Column<string>(type: "varchar(150)", nullable: false),
                     message = table.Column<string>(type: "text", nullable: true),
                     notification_type = table.Column<string>(type: "varchar(50)", nullable: true),
-                    status = table.Column<string>(type: "notification_status", nullable: true, defaultValue: "UNREAD"),
+                    status = table.Column<NotificationStatus>(type: "notification_status", nullable: true, defaultValueSql: "'UNREAD'::notification_status"),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     read_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
@@ -277,57 +287,6 @@ namespace FurniSpace.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "product_versions",
-                columns: table => new
-                {
-                    product_version_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    product_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    project_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    version_code = table.Column<string>(type: "varchar(50)", nullable: true),
-                    version_name = table.Column<string>(type: "varchar(150)", nullable: false),
-                    version_type = table.Column<string>(type: "product_version_type", nullable: true, defaultValue: "STANDARD"),
-                    material = table.Column<string>(type: "varchar(100)", nullable: true),
-                    color = table.Column<string>(type: "varchar(100)", nullable: true),
-                    finish = table.Column<string>(type: "varchar(100)", nullable: true),
-                    width = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
-                    height = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
-                    depth = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
-                    estimated_price = table.Column<decimal>(type: "numeric(12,2)", nullable: true),
-                    production_note = table.Column<string>(type: "text", nullable: true),
-                    technical_note = table.Column<string>(type: "text", nullable: true),
-                    is_default = table.Column<bool>(type: "boolean", nullable: true, defaultValue: false),
-                    is_public = table.Column<bool>(type: "boolean", nullable: true, defaultValue: true),
-                    is_project_specific = table.Column<bool>(type: "boolean", nullable: true, defaultValue: false),
-                    status = table.Column<string>(type: "product_version_status", nullable: true, defaultValue: "ACTIVE"),
-                    created_by = table.Column<Guid>(type: "uuid", nullable: true),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    deleted_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_product_versions", x => x.product_version_id);
-                    table.ForeignKey(
-                        name: "FK_product_versions_accounts_created_by",
-                        column: x => x.created_by,
-                        principalTable: "accounts",
-                        principalColumn: "account_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_product_versions_products_product_id",
-                        column: x => x.product_id,
-                        principalTable: "products",
-                        principalColumn: "product_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_product_versions_projects_project_id",
-                        column: x => x.project_id,
-                        principalTable: "projects",
-                        principalColumn: "project_id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "project_areas",
                 columns: table => new
                 {
@@ -335,7 +294,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     project_id = table.Column<Guid>(type: "uuid", nullable: false),
                     parent_area_id = table.Column<Guid>(type: "uuid", nullable: true),
                     area_name = table.Column<string>(type: "varchar(150)", nullable: false),
-                    area_type = table.Column<string>(type: "project_area_type", nullable: true, defaultValue: "ZONE"),
+                    area_type = table.Column<ProjectAreaType>(type: "project_area_type", nullable: true, defaultValueSql: "'ZONE'::project_area_type"),
                     floor_number = table.Column<int>(type: "integer", nullable: true),
                     description = table.Column<string>(type: "text", nullable: true),
                     area_sqm = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
@@ -344,7 +303,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     height = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
                     current_condition = table.Column<string>(type: "text", nullable: true),
                     requirement_note = table.Column<string>(type: "text", nullable: true),
-                    status = table.Column<string>(type: "project_area_status", nullable: true, defaultValue: "DRAFT"),
+                    status = table.Column<ProjectAreaStatus>(type: "project_area_status", nullable: true, defaultValueSql: "'DRAFT'::project_area_status"),
                     created_by = table.Column<Guid>(type: "uuid", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
@@ -373,52 +332,15 @@ namespace FurniSpace.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "project_assignments",
-                columns: table => new
-                {
-                    assignment_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    project_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    account_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    assignment_role = table.Column<string>(type: "project_assignment_role", nullable: false),
-                    status = table.Column<string>(type: "project_assignment_status", nullable: true, defaultValue: "ACTIVE"),
-                    assigned_by = table.Column<Guid>(type: "uuid", nullable: true),
-                    assigned_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    unassigned_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    note = table.Column<string>(type: "text", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_project_assignments", x => x.assignment_id);
-                    table.ForeignKey(
-                        name: "FK_project_assignments_accounts_account_id",
-                        column: x => x.account_id,
-                        principalTable: "accounts",
-                        principalColumn: "account_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_project_assignments_accounts_assigned_by",
-                        column: x => x.assigned_by,
-                        principalTable: "accounts",
-                        principalColumn: "account_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_project_assignments_projects_project_id",
-                        column: x => x.project_id,
-                        principalTable: "projects",
-                        principalColumn: "project_id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "project_chats",
                 columns: table => new
                 {
                     chat_id = table.Column<Guid>(type: "uuid", nullable: false),
                     project_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    chat_type = table.Column<string>(type: "project_chat_type", nullable: false),
+                    chat_type = table.Column<ProjectChatType>(type: "project_chat_type", nullable: false),
                     staff_id = table.Column<Guid>(type: "uuid", nullable: true),
                     title = table.Column<string>(type: "varchar(150)", nullable: true),
-                    status = table.Column<string>(type: "project_chat_status", nullable: true, defaultValue: "OPEN"),
+                    status = table.Column<ProjectChatStatus>(type: "project_chat_status", nullable: true, defaultValueSql: "'OPEN'::project_chat_status"),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     closed_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
@@ -451,7 +373,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     design_concept = table.Column<string>(type: "text", nullable: true),
                     version_no = table.Column<int>(type: "integer", nullable: true, defaultValue: 1),
                     estimated_price = table.Column<decimal>(type: "numeric(12,2)", nullable: true),
-                    status = table.Column<string>(type: "proposal_status", nullable: true, defaultValue: "DRAFT"),
+                    status = table.Column<ProposalStatus>(type: "proposal_status", nullable: true, defaultValueSql: "'DRAFT'::proposal_status"),
                     created_by = table.Column<Guid>(type: "uuid", nullable: true),
                     published_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     selected_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
@@ -483,17 +405,21 @@ namespace FurniSpace.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "measurement_appointments",
+                name: "project_schedules",
                 columns: table => new
                 {
-                    appointment_id = table.Column<Guid>(type: "uuid", nullable: false),
+                    schedule_id = table.Column<Guid>(type: "uuid", nullable: false),
                     project_id = table.Column<Guid>(type: "uuid", nullable: false),
                     project_area_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    scheduled_by_sales_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    designer_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    appointment_time = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    appointment_address = table.Column<string>(type: "text", nullable: true),
-                    status = table.Column<string>(type: "measurement_appointment_status", nullable: true, defaultValue: "PENDING_CONFIRMATION"),
+                    schedule_type = table.Column<ProjectScheduleType>(type: "project_schedule_type", nullable: true, defaultValueSql: "'MEASUREMENT'::project_schedule_type"),
+                    title = table.Column<string>(type: "varchar(150)", nullable: true),
+                    description = table.Column<string>(type: "text", nullable: true),
+                    created_by = table.Column<Guid>(type: "uuid", nullable: true),
+                    assigned_staff_id = table.Column<Guid>(type: "uuid", nullable: true),
+                    scheduled_start = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    scheduled_end = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    location = table.Column<string>(type: "text", nullable: true),
+                    status = table.Column<ProjectScheduleStatus>(type: "project_schedule_status", nullable: true, defaultValueSql: "'PENDING_CONFIRMATION'::project_schedule_status"),
                     customer_note = table.Column<string>(type: "text", nullable: true),
                     internal_note = table.Column<string>(type: "text", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
@@ -502,27 +428,27 @@ namespace FurniSpace.Infrastructure.Migrations
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_measurement_appointments", x => x.appointment_id);
+                    table.PrimaryKey("PK_project_schedules", x => x.schedule_id);
                     table.ForeignKey(
-                        name: "FK_measurement_appointments_accounts_designer_id",
-                        column: x => x.designer_id,
+                        name: "FK_project_schedules_accounts_assigned_staff_id",
+                        column: x => x.assigned_staff_id,
                         principalTable: "accounts",
                         principalColumn: "account_id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_measurement_appointments_accounts_scheduled_by_sales_id",
-                        column: x => x.scheduled_by_sales_id,
+                        name: "FK_project_schedules_accounts_created_by",
+                        column: x => x.created_by,
                         principalTable: "accounts",
                         principalColumn: "account_id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_measurement_appointments_project_areas_project_area_id",
+                        name: "FK_project_schedules_project_areas_project_area_id",
                         column: x => x.project_area_id,
                         principalTable: "project_areas",
                         principalColumn: "project_area_id",
                         onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
-                        name: "FK_measurement_appointments_projects_project_id",
+                        name: "FK_project_schedules_projects_project_id",
                         column: x => x.project_id,
                         principalTable: "projects",
                         principalColumn: "project_id",
@@ -536,7 +462,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     message_id = table.Column<Guid>(type: "uuid", nullable: false),
                     chat_id = table.Column<Guid>(type: "uuid", nullable: false),
                     sender_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    message_type = table.Column<string>(type: "project_chat_message_type", nullable: true, defaultValue: "TEXT"),
+                    message_type = table.Column<ProjectChatMessageType>(type: "project_chat_message_type", nullable: true, defaultValueSql: "'TEXT'::project_chat_message_type"),
                     content = table.Column<string>(type: "text", nullable: true),
                     attachment_file_id = table.Column<Guid>(type: "uuid", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
@@ -575,7 +501,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     proposal_id = table.Column<Guid>(type: "uuid", nullable: false),
                     project_area_id = table.Column<Guid>(type: "uuid", nullable: true),
                     scene_name = table.Column<string>(type: "varchar(150)", nullable: true),
-                    scene_type = table.Column<string>(type: "proposal_scene_type", nullable: true, defaultValue: "THREE_D"),
+                    scene_type = table.Column<ProposalSceneType>(type: "proposal_scene_type", nullable: true, defaultValueSql: "'THREE_D'::proposal_scene_type"),
                     mongo_scene_id = table.Column<string>(type: "varchar(100)", nullable: true),
                     preview_file_id = table.Column<Guid>(type: "uuid", nullable: true),
                     version_no = table.Column<int>(type: "integer", nullable: true, defaultValue: 1),
@@ -629,7 +555,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     customization_fee = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
                     delivery_fee = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
                     total_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
-                    status = table.Column<string>(type: "quotation_status", nullable: true, defaultValue: "DRAFT"),
+                    status = table.Column<QuotationStatus>(type: "quotation_status", nullable: true, defaultValueSql: "'DRAFT'::quotation_status"),
                     valid_until = table.Column<DateOnly>(type: "date", nullable: true),
                     customer_note = table.Column<string>(type: "text", nullable: true),
                     sales_note = table.Column<string>(type: "text", nullable: true),
@@ -726,10 +652,20 @@ namespace FurniSpace.Infrastructure.Migrations
                     order_code = table.Column<string>(type: "varchar(50)", nullable: false),
                     customer_id = table.Column<Guid>(type: "uuid", nullable: false),
                     sales_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    total_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: false),
+                    original_total_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: false),
+                    item_adjustment_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
+                    additional_discount_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
+                    final_total_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: false),
+                    deposit_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
                     paid_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
                     remaining_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
-                    status = table.Column<string>(type: "order_status", nullable: true, defaultValue: "CREATED"),
+                    status = table.Column<OrderStatus>(type: "order_status", nullable: true, defaultValueSql: "'CREATED'::order_status"),
+                    delivery_address = table.Column<string>(type: "text", nullable: true),
+                    receiver_name = table.Column<string>(type: "varchar(150)", nullable: true),
+                    receiver_phone = table.Column<string>(type: "varchar(20)", nullable: true),
+                    delivery_note = table.Column<string>(type: "text", nullable: true),
+                    customer_delivery_note = table.Column<string>(type: "text", nullable: true),
+                    customer_confirmed_delivery_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     confirmed_by = table.Column<Guid>(type: "uuid", nullable: true),
                     confirmed_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     cancelled_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
@@ -794,12 +730,10 @@ namespace FurniSpace.Infrastructure.Migrations
                     requested_depth = table.Column<decimal>(type: "numeric(10,2)", nullable: true),
                     requested_material = table.Column<string>(type: "varchar(100)", nullable: true),
                     requested_color = table.Column<string>(type: "varchar(100)", nullable: true),
-                    requested_finish = table.Column<string>(type: "varchar(100)", nullable: true),
                     requested_change_note = table.Column<string>(type: "text", nullable: true),
                     designer_id = table.Column<Guid>(type: "uuid", nullable: true),
                     designer_spec_note = table.Column<string>(type: "text", nullable: true),
                     production_review_by = table.Column<Guid>(type: "uuid", nullable: true),
-                    feasibility_status = table.Column<string>(type: "customization_feasibility_status", nullable: true, defaultValue: "PENDING"),
                     feasibility_note = table.Column<string>(type: "text", nullable: true),
                     estimated_production_days = table.Column<int>(type: "integer", nullable: true),
                     estimated_additional_cost = table.Column<decimal>(type: "numeric(12,2)", nullable: true),
@@ -807,7 +741,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     production_risk_note = table.Column<string>(type: "text", nullable: true),
                     sales_review_by = table.Column<Guid>(type: "uuid", nullable: true),
                     approved_product_version_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    status = table.Column<string>(type: "customization_status", nullable: true, defaultValue: "SUBMITTED"),
+                    status = table.Column<CustomizationStatus>(type: "customization_status", nullable: true, defaultValueSql: "'SUBMITTED'::customization_status"),
                     customer_accepted_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     customer_rejected_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
@@ -908,49 +842,6 @@ namespace FurniSpace.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "deliveries",
-                columns: table => new
-                {
-                    delivery_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    delivery_code = table.Column<string>(type: "varchar(50)", nullable: true),
-                    project_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    order_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    assigned_delivery_staff_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    delivery_address = table.Column<string>(type: "text", nullable: true),
-                    receiver_name = table.Column<string>(type: "varchar(150)", nullable: true),
-                    receiver_phone = table.Column<string>(type: "varchar(20)", nullable: true),
-                    scheduled_delivery_date = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    status = table.Column<string>(type: "delivery_status", nullable: true, defaultValue: "PENDING_SCHEDULE"),
-                    delivery_note = table.Column<string>(type: "text", nullable: true),
-                    failed_reason = table.Column<string>(type: "text", nullable: true),
-                    delivered_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    created_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
-                    updated_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_deliveries", x => x.delivery_id);
-                    table.ForeignKey(
-                        name: "FK_deliveries_accounts_assigned_delivery_staff_id",
-                        column: x => x.assigned_delivery_staff_id,
-                        principalTable: "accounts",
-                        principalColumn: "account_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_deliveries_orders_order_id",
-                        column: x => x.order_id,
-                        principalTable: "orders",
-                        principalColumn: "order_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_deliveries_projects_project_id",
-                        column: x => x.project_id,
-                        principalTable: "projects",
-                        principalColumn: "project_id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "payments",
                 columns: table => new
                 {
@@ -959,11 +850,11 @@ namespace FurniSpace.Infrastructure.Migrations
                     order_id = table.Column<Guid>(type: "uuid", nullable: true),
                     quotation_id = table.Column<Guid>(type: "uuid", nullable: true),
                     paid_by = table.Column<Guid>(type: "uuid", nullable: true),
-                    payment_type = table.Column<string>(type: "payment_type", nullable: true, defaultValue: "OTHER"),
+                    payment_type = table.Column<PaymentType>(type: "payment_type", nullable: true, defaultValueSql: "'OTHER'::payment_type"),
                     amount = table.Column<decimal>(type: "numeric(12,2)", nullable: false),
                     payment_method = table.Column<string>(type: "varchar(50)", nullable: true),
                     transaction_reference = table.Column<string>(type: "varchar(150)", nullable: true),
-                    status = table.Column<string>(type: "payment_status", nullable: true, defaultValue: "PENDING"),
+                    status = table.Column<PaymentStatus>(type: "payment_status", nullable: true, defaultValueSql: "'PENDING'::payment_status"),
                     due_date = table.Column<DateOnly>(type: "date", nullable: true),
                     paid_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     note = table.Column<string>(type: "text", nullable: true),
@@ -1008,7 +899,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     project_id = table.Column<Guid>(type: "uuid", nullable: false),
                     order_id = table.Column<Guid>(type: "uuid", nullable: false),
                     assigned_to = table.Column<Guid>(type: "uuid", nullable: true),
-                    status = table.Column<string>(type: "production_request_status", nullable: true, defaultValue: "PENDING_REVIEW"),
+                    status = table.Column<ProductionRequestStatus>(type: "production_request_status", nullable: true, defaultValueSql: "'PENDING_REVIEW'::production_request_status"),
                     priority = table.Column<string>(type: "varchar(30)", nullable: true),
                     estimated_start_date = table.Column<DateOnly>(type: "date", nullable: true),
                     estimated_completion_date = table.Column<DateOnly>(type: "date", nullable: true),
@@ -1092,15 +983,29 @@ namespace FurniSpace.Infrastructure.Migrations
                     product_version_name_snapshot = table.Column<string>(type: "varchar(150)", nullable: true),
                     product_version_code_snapshot = table.Column<string>(type: "varchar(50)", nullable: true),
                     quantity = table.Column<int>(type: "integer", nullable: true, defaultValue: 1),
+                    delivered_quantity = table.Column<int>(type: "integer", nullable: true, defaultValue: 0),
+                    status = table.Column<OrderItemStatus>(type: "order_item_status", nullable: true, defaultValueSql: "'PENDING'::order_item_status"),
                     unit_price = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
                     customization_fee = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
                     discount_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
                     subtotal_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
-                    production_note = table.Column<string>(type: "text", nullable: true)
+                    adjustment_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: true, defaultValue: 0m),
+                    unavailable_reason = table.Column<string>(type: "text", nullable: true),
+                    production_note = table.Column<string>(type: "text", nullable: true),
+                    delivery_note = table.Column<string>(type: "text", nullable: true),
+                    last_delivered_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    last_delivered_by = table.Column<Guid>(type: "uuid", nullable: true),
+                    customer_confirmed_at = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_order_items", x => x.order_item_id);
+                    table.ForeignKey(
+                        name: "FK_order_items_accounts_last_delivered_by",
+                        column: x => x.last_delivered_by,
+                        principalTable: "accounts",
+                        principalColumn: "account_id",
+                        onDelete: ReferentialAction.Restrict);
                     table.ForeignKey(
                         name: "FK_order_items_orders_order_id",
                         column: x => x.order_id,
@@ -1122,41 +1027,6 @@ namespace FurniSpace.Infrastructure.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "delivery_items",
-                columns: table => new
-                {
-                    delivery_item_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    delivery_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    order_item_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    project_area_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    quantity = table.Column<int>(type: "integer", nullable: true, defaultValue: 1),
-                    status = table.Column<string>(type: "delivery_item_status", nullable: true, defaultValue: "PENDING"),
-                    note = table.Column<string>(type: "text", nullable: true)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_delivery_items", x => x.delivery_item_id);
-                    table.ForeignKey(
-                        name: "FK_delivery_items_deliveries_delivery_id",
-                        column: x => x.delivery_id,
-                        principalTable: "deliveries",
-                        principalColumn: "delivery_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_delivery_items_order_items_order_item_id",
-                        column: x => x.order_item_id,
-                        principalTable: "order_items",
-                        principalColumn: "order_item_id",
-                        onDelete: ReferentialAction.Restrict);
-                    table.ForeignKey(
-                        name: "FK_delivery_items_project_areas_project_area_id",
-                        column: x => x.project_area_id,
-                        principalTable: "project_areas",
-                        principalColumn: "project_area_id",
-                        onDelete: ReferentialAction.Restrict);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "production_items",
                 columns: table => new
                 {
@@ -1167,7 +1037,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     product_name_snapshot = table.Column<string>(type: "varchar(150)", nullable: true),
                     product_version_name_snapshot = table.Column<string>(type: "varchar(150)", nullable: true),
                     quantity = table.Column<int>(type: "integer", nullable: true, defaultValue: 1),
-                    status = table.Column<string>(type: "production_item_status", nullable: true, defaultValue: "PENDING"),
+                    status = table.Column<ProductionItemStatus>(type: "production_item_status", nullable: true, defaultValueSql: "'PENDING'::production_item_status"),
                     material_note = table.Column<string>(type: "text", nullable: true),
                     production_note = table.Column<string>(type: "text", nullable: true),
                     estimated_completion_date = table.Column<DateOnly>(type: "date", nullable: true),
@@ -1248,42 +1118,6 @@ namespace FurniSpace.Infrastructure.Migrations
                 column: "sales_review_by");
 
             migrationBuilder.CreateIndex(
-                name: "IX_deliveries_assigned_delivery_staff_id",
-                table: "deliveries",
-                column: "assigned_delivery_staff_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_deliveries_delivery_code",
-                table: "deliveries",
-                column: "delivery_code",
-                unique: true);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_deliveries_order_id",
-                table: "deliveries",
-                column: "order_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_deliveries_project_id",
-                table: "deliveries",
-                column: "project_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_delivery_items_delivery_id",
-                table: "delivery_items",
-                column: "delivery_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_delivery_items_order_item_id",
-                table: "delivery_items",
-                column: "order_item_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_delivery_items_project_area_id",
-                table: "delivery_items",
-                column: "project_area_id");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_file_links_file_id",
                 table: "file_links",
                 column: "file_id");
@@ -1294,26 +1128,6 @@ namespace FurniSpace.Infrastructure.Migrations
                 column: "uploaded_by");
 
             migrationBuilder.CreateIndex(
-                name: "IX_measurement_appointments_designer_id",
-                table: "measurement_appointments",
-                column: "designer_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_measurement_appointments_project_area_id",
-                table: "measurement_appointments",
-                column: "project_area_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_measurement_appointments_project_id",
-                table: "measurement_appointments",
-                column: "project_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_measurement_appointments_scheduled_by_sales_id",
-                table: "measurement_appointments",
-                column: "scheduled_by_sales_id");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_notifications_project_id",
                 table: "notifications",
                 column: "project_id");
@@ -1322,6 +1136,11 @@ namespace FurniSpace.Infrastructure.Migrations
                 name: "IX_notifications_receiver_id",
                 table: "notifications",
                 column: "receiver_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_order_items_last_delivered_by",
+                table: "order_items",
+                column: "last_delivered_by");
 
             migrationBuilder.CreateIndex(
                 name: "IX_order_items_order_id",
@@ -1396,19 +1215,9 @@ namespace FurniSpace.Infrastructure.Migrations
                 column: "quotation_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_product_versions_created_by",
-                table: "product_versions",
-                column: "created_by");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_product_versions_product_id",
                 table: "product_versions",
                 column: "product_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_product_versions_project_id",
-                table: "product_versions",
-                column: "project_id");
 
             migrationBuilder.CreateIndex(
                 name: "IX_product_versions_version_code",
@@ -1458,11 +1267,6 @@ namespace FurniSpace.Infrastructure.Migrations
                 column: "category_id");
 
             migrationBuilder.CreateIndex(
-                name: "IX_products_created_by",
-                table: "products",
-                column: "created_by");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_products_product_code",
                 table: "products",
                 column: "product_code",
@@ -1481,21 +1285,6 @@ namespace FurniSpace.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "IX_project_areas_project_id",
                 table: "project_areas",
-                column: "project_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_project_assignments_account_id",
-                table: "project_assignments",
-                column: "account_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_project_assignments_assigned_by",
-                table: "project_assignments",
-                column: "assigned_by");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_project_assignments_project_id",
-                table: "project_assignments",
                 column: "project_id");
 
             migrationBuilder.CreateIndex(
@@ -1540,6 +1329,26 @@ namespace FurniSpace.Infrastructure.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_project_schedules_assigned_staff_id",
+                table: "project_schedules",
+                column: "assigned_staff_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_project_schedules_created_by",
+                table: "project_schedules",
+                column: "created_by");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_project_schedules_project_area_id",
+                table: "project_schedules",
+                column: "project_area_id");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_project_schedules_project_id",
+                table: "project_schedules",
+                column: "project_id");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_projects_assigned_designer_id",
                 table: "projects",
                 column: "assigned_designer_id");
@@ -1548,11 +1357,6 @@ namespace FurniSpace.Infrastructure.Migrations
                 name: "IX_projects_assigned_sales_id",
                 table: "projects",
                 column: "assigned_sales_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_projects_created_by",
-                table: "projects",
-                column: "created_by");
 
             migrationBuilder.CreateIndex(
                 name: "IX_projects_customer_id",
@@ -1670,13 +1474,7 @@ namespace FurniSpace.Infrastructure.Migrations
                 name: "customization_requests");
 
             migrationBuilder.DropTable(
-                name: "delivery_items");
-
-            migrationBuilder.DropTable(
                 name: "file_links");
-
-            migrationBuilder.DropTable(
-                name: "measurement_appointments");
 
             migrationBuilder.DropTable(
                 name: "notifications");
@@ -1688,16 +1486,13 @@ namespace FurniSpace.Infrastructure.Migrations
                 name: "production_items");
 
             migrationBuilder.DropTable(
-                name: "project_assignments");
-
-            migrationBuilder.DropTable(
                 name: "project_chat_messages");
 
             migrationBuilder.DropTable(
                 name: "project_reviews");
 
             migrationBuilder.DropTable(
-                name: "deliveries");
+                name: "project_schedules");
 
             migrationBuilder.DropTable(
                 name: "order_items");

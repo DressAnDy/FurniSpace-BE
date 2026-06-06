@@ -1,4 +1,5 @@
 using System;
+using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
 
@@ -9,8 +10,7 @@ public class Product
     public string? ProductCode { get; set; }
     public string ProductName { get; set; } = null!;
     public string? Description { get; set; }
-    public string? ProductType { get; set; }
-    public string? Status { get; set; }
+    public ProductStatus? Status { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

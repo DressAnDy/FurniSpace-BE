@@ -9,6 +9,7 @@ using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 
@@ -195,6 +196,24 @@ public sealed class ProductServiceTests
         var productId = Guid.NewGuid();
         var defaultVersionId = Guid.NewGuid();
         var ignoredDefaultVersionId = Guid.NewGuid();
+        var selectedDefaultVersion = new ProductVersionReadModel
+        {
+            ProductVersionId = defaultVersionId,
+            VersionCode = "PV-COUNTER-001-V1",
+            VersionName = "Coffee Counter - Standard Wood",
+            VersionType = ProductVersionType.STANDARD,
+            Material = "Plywood",
+            Color = "Wood Brown",
+            Width = 2000m,
+            Height = 1050m,
+            Depth = 650m,
+            EstimatedPrice = 25000000m,
+            IsDefault = false,
+            IsPublic = true,
+            IsProjectSpecific = false,
+            Status = ProductStatus.ACTIVE,
+            CreatedAt = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
+        };
         var repository = new FakeProductRepository(
             products: [],
             details:
@@ -208,6 +227,7 @@ public sealed class ProductServiceTests
                     ProductName = "Coffee Counter",
                     Description = "Counter template for cafe projects",
                     Status = ProductStatus.ACTIVE,
+                    DefaultVersion = selectedDefaultVersion,
                     Versions =
                     [
                         new ProductVersionReadModel
@@ -220,24 +240,7 @@ public sealed class ProductServiceTests
                             Status = ProductStatus.ACTIVE,
                             CreatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
                         },
-                        new ProductVersionReadModel
-                        {
-                            ProductVersionId = defaultVersionId,
-                            VersionCode = "PV-COUNTER-001-V1",
-                            VersionName = "Coffee Counter - Standard Wood",
-                            VersionType = ProductVersionType.STANDARD,
-                            Material = "Plywood",
-                            Color = "Wood Brown",
-                            Width = 2000m,
-                            Height = 1050m,
-                            Depth = 650m,
-                            EstimatedPrice = 25000000m,
-                            IsDefault = false,
-                            IsPublic = true,
-                            IsProjectSpecific = false,
-                            Status = ProductStatus.ACTIVE,
-                            CreatedAt = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc)
-                        }
+                        selectedDefaultVersion
                     ]
                 }
             ]);

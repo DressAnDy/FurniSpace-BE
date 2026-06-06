@@ -3,6 +3,7 @@ using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 
@@ -187,21 +188,6 @@ public sealed class ProductService : IProductService
 
     private static ProductDetailDto ToDetailDto(ProductDetailReadModel product)
     {
-        var defaultVersion = product.Versions
-            .Where(IsUsablePublicVersion)
-            .OrderByDescending(version => version.IsDefault == true)
-            .ThenBy(version => version.CreatedAt)
-            .ThenBy(version => version.ProductVersionId)
-            .FirstOrDefault();
-
-        var dto = product.Adapt<ProductDetailDto>();
-        dto.DefaultVersion = defaultVersion?.Adapt<ProductVersionSummaryDto>();
-        return dto;
-    }
-
-    private static bool IsUsablePublicVersion(ProductVersionReadModel version)
-    {
-        return version.Status == ProductStatus.ACTIVE &&
-            version.IsPublic == true;
+        return product.Adapt<ProductDetailDto>();
     }
 }

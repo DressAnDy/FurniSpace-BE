@@ -1,6 +1,7 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
@@ -70,13 +71,20 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
             return null;
         }
 
-        product.Versions = await DbContext.ProductVersionSet
+        var versions = await DbContext.ProductVersionSet
             .Where(version => version.ProductId == productId)
             .OrderByDescending(version => version.IsDefault == true)
             .ThenBy(version => version.CreatedAt)
             .ThenBy(version => version.ProductVersionId)
             .Select(ProductVersionProjection)
             .ToListAsync(cancellationToken);
+        product.Versions = versions;
+        product.DefaultVersion = versions
+            .Where(IsUsablePublicVersion)
+            .OrderByDescending(version => version.IsDefault == true)
+            .ThenBy(version => version.CreatedAt)
+            .ThenBy(version => version.ProductVersionId)
+            .FirstOrDefault();
 
         return product;
     }
@@ -157,6 +165,12 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
                         .FirstOrDefault()
                     : null
             };
+    }
+
+    private static bool IsUsablePublicVersion(ProductVersionReadModel version)
+    {
+        return version.Status == ProductStatus.ACTIVE &&
+            version.IsPublic == true;
     }
 
     public Task<int> CountByCategoryAsync(

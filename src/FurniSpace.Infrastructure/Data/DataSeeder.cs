@@ -13,7 +13,7 @@ public static class DataSeeder
         await SeedProductVersionsAsync(dbContext, cancellationToken);
     }
 
-    private static Task SeedRolesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedRolesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
     {
         return dbContext.Database.ExecuteSqlRawAsync(
             """
@@ -28,7 +28,7 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task SeedAccountsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedAccountsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
     {
         return dbContext.Database.ExecuteSqlRawAsync(
             """
@@ -43,7 +43,7 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task SeedCategoriesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedCategoriesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
     {
         return dbContext.Database.ExecuteSqlRawAsync(
             """
@@ -58,7 +58,7 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task SeedProductsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProductsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
     {
         return dbContext.Database.ExecuteSqlRawAsync(
             """
@@ -73,7 +73,7 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task SeedProductVersionsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProductVersionsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
     {
         return dbContext.Database.ExecuteSqlRawAsync(
             """

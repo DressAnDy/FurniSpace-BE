@@ -4,6 +4,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using FurniSpace.API.Constants;
 using FurniSpace.Application;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Interfaces.Identity;
@@ -240,9 +241,4 @@ static void UseProductionHttps(WebApplication app)
     {
         app.UseHsts();
     }
-}
-
-internal static class SwaggerConstants
-{
-    internal static readonly string[] EmptySecurityScopes = Array.Empty<string>();
 }

@@ -3,11 +3,32 @@ using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
+using System.Linq.Expressions;
 
 namespace FurniSpace.Infrastructure.Repositories.Repository;
 
 public sealed class ProductRepository : GenericRepository<Product>, IProductRepository
 {
+    private static readonly Expression<Func<ProductVersion, ProductVersionReadModel>> ProductVersionProjection =
+        version => new ProductVersionReadModel
+        {
+            ProductVersionId = version.ProductVersionId,
+            VersionCode = version.VersionCode,
+            VersionName = version.VersionName,
+            VersionType = version.VersionType,
+            Material = version.Material,
+            Color = version.Color,
+            Width = version.Width,
+            Height = version.Height,
+            Depth = version.Depth,
+            EstimatedPrice = version.EstimatedPrice,
+            IsDefault = version.IsDefault,
+            IsPublic = version.IsPublic,
+            IsProjectSpecific = version.IsProjectSpecific,
+            Status = version.Status,
+            CreatedAt = version.CreatedAt
+        };
+
     public ProductRepository(AppDbContext dbContext) : base(dbContext)
     {
     }
@@ -54,24 +75,7 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
             .OrderByDescending(version => version.IsDefault == true)
             .ThenBy(version => version.CreatedAt)
             .ThenBy(version => version.ProductVersionId)
-            .Select(version => new ProductVersionReadModel
-            {
-                ProductVersionId = version.ProductVersionId,
-                VersionCode = version.VersionCode,
-                VersionName = version.VersionName,
-                VersionType = version.VersionType,
-                Material = version.Material,
-                Color = version.Color,
-                Width = version.Width,
-                Height = version.Height,
-                Depth = version.Depth,
-                EstimatedPrice = version.EstimatedPrice,
-                IsDefault = version.IsDefault,
-                IsPublic = version.IsPublic,
-                IsProjectSpecific = version.IsProjectSpecific,
-                Status = version.Status,
-                CreatedAt = version.CreatedAt
-            })
+            .Select(ProductVersionProjection)
             .ToListAsync(cancellationToken);
 
         return product;
@@ -82,50 +86,7 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
         int limit,
         CancellationToken cancellationToken = default)
     {
-        return await (
-            from product in DbContext.ProductSet
-            join category in DbContext.CategorySet
-                on product.CategoryId equals category.CategoryId into categories
-            from category in categories.DefaultIfEmpty()
-            orderby product.CreatedAt descending, product.ProductName
-            select new ProductListItemReadModel
-            {
-                ProductId = product.ProductId,
-                CategoryId = product.CategoryId,
-                CategoryName = category == null ? null : category.CategoryName,
-                ProductCode = product.ProductCode,
-                ProductName = product.ProductName,
-                Description = product.Description,
-                ProductType = product.ProductType,
-                Status = product.Status,
-                DefaultVersion = DbContext.ProductVersionSet
-                    .Where(version =>
-                        version.ProductId == product.ProductId &&
-                        version.Status == "ACTIVE" &&
-                        version.IsPublic == true)
-                    .OrderByDescending(version => version.IsDefault == true)
-                    .ThenBy(version => version.CreatedAt)
-                    .ThenBy(version => version.ProductVersionId)
-                    .Select(version => new ProductVersionReadModel
-                    {
-                        ProductVersionId = version.ProductVersionId,
-                        VersionCode = version.VersionCode,
-                        VersionName = version.VersionName,
-                        VersionType = version.VersionType,
-                        Material = version.Material,
-                        Color = version.Color,
-                        Width = version.Width,
-                        Height = version.Height,
-                        Depth = version.Depth,
-                        EstimatedPrice = version.EstimatedPrice,
-                        IsDefault = version.IsDefault,
-                        IsPublic = version.IsPublic,
-                        IsProjectSpecific = version.IsProjectSpecific,
-                        Status = version.Status,
-                        CreatedAt = version.CreatedAt
-                    })
-                    .FirstOrDefault()
-            })
+        return await BuildProductListQuery(categoryId: null, includeDefaultVersion: true)
             .Skip((page - 1) * limit)
             .Take(limit)
             .ToListAsync(cancellationToken);
@@ -157,12 +118,22 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
         bool includeDefaultVersion,
         CancellationToken cancellationToken = default)
     {
-        return await (
+        return await BuildProductListQuery(categoryId, includeDefaultVersion)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    private IQueryable<ProductListItemReadModel> BuildProductListQuery(
+        Guid? categoryId,
+        bool includeDefaultVersion)
+    {
+        return
             from product in DbContext.ProductSet
             join category in DbContext.CategorySet
                 on product.CategoryId equals category.CategoryId into categories
             from category in categories.DefaultIfEmpty()
-            where product.CategoryId == categoryId
+            where !categoryId.HasValue || product.CategoryId == categoryId.Value
             orderby product.CreatedAt descending, product.ProductName
             select new ProductListItemReadModel
             {
@@ -183,30 +154,10 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
                         .OrderByDescending(version => version.IsDefault == true)
                         .ThenBy(version => version.CreatedAt)
                         .ThenBy(version => version.ProductVersionId)
-                        .Select(version => new ProductVersionReadModel
-                        {
-                            ProductVersionId = version.ProductVersionId,
-                            VersionCode = version.VersionCode,
-                            VersionName = version.VersionName,
-                            VersionType = version.VersionType,
-                            Material = version.Material,
-                            Color = version.Color,
-                            Width = version.Width,
-                            Height = version.Height,
-                            Depth = version.Depth,
-                            EstimatedPrice = version.EstimatedPrice,
-                            IsDefault = version.IsDefault,
-                            IsPublic = version.IsPublic,
-                            IsProjectSpecific = version.IsProjectSpecific,
-                            Status = version.Status,
-                            CreatedAt = version.CreatedAt
-                        })
+                        .Select(ProductVersionProjection)
                         .FirstOrDefault()
                     : null
-            })
-            .Skip((page - 1) * limit)
-            .Take(limit)
-            .ToListAsync(cancellationToken);
+            };
     }
 
     public Task<int> CountByCategoryAsync(

@@ -18,6 +18,197 @@ namespace FurniSpace.Application.Tests.Products;
 public sealed class ProductServiceTests
 {
     [Fact]
+    public async Task UpdateAsync_WithValidRequest_UpdatesProduct()
+    {
+        var productId = Guid.NewGuid();
+        var categoryId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            categories:
+            [
+                new ProductCategoryReadModel
+                {
+                    CategoryId = categoryId,
+                    CategoryName = "Counter"
+                }
+            ],
+            entities:
+            [
+                new Product
+                {
+                    ProductId = productId,
+                    CategoryId = Guid.NewGuid(),
+                    ProductCode = "PM-COUNTER-001",
+                    ProductName = "Coffee Counter",
+                    Description = "Old description",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]);
+        var service = new ProductService(repository);
+
+        var result = await service.UpdateAsync(productId, new UpdateProductRequestDto
+        {
+            CategoryId = categoryId,
+            ProductName = " Coffee Counter Updated ",
+            Description = " Updated counter template for cafe projects "
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Product master updated successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(productId, result.Data.ProductId);
+        Assert.Equal(categoryId, result.Data.CategoryId);
+        Assert.Equal("PM-COUNTER-001", result.Data.ProductCode);
+        Assert.Equal("Coffee Counter Updated", result.Data.ProductName);
+        Assert.Equal("Updated counter template for cafe projects", result.Data.Description);
+        Assert.Equal(ProductStatus.ACTIVE, result.Data.Status);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetCategoryCallCount);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithBlankDescription_ReturnsNullDescription()
+    {
+        var productId = Guid.NewGuid();
+        var categoryId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            categories: [new ProductCategoryReadModel { CategoryId = categoryId, CategoryName = "Counter" }],
+            entities:
+            [
+                new Product
+                {
+                    ProductId = productId,
+                    CategoryId = categoryId,
+                    ProductName = "Coffee Counter",
+                    Status = null
+                }
+            ]);
+        var service = new ProductService(repository);
+
+        var result = await service.UpdateAsync(productId, new UpdateProductRequestDto
+        {
+            CategoryId = categoryId,
+            ProductName = "Coffee Counter Updated",
+            Description = " "
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Null(result.Data.Description);
+        Assert.Equal(ProductStatus.ACTIVE, result.Data.Status);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithEmptyProductId_ReturnsBadRequest()
+    {
+        var repository = new FakeProductRepository([]);
+        var service = new ProductService(repository);
+
+        var result = await service.UpdateAsync(Guid.Empty, new UpdateProductRequestDto
+        {
+            CategoryId = Guid.NewGuid(),
+            ProductName = "Coffee Counter"
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Product id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithInvalidRequest_ReturnsValidationErrors()
+    {
+        var repository = new FakeProductRepository([]);
+        var service = new ProductService(repository);
+
+        var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateProductRequestDto
+        {
+            CategoryId = Guid.Empty,
+            ProductName = " "
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Validation failed", result.Message);
+        Assert.Contains("Category id is required.", result.Errors!);
+        Assert.Contains("Product name is required.", result.Errors!);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithTooLongProductName_ReturnsValidationError()
+    {
+        var repository = new FakeProductRepository([]);
+        var service = new ProductService(repository);
+
+        var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateProductRequestDto
+        {
+            CategoryId = Guid.NewGuid(),
+            ProductName = new string('N', 151)
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("Product name must not exceed 150 characters.", result.Errors!);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithMissingProduct_ReturnsNotFound()
+    {
+        var repository = new FakeProductRepository([]);
+        var service = new ProductService(repository);
+
+        var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateProductRequestDto
+        {
+            CategoryId = Guid.NewGuid(),
+            ProductName = "Coffee Counter"
+        });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Product not found.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(0, repository.GetCategoryCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithMissingCategory_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            entities:
+            [
+                new Product
+                {
+                    ProductId = productId,
+                    ProductName = "Coffee Counter"
+                }
+            ]);
+        var service = new ProductService(repository);
+
+        var result = await service.UpdateAsync(productId, new UpdateProductRequestDto
+        {
+            CategoryId = Guid.NewGuid(),
+            ProductName = "Coffee Counter Updated"
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Category does not exist.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetCategoryCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
     public async Task CreateAsync_WithValidRequest_CreatesActiveProduct()
     {
         var categoryId = Guid.NewGuid();
@@ -658,19 +849,23 @@ public sealed class ProductServiceTests
         private readonly IReadOnlyList<ProductListItemReadModel> _products;
         private readonly IReadOnlyList<ProductCategoryReadModel> _categories;
         private readonly IReadOnlyList<ProductDetailReadModel> _details;
+        private readonly List<Product> _entities;
         private readonly List<Product> _createdProducts = [];
 
         public FakeProductRepository(
             IReadOnlyList<ProductListItemReadModel> products,
             IReadOnlyList<ProductCategoryReadModel>? categories = null,
-            IReadOnlyList<ProductDetailReadModel>? details = null)
+            IReadOnlyList<ProductDetailReadModel>? details = null,
+            IReadOnlyList<Product>? entities = null)
         {
             _products = products;
             _categories = categories ?? [];
             _details = details ?? [];
+            _entities = entities?.ToList() ?? [];
         }
 
         public int GetDetailCallCount { get; private set; }
+        public int GetByIdCallCount { get; private set; }
         public int ProductCodeExistsCallCount { get; private set; }
         public int AddCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
@@ -765,7 +960,12 @@ public sealed class ProductServiceTests
         }
 
         public IQueryable<Product> Query() => Enumerable.Empty<Product>().AsQueryable();
-        public Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<Product?>(null);
+        public Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            GetByIdCallCount++;
+            return Task.FromResult(_entities.FirstOrDefault(product => product.ProductId == id));
+        }
+
         public Task<IReadOnlyList<Product>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Product>>([]);
         public Task AddAsync(Product entity, CancellationToken cancellationToken = default)
         {

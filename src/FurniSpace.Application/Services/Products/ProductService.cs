@@ -56,6 +56,45 @@ public sealed class ProductService : IProductService
         return ServiceResult<ProductDto>.Created(product.Adapt<ProductDto>(), "Product master created successfully.");
     }
 
+    public async Task<ServiceResult<ProductDto>> UpdateAsync(
+        Guid productId,
+        UpdateProductRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (productId == Guid.Empty)
+        {
+            return ServiceResult<ProductDto>.BadRequest("Product id is required.");
+        }
+
+        var errors = ValidateUpdateRequest(request);
+        if (errors.Count > 0)
+        {
+            return ServiceResult<ProductDto>.BadRequest(errors);
+        }
+
+        var product = await _products.GetByIdAsync(productId, cancellationToken);
+        if (product is null)
+        {
+            return ServiceResult<ProductDto>.NotFound("Product not found.");
+        }
+
+        if (await _products.GetCategoryAsync(request.CategoryId, cancellationToken) is null)
+        {
+            return ServiceResult<ProductDto>.BadRequest("Category does not exist.");
+        }
+
+        product.CategoryId = request.CategoryId;
+        product.ProductName = request.ProductName.Trim();
+        product.Description = NormalizeOptional(request.Description);
+        product.Status ??= ProductStatus.ACTIVE;
+
+        await _products.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<ProductDto>.Success(
+            product.Adapt<ProductDto>(),
+            "Product master updated successfully.");
+    }
+
     public async Task<ServiceResult<ProductDetailDto>> GetByIdAsync(
         Guid productId,
         CancellationToken cancellationToken = default)
@@ -167,6 +206,26 @@ public sealed class ProductService : IProductService
         if (request.ProductCode?.Trim().Length > 50)
         {
             errors.Add("Product code must not exceed 50 characters.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.ProductName))
+        {
+            errors.Add("Product name is required.");
+        }
+        else if (request.ProductName.Trim().Length > 150)
+        {
+            errors.Add("Product name must not exceed 150 characters.");
+        }
+
+        return errors;
+    }
+
+    private static List<string> ValidateUpdateRequest(UpdateProductRequestDto request)
+    {
+        var errors = new List<string>();
+        if (request.CategoryId == Guid.Empty)
+        {
+            errors.Add("Category id is required.");
         }
 
         if (string.IsNullOrWhiteSpace(request.ProductName))

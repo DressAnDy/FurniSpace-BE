@@ -9,6 +9,11 @@ public interface IProductService
         CreateProductRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProductDto>> UpdateAsync(
+        Guid productId,
+        UpdateProductRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProductDetailDto>> GetByIdAsync(
         Guid productId,
         CancellationToken cancellationToken = default);

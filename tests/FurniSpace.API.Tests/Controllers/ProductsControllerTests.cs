@@ -33,6 +33,21 @@ public sealed class ProductsControllerTests
     }
 
     [Fact]
+    public void Update_RequiresAdminRole()
+    {
+        var method = typeof(ProductsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.Update));
+
+        var authorize = method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(authorize);
+        Assert.Equal("ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public void GetAll_DoesNotRequireAuthorization()
     {
         var method = typeof(ProductsController)
@@ -81,6 +96,44 @@ public sealed class ProductsControllerTests
         Assert.Equal("Product master created successfully.", result.Message);
         Assert.Same(response, result.Data);
         Assert.Same(request, service.CreateRequest);
+    }
+
+    [Fact]
+    public async Task Update_ReturnsServiceResultThroughBaseController()
+    {
+        var productId = Guid.NewGuid();
+        var response = new ProductDto
+        {
+            ProductId = productId,
+            CategoryId = Guid.NewGuid(),
+            ProductCode = "PM-COUNTER-001",
+            ProductName = "Coffee Counter Updated",
+            Description = "Updated counter template for cafe projects",
+            Status = ProductStatus.ACTIVE
+        };
+        var service = new FakeProductService(
+            getAllResult: ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty),
+            getByCategoryResult: ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty),
+            getByIdResult: ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty),
+            updateResult: ServiceResult<ProductDto>.Success(response, "Product master updated successfully."));
+        var controller = new ProductsController(service);
+        var request = new UpdateProductRequestDto
+        {
+            CategoryId = response.CategoryId!.Value,
+            ProductName = "Coffee Counter Updated",
+            Description = "Updated counter template for cafe projects"
+        };
+
+        var actionResult = await controller.Update(productId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProductDto>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Product master updated successfully.", result.Message);
+        Assert.Same(response, result.Data);
+        Assert.Equal(productId, service.ProductId);
+        Assert.Same(request, service.UpdateRequest);
     }
 
     [Fact]
@@ -208,13 +261,15 @@ public sealed class ProductsControllerTests
         private readonly ServiceResult<ProductByCategoryResponseDto> _getByCategoryResult;
         private readonly ServiceResult<ProductDetailDto> _getByIdResult;
         private readonly ServiceResult<ProductDto> _createResult;
+        private readonly ServiceResult<ProductDto> _updateResult;
 
         public FakeProductService(ServiceResult<ProductListResponseDto> result)
             : this(
                 result,
                 ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty),
                 ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty),
-                ServiceResult<ProductDto>.Created(new ProductDto(), "Product master created successfully."))
+                ServiceResult<ProductDto>.Created(new ProductDto(), "Product master created successfully."),
+                ServiceResult<ProductDto>.Success(new ProductDto(), "Product master updated successfully."))
         {
         }
 
@@ -222,15 +277,18 @@ public sealed class ProductsControllerTests
             ServiceResult<ProductListResponseDto> getAllResult,
             ServiceResult<ProductByCategoryResponseDto> getByCategoryResult,
             ServiceResult<ProductDetailDto>? getByIdResult = null,
-            ServiceResult<ProductDto>? createResult = null)
+            ServiceResult<ProductDto>? createResult = null,
+            ServiceResult<ProductDto>? updateResult = null)
         {
             _getAllResult = getAllResult;
             _getByCategoryResult = getByCategoryResult;
             _getByIdResult = getByIdResult ?? ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty);
             _createResult = createResult ?? ServiceResult<ProductDto>.Created(new ProductDto(), "Product master created successfully.");
+            _updateResult = updateResult ?? ServiceResult<ProductDto>.Success(new ProductDto(), "Product master updated successfully.");
         }
 
         public CreateProductRequestDto? CreateRequest { get; private set; }
+        public UpdateProductRequestDto? UpdateRequest { get; private set; }
         public Guid ProductId { get; private set; }
         public Guid CategoryId { get; private set; }
         public int Page { get; private set; }
@@ -243,6 +301,16 @@ public sealed class ProductsControllerTests
         {
             CreateRequest = request;
             return Task.FromResult(_createResult);
+        }
+
+        public Task<ServiceResult<ProductDto>> UpdateAsync(
+            Guid productId,
+            UpdateProductRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ProductId = productId;
+            UpdateRequest = request;
+            return Task.FromResult(_updateResult);
         }
 
         public Task<ServiceResult<ProductListResponseDto>> GetAllAsync(

@@ -38,6 +38,17 @@ public sealed class ProductsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("{productId:guid}")]
+    public async Task<IActionResult> Update(
+        Guid productId,
+        [FromBody] UpdateProductRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _products.UpdateAsync(productId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [HttpGet("{productId:guid}")]
     public async Task<IActionResult> GetById(
         Guid productId,

@@ -37,4 +37,5 @@ Thumbs.db
 !appsettings.json
 !appsettings.Development.json
 
-support-docs/
+# Ignore support documentation
+/support-docs/

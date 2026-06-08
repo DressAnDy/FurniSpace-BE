@@ -36,3 +36,5 @@ Thumbs.db
 # Keep appsettings files in source control for Serilog config
 !appsettings.json
 !appsettings.Development.json
+
+support-docs/

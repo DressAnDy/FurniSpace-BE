@@ -22,6 +22,8 @@ using Microsoft.IdentityModel.Tokens;
 EnvLoader.LoadEnv(required: false);
 
 const string AllowAllCorsPolicy = "AllowAllCors";
+const string WildcardCorsOrigin = "*";
+const string CorsAllowedOriginsEnvKey = "CORS_ALLOWED_ORIGINS";
 
 var builder = WebApplication.CreateBuilder(args);
 var jwtSettings = LoadJwtSettings(builder.Configuration);
@@ -36,7 +38,7 @@ builder.Services
     .AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 ConfigureForwardedHeaders(builder.Services, builder.Configuration);
-AddAllowAllCors(builder.Services);
+AddAllowAllCors(builder.Services, builder.Configuration);
 AddPublicAuthRateLimiter(builder.Services);
 AddApiSwagger(builder.Services);
 builder.Services.AddApplication(builder.Configuration);
@@ -167,18 +169,40 @@ static void AddPublicAuthRateLimiter(IServiceCollection services)
     });
 }
 
-static void AddAllowAllCors(IServiceCollection services)
+static void AddAllowAllCors(IServiceCollection services, IConfiguration configuration)
 {
+    var allowedOrigins = ResolveAllowedCorsOrigins(configuration);
+
     services.AddCors(options =>
     {
         options.AddPolicy(AllowAllCorsPolicy, policy =>
         {
             policy
-                .AllowAnyOrigin()
                 .AllowAnyMethod()
                 .AllowAnyHeader();
+
+            if (allowedOrigins.Contains(WildcardCorsOrigin, StringComparer.Ordinal))
+            {
+                // API uses bearer tokens, not CORS credentials; wildcard is intentional for local/mobile clients.
+                policy.SetIsOriginAllowed(_ => true);
+                return;
+            }
+
+            policy.WithOrigins(allowedOrigins);
         });
     });
+}
+
+static string[] ResolveAllowedCorsOrigins(IConfiguration configuration)
+{
+    var envOrigins = configuration[CorsAllowedOriginsEnvKey];
+    if (!string.IsNullOrWhiteSpace(envOrigins))
+    {
+        return envOrigins
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    return configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [WildcardCorsOrigin];
 }
 
 static void AddApiSwagger(IServiceCollection services)

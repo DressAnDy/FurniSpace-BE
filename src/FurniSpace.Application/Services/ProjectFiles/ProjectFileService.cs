@@ -20,6 +20,8 @@ public sealed class ProjectFileService : IProjectFileService
     private const string SalesRole = "SALES";
     private const string DesignerRole = "DESIGNER";
     private const string ProjectReferenceType = "PROJECT";
+    private const string InactiveOrMissingRoleMessage = "Authenticated account is not active or has no role.";
+    private const string FileNotFoundMessage = "File not found.";
     private static readonly HashSet<string> SupportedReferenceTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         ProjectReferenceType,
@@ -28,7 +30,7 @@ public sealed class ProjectFileService : IProjectFileService
         "QUOTATION",
         "ORDER"
     };
-    private static readonly IReadOnlyDictionary<ProjectStatus, int> ProjectStatusRanks = new Dictionary<ProjectStatus, int>
+    private static readonly Dictionary<ProjectStatus, int> ProjectStatusRanks = new()
     {
         [ProjectStatus.SUBMITTED] = 10,
         [ProjectStatus.IN_CONSULTATION] = 20,
@@ -100,7 +102,7 @@ public sealed class ProjectFileService : IProjectFileService
         var roleName = await _projectFiles.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (string.IsNullOrWhiteSpace(roleName))
         {
-            return ServiceResult<ProjectFileUploadResponseDto>.Forbidden("Authenticated account is not active or has no role.");
+            return ServiceResult<ProjectFileUploadResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
         }
 
         if (!CanUpload(project.CustomerId, project.AssignedSalesId, project.AssignedDesignerId, currentUserId, roleName))
@@ -192,18 +194,18 @@ public sealed class ProjectFileService : IProjectFileService
         var roleName = await GetRequiredRoleNameAsync(currentUserId, cancellationToken);
         if (roleName is null)
         {
-            return ServiceResult<FileDetailResponseDto>.Forbidden("Authenticated account is not active or has no role.");
+            return ServiceResult<FileDetailResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
         }
 
         var file = await _projectFiles.GetFileMetadataAsync(fileId, cancellationToken);
         if (file is null)
         {
-            return ServiceResult<FileDetailResponseDto>.NotFound("File not found.");
+            return ServiceResult<FileDetailResponseDto>.NotFound(FileNotFoundMessage);
         }
 
         if (!IsAdmin(roleName) && file.Status != FileStatus.ACTIVE)
         {
-            return ServiceResult<FileDetailResponseDto>.NotFound("File not found.");
+            return ServiceResult<FileDetailResponseDto>.NotFound(FileNotFoundMessage);
         }
 
         if (!CanViewFile(file, currentUserId, roleName))
@@ -236,7 +238,7 @@ public sealed class ProjectFileService : IProjectFileService
         var roleName = await GetRequiredRoleNameAsync(currentUserId, cancellationToken);
         if (roleName is null)
         {
-            return ServiceResult<ProjectFilesResponseDto>.Forbidden("Authenticated account is not active or has no role.");
+            return ServiceResult<ProjectFilesResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
         }
 
         var project = await _projectFiles.GetProjectAccessAsync(projectId, cancellationToken);
@@ -290,7 +292,7 @@ public sealed class ProjectFileService : IProjectFileService
         var roleName = await GetRequiredRoleNameAsync(currentUserId, cancellationToken);
         if (roleName is null)
         {
-            return ServiceResult<FilesByReferenceResponseDto>.Forbidden("Authenticated account is not active or has no role.");
+            return ServiceResult<FilesByReferenceResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
         }
 
         var project = await _projectFiles.GetReferenceProjectAccessAsync(normalizedReferenceType, query.ReferenceId, cancellationToken);
@@ -344,13 +346,13 @@ public sealed class ProjectFileService : IProjectFileService
         var roleName = await GetRequiredRoleNameAsync(currentUserId, cancellationToken);
         if (roleName is null)
         {
-            return ServiceResult<DeleteFileResponseDto>.Forbidden("Authenticated account is not active or has no role.");
+            return ServiceResult<DeleteFileResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
         }
 
         var metadata = await _projectFiles.GetFileMetadataAsync(fileId, cancellationToken);
         if (metadata is null)
         {
-            return ServiceResult<DeleteFileResponseDto>.NotFound("File not found.");
+            return ServiceResult<DeleteFileResponseDto>.NotFound(FileNotFoundMessage);
         }
 
         if (!CanDeleteFile(metadata, currentUserId, roleName))
@@ -361,7 +363,7 @@ public sealed class ProjectFileService : IProjectFileService
         var file = await _projectFiles.GetByIdAsync(fileId, cancellationToken);
         if (file is null)
         {
-            return ServiceResult<DeleteFileResponseDto>.NotFound("File not found.");
+            return ServiceResult<DeleteFileResponseDto>.NotFound(FileNotFoundMessage);
         }
 
         await _storage.DeleteAsync(file.StoragePath, cancellationToken);
@@ -395,13 +397,13 @@ public sealed class ProjectFileService : IProjectFileService
         var roleName = await GetRequiredRoleNameAsync(currentUserId, cancellationToken);
         if (roleName is null)
         {
-            return ServiceResult<ArchiveFileResponseDto>.Forbidden("Authenticated account is not active or has no role.");
+            return ServiceResult<ArchiveFileResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
         }
 
         var metadata = await _projectFiles.GetFileMetadataAsync(fileId, cancellationToken);
         if (metadata is null)
         {
-            return ServiceResult<ArchiveFileResponseDto>.NotFound("File not found.");
+            return ServiceResult<ArchiveFileResponseDto>.NotFound(FileNotFoundMessage);
         }
 
         if (metadata.Status != FileStatus.ACTIVE)
@@ -417,7 +419,7 @@ public sealed class ProjectFileService : IProjectFileService
         var file = await _projectFiles.GetByIdAsync(fileId, cancellationToken);
         if (file is null)
         {
-            return ServiceResult<ArchiveFileResponseDto>.NotFound("File not found.");
+            return ServiceResult<ArchiveFileResponseDto>.NotFound(FileNotFoundMessage);
         }
 
         var archivedAt = DateTime.UtcNow;
@@ -534,14 +536,14 @@ public sealed class ProjectFileService : IProjectFileService
             : _firebaseSettings.MaxFileSizeBytes;
     }
 
-    private IEnumerable<string> AllowedExtensions()
+    private string[] AllowedExtensions()
     {
         return _uploadSettings.AllowedExtensions.Length == 0
             ? new FileUploadSettings().AllowedExtensions
             : _uploadSettings.AllowedExtensions;
     }
 
-    private IEnumerable<string> AllowedMimeTypes()
+    private string[] AllowedMimeTypes()
     {
         return _uploadSettings.AllowedMimeTypes.Length == 0
             ? new FileUploadSettings().AllowedMimeTypes
@@ -651,11 +653,6 @@ public sealed class ProjectFileService : IProjectFileService
     private static bool IsCustomer(string roleName)
     {
         return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsSales(string roleName)
-    {
-        return string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsBeforeProposalSelected(ProjectStatus? status)

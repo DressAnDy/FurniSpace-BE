@@ -10,7 +10,7 @@ namespace FurniSpace.Infrastructure.Repositories.Repository;
 
 public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProjectFileRepository
 {
-    private readonly IReadOnlyDictionary<string, Func<Guid, CancellationToken, Task<ProjectFileAccessReadModel?>>> _projectAccessResolvers;
+    private readonly Dictionary<string, Func<Guid, CancellationToken, Task<ProjectFileAccessReadModel?>>> _projectAccessResolvers;
 
     public ProjectFileRepository(AppDbContext dbContext) : base(dbContext)
     {

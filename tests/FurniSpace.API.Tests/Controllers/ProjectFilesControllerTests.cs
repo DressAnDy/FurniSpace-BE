@@ -158,7 +158,7 @@ public sealed class ProjectFilesControllerTests
         ], "Test"));
     }
 
-    private static IFormFile CreateFormFile(string fileName, string contentType, string content)
+    private static FormFile CreateFormFile(string fileName, string contentType, string content)
     {
         var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
         return new FormFile(stream, 0, stream.Length, "file", fileName)

@@ -137,6 +137,34 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
+    public async Task UploadProjectFileAsync_WithMissingRole_ReturnsForbidden()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = null,
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId
+            }
+        };
+        var storage = new FakeFileStorageService();
+        var service = CreateService(repository, storage);
+
+        var result = await service.UploadProjectFileAsync(
+            projectId,
+            customerId,
+            CreateUploadRequest("floor-plan.pdf", FileType.PDF_DRAWING));
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("Authenticated account is not active or has no role.", result.Message);
+        Assert.Null(storage.UploadRequest);
+        Assert.Empty(repository.StoredFiles);
+    }
+
+    [Fact]
     public async Task GetProjectFilesAsync_ForCustomer_SetsCustomerVisibleFilter()
     {
         var customerId = Guid.NewGuid();

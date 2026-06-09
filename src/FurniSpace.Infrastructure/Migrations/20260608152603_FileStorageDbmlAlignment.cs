@@ -9,6 +9,9 @@ namespace FurniSpace.Infrastructure.Migrations
     /// <inheritdoc />
     public partial class FileStorageDbmlAlignment : Migration
     {
+        private static readonly string[] FileLinkReferenceIndexColumns = ["reference_type", "reference_id"];
+        private static readonly string[] FileLinkUniqueReferenceColumns = ["file_id", "reference_type", "reference_id", "file_type"];
+
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -188,7 +191,7 @@ namespace FurniSpace.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "idx_file_links_reference",
                 table: "file_links",
-                columns: new[] { "reference_type", "reference_id" });
+                columns: FileLinkReferenceIndexColumns);
 
             migrationBuilder.CreateIndex(
                 name: "IX_file_links_created_by",
@@ -198,7 +201,7 @@ namespace FurniSpace.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "uq_file_links_unique_reference",
                 table: "file_links",
-                columns: new[] { "file_id", "reference_type", "reference_id", "file_type" },
+                columns: FileLinkUniqueReferenceColumns,
                 unique: true);
 
             migrationBuilder.AddForeignKey(

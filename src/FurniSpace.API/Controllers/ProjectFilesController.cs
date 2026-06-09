@@ -14,6 +14,8 @@ namespace FurniSpace.API.Controllers;
 [Route("projects/{projectId:guid}/files")]
 public sealed class ProjectFilesController : BaseApiController
 {
+    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
+
     private readonly IProjectFileService _projectFiles;
 
     public ProjectFilesController(IProjectFileService projectFiles)
@@ -23,7 +25,8 @@ public sealed class ProjectFilesController : BaseApiController
 
     [HttpPost]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(104_857_600)]
+    // Allows multipart overhead while ProjectFileService enforces configured file-size limits.
+    [RequestSizeLimit(MultipartRequestLimitBytes)]
     public async Task<IActionResult> UploadProjectFile(
         Guid projectId,
         [FromForm] UploadProjectFileFormRequest request,

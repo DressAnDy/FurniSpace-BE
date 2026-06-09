@@ -4,6 +4,9 @@ namespace FurniSpace.Infrastructure.Data;
 
 public static class DataSeeder
 {
+    private const string SeedPasswordHash = "AQAAAAIAAYagAAAAEAECAwQFBgcICQoLDA0ODxDAH0b1OrxnAM4eksEmeLkcwosb1PNke5hkU3/Rat3JOA==";
+    private const string InvalidSeedPasswordHash = "AQAAAAMAAYagAAAAEAECAwQFBgcICQoLDA0ODxDAH0b1OrxnAM4eksEmeLkcwosb1PNke5hkU3/Rat3JOA==";
+
     public static async Task SeedAsync(AppDbContext dbContext, CancellationToken cancellationToken = default)
     {
         await SeedRolesAsync(dbContext, cancellationToken);
@@ -30,15 +33,18 @@ public static class DataSeeder
 
     private static Task<int> SeedAccountsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
-            """
+        return dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"""
             INSERT INTO accounts (account_id, role_id, email, password_hash, full_name, phone, status, created_at, updated_at)
             VALUES
-                ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'admin@furnispace.local', 'seed-password-hash', 'FurniSpace Admin', '0900000001', 'ACTIVE'::account_status, now(), now()),
-                ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'sales@furnispace.local', 'seed-password-hash', 'Sales Consultant', '0900000002', 'ACTIVE'::account_status, now(), now()),
-                ('cccccccc-cccc-cccc-cccc-cccccccccccc', '33333333-3333-3333-3333-333333333333', 'designer@furnispace.local', 'seed-password-hash', 'Design Specialist', '0900000003', 'ACTIVE'::account_status, now(), now()),
-                ('dddddddd-dddd-dddd-dddd-dddddddddddd', '44444444-4444-4444-4444-444444444444', 'customer@furnispace.local', 'seed-password-hash', 'Demo Customer', '0900000004', 'ACTIVE'::account_status, now(), now())
-            ON CONFLICT (email) DO NOTHING;
+                ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'admin@furnispace.local', {SeedPasswordHash}, 'FurniSpace Admin', '0900000001', 'ACTIVE'::account_status, now(), now()),
+                ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'sales@furnispace.local', {SeedPasswordHash}, 'Sales Consultant', '0900000002', 'ACTIVE'::account_status, now(), now()),
+                ('cccccccc-cccc-cccc-cccc-cccccccccccc', '33333333-3333-3333-3333-333333333333', 'designer@furnispace.local', {SeedPasswordHash}, 'Design Specialist', '0900000003', 'ACTIVE'::account_status, now(), now()),
+                ('dddddddd-dddd-dddd-dddd-dddddddddddd', '44444444-4444-4444-4444-444444444444', 'customer@furnispace.local', {SeedPasswordHash}, 'Demo Customer', '0900000004', 'ACTIVE'::account_status, now(), now())
+            ON CONFLICT (email) DO UPDATE
+            SET password_hash = EXCLUDED.password_hash,
+                updated_at = now()
+            WHERE accounts.password_hash IN ('seed-password-hash', {InvalidSeedPasswordHash});
             """,
             cancellationToken);
     }

@@ -179,7 +179,8 @@ static void AddAllowAllCors(IServiceCollection services, IConfiguration configur
         {
             policy
                 .AllowAnyMethod()
-                .AllowAnyHeader();
+                .AllowAnyHeader()
+                .AllowCredentials();
 
             if (allowedOrigins.Contains(WildcardCorsOrigin, StringComparer.Ordinal))
             {

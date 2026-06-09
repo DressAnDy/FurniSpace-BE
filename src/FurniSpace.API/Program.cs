@@ -21,6 +21,8 @@ using Microsoft.IdentityModel.Tokens;
 
 EnvLoader.LoadEnv(required: false);
 
+const string AllowAllCorsPolicy = "AllowAllCors";
+
 var builder = WebApplication.CreateBuilder(args);
 var jwtSettings = LoadJwtSettings(builder.Configuration);
 
@@ -34,6 +36,7 @@ builder.Services
     .AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 ConfigureForwardedHeaders(builder.Services, builder.Configuration);
+AddAllowAllCors(builder.Services);
 AddPublicAuthRateLimiter(builder.Services);
 AddApiSwagger(builder.Services);
 builder.Services.AddApplication(builder.Configuration);
@@ -49,13 +52,14 @@ UseProductionHttps(app);
 app.UseHttpsRedirection();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseRateLimiter();
+app.UseCors(AllowAllCorsPolicy);
 app.UseAuthentication();
 app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 app.MapGet("/", () => "FurniSpace API");
-app.Run();
+await app.RunAsync();
 await Log.CloseAndFlushAsync();
 
 static JwtSettings LoadJwtSettings(IConfiguration configuration)
@@ -159,6 +163,20 @@ static void AddPublicAuthRateLimiter(IServiceCollection services)
                     QueueLimit = 0,
                     AutoReplenishment = true
                 });
+        });
+    });
+}
+
+static void AddAllowAllCors(IServiceCollection services)
+{
+    services.AddCors(options =>
+    {
+        options.AddPolicy(AllowAllCorsPolicy, policy =>
+        {
+            policy
+                .AllowAnyOrigin()
+                .AllowAnyMethod()
+                .AllowAnyHeader();
         });
     });
 }

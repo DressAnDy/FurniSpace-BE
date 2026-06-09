@@ -3,6 +3,7 @@ using FurniSpace.Infrastructure.Caching;
 using FurniSpace.Infrastructure.Common.Caching;
 using FurniSpace.Infrastructure.Common.Email;
 using FurniSpace.Infrastructure.Common.Search;
+using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Email;
 using FurniSpace.Infrastructure.Interfaces;
@@ -10,6 +11,7 @@ using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using FurniSpace.Infrastructure.Search;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,6 +28,23 @@ public static class DependencyInjection
         services.Configure<RedisSettings>(configuration.GetSection(RedisSettings.SectionName));
         services.Configure<ElasticsearchSettings>(configuration.GetSection(ElasticsearchSettings.SectionName));
         services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
+        services.Configure<FileUploadSettings>(configuration.GetSection(FileUploadSettings.SectionName));
+        services.Configure<FirebaseStorageSettings>(settings =>
+        {
+            var section = configuration.GetSection(FirebaseStorageSettings.SectionName);
+            settings.Bucket = configuration["FIREBASE_STORAGE_BUCKET"]
+                ?? section["Bucket"]
+                ?? settings.Bucket;
+            settings.CredentialsPath = configuration["FIREBASE_CREDENTIALS_PATH"]
+                ?? configuration["GOOGLE_APPLICATION_CREDENTIALS"]
+                ?? section["CredentialsPath"]
+                ?? settings.CredentialsPath;
+            settings.ProjectFilesPrefix = section["ProjectFilesPrefix"] ?? settings.ProjectFilesPrefix;
+            if (long.TryParse(section["MaxFileSizeBytes"], out var maxFileSizeBytes))
+            {
+                settings.MaxFileSizeBytes = maxFileSizeBytes;
+            }
+        });
 
         services.AddPostgres(configuration);
         services.AddRedis(configuration);
@@ -34,7 +53,9 @@ public static class DependencyInjection
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IProductRepository, ProductRepository>();
         services.AddScoped<IProductVersionRepository, ProductVersionRepository>();
+        services.AddScoped<IProjectFileRepository, ProjectFileRepository>();
         services.AddScoped<IEmailService, SmtpEmailService>();
+        services.AddScoped<IFileStorageService, FirebaseStorageService>();
 
         return services;
     }
@@ -86,6 +107,7 @@ public static class DependencyInjection
         builder.MapEnum<ProjectChatType>("project_chat_type", translator);
         builder.MapEnum<ProjectChatStatus>("project_chat_status", translator);
         builder.MapEnum<ProjectChatMessageType>("project_chat_message_type", translator);
+        builder.MapEnum<FileStatus>("file_status", translator);
         builder.MapEnum<FileVisibility>("file_visibility", translator);
         builder.MapEnum<FileType>("file_type", translator);
         builder.MapEnum<ProductStatus>("product_status", translator);

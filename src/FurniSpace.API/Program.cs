@@ -211,6 +211,12 @@ static void AddApiSwagger(IServiceCollection services)
     services.AddSwaggerGen(options =>
     {
         options.SwaggerDoc("v1", new() { Title = "FurniSpace API", Version = "v1", Description = "FurniSpace Backend API" });
+        options.MapType<DateOnly>(() => new Microsoft.OpenApi.Models.OpenApiSchema
+        {
+            Type = "string",
+            Format = "date",
+            Example = new Microsoft.OpenApi.Any.OpenApiString("2026-08-15")
+        });
         options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
         {
             In = Microsoft.OpenApi.Models.ParameterLocation.Header,

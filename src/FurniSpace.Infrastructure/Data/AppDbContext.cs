@@ -43,6 +43,7 @@ public class AppDbContext : DbContext
     private const string ProjectChatTypeColumnType = "project_chat_type";
     private const string ProjectChatStatusColumnType = "project_chat_status";
     private const string ProjectChatMessageTypeColumnType = "project_chat_message_type";
+    private const string FileStatusColumnType = "file_status";
     private const string FileVisibilityColumnType = "file_visibility";
     private const string FileTypeColumnType = "file_type";
     private const string ProductStatusColumnType = "product_status";
@@ -123,6 +124,7 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,PRODUCTION,DELIVERY,GENERAL,INTERNAL");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_status", "OPEN,CLOSED,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_message_type", "TEXT,FILE,SYSTEM");
+        modelBuilder.HasAnnotation("Npgsql:Enum:file_status", "ACTIVE,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_visibility", "CUSTOMER_VISIBLE,STAFF_ONLY,PRIVATE");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_type", "SPACE_IMAGE,FLOOR_PLAN,REFERENCE_IMAGE,BRAND_ASSET,CAD_FILE,PDF_DRAWING,MEASUREMENT_REPORT,LIDAR_SCAN,MODEL_3D,TEXTURE,PRODUCT_PREVIEW,PROPOSAL_PREVIEW,PROPOSAL_FILE,QUOTATION_FILE,ORDER_DOCUMENT,PRODUCTION_FILE,DELIVERY_PHOTO,DELIVERY_NOTE,REVIEW_IMAGE,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:product_status", "ACTIVE,INACTIVE,ARCHIVED");
@@ -261,13 +263,21 @@ public class AppDbContext : DbContext
             entity.ToTable("files");
             entity.HasKey(e => e.FileId);
             entity.Property(e => e.FileId).HasColumnName("file_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.FileName).HasColumnName("file_name").HasColumnType(Varchar255ColumnType).IsRequired();
+            entity.Property(e => e.UploadedBy).HasColumnName("uploaded_by").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.OriginalFileName).HasColumnName("original_file_name").HasColumnType(Varchar255ColumnType).IsRequired();
+            entity.Property(e => e.StoredFileName).HasColumnName("stored_file_name").HasColumnType(Varchar255ColumnType).IsRequired();
             entity.Property(e => e.FileUrl).HasColumnName("file_url").HasColumnType(TextColumnType).IsRequired();
-            entity.Property(e => e.MimeType).HasColumnName("mime_type").HasColumnType(Varchar100ColumnType);
-            entity.Property(e => e.FileSizeBytes).HasColumnName("file_size_bytes").HasColumnType(BigIntColumnType);
-            entity.Property(e => e.UploadedBy).HasColumnName("uploaded_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.StoragePath).HasColumnName("storage_path").HasColumnType(TextColumnType).IsRequired();
+            entity.Property(e => e.MimeType).HasColumnName("mime_type").HasColumnType(Varchar100ColumnType).IsRequired();
+            entity.Property(e => e.FileExtension).HasColumnName("file_extension").HasColumnType(Varchar20ColumnType);
+            entity.Property(e => e.FileSizeBytes).HasColumnName("file_size_bytes").HasColumnType(BigIntColumnType).IsRequired();
+            entity.Property(e => e.Checksum).HasColumnName("checksum").HasColumnType(Varchar255ColumnType);
+            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(FileStatusColumnType).HasDefaultValueSql("'ACTIVE'::file_status");
+            entity.Property(e => e.UploadedAt).HasColumnName("uploaded_at").HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.ArchivedAt).HasColumnName("archived_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => e.UploadedBy).HasDatabaseName("idx_files_uploaded_by");
+            entity.HasIndex(e => e.Status).HasDatabaseName("idx_files_status");
+            entity.HasIndex(e => e.StoragePath).IsUnique().HasDatabaseName("uq_files_storage_path");
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UploadedBy).OnDelete(DeleteBehavior.Restrict);
         });
     }
@@ -283,10 +293,15 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ReferenceType).HasColumnName("reference_type").HasColumnType(Varchar50ColumnType).IsRequired();
             entity.Property(e => e.ReferenceId).HasColumnName("reference_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.FileType).HasColumnName("file_type").HasColumnType(FileTypeColumnType).HasDefaultValueSql("'OTHER'::file_type");
-            entity.Property(e => e.Visibility).HasColumnName("visibility").HasColumnType(FileVisibilityColumnType).HasDefaultValueSql("'STAFF_ONLY'::file_visibility");
+            entity.Property(e => e.Visibility).HasColumnName("visibility").HasColumnType(FileVisibilityColumnType).HasDefaultValueSql("'CUSTOMER_VISIBLE'::file_visibility");
             entity.Property(e => e.Description).HasColumnName(DescriptionColumnName).HasColumnType(TextColumnType);
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by").HasColumnType(UuidColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => new { e.ReferenceType, e.ReferenceId }).HasDatabaseName("idx_file_links_reference");
+            entity.HasIndex(e => e.FileId).HasDatabaseName("idx_file_links_file_id");
+            entity.HasIndex(e => new { e.FileId, e.ReferenceType, e.ReferenceId, e.FileType }).IsUnique().HasDatabaseName("uq_file_links_unique_reference");
             entity.HasOne<StoredFile>().WithMany().HasForeignKey(e => e.FileId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

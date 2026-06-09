@@ -12,6 +12,6 @@ public class FileLink
     public FileType? FileType { get; set; }
     public FileVisibility? Visibility { get; set; }
     public string? Description { get; set; }
+    public Guid? CreatedBy { get; set; }
     public DateTime? CreatedAt { get; set; }
 }
-

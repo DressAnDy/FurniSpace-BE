@@ -2,7 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using FurniSpace.Application.Common.Auth;
-using FurniSpace.Application.DTOs;
+using FurniSpace.Application.DTOs.Auth;
 using FurniSpace.Application.Interfaces.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;

@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using FurniSpace.Application.Common;
-using FurniSpace.Application.DTOs;
+using FurniSpace.Application.DTOs.Auth;
 using FurniSpace.Application.DTOs.Identity;
 using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Domain.Entities;

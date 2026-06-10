@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using FurniSpace.Application.DTOs;
+using FurniSpace.Application.DTOs.Auth;
 
 namespace FurniSpace.Application.Interfaces.Identity;
 

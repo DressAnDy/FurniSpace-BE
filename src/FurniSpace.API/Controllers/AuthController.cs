@@ -2,12 +2,13 @@
 
 using FurniSpace.API.Base;
 using FurniSpace.Application.Common;
-using FurniSpace.Application.DTOs;
+using FurniSpace.Application.DTOs.Auth;
 using FurniSpace.Application.DTOs.Identity;
 using FurniSpace.Application.Interfaces.Identity;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 
@@ -16,15 +17,21 @@ namespace FurniSpace.API.Controllers;
 [Route("auth")]
 public class AuthController : BaseApiController
 {
+    private const string AccessTokenCookieName = "access_token";
     private const string RefreshTokenCookieName = "refresh_token";
 
     private readonly IAuthService _authService;
     private readonly IIdentityService _identityService;
+    private readonly IOptionsMonitor<CookieOptions> _authCookieOptions;
 
-    public AuthController(IAuthService authService, IIdentityService identityService)
+    public AuthController(
+        IAuthService authService,
+        IIdentityService identityService,
+        IOptionsMonitor<CookieOptions> authCookieOptions)
     {
         _authService = authService;
         _identityService = identityService;
+        _authCookieOptions = authCookieOptions;
     }
 
     [AllowAnonymous]
@@ -42,7 +49,7 @@ public class AuthController : BaseApiController
     public async Task<IActionResult> VerifyEmail(VerifyEmailRequestDto request, CancellationToken cancellationToken)
     {
         var result = await _identityService.VerifyEmailAsync(request, cancellationToken);
-        SetRefreshTokenCookie(result.Data);
+        SetAuthCookies(result.Data);
         return ToActionResult(result);
     }
 
@@ -62,7 +69,7 @@ public class AuthController : BaseApiController
     public async Task<IActionResult> Login(LoginRequestDto request, CancellationToken cancellationToken)
     {
         var result = await _identityService.LoginAsync(request, cancellationToken);
-        SetRefreshTokenCookie(result.Data);
+        SetAuthCookies(result.Data);
         return ToActionResult(result);
     }
 
@@ -79,7 +86,7 @@ public class AuthController : BaseApiController
         }
 
         var result = await _identityService.RefreshAsync(request, cancellationToken);
-        SetRefreshTokenCookie(result.Data);
+        SetAuthCookies(result.Data);
         return ToActionResult(result);
     }
 
@@ -154,7 +161,12 @@ public class AuthController : BaseApiController
             await _authService.RevokeAccessTokenAsync(jti, expiresAt.Value, cancellationToken);
         }
 
-        Response.Cookies.Delete(RefreshTokenCookieName);
+        Response.Cookies.Delete(
+            AccessTokenCookieName,
+            GetAuthCookieOptions(AccessTokenCookieName));
+        Response.Cookies.Delete(
+            RefreshTokenCookieName,
+            GetAuthCookieOptions(RefreshTokenCookieName));
         return ToActionResult(ServiceResult.Success("Logged out successfully"));
     }
 
@@ -163,21 +175,45 @@ public class AuthController : BaseApiController
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out userId);
     }
 
-    private void SetRefreshTokenCookie(AuthResponseDto? auth)
+    private void SetAuthCookies(AuthResponseDto? auth)
     {
         if (auth is null)
         {
             return;
         }
 
-        Response.Cookies.Append(RefreshTokenCookieName, auth.RefreshToken, new CookieOptions
+        Response.Cookies.Append(
+            AccessTokenCookieName,
+            auth.AccessToken,
+            GetAccessTokenCookieOptions(auth));
+
+        Response.Cookies.Append(
+            RefreshTokenCookieName,
+            auth.RefreshToken,
+            GetAuthCookieOptions(RefreshTokenCookieName));
+    }
+
+    private CookieOptions GetAccessTokenCookieOptions(AuthResponseDto auth)
+    {
+        var options = GetAuthCookieOptions(AccessTokenCookieName);
+        options.Expires = auth.AccessTokenExpiresAt;
+        return options;
+    }
+
+    private CookieOptions GetAuthCookieOptions(string cookieName)
+    {
+        var options = _authCookieOptions.Get(cookieName);
+        return new CookieOptions
         {
-            HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
-            Expires = auth.RefreshTokenExpiresAt,
-            Path = "/"
-        });
+            HttpOnly = options.HttpOnly,
+            Secure = options.Secure,
+            SameSite = options.SameSite,
+            Path = options.Path,
+            Domain = options.Domain,
+            MaxAge = options.MaxAge,
+            Expires = options.Expires,
+            IsEssential = options.IsEssential
+        };
     }
 
     private DateTimeOffset? GetAccessTokenExpiresAt()

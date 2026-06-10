@@ -1,10 +1,11 @@
 using System.Text.Json.Serialization;
 
-namespace FurniSpace.Application.DTOs;
+namespace FurniSpace.Application.DTOs.Auth;
 
 public sealed class AuthResponseDto
 {
     [JsonPropertyName("access_token")]
+    [JsonIgnore]
     public string AccessToken { get; set; } = string.Empty;
 
     [JsonPropertyName("refresh_token")]

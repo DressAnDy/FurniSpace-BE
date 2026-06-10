@@ -38,6 +38,7 @@ builder.Services
     .AddControllers()
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 ConfigureForwardedHeaders(builder.Services, builder.Configuration);
+ConfigureAuthCookies(builder.Services);
 AddAllowAllCors(builder.Services, builder.Configuration);
 AddPublicAuthRateLimiter(builder.Services);
 AddApiSwagger(builder.Services);
@@ -134,6 +135,23 @@ static void ConfigureForwardedHeaders(IServiceCollection services, IConfiguratio
             options.KnownNetworks.Clear();
             options.KnownProxies.Clear();
         }
+    });
+}
+
+static void ConfigureAuthCookies(IServiceCollection services)
+{
+    ConfigureAuthCookie(services, "access_token");
+    ConfigureAuthCookie(services, "refresh_token");
+}
+
+static void ConfigureAuthCookie(IServiceCollection services, string cookieName)
+{
+    services.Configure<CookieOptions>(cookieName, options =>
+    {
+        options.HttpOnly = true;
+        options.Secure = true;
+        options.SameSite = SameSiteMode.Strict;
+        options.Path = "/";
     });
 }
 
@@ -258,6 +276,16 @@ static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSet
             };
             options.Events = new JwtBearerEvents
             {
+                OnMessageReceived = context =>
+                {
+                    if (string.IsNullOrWhiteSpace(context.Token) &&
+                        context.Request.Cookies.TryGetValue("access_token", out var accessToken))
+                    {
+                        context.Token = accessToken;
+                    }
+
+                    return Task.CompletedTask;
+                },
                 OnTokenValidated = ValidateAccessTokenAsync
             };
         });

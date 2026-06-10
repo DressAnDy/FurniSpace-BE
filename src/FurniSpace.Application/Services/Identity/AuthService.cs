@@ -1,4 +1,4 @@
-using FurniSpace.Application.DTOs;
+using FurniSpace.Application.DTOs.Auth;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Interfaces.Identity;
 using Microsoft.Extensions.Options;

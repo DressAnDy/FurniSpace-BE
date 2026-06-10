@@ -2,7 +2,7 @@
 
 using System;
 using System.Text.Json;
-using FurniSpace.Application.DTOs;
+using FurniSpace.Application.DTOs.Auth;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.Identity;
@@ -10,7 +10,7 @@ namespace FurniSpace.Application.Tests.Identity;
 public sealed class AuthResponseDtoTests
 {
     [Fact]
-    public void Serialize_UsesSnakeCaseAndDoesNotExposeRefreshToken()
+    public void Serialize_UsesSnakeCaseAndDoesNotExposeTokens()
     {
         var response = new AuthResponseDto
         {
@@ -22,7 +22,8 @@ public sealed class AuthResponseDtoTests
 
         var json = JsonSerializer.Serialize(response);
 
-        Assert.Contains("\"access_token\":\"access\"", json);
+        Assert.DoesNotContain("\"access_token\":\"access\"", json);
+        Assert.DoesNotContain("\"access\"", json);
         Assert.DoesNotContain("refresh_token", json);
         Assert.DoesNotContain("refresh", json);
         Assert.Contains("\"expires_in\":", json);

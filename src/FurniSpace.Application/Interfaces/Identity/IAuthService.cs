@@ -1,6 +1,6 @@
 namespace FurniSpace.Application.Interfaces.Identity;
 
-using FurniSpace.Application.DTOs;
+using FurniSpace.Application.DTOs.Auth;
 
 public interface IAuthService
 {

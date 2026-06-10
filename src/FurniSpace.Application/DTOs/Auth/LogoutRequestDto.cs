@@ -1,4 +1,4 @@
-namespace FurniSpace.Application.DTOs;
+namespace FurniSpace.Application.DTOs.Auth;
 
 public sealed class LogoutRequestDto
 {

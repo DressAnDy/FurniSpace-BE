@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.DTOs.Projects;
 using FurniSpace.Infrastructure.Repositories.Base;
@@ -64,6 +65,29 @@ public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepo
                 TargetCompletionDate = project.TargetCompletionDate,
                 Status = project.Status,
                 SubmittedAt = project.SubmittedAt
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(
+        Guid designerId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.AccountSet
+            .Where(account =>
+                account.AccountId == designerId &&
+                account.DeletedAt == null &&
+                account.Status == AccountStatus.ACTIVE)
+            .Join(
+                DbContext.RoleSet,
+                account => account.RoleId,
+                role => role.RoleId,
+                (account, role) => new { account, role })
+            .Where(joined => joined.role.RoleName == "DESIGNER")
+            .Select(joined => new DesignerAccountReadModel
+            {
+                AccountId = joined.account.AccountId,
+                FullName = joined.account.FullName
             })
             .FirstOrDefaultAsync(cancellationToken);
     }

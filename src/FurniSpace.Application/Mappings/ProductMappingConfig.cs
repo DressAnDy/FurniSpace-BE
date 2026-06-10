@@ -15,6 +15,12 @@ public sealed class ProductMappingConfig : IRegister
         config.NewConfig<Product, ProductDto>();
         config.NewConfig<ProductVersion, ProductVersionDto>();
         config.NewConfig<Project, ProjectDto>();
+        config.NewConfig<Project, ProjectSalesAssignmentDto>();
+        config.NewConfig<Project, ProjectBasicInformationDto>();
+        config.NewConfig<Project, ProjectStatusUpdateDto>();
+        config.NewConfig<Project, ProjectRejectionDto>();
+        config.NewConfig<Project, ProjectInformationRequestDto>()
+            .Map(destination => destination.RequestedAt, source => source.UpdatedAt ?? default);
         config.NewConfig<ProjectDetailReadModel, ProjectDto>();
         config.NewConfig<ProjectListQueryDto, ProjectListQueryReadModel>();
         config.NewConfig<ProjectListItemReadModel, ProjectListItemDto>();

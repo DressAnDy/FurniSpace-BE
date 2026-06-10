@@ -114,6 +114,70 @@ public sealed class ProjectsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [HttpPatch("{projectId:guid}/basic-information")]
+    public async Task<IActionResult> UpdateBasicInformation(
+        Guid projectId,
+        [FromBody] UpdateProjectBasicInformationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.UpdateBasicInformationAsync(projectId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("{projectId:guid}/status")]
+    public async Task<IActionResult> UpdateStatus(
+        Guid projectId,
+        [FromBody] UpdateProjectStatusRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.UpdateStatusAsync(projectId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("{projectId:guid}/rejection")]
+    public async Task<IActionResult> Reject(
+        Guid projectId,
+        [FromBody] RejectProjectRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.RejectAsync(projectId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("{projectId:guid}/designer-assignment")]
+    public async Task<IActionResult> AssignDesigner(
+        Guid projectId,
+        [FromBody] AssignProjectDesignerRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.AssignDesignerAsync(projectId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

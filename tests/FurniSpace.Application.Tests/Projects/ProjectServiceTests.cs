@@ -18,6 +18,878 @@ namespace FurniSpace.Application.Tests.Projects;
 public sealed class ProjectServiceTests
 {
     [Fact]
+    public async Task AssignDesignerAsync_WithAssignedSalesAndSufficientSpace_AssignsDesignerAndVerifiesSpace()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
+        {
+            DesignerId = designer.AccountId,
+            SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+            Note = "Please review."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Designer assigned successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(projectId, result.Data.ProjectId);
+        Assert.Equal(designer.AccountId, result.Data.AssignedDesigner.AccountId);
+        Assert.Equal(designer.FullName, result.Data.AssignedDesigner.FullName);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, result.Data.Status);
+        Assert.NotNull(result.Data.DesignerAssignedAt);
+        Assert.Equal(designer.AccountId, project.AssignedDesignerId);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, project.Status);
+        Assert.Equal(project.DesignerAssignedAt, project.UpdatedAt);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetAccountRoleNameCallCount);
+        Assert.Equal(1, repository.GetActiveDesignerCallCount);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithAdminAndInsufficientSpace_AssignsDesignerAndRequiresMeasurement()
+    {
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, Guid.NewGuid());
+        var repository = new FakeProjectRepository(roleName: "ADMIN", entities: [project], designer: designer);
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignDesignerAsync(projectId, Guid.NewGuid(), new AssignProjectDesignerRequestDto
+        {
+            DesignerId = designer.AccountId,
+            SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.MEASUREMENT_REQUIRED, result.Data.Status);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithEmptyProjectId_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignDesignerAsync(Guid.Empty, Guid.NewGuid(), ValidAssignDesignerRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithEmptyCurrentUser_ReturnsUnauthorized()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignDesignerAsync(Guid.NewGuid(), Guid.Empty, ValidAssignDesignerRequest());
+
+        Assert.Equal(401, result.Status);
+        Assert.Equal("Authenticated account id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithEmptyDesignerId_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+        var request = ValidAssignDesignerRequest();
+        request.DesignerId = Guid.Empty;
+
+        var result = await service.AssignDesignerAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Designer id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithMissingSpaceDataStatus_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+        var request = ValidAssignDesignerRequest();
+        request.SpaceDataStatus = null;
+
+        var result = await service.AssignDesignerAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Space data status is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithTooLongNote_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+        var request = ValidAssignDesignerRequest();
+        request.Note = new string('N', 1001);
+
+        var result = await service.AssignDesignerAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Designer assignment note must not exceed 1000 characters.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithMissingProject_ReturnsNotFound()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignDesignerAsync(Guid.NewGuid(), Guid.NewGuid(), ValidAssignDesignerRequest());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project not found.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(0, repository.GetAccountRoleNameCallCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("CUSTOMER")]
+    [InlineData("DESIGNER")]
+    [InlineData("SALES")]
+    public async Task AssignDesignerAsync_WithUnauthorizedRoleOrSales_ReturnsForbidden(string? roleName)
+    {
+        var projectId = Guid.NewGuid();
+        var project = CreateDesignerAssignableProject(projectId, Guid.NewGuid());
+        var repository = new FakeProjectRepository(roleName: roleName, entities: [project], designer: CreateDesigner());
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignDesignerAsync(projectId, Guid.NewGuid(), ValidAssignDesignerRequest());
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You do not have access to assign a designer to this project.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetAccountRoleNameCallCount);
+        Assert.Equal(0, repository.GetActiveDesignerCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithProjectWithoutAssignedSales_ReturnsBadRequest()
+    {
+        var projectId = Guid.NewGuid();
+        var project = CreateDesignerAssignableProject(projectId, Guid.NewGuid());
+        project.AssignedSalesId = null;
+        var repository = new FakeProjectRepository(roleName: "ADMIN", entities: [project], designer: CreateDesigner());
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignDesignerAsync(projectId, Guid.NewGuid(), ValidAssignDesignerRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project must have assigned sales before designer assignment.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetActiveDesignerCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithInvalidProjectStatus_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        project.Status = ProjectStatus.IN_CONSULTATION;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: CreateDesigner());
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignDesignerAsync(projectId, salesId, ValidAssignDesignerRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project must be waiting for designer assignment.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetActiveDesignerCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithInvalidDesigner_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignDesignerAsync(projectId, salesId, ValidAssignDesignerRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Designer account is not active or does not have Designer role.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetActiveDesignerCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WithAssignedSales_RejectsProject()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.RejectAsync(projectId, salesId, new RejectProjectRequestDto
+        {
+            RejectionReason = " Requested service scope is unsupported. "
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project request rejected.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(projectId, result.Data.ProjectId);
+        Assert.Equal(ProjectStatus.REJECTED, result.Data.Status);
+        Assert.Equal("Requested service scope is unsupported.", result.Data.RejectionReason);
+        Assert.NotNull(result.Data.RejectedAt);
+        Assert.Equal(ProjectStatus.REJECTED, project.Status);
+        Assert.Equal("Requested service scope is unsupported.", project.RejectionReason);
+        Assert.NotNull(project.RejectedAt);
+        Assert.Equal(project.RejectedAt, project.UpdatedAt);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetAccountRoleNameCallCount);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WithAdmin_RejectsUnassignedProjectBeforeOrderConfirmed()
+    {
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedSalesId = null;
+        project.Status = ProjectStatus.QUOTATION_SENT;
+        var repository = new FakeProjectRepository(roleName: "ADMIN", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.RejectAsync(projectId, Guid.NewGuid(), ValidRejectRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.REJECTED, result.Data.Status);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WithEmptyProjectId_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.RejectAsync(Guid.Empty, Guid.NewGuid(), ValidRejectRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WithEmptyCurrentUser_ReturnsUnauthorized()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.RejectAsync(Guid.NewGuid(), Guid.Empty, ValidRejectRequest());
+
+        Assert.Equal(401, result.Status);
+        Assert.Equal("Authenticated account id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task RejectAsync_WithMissingReason_ReturnsBadRequest(string reason)
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.RejectAsync(Guid.NewGuid(), Guid.NewGuid(), new RejectProjectRequestDto
+        {
+            RejectionReason = reason
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Rejection reason is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WithTooLongReason_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.RejectAsync(Guid.NewGuid(), Guid.NewGuid(), new RejectProjectRequestDto
+        {
+            RejectionReason = new string('R', 1001)
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Rejection reason must not exceed 1000 characters.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WithMissingProject_ReturnsNotFound()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.RejectAsync(Guid.NewGuid(), Guid.NewGuid(), ValidRejectRequest());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project not found.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(0, repository.GetAccountRoleNameCallCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("CUSTOMER")]
+    [InlineData("DESIGNER")]
+    [InlineData("SALES")]
+    public async Task RejectAsync_WithUnauthorizedRoleOrSales_ReturnsForbidden(string? roleName)
+    {
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        var repository = new FakeProjectRepository(roleName: roleName, entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.RejectAsync(projectId, Guid.NewGuid(), ValidRejectRequest());
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You do not have access to reject this project.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetAccountRoleNameCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Theory]
+    [InlineData(ProjectStatus.ORDER_CONFIRMED)]
+    [InlineData(ProjectStatus.IN_PRODUCTION)]
+    [InlineData(ProjectStatus.REJECTED)]
+    public async Task RejectAsync_WithNonRejectableStatus_ReturnsBadRequest(ProjectStatus status)
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.Status = status;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.RejectAsync(projectId, salesId, ValidRejectRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project cannot be rejected from its current status.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedSales_MovesToWaitingForDesignerAssignment()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(projectId, salesId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT,
+            Note = "Ready for designer."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project status updated successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(projectId, result.Data.ProjectId);
+        Assert.Equal(ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT, result.Data.Status);
+        Assert.NotNull(result.Data.UpdatedAt);
+        Assert.Equal(ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT, project.Status);
+        Assert.Equal(result.Data.UpdatedAt, project.UpdatedAt);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetAccountRoleNameCallCount);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAdmin_UpdatesAnyQualifiedProject()
+    {
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        var repository = new FakeProjectRepository(roleName: "ADMIN", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(projectId, Guid.NewGuid(), new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT, result.Data.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithEmptyProjectId_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(Guid.Empty, Guid.NewGuid(), ValidStatusRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithEmptyCurrentUser_ReturnsUnauthorized()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(Guid.NewGuid(), Guid.Empty, ValidStatusRequest());
+
+        Assert.Equal(401, result.Status);
+        Assert.Equal("Authenticated account id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithMissingTargetStatus_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(Guid.NewGuid(), Guid.NewGuid(), new UpdateProjectStatusRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project status is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithUnsupportedTargetStatus_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(Guid.NewGuid(), Guid.NewGuid(), new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.COMPLETED
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Only WAITING_FOR_DESIGNER_ASSIGNMENT transition is supported.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithTooLongNote_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(Guid.NewGuid(), Guid.NewGuid(), new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT,
+            Note = new string('N', 1001)
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Status update note must not exceed 1000 characters.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithMissingProject_ReturnsNotFound()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(Guid.NewGuid(), Guid.NewGuid(), ValidStatusRequest());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project not found.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(0, repository.GetAccountRoleNameCallCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("CUSTOMER")]
+    [InlineData("DESIGNER")]
+    [InlineData("SALES")]
+    public async Task UpdateStatusAsync_WithUnauthorizedRoleOrSales_ReturnsForbidden(string? roleName)
+    {
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        var repository = new FakeProjectRepository(roleName: roleName, entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(projectId, Guid.NewGuid(), ValidStatusRequest());
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You do not have access to update this project status.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetAccountRoleNameCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithInvalidCurrentProjectStatus_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.Status = ProjectStatus.NEED_BASIC_INFORMATION;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(projectId, salesId, ValidStatusRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project must be in consultation before designer assignment.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithIncompleteBasicInformation_ReturnsValidationErrors()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.BusinessType = " ";
+        project.FurnitureRequirement = null;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateStatusAsync(projectId, salesId, ValidStatusRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project basic information is incomplete.", result.Message);
+        Assert.Contains("Business type is required.", result.Errors!);
+        Assert.Contains("Furniture requirement is required.", result.Errors!);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithOwnerCustomer_UpdatesProjectAndMovesBackToConsultation()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            ProjectName = "Old",
+            Status = ProjectStatus.NEED_BASIC_INFORMATION
+        };
+        var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
+        var service = new ProjectService(repository);
+        var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30);
+
+        var result = await service.UpdateBasicInformationAsync(projectId, customerId, new UpdateProjectBasicInformationRequestDto
+        {
+            ProjectName = " Moc Coffee Interior Setup ",
+            BusinessType = " Cafe ",
+            ProjectAddress = " District 7 ",
+            BusinessPurpose = " Open cafe ",
+            FurnitureRequirement = " Counter, tables, chairs ",
+            Description = " Updated basic information ",
+            TotalAreaSqm = 80,
+            NumberOfFloors = 1,
+            BudgetMin = 150000000,
+            BudgetMax = 250000000,
+            TargetCompletionDate = targetDate
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project basic information updated successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(projectId, result.Data.ProjectId);
+        Assert.Equal("Moc Coffee Interior Setup", result.Data.ProjectName);
+        Assert.Equal(ProjectStatus.IN_CONSULTATION, result.Data.Status);
+        Assert.NotNull(result.Data.UpdatedAt);
+        Assert.Equal("Moc Coffee Interior Setup", project.ProjectName);
+        Assert.Equal("Cafe", project.BusinessType);
+        Assert.Equal("District 7", project.ProjectAddress);
+        Assert.Equal("Open cafe", project.BusinessPurpose);
+        Assert.Equal("Counter, tables, chairs", project.FurnitureRequirement);
+        Assert.Equal("Updated basic information", project.Description);
+        Assert.Equal(80, project.TotalAreaSqm);
+        Assert.Equal(1, project.NumberOfFloors);
+        Assert.Equal(150000000, project.BudgetMin);
+        Assert.Equal(250000000, project.BudgetMax);
+        Assert.Equal(targetDate, project.TargetCompletionDate);
+        Assert.Equal(ProjectStatus.IN_CONSULTATION, project.Status);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetAccountRoleNameCallCount);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithAssignedSales_UpdatesProject()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = salesId,
+            ProjectName = "Old",
+            Status = ProjectStatus.IN_CONSULTATION
+        };
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateBasicInformationAsync(projectId, salesId, ValidBasicInformationRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.IN_CONSULTATION, result.Data.Status);
+        Assert.Equal("Moc Coffee Interior Setup", project.ProjectName);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithAdmin_UpdatesSubmittedProject()
+    {
+        var projectId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Old",
+            Status = ProjectStatus.SUBMITTED
+        };
+        var repository = new FakeProjectRepository(roleName: "ADMIN", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateBasicInformationAsync(projectId, Guid.NewGuid(), ValidBasicInformationRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.SUBMITTED, result.Data.Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithBlankOptionalFields_NormalizesToNull()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            ProjectName = "Old",
+            Status = ProjectStatus.SUBMITTED
+        };
+        var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
+        var service = new ProjectService(repository);
+        var request = ValidBasicInformationRequest();
+        request.ProjectAddress = " ";
+        request.BusinessPurpose = " ";
+        request.Description = " ";
+
+        var result = await service.UpdateBasicInformationAsync(projectId, customerId, request);
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(project.ProjectAddress);
+        Assert.Null(project.BusinessPurpose);
+        Assert.Null(project.Description);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithEmptyProjectId_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "ADMIN");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateBasicInformationAsync(Guid.Empty, Guid.NewGuid(), ValidBasicInformationRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+        Assert.Equal(0, repository.GetAccountRoleNameCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithEmptyCurrentUser_ReturnsUnauthorized()
+    {
+        var repository = new FakeProjectRepository(roleName: "ADMIN");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateBasicInformationAsync(Guid.NewGuid(), Guid.Empty, ValidBasicInformationRequest());
+
+        Assert.Equal(401, result.Status);
+        Assert.Equal("Authenticated account id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetByIdCallCount);
+        Assert.Equal(0, repository.GetAccountRoleNameCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithInvalidRequest_ReturnsValidationErrors()
+    {
+        var repository = new FakeProjectRepository(roleName: "ADMIN");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateBasicInformationAsync(Guid.NewGuid(), Guid.NewGuid(), new UpdateProjectBasicInformationRequestDto
+        {
+            ProjectName = " ",
+            BusinessType = new string('B', 101),
+            FurnitureRequirement = " ",
+            TotalAreaSqm = -1,
+            NumberOfFloors = -1,
+            BudgetMin = 100,
+            BudgetMax = 10,
+            TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(-1)
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Validation failed", result.Message);
+        Assert.Contains("Project name is required.", result.Errors!);
+        Assert.Contains("Business type must not exceed 100 characters.", result.Errors!);
+        Assert.Contains("Furniture requirement is required.", result.Errors!);
+        Assert.Contains("Total area must be greater than or equal to zero.", result.Errors!);
+        Assert.Contains("Number of floors must be greater than or equal to zero.", result.Errors!);
+        Assert.Contains("Minimum budget must be less than or equal to maximum budget.", result.Errors!);
+        Assert.Contains("Target completion date must not be in the past.", result.Errors!);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithNegativeBudgets_ReturnsValidationErrors()
+    {
+        var repository = new FakeProjectRepository(roleName: "ADMIN");
+        var service = new ProjectService(repository);
+        var request = ValidBasicInformationRequest();
+        request.BudgetMin = -1;
+        request.BudgetMax = -2;
+
+        var result = await service.UpdateBasicInformationAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("Minimum budget must be greater than or equal to zero.", result.Errors!);
+        Assert.Contains("Maximum budget must be greater than or equal to zero.", result.Errors!);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithTooLongProjectName_ReturnsValidationError()
+    {
+        var repository = new FakeProjectRepository(roleName: "ADMIN");
+        var service = new ProjectService(repository);
+        var request = ValidBasicInformationRequest();
+        request.ProjectName = new string('P', 151);
+
+        var result = await service.UpdateBasicInformationAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("Project name must not exceed 150 characters.", result.Errors!);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithMissingProject_ReturnsNotFound()
+    {
+        var repository = new FakeProjectRepository(roleName: "ADMIN");
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateBasicInformationAsync(Guid.NewGuid(), Guid.NewGuid(), ValidBasicInformationRequest());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project not found.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(0, repository.GetAccountRoleNameCallCount);
+    }
+
+    [Theory]
+    [InlineData("CUSTOMER")]
+    [InlineData("SALES")]
+    [InlineData("DESIGNER")]
+    [InlineData(null)]
+    public async Task UpdateBasicInformationAsync_WithUnauthorizedParticipant_ReturnsForbidden(string? roleName)
+    {
+        var projectId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = Guid.NewGuid(),
+            ProjectName = "Old",
+            Status = ProjectStatus.IN_CONSULTATION
+        };
+        var repository = new FakeProjectRepository(roleName: roleName, entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateBasicInformationAsync(projectId, Guid.NewGuid(), ValidBasicInformationRequest());
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You do not have access to update this project.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+        Assert.Equal(1, repository.GetAccountRoleNameCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithNonEditableStatus_ReturnsBadRequest()
+    {
+        var projectId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Old",
+            Status = ProjectStatus.COMPLETED
+        };
+        var repository = new FakeProjectRepository(roleName: "ADMIN", entities: [project]);
+        var service = new ProjectService(repository);
+
+        var result = await service.UpdateBasicInformationAsync(projectId, Guid.NewGuid(), ValidBasicInformationRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project basic information cannot be updated from its current status.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
     public async Task RequestInformationAsync_WithAssignedSales_UpdatesProjectStatus()
     {
         var projectId = Guid.NewGuid();
@@ -306,6 +1178,24 @@ public sealed class ProjectServiceTests
 
         Assert.Equal(401, result.Status);
         Assert.Equal("Authenticated account id is required.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetAccountRoleNameCallCount);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task AssignSalesAsync_WithTooLongNote_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = new ProjectService(repository);
+
+        var result = await service.AssignSalesAsync(Guid.NewGuid(), Guid.NewGuid(), new AssignProjectSalesRequestDto
+        {
+            Note = new string('N', 1001)
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Assignment note must not exceed 1000 characters.", result.Message);
         Assert.Null(result.Data);
         Assert.Equal(0, repository.GetAccountRoleNameCallCount);
         Assert.Equal(0, repository.GetByIdCallCount);
@@ -893,6 +1783,88 @@ public sealed class ProjectServiceTests
         };
     }
 
+    private static UpdateProjectBasicInformationRequestDto ValidBasicInformationRequest()
+    {
+        return new UpdateProjectBasicInformationRequestDto
+        {
+            ProjectName = "Moc Coffee Interior Setup",
+            BusinessType = "Cafe",
+            ProjectAddress = "District 7",
+            BusinessPurpose = "Open cafe",
+            FurnitureRequirement = "Counter, tables, chairs",
+            Description = "Updated basic information",
+            TotalAreaSqm = 80,
+            NumberOfFloors = 1,
+            BudgetMin = 150000000,
+            BudgetMax = 250000000,
+            TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30)
+        };
+    }
+
+    private static UpdateProjectStatusRequestDto ValidStatusRequest()
+    {
+        return new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT,
+            Note = "Project has enough basic information."
+        };
+    }
+
+    private static RejectProjectRequestDto ValidRejectRequest()
+    {
+        return new RejectProjectRequestDto
+        {
+            RejectionReason = "Requested service scope is unsupported."
+        };
+    }
+
+    private static AssignProjectDesignerRequestDto ValidAssignDesignerRequest()
+    {
+        return new AssignProjectDesignerRequestDto
+        {
+            DesignerId = Guid.NewGuid(),
+            SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+            Note = "Please review the project requirement."
+        };
+    }
+
+    private static DesignerAccountReadModel CreateDesigner()
+    {
+        return new DesignerAccountReadModel
+        {
+            AccountId = Guid.NewGuid(),
+            FullName = "Le Designer"
+        };
+    }
+
+    private static Project CreateDesignerAssignableProject(Guid projectId, Guid salesId)
+    {
+        return new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = salesId,
+            ProjectName = "Moc Coffee Interior Setup",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Counter, tables, chairs",
+            Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT
+        };
+    }
+
+    private static Project CreateQualifiedProject(Guid projectId, Guid salesId)
+    {
+        return new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = salesId,
+            ProjectName = "Moc Coffee Interior Setup",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Counter, tables, chairs",
+            Status = ProjectStatus.IN_CONSULTATION
+        };
+    }
+
     private static ProjectDetailReadModel CreateProjectDetail(Guid projectId, Guid customerId)
     {
         return new ProjectDetailReadModel
@@ -922,6 +1894,7 @@ public sealed class ProjectServiceTests
         private readonly int _submittedCount;
         private readonly IReadOnlyList<ProjectListItemReadModel> _listItems;
         private readonly ProjectDetailReadModel? _detail;
+        private readonly DesignerAccountReadModel? _designer;
         private readonly List<Project> _projects = [];
 
         public FakeProjectRepository(
@@ -929,13 +1902,15 @@ public sealed class ProjectServiceTests
             int submittedCount = 0,
             IReadOnlyList<ProjectListItemReadModel>? listItems = null,
             ProjectDetailReadModel? detail = null,
-            IReadOnlyList<Project>? entities = null)
+            IReadOnlyList<Project>? entities = null,
+            DesignerAccountReadModel? designer = null)
         {
             _roleName = roleName;
             _submittedCount = submittedCount;
             _listItems = listItems ?? [];
             _detail = detail;
             _projects = entities?.ToList() ?? [];
+            _designer = designer;
         }
 
         public IReadOnlyList<Project> Projects => _projects;
@@ -943,6 +1918,7 @@ public sealed class ProjectServiceTests
         public int CountSubmittedInYearCallCount { get; private set; }
         public int GetDetailCallCount { get; private set; }
         public int GetByIdCallCount { get; private set; }
+        public int GetActiveDesignerCallCount { get; private set; }
         public int GetListCallCount { get; private set; }
         public int CountCallCount { get; private set; }
         public int AddCallCount { get; private set; }
@@ -967,6 +1943,14 @@ public sealed class ProjectServiceTests
         {
             GetDetailCallCount++;
             return Task.FromResult(_detail?.ProjectId == projectId ? _detail : null);
+        }
+
+        public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(
+            Guid designerId,
+            CancellationToken cancellationToken = default)
+        {
+            GetActiveDesignerCallCount++;
+            return Task.FromResult(_designer?.AccountId == designerId ? _designer : null);
         }
 
         public Task<IReadOnlyList<ProjectListItemReadModel>> GetListAsync(

@@ -27,6 +27,30 @@ public interface IProjectService
         RequestProjectInformationRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectBasicInformationDto>> UpdateBasicInformationAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpdateProjectBasicInformationRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectStatusUpdateDto>> UpdateStatusAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpdateProjectStatusRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectRejectionDto>> RejectAsync(
+        Guid projectId,
+        Guid currentUserId,
+        RejectProjectRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectDesignerAssignmentDto>> AssignDesignerAsync(
+        Guid projectId,
+        Guid currentUserId,
+        AssignProjectDesignerRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectListResponseDto>> GetListAsync(
         Guid currentUserId,
         ProjectListQueryDto query,

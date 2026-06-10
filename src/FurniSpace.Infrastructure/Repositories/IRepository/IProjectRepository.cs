@@ -18,6 +18,10 @@ public interface IProjectRepository : IGenericRepository<Project>
         Guid projectId,
         CancellationToken cancellationToken = default);
 
+    Task<DesignerAccountReadModel?> GetActiveDesignerAsync(
+        Guid designerId,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ProjectListItemReadModel>> GetListAsync(
         ProjectListQueryReadModel query,
         CancellationToken cancellationToken = default);

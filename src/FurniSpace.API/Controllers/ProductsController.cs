@@ -80,7 +80,7 @@ public sealed class ProductsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [AllowAnonymous]
+    [Authorize(Roles = "ADMIN")]
     [HttpPost("{productId:guid}/files")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(MultipartRequestLimitBytes)]
@@ -89,7 +89,7 @@ public sealed class ProductsController : BaseApiController
         [FromForm] UploadCatalogFileFormRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (!TryGetCurrentUserId(out var currentUserId))
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId))
         {
             return Unauthorized();
         }
@@ -110,11 +110,6 @@ public sealed class ProductsController : BaseApiController
             cancellationToken);
 
         return ToActionResult(result);
-    }
-
-    private bool TryGetCurrentUserId(out Guid currentUserId)
-    {
-        return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);
     }
 }
 

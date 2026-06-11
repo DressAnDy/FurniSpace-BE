@@ -6,7 +6,7 @@ using FurniSpace.Application.Interfaces.ProductVersions;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Storage;
+using FurniSpace.Infrastructure.Common.Storage;
 using Mapster;
 using Microsoft.Extensions.Options;
 

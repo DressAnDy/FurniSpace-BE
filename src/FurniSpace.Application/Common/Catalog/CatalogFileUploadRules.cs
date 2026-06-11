@@ -1,6 +1,6 @@
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.Storage;
+using FurniSpace.Infrastructure.Common.Storage;
 using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Common.Catalog;

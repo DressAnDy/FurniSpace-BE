@@ -5,6 +5,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Storage;
 
 namespace FurniSpace.Application.Common.Catalog;
 

@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.Repositories.Base;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;
@@ -11,6 +12,10 @@ public interface IProductVersionRepository : IGenericRepository<ProductVersion>
 
     Task<bool> ProductExistsAsync(
         Guid productId,
+        CancellationToken cancellationToken = default);
+
+    Task<ProductVersionDetailReadModel?> GetPublicDetailAsync(
+        Guid productVersionId,
         CancellationToken cancellationToken = default);
 
     Task SetDefaultAsync(

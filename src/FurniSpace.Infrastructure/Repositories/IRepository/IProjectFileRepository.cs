@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.DTOs.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.Base;
 
@@ -40,4 +41,10 @@ public interface IProjectFileRepository : IGenericRepository<StoredFile>
         CancellationToken cancellationToken = default);
 
     void RemoveFileLinks(IEnumerable<FileLink> fileLinks);
+
+    Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
+        string referenceType,
+        IReadOnlyList<Guid> referenceIds,
+        bool customerVisibleOnly,
+        CancellationToken cancellationToken = default);
 }

@@ -1,6 +1,7 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.DTOs.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -192,6 +193,57 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
     public void RemoveFileLinks(IEnumerable<FileLink> fileLinks)
     {
         DbContext.FileLinkSet.RemoveRange(fileLinks);
+    }
+
+    public async Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
+        string referenceType,
+        IReadOnlyList<Guid> referenceIds,
+        bool customerVisibleOnly,
+        CancellationToken cancellationToken = default)
+    {
+        if (referenceIds.Count == 0)
+        {
+            return [];
+        }
+
+        var normalizedReferenceType = referenceType.Trim().ToUpperInvariant();
+        var idSet = referenceIds.Distinct().ToList();
+
+        var query = DbContext.StoredFileSet
+            .Join(
+                DbContext.FileLinkSet,
+                file => file.FileId,
+                link => link.FileId,
+                (file, link) => new { file, link })
+            .Where(joined =>
+                joined.link.ReferenceType == normalizedReferenceType &&
+                idSet.Contains(joined.link.ReferenceId) &&
+                joined.file.Status == FileStatus.ACTIVE);
+
+        if (customerVisibleOnly)
+        {
+            query = query.Where(joined => joined.link.Visibility == FileVisibility.CUSTOMER_VISIBLE);
+        }
+
+        return await query
+            .OrderByDescending(joined => joined.link.FileType == FileType.PRODUCT_PREVIEW)
+            .ThenByDescending(joined => joined.file.UploadedAt)
+            .Select(joined => new CatalogFileReadModel
+            {
+                FileId = joined.file.FileId,
+                FileLinkId = joined.link.FileLinkId,
+                ReferenceId = joined.link.ReferenceId,
+                ReferenceType = joined.link.ReferenceType,
+                FileType = joined.link.FileType,
+                OriginalFileName = joined.file.OriginalFileName,
+                FileUrl = joined.file.FileUrl,
+                MimeType = joined.file.MimeType,
+                FileSizeBytes = joined.file.FileSizeBytes,
+                Visibility = joined.link.Visibility,
+                Status = joined.file.Status,
+                UploadedAt = joined.file.UploadedAt
+            })
+            .ToListAsync(cancellationToken);
     }
 
     private IQueryable<FileMetadataReadModel> BuildFileMetadataQuery()

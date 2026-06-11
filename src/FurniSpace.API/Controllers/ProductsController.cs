@@ -1,9 +1,12 @@
 #nullable enable
 
+using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
+using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FurniSpace.API.Controllers;
@@ -11,6 +14,8 @@ namespace FurniSpace.API.Controllers;
 [Route("products")]
 public sealed class ProductsController : BaseApiController
 {
+    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
+
     private readonly IProductService _products;
 
     public ProductsController(IProductService products)
@@ -74,4 +79,44 @@ public sealed class ProductsController : BaseApiController
             cancellationToken);
         return ToActionResult(result);
     }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("{productId:guid}/files")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(MultipartRequestLimitBytes)]
+    public async Task<IActionResult> UploadFile(
+        Guid productId,
+        [FromForm] UploadCatalogFileFormRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _products.UploadFileAsync(
+            productId,
+            currentUserId,
+            new UploadCatalogFileRequestDto
+            {
+                Content = request.File?.OpenReadStream() ?? Stream.Null,
+                OriginalFileName = request.File?.FileName ?? string.Empty,
+                ContentType = request.File?.ContentType ?? "application/octet-stream",
+                FileSizeBytes = request.File?.Length ?? 0,
+                FileType = request.FileType,
+                Visibility = request.Visibility,
+                Description = request.Description
+            },
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+}
+
+public sealed class UploadCatalogFileFormRequest
+{
+    public IFormFile? File { get; set; }
+    public FileType FileType { get; set; } = FileType.OTHER;
+    public FileVisibility? Visibility { get; set; }
+    public string? Description { get; set; }
 }

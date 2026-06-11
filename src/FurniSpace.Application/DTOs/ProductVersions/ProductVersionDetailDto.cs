@@ -3,9 +3,7 @@ using FurniSpace.Infrastructure.DTOs.Products;
 
 namespace FurniSpace.Application.DTOs.ProductVersions;
 
-public sealed class ProductVersionDto : ProductVersionModelBase
+public sealed class ProductVersionDetailDto : ProductVersionDetailModelBase
 {
-    public Guid ProductId { get; set; }
-    public CatalogFileDto? Thumbnail { get; set; }
     public IReadOnlyList<CatalogFileDto> Files { get; set; } = [];
 }

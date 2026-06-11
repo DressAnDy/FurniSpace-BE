@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using FurniSpace.API.Controllers;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProductVersions;
+using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -126,16 +127,45 @@ public sealed class ProductVersionsControllerTests
         Assert.Equal(productVersionId, service.ProductVersionId);
     }
 
+    [Fact]
+    public async Task GetById_ReturnsServiceResultThroughBaseController()
+    {
+        var productVersionId = Guid.NewGuid();
+        var response = new ProductVersionDetailDto
+        {
+            ProductVersionId = productVersionId,
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-001",
+            VersionName = "Standard",
+            Status = ProductStatus.ACTIVE
+        };
+        var service = new FakeProductVersionService(
+            getByIdResult: ServiceResult<ProductVersionDetailDto>.Success(response, string.Empty));
+        var controller = new ProductVersionsController(service);
+
+        var actionResult = await controller.GetById(productVersionId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProductVersionDetailDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(productVersionId, service.ProductVersionId);
+    }
+
     private sealed class FakeProductVersionService : IProductVersionService
     {
         private readonly ServiceResult<ProductVersionDto> _createResult;
         private readonly ServiceResult<ProductVersionDto> _updateResult;
         private readonly ServiceResult<SetDefaultProductVersionDto> _setDefaultResult;
+        private readonly ServiceResult<ProductVersionDetailDto> _getByIdResult;
+        private readonly ServiceResult<CatalogFileUploadResponseDto> _uploadFileResult;
 
         public FakeProductVersionService(
             ServiceResult<ProductVersionDto>? createResult = null,
             ServiceResult<ProductVersionDto>? updateResult = null,
-            ServiceResult<SetDefaultProductVersionDto>? setDefaultResult = null)
+            ServiceResult<SetDefaultProductVersionDto>? setDefaultResult = null,
+            ServiceResult<ProductVersionDetailDto>? getByIdResult = null,
+            ServiceResult<CatalogFileUploadResponseDto>? uploadFileResult = null)
         {
             _createResult = createResult ?? ServiceResult<ProductVersionDto>.Created(
                 new ProductVersionDto(),
@@ -146,12 +176,20 @@ public sealed class ProductVersionsControllerTests
             _setDefaultResult = setDefaultResult ?? ServiceResult<SetDefaultProductVersionDto>.Success(
                 new SetDefaultProductVersionDto(),
                 "Default product version updated successfully.");
+            _getByIdResult = getByIdResult ?? ServiceResult<ProductVersionDetailDto>.Success(
+                new ProductVersionDetailDto(),
+                string.Empty);
+            _uploadFileResult = uploadFileResult ?? ServiceResult<CatalogFileUploadResponseDto>.Created(
+                new CatalogFileUploadResponseDto(),
+                "Product version file uploaded successfully.");
         }
 
         public Guid ProductId { get; private set; }
         public Guid ProductVersionId { get; private set; }
+        public Guid CurrentUserId { get; private set; }
         public CreateProductVersionRequestDto? CreateRequest { get; private set; }
         public UpdateProductVersionRequestDto? UpdateRequest { get; private set; }
+        public UploadCatalogFileRequestDto? UploadFileRequest { get; private set; }
 
         public Task<ServiceResult<ProductVersionDto>> CreateAsync(
             Guid productId,
@@ -179,6 +217,26 @@ public sealed class ProductVersionsControllerTests
         {
             ProductVersionId = productVersionId;
             return Task.FromResult(_setDefaultResult);
+        }
+
+        public Task<ServiceResult<ProductVersionDetailDto>> GetByIdAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+        {
+            ProductVersionId = productVersionId;
+            return Task.FromResult(_getByIdResult);
+        }
+
+        public Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+            Guid productVersionId,
+            Guid currentUserId,
+            UploadCatalogFileRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ProductVersionId = productVersionId;
+            CurrentUserId = currentUserId;
+            UploadFileRequest = request;
+            return Task.FromResult(_uploadFileResult);
         }
     }
 }

@@ -17,6 +17,7 @@ public sealed class ProductMappingConfig : IRegister
         config.NewConfig<Project, ProjectDto>();
         config.NewConfig<Project, ProjectSalesAssignmentDto>();
         config.NewConfig<Project, ProjectBasicInformationDto>();
+        config.NewConfig<CreateProjectRequestDto, UpdateProjectBasicInformationRequestDto>();
         config.NewConfig<Project, ProjectStatusUpdateDto>();
         config.NewConfig<Project, ProjectRejectionDto>();
         config.NewConfig<Project, ProjectInformationRequestDto>()
@@ -27,5 +28,6 @@ public sealed class ProductMappingConfig : IRegister
         config.NewConfig<ProductVersionReadModel, ProductVersionSummaryDto>();
         config.NewConfig<ProductListItemReadModel, ProductListItemDto>();
         config.NewConfig<ProductDetailReadModel, ProductDetailDto>();
+        config.NewConfig<ProductVersionDetailReadModel, ProductVersionDetailDto>();
     }
 }

@@ -5,9 +5,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers;
+using FurniSpace.API.Tests.TestDoubles;
 using FurniSpace.Application.Common;
+using System.IO;
+using System.Security.Claims;
 using FurniSpace.Application.DTOs.Products;
-using FurniSpace.Application.Interfaces.Products;
+using Microsoft.AspNetCore.Http;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -255,94 +258,84 @@ public sealed class ProductsControllerTests
         Assert.False(service.IncludeDefaultVersion);
     }
 
-    private sealed class FakeProductService : IProductService
+    [Fact]
+    public void UploadFile_RequiresAdminRole()
     {
-        private readonly ServiceResult<ProductListResponseDto> _getAllResult;
-        private readonly ServiceResult<ProductByCategoryResponseDto> _getByCategoryResult;
-        private readonly ServiceResult<ProductDetailDto> _getByIdResult;
-        private readonly ServiceResult<ProductDto> _createResult;
-        private readonly ServiceResult<ProductDto> _updateResult;
+        var method = typeof(ProductsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.UploadFile));
 
-        public FakeProductService(ServiceResult<ProductListResponseDto> result)
-            : this(
-                result,
-                ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty),
-                ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty),
-                ServiceResult<ProductDto>.Created(new ProductDto(), "Product master created successfully."),
-                ServiceResult<ProductDto>.Success(new ProductDto(), "Product master updated successfully."))
+        var authorize = method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(authorize);
+        Assert.Equal("ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task UploadFile_PassesRequestToProductService()
+    {
+        var userId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var response = new CatalogFileUploadResponseDto
         {
-        }
-
-        public FakeProductService(
-            ServiceResult<ProductListResponseDto> getAllResult,
-            ServiceResult<ProductByCategoryResponseDto> getByCategoryResult,
-            ServiceResult<ProductDetailDto>? getByIdResult = null,
-            ServiceResult<ProductDto>? createResult = null,
-            ServiceResult<ProductDto>? updateResult = null)
+            FileId = Guid.NewGuid(),
+            ReferenceType = "PRODUCT",
+            ReferenceId = productId,
+            FileType = FileType.PRODUCT_PREVIEW
+        };
+        var service = new FakeProductService(
+            getAllResult: ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty),
+            uploadFileResult: ServiceResult<CatalogFileUploadResponseDto>.Created(
+                response,
+                "Product file uploaded successfully."));
+        var controller = CreateController(service, userId);
+        var request = new UploadCatalogFileFormRequest
         {
-            _getAllResult = getAllResult;
-            _getByCategoryResult = getByCategoryResult;
-            _getByIdResult = getByIdResult ?? ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty);
-            _createResult = createResult ?? ServiceResult<ProductDto>.Created(new ProductDto(), "Product master created successfully.");
-            _updateResult = updateResult ?? ServiceResult<ProductDto>.Success(new ProductDto(), "Product master updated successfully.");
-        }
+            File = CreateFormFile("lamp-preview.jpg", "image/jpeg", "file-content"),
+            FileType = FileType.PRODUCT_PREVIEW,
+            Description = "Preview image"
+        };
 
-        public CreateProductRequestDto? CreateRequest { get; private set; }
-        public UpdateProductRequestDto? UpdateRequest { get; private set; }
-        public Guid ProductId { get; private set; }
-        public Guid CategoryId { get; private set; }
-        public int Page { get; private set; }
-        public int Limit { get; private set; }
-        public bool IncludeDefaultVersion { get; private set; }
+        var actionResult = await controller.UploadFile(productId, request);
 
-        public Task<ServiceResult<ProductDto>> CreateAsync(
-            CreateProductRequestDto request,
-            CancellationToken cancellationToken = default)
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<CatalogFileUploadResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(productId, service.ProductId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.NotNull(service.UploadFileRequest);
+        Assert.Equal("lamp-preview.jpg", service.UploadFileRequest.OriginalFileName);
+        Assert.Equal(FileType.PRODUCT_PREVIEW, service.UploadFileRequest.FileType);
+        Assert.Equal("Preview image", service.UploadFileRequest.Description);
+    }
+
+    private static ProductsController CreateController(FakeProductService service, Guid userId)
+    {
+        var controller = new ProductsController(service);
+        controller.ControllerContext = new ControllerContext
         {
-            CreateRequest = request;
-            return Task.FromResult(_createResult);
-        }
+            HttpContext = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new ClaimsIdentity(
+                [
+                    new Claim(ClaimTypes.NameIdentifier, userId.ToString())
+                ], "Test"))
+            }
+        };
 
-        public Task<ServiceResult<ProductDto>> UpdateAsync(
-            Guid productId,
-            UpdateProductRequestDto request,
-            CancellationToken cancellationToken = default)
-        {
-            ProductId = productId;
-            UpdateRequest = request;
-            return Task.FromResult(_updateResult);
-        }
+        return controller;
+    }
 
-        public Task<ServiceResult<ProductListResponseDto>> GetAllAsync(
-            int page,
-            int limit,
-            CancellationToken cancellationToken = default)
+    private static FormFile CreateFormFile(string fileName, string contentType, string content)
+    {
+        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content));
+        return new FormFile(stream, 0, stream.Length, "file", fileName)
         {
-            Page = page;
-            Limit = limit;
-            return Task.FromResult(_getAllResult);
-        }
-
-        public Task<ServiceResult<ProductDetailDto>> GetByIdAsync(
-            Guid productId,
-            CancellationToken cancellationToken = default)
-        {
-            ProductId = productId;
-            return Task.FromResult(_getByIdResult);
-        }
-
-        public Task<ServiceResult<ProductByCategoryResponseDto>> GetByCategoryAsync(
-            Guid categoryId,
-            int page,
-            int limit,
-            bool includeDefaultVersion,
-            CancellationToken cancellationToken = default)
-        {
-            CategoryId = categoryId;
-            Page = page;
-            Limit = limit;
-            IncludeDefaultVersion = includeDefaultVersion;
-            return Task.FromResult(_getByCategoryResult);
-        }
+            Headers = new HeaderDictionary(),
+            ContentType = contentType
+        };
     }
 }

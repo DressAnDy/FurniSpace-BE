@@ -74,6 +74,41 @@ public sealed class FilesControllerTests
     }
 
     [Fact]
+    public void GetFilesByReference_AllowsAnonymousAccess()
+    {
+        var method = typeof(FilesController)
+            .GetMethod(nameof(FilesController.GetFilesByReference));
+
+        Assert.NotNull(method);
+        var allowAnonymous = method!
+            .GetCustomAttributes(typeof(AllowAnonymousAttribute), inherit: false)
+            .Cast<AllowAnonymousAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(allowAnonymous);
+    }
+
+    [Fact]
+    public async Task GetFilesByReference_WithoutUserId_PassesEmptyUserIdToService()
+    {
+        var referenceId = Guid.NewGuid();
+        var response = new FilesByReferenceResponseDto
+        {
+            ReferenceType = "PRODUCT",
+            ReferenceId = referenceId
+        };
+        var service = new FakeProjectFileService(
+            byReferenceResult: ServiceResult<FilesByReferenceResponseDto>.Success(response, "Files retrieved successfully."));
+        var controller = CreateController(service, userId: null);
+
+        var actionResult = await controller.GetFilesByReference("PRODUCT", referenceId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(Guid.Empty, service.CurrentUserId);
+    }
+
+    [Fact]
     public async Task GetFilesByReference_PassesQueryToService()
     {
         var userId = Guid.NewGuid();

@@ -1,4 +1,4 @@
-namespace FurniSpace.Application.Common.Catalog;
+namespace FurniSpace.Application.DTOs.Products;
 
 public static class CatalogFileReferenceTypes
 {

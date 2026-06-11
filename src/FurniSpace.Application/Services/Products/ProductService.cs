@@ -1,11 +1,13 @@
 using FurniSpace.Application.Common;
-using FurniSpace.Application.Common.Catalog;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Storage;
 using Mapster;
 using Microsoft.Extensions.Options;
 
@@ -13,20 +15,29 @@ namespace FurniSpace.Application.Services.Products;
 
 public sealed class ProductService : IProductService
 {
+    private static readonly HashSet<FileType> AllowedProductFileTypes =
+    [
+        FileType.PRODUCT_PREVIEW,
+        FileType.OTHER
+    ];
+
     private readonly IProductRepository _products;
     private readonly IProjectFileRepository _files;
-    private readonly CatalogReferenceFileUploader _catalogFileUploader;
+    private readonly IFileStorageService _storage;
+    private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
 
     public ProductService(
         IProductRepository products,
         IProjectFileRepository files,
-        CatalogReferenceFileUploader catalogFileUploader,
+        IFileStorageService storage,
+        IOptions<FileUploadSettings> uploadSettings,
         IOptions<FirebaseStorageSettings> firebaseSettings)
     {
         _products = products;
         _files = files;
-        _catalogFileUploader = catalogFileUploader;
+        _storage = storage;
+        _uploadSettings = uploadSettings.Value;
         _firebaseSettings = firebaseSettings.Value;
     }
 
@@ -211,28 +222,319 @@ public sealed class ProductService : IProductService
             return ServiceResult<CatalogFileUploadResponseDto>.BadRequest("Product id is required.");
         }
 
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CatalogFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        var validationErrors = ValidateCatalogFileRequest(request, AllowedProductFileTypes);
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<CatalogFileUploadResponseDto>.BadRequest(validationErrors);
+        }
+
         if (await _products.GetByIdAsync(productId, cancellationToken) is null)
         {
             return ServiceResult<CatalogFileUploadResponseDto>.NotFound("Product not found.");
         }
 
-        return await _catalogFileUploader.UploadAsync(
-            request,
-            currentUserId,
-            CatalogFileUploadPolicies.ForProduct(productId, _firebaseSettings),
+        var now = DateTime.UtcNow;
+        var fileId = Guid.NewGuid();
+        var fileLinkId = Guid.NewGuid();
+        var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
+        var generatedFileName = BuildGeneratedFileName(fileId, originalFileName);
+        var objectName = BuildProductObjectName(productId, generatedFileName);
+        var visibility = request.Visibility ?? FileVisibility.CUSTOMER_VISIBLE;
+
+        var uploadResult = await _storage.UploadAsync(
+            new StorageUploadRequest
+            {
+                Content = request.Content,
+                ObjectName = objectName,
+                ContentType = NormalizeContentType(request.ContentType)
+            },
             cancellationToken);
+
+        var storedFile = new StoredFile
+        {
+            FileId = fileId,
+            UploadedBy = currentUserId,
+            OriginalFileName = originalFileName,
+            StoredFileName = generatedFileName,
+            FileUrl = uploadResult.PublicUrl,
+            StoragePath = uploadResult.ObjectName,
+            MimeType = NormalizeContentType(request.ContentType),
+            FileExtension = NormalizeExtension(originalFileName),
+            FileSizeBytes = request.FileSizeBytes,
+            Status = FileStatus.ACTIVE,
+            UploadedAt = now
+        };
+
+        var fileLink = new FileLink
+        {
+            FileLinkId = fileLinkId,
+            FileId = fileId,
+            ReferenceType = CatalogFileReferenceTypes.Product,
+            ReferenceId = productId,
+            FileType = request.FileType,
+            Visibility = visibility,
+            Description = NormalizeOptional(request.Description),
+            CreatedBy = currentUserId,
+            CreatedAt = now
+        };
+
+        await _files.AddAsync(storedFile, cancellationToken);
+        await _files.AddFileLinkAsync(fileLink, cancellationToken);
+        await _files.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<CatalogFileUploadResponseDto>.Created(
+            new CatalogFileUploadResponseDto
+            {
+                FileId = fileId,
+                FileLinkId = fileLinkId,
+                ReferenceType = CatalogFileReferenceTypes.Product,
+                ReferenceId = productId,
+                OriginalFileName = originalFileName,
+                FileType = request.FileType,
+                FileUrl = uploadResult.PublicUrl,
+                MimeType = storedFile.MimeType,
+                FileSizeBytes = request.FileSizeBytes,
+                Visibility = visibility,
+                UploadedBy = currentUserId,
+                UploadedAt = now
+            },
+            "Product file uploaded successfully.");
     }
 
-    private Task EnrichListItemsAsync(
+    private async Task EnrichListItemsAsync(
         List<ProductListItemDto> items,
         CancellationToken cancellationToken)
     {
-        return CatalogFileEnricher.EnrichProductListItemsAsync(items, _files, cancellationToken);
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        const bool customerVisibleOnly = true;
+        var productIds = items.Select(item => item.ProductId).ToList();
+        var versionIds = items
+            .Where(item => item.DefaultVersion is not null)
+            .Select(item => item.DefaultVersion!.ProductVersionId)
+            .ToList();
+
+        var productFiles = await _files.GetCatalogFilesByReferencesAsync(
+            CatalogFileReferenceTypes.Product,
+            productIds,
+            customerVisibleOnly,
+            cancellationToken);
+        var versionFiles = versionIds.Count == 0
+            ? []
+            : await _files.GetCatalogFilesByReferencesAsync(
+                CatalogFileReferenceTypes.ProductVersion,
+                versionIds,
+                customerVisibleOnly,
+                cancellationToken);
+
+        var productFilesById = GroupCatalogFilesByReferenceId(productFiles);
+        var versionFilesById = GroupCatalogFilesByReferenceId(versionFiles);
+
+        foreach (var item in items)
+        {
+            if (productFilesById.TryGetValue(item.ProductId, out var files))
+            {
+                item.Thumbnail = PickCatalogThumbnail(files, customerVisibleOnly);
+            }
+
+            if (item.DefaultVersion is not null &&
+                versionFilesById.TryGetValue(item.DefaultVersion.ProductVersionId, out var versionFileList))
+            {
+                item.DefaultVersion.Thumbnail = PickCatalogThumbnail(versionFileList, customerVisibleOnly);
+            }
+        }
     }
 
-    private Task EnrichDetailAsync(ProductDetailDto detail, CancellationToken cancellationToken)
+    private async Task EnrichDetailAsync(ProductDetailDto detail, CancellationToken cancellationToken)
     {
-        return CatalogFileEnricher.EnrichProductDetailAsync(detail, _files, cancellationToken);
+        const bool customerVisibleOnly = true;
+        var productFiles = await _files.GetCatalogFilesByReferencesAsync(
+            CatalogFileReferenceTypes.Product,
+            [detail.ProductId],
+            customerVisibleOnly,
+            cancellationToken);
+        detail.Files = ToCatalogFileList(productFiles, customerVisibleOnly);
+        detail.Thumbnail = PickCatalogThumbnail(productFiles, customerVisibleOnly);
+
+        var versionIds = detail.Versions.Select(version => version.ProductVersionId).ToList();
+        if (versionIds.Count == 0)
+        {
+            return;
+        }
+
+        var versionFiles = await _files.GetCatalogFilesByReferencesAsync(
+            CatalogFileReferenceTypes.ProductVersion,
+            versionIds,
+            customerVisibleOnly,
+            cancellationToken);
+        var versionFilesById = GroupCatalogFilesByReferenceId(versionFiles);
+
+        foreach (var version in detail.Versions)
+        {
+            if (!versionFilesById.TryGetValue(version.ProductVersionId, out var files))
+            {
+                continue;
+            }
+
+            version.Files = ToCatalogFileList(files, customerVisibleOnly);
+            version.Thumbnail = PickCatalogThumbnail(files, customerVisibleOnly);
+        }
+
+        if (detail.DefaultVersion is not null &&
+            versionFilesById.TryGetValue(detail.DefaultVersion.ProductVersionId, out var defaultFiles))
+        {
+            detail.DefaultVersion.Files = ToCatalogFileList(defaultFiles, customerVisibleOnly);
+            detail.DefaultVersion.Thumbnail = PickCatalogThumbnail(defaultFiles, customerVisibleOnly);
+        }
+    }
+
+    private List<string> ValidateCatalogFileRequest(
+        UploadCatalogFileRequestDto request,
+        HashSet<FileType> allowedFileTypes)
+    {
+        var errors = new List<string>();
+        if (request.Content == Stream.Null || !request.Content.CanRead)
+        {
+            errors.Add("File is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.OriginalFileName))
+        {
+            errors.Add("Original file name is required.");
+        }
+
+        if (request.FileSizeBytes <= 0)
+        {
+            errors.Add("File size must be greater than zero.");
+        }
+
+        var maxFileSize = ResolveMaxFileSize();
+        if (request.FileSizeBytes > maxFileSize)
+        {
+            errors.Add($"File size must not exceed {maxFileSize} bytes.");
+        }
+
+        if (!allowedFileTypes.Contains(request.FileType))
+        {
+            errors.Add("File type is not allowed for this upload.");
+        }
+
+        var extension = Path.GetExtension(request.OriginalFileName);
+        if (string.IsNullOrWhiteSpace(extension) || !AllowedExtensions().Contains(extension, StringComparer.OrdinalIgnoreCase))
+        {
+            errors.Add("File extension is not allowed.");
+        }
+
+        var contentType = NormalizeContentType(request.ContentType);
+        if (!AllowedMimeTypes().Contains(contentType, StringComparer.OrdinalIgnoreCase))
+        {
+            errors.Add("File MIME type is not allowed.");
+        }
+
+        return errors;
+    }
+
+    private long ResolveMaxFileSize()
+    {
+        return _uploadSettings.MaxFileSizeBytes > 0
+            ? _uploadSettings.MaxFileSizeBytes
+            : _firebaseSettings.MaxFileSizeBytes;
+    }
+
+    private string[] AllowedExtensions()
+    {
+        return _uploadSettings.AllowedExtensions.Length == 0
+            ? new FileUploadSettings().AllowedExtensions
+            : _uploadSettings.AllowedExtensions;
+    }
+
+    private string[] AllowedMimeTypes()
+    {
+        return _uploadSettings.AllowedMimeTypes.Length == 0
+            ? new FileUploadSettings().AllowedMimeTypes
+            : _uploadSettings.AllowedMimeTypes;
+    }
+
+    private string BuildProductObjectName(Guid productId, string generatedFileName)
+    {
+        var prefix = string.IsNullOrWhiteSpace(_firebaseSettings.ProductFilesPrefix)
+            ? "products"
+            : _firebaseSettings.ProductFilesPrefix.Trim().Trim('/');
+
+        return $"{prefix}/{productId:D}/{generatedFileName}";
+    }
+
+    private static string BuildGeneratedFileName(Guid fileId, string originalFileName)
+    {
+        var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
+        return $"{fileId:N}{extension}";
+    }
+
+    private static string? NormalizeExtension(string originalFileName)
+    {
+        var extension = Path.GetExtension(originalFileName);
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            return null;
+        }
+
+        return extension.TrimStart('.').ToLowerInvariant();
+    }
+
+    private static string NormalizeContentType(string? contentType)
+    {
+        return string.IsNullOrWhiteSpace(contentType)
+            ? "application/octet-stream"
+            : contentType.Trim();
+    }
+
+    private static CatalogFileDto? PickCatalogThumbnail(
+        IEnumerable<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
+    {
+        var visibleFiles = FilterVisibleCatalogFiles(files, customerVisibleOnly).ToList();
+        if (visibleFiles.Count == 0)
+        {
+            return null;
+        }
+
+        var preview = visibleFiles.FirstOrDefault(file => file.FileType == FileType.PRODUCT_PREVIEW);
+        return (preview ?? visibleFiles[0]).Adapt<CatalogFileDto>();
+    }
+
+    private static List<CatalogFileDto> ToCatalogFileList(
+        IEnumerable<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
+    {
+        return FilterVisibleCatalogFiles(files, customerVisibleOnly)
+            .OrderByDescending(file => file.FileType == FileType.PRODUCT_PREVIEW)
+            .ThenByDescending(file => file.UploadedAt)
+            .Adapt<List<CatalogFileDto>>();
+    }
+
+    private static Dictionary<Guid, List<CatalogFileReadModel>> GroupCatalogFilesByReferenceId(
+        IEnumerable<CatalogFileReadModel> files)
+    {
+        return files
+            .GroupBy(file => file.ReferenceId)
+            .ToDictionary(group => group.Key, group => group.ToList());
+    }
+
+    private static IEnumerable<CatalogFileReadModel> FilterVisibleCatalogFiles(
+        IEnumerable<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
+    {
+        return files.Where(file =>
+            file.Status == FileStatus.ACTIVE &&
+            (!customerVisibleOnly || file.Visibility == FileVisibility.CUSTOMER_VISIBLE));
     }
 
     private static string? ValidatePagination(int page, int limit)

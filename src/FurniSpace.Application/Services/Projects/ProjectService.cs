@@ -333,11 +333,6 @@ public sealed class ProjectService : IProjectService
         }
 
         ApplyBasicInformation(project, request);
-        if (project.Status == ProjectStatus.NEED_BASIC_INFORMATION)
-        {
-            project.Status = ProjectStatus.IN_CONSULTATION;
-        }
-
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projects.SaveChangesAsync(cancellationToken);

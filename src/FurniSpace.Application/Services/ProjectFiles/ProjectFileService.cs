@@ -1,5 +1,5 @@
 using FurniSpace.Application.Common;
-using FurniSpace.Application.Common.Catalog;
+using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
 using FurniSpace.Domain.Entities;

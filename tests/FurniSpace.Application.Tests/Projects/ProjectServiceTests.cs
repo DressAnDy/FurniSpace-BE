@@ -605,7 +605,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
-    public async Task UpdateBasicInformationAsync_WithOwnerCustomer_UpdatesProjectAndMovesBackToConsultation()
+    public async Task UpdateBasicInformationAsync_WithOwnerCustomer_UpdatesProjectWithoutChangingStatus()
     {
         var customerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -640,7 +640,7 @@ public sealed class ProjectServiceTests
         Assert.NotNull(result.Data);
         Assert.Equal(projectId, result.Data.ProjectId);
         Assert.Equal("Moc Coffee Interior Setup", result.Data.ProjectName);
-        Assert.Equal(ProjectStatus.IN_CONSULTATION, result.Data.Status);
+        Assert.Equal(ProjectStatus.NEED_BASIC_INFORMATION, result.Data.Status);
         Assert.NotNull(result.Data.UpdatedAt);
         Assert.Equal("Moc Coffee Interior Setup", project.ProjectName);
         Assert.Equal("Cafe", project.BusinessType);
@@ -653,7 +653,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(150000000, project.BudgetMin);
         Assert.Equal(250000000, project.BudgetMax);
         Assert.Equal(targetDate, project.TargetCompletionDate);
-        Assert.Equal(ProjectStatus.IN_CONSULTATION, project.Status);
+        Assert.Equal(ProjectStatus.NEED_BASIC_INFORMATION, project.Status);
         Assert.Equal(1, repository.GetByIdCallCount);
         Assert.Equal(1, repository.GetAccountRoleNameCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);

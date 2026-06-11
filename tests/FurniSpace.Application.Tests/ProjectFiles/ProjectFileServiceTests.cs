@@ -13,6 +13,8 @@ using FurniSpace.Application.Services.ProjectFiles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.DTOs.ProductVersions;
 using FurniSpace.Infrastructure.DTOs.ProjectFiles;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -233,6 +235,94 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
+    public async Task GetFilesByReferenceAsync_WithProductReference_AllowsAnonymousAccess()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new FakeProjectFileRepository
+        {
+            FileReferencePage = new FileReferencePageReadModel
+            {
+                Total = 1,
+                Items =
+                [
+                    new FileMetadataReadModel
+                    {
+                        FileId = Guid.NewGuid(),
+                        OriginalFileName = "lamp-preview.jpg",
+                        FileType = FileType.PRODUCT_PREVIEW,
+                        Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                        Status = FileStatus.ACTIVE
+                    }
+                ]
+            }
+        };
+        var products = new FakeCatalogProductRepository { ExistingProductIds = [productId] };
+        var service = CreateService(repository, new FakeFileStorageService(), products);
+
+        var result = await service.GetFilesByReferenceAsync(
+            Guid.Empty,
+            new FilesByReferenceQueryDto
+            {
+                ReferenceType = "PRODUCT",
+                ReferenceId = productId
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.NotNull(repository.LastReferenceQuery);
+        Assert.Equal("PRODUCT", repository.LastReferenceQuery.ReferenceType);
+        Assert.Equal(productId, repository.LastReferenceQuery.ReferenceId);
+        Assert.True(repository.LastReferenceQuery.CustomerVisibleOnly);
+        Assert.Equal(0, repository.GetReferenceProjectAccessCallCount);
+    }
+
+    [Fact]
+    public async Task GetFilesByReferenceAsync_WithProductReference_WhenProductMissing_ReturnsNotFound()
+    {
+        var repository = new FakeProjectFileRepository();
+        var service = CreateService(repository, new FakeFileStorageService(), new FakeCatalogProductRepository());
+
+        var result = await service.GetFilesByReferenceAsync(
+            Guid.Empty,
+            new FilesByReferenceQueryDto
+            {
+                ReferenceType = "PRODUCT",
+                ReferenceId = Guid.NewGuid()
+            });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Referenced object not found.", result.Message);
+    }
+
+    [Fact]
+    public async Task GetFilesByReferenceAsync_WithAdminRole_DoesNotFilterCustomerVisibleOnly()
+    {
+        var adminId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "ADMIN",
+            FileReferencePage = new FileReferencePageReadModel { Total = 0, Items = [] }
+        };
+        var products = new FakeCatalogProductRepository { ExistingProductIds = [productId] };
+        var service = CreateService(repository, new FakeFileStorageService(), products);
+
+        var result = await service.GetFilesByReferenceAsync(
+            adminId,
+            new FilesByReferenceQueryDto
+            {
+                ReferenceType = "PRODUCT",
+                ReferenceId = productId,
+                Visibility = FileVisibility.STAFF_ONLY
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(repository.LastReferenceQuery);
+        Assert.False(repository.LastReferenceQuery.CustomerVisibleOnly);
+        Assert.Equal(FileVisibility.STAFF_ONLY, repository.LastReferenceQuery.Visibility);
+    }
+
+    [Fact]
     public async Task GetFileDetailAsync_ForCustomerStaffOnlyFile_ReturnsForbidden()
     {
         var customerId = Guid.NewGuid();
@@ -314,10 +404,14 @@ public sealed class ProjectFileServiceTests
 
     private static ProjectFileService CreateService(
         FakeProjectFileRepository repository,
-        FakeFileStorageService storage)
+        FakeFileStorageService storage,
+        FakeCatalogProductRepository? products = null,
+        FakeCatalogProductVersionRepository? productVersions = null)
     {
         return new ProjectFileService(
             repository,
+            products ?? new FakeCatalogProductRepository(),
+            productVersions ?? new FakeCatalogProductVersionRepository(),
             storage,
             Options.Create(new FileUploadSettings
             {
@@ -567,5 +661,55 @@ public sealed class ProjectFileServiceTests
                 FileLinkEntities.Remove(link);
             }
         }
+
+        public Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
+            string referenceType,
+            IReadOnlyList<Guid> referenceIds,
+            bool customerVisibleOnly,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<CatalogFileReadModel>>([]);
+    }
+
+    private sealed class FakeCatalogProductRepository : IProductRepository
+    {
+        public HashSet<Guid> ExistingProductIds { get; init; } = [];
+
+        public Task<Product?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult(ExistingProductIds.Contains(id) ? new Product { ProductId = id } : null);
+
+        public IQueryable<Product> Query() => Enumerable.Empty<Product>().AsQueryable();
+        public Task<IReadOnlyList<Product>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Product>>([]);
+        public Task AddAsync(Product entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddRangeAsync(IEnumerable<Product> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Update(Product entity) { }
+        public void Remove(Product entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+        public Task<bool> ProductCodeExistsAsync(string productCode, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<ProductDetailReadModel?> GetDetailAsync(Guid productId, CancellationToken cancellationToken = default) => Task.FromResult<ProductDetailReadModel?>(null);
+        public Task<IReadOnlyList<ProductListItemReadModel>> GetPublicListAsync(int page, int limit, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductListItemReadModel>>([]);
+        public Task<int> CountAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<ProductCategoryReadModel?> GetCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default) => Task.FromResult<ProductCategoryReadModel?>(null);
+        public Task<IReadOnlyList<ProductListItemReadModel>> GetPublicListByCategoryAsync(Guid categoryId, int page, int limit, bool includeDefaultVersion, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductListItemReadModel>>([]);
+        public Task<int> CountByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    }
+
+    private sealed class FakeCatalogProductVersionRepository : IProductVersionRepository
+    {
+        public HashSet<Guid> ExistingVersionIds { get; init; } = [];
+
+        public Task<ProductVersion?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult(ExistingVersionIds.Contains(id) ? new ProductVersion { ProductVersionId = id, ProductId = Guid.NewGuid() } : null);
+
+        public IQueryable<ProductVersion> Query() => Enumerable.Empty<ProductVersion>().AsQueryable();
+        public Task<IReadOnlyList<ProductVersion>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductVersion>>([]);
+        public Task AddAsync(ProductVersion entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddRangeAsync(IEnumerable<ProductVersion> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Update(ProductVersion entity) { }
+        public void Remove(ProductVersion entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+        public Task<bool> VersionCodeExistsAsync(string versionCode, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> ProductExistsAsync(Guid productId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<ProductVersionDetailReadModel?> GetPublicDetailAsync(Guid productVersionId, CancellationToken cancellationToken = default) => Task.FromResult<ProductVersionDetailReadModel?>(null);
+        public Task SetDefaultAsync(ProductVersion productVersion, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

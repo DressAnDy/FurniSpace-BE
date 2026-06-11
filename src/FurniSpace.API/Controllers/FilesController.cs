@@ -35,6 +35,7 @@ public sealed class FilesController : BaseApiController
         return ToActionResult(result);
     }
 
+    [AllowAnonymous]
     [HttpGet("by-reference")]
     public async Task<IActionResult> GetFilesByReference(
         [FromQuery] string referenceType,
@@ -45,10 +46,7 @@ public sealed class FilesController : BaseApiController
         [FromQuery] int limit = 20,
         CancellationToken cancellationToken = default)
     {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
+        _ = TryGetCurrentUserId(out var currentUserId);
 
         var result = await _projectFiles.GetFilesByReferenceAsync(
             currentUserId,
@@ -102,6 +100,7 @@ public sealed class FilesController : BaseApiController
 
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
+        currentUserId = Guid.Empty;
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);
     }
 }

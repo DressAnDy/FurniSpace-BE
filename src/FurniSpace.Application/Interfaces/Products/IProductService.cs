@@ -29,4 +29,10 @@ public interface IProductService
         int limit,
         bool includeDefaultVersion,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+        Guid productId,
+        Guid currentUserId,
+        UploadCatalogFileRequestDto request,
+        CancellationToken cancellationToken = default);
 }

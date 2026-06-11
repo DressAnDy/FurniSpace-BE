@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Services.Products;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.DTOs.Products;
@@ -44,7 +45,7 @@ public sealed class ProductServiceTests
                     Status = ProductStatus.ACTIVE
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(productId, new UpdateProductRequestDto
         {
@@ -85,7 +86,7 @@ public sealed class ProductServiceTests
                     Status = null
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(productId, new UpdateProductRequestDto
         {
@@ -104,7 +105,7 @@ public sealed class ProductServiceTests
     public async Task UpdateAsync_WithEmptyProductId_ReturnsBadRequest()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(Guid.Empty, new UpdateProductRequestDto
         {
@@ -123,7 +124,7 @@ public sealed class ProductServiceTests
     public async Task UpdateAsync_WithInvalidRequest_ReturnsValidationErrors()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateProductRequestDto
         {
@@ -144,7 +145,7 @@ public sealed class ProductServiceTests
     public async Task UpdateAsync_WithTooLongProductName_ReturnsValidationError()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateProductRequestDto
         {
@@ -162,7 +163,7 @@ public sealed class ProductServiceTests
     public async Task UpdateAsync_WithMissingProduct_ReturnsNotFound()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateProductRequestDto
         {
@@ -192,7 +193,7 @@ public sealed class ProductServiceTests
                     ProductName = "Coffee Counter"
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(productId, new UpdateProductRequestDto
         {
@@ -222,7 +223,7 @@ public sealed class ProductServiceTests
                     CategoryName = "Counter"
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(new CreateProductRequestDto
         {
@@ -262,7 +263,7 @@ public sealed class ProductServiceTests
                     CategoryName = "Counter"
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(new CreateProductRequestDto
         {
@@ -283,7 +284,7 @@ public sealed class ProductServiceTests
     public async Task CreateAsync_WithInvalidRequest_ReturnsValidationErrors()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(new CreateProductRequestDto
         {
@@ -307,7 +308,7 @@ public sealed class ProductServiceTests
     public async Task CreateAsync_WithTooLongProductName_ReturnsValidationError()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(new CreateProductRequestDto
         {
@@ -325,7 +326,7 @@ public sealed class ProductServiceTests
     public async Task CreateAsync_WithMissingCategory_ReturnsBadRequest()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(new CreateProductRequestDto
         {
@@ -363,7 +364,7 @@ public sealed class ProductServiceTests
                     CategoryName = "Counter"
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(new CreateProductRequestDto
         {
@@ -435,7 +436,7 @@ public sealed class ProductServiceTests
                     ]
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByIdAsync(productId);
 
@@ -500,7 +501,7 @@ public sealed class ProductServiceTests
                     ]
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByIdAsync(productId);
 
@@ -514,7 +515,7 @@ public sealed class ProductServiceTests
     public async Task GetByIdAsync_WithEmptyProductId_ReturnsBadRequest()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByIdAsync(Guid.Empty);
 
@@ -528,7 +529,7 @@ public sealed class ProductServiceTests
     public async Task GetByIdAsync_WithMissingProduct_ReturnsNotFound()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByIdAsync(Guid.NewGuid());
 
@@ -572,7 +573,7 @@ public sealed class ProductServiceTests
                     CategoryName = "Counter"
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByCategoryAsync(categoryId, page: 1, limit: 20, includeDefaultVersion: true);
 
@@ -622,7 +623,7 @@ public sealed class ProductServiceTests
                     CategoryName = "Counter"
                 }
             ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByCategoryAsync(categoryId, page: 1, limit: 20, includeDefaultVersion: false);
 
@@ -637,7 +638,7 @@ public sealed class ProductServiceTests
     public async Task GetByCategoryAsync_WithEmptyCategoryId_ReturnsBadRequest()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByCategoryAsync(Guid.Empty, page: 1, limit: 20, includeDefaultVersion: true);
 
@@ -655,7 +656,7 @@ public sealed class ProductServiceTests
     public async Task GetByCategoryAsync_WithInvalidPage_ReturnsBadRequest(int page)
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByCategoryAsync(Guid.NewGuid(), page, limit: 20, includeDefaultVersion: true);
 
@@ -672,7 +673,7 @@ public sealed class ProductServiceTests
     public async Task GetByCategoryAsync_WithInvalidLimit_ReturnsBadRequest(int limit)
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByCategoryAsync(Guid.NewGuid(), page: 1, limit, includeDefaultVersion: true);
 
@@ -686,7 +687,7 @@ public sealed class ProductServiceTests
     public async Task GetByCategoryAsync_WithMissingCategory_ReturnsNotFound()
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetByCategoryAsync(Guid.NewGuid(), page: 1, limit: 20, includeDefaultVersion: true);
 
@@ -733,7 +734,7 @@ public sealed class ProductServiceTests
                 }
             }
         ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetAllAsync(page: 1, limit: 20);
 
@@ -779,7 +780,7 @@ public sealed class ProductServiceTests
                 DefaultVersion = null
             }
         ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetAllAsync(page: 1, limit: 20);
 
@@ -798,7 +799,7 @@ public sealed class ProductServiceTests
             new ProductListItemReadModel { ProductId = Guid.NewGuid(), ProductName = "B" },
             new ProductListItemReadModel { ProductId = Guid.NewGuid(), ProductName = "C" }
         ]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetAllAsync(page: 2, limit: 2);
 
@@ -815,7 +816,7 @@ public sealed class ProductServiceTests
     public async Task GetAllAsync_WithInvalidPage_ReturnsBadRequest(int page)
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetAllAsync(page, limit: 20);
 
@@ -833,7 +834,7 @@ public sealed class ProductServiceTests
     public async Task GetAllAsync_WithInvalidLimit_ReturnsBadRequest(int limit)
     {
         var repository = new FakeProductRepository([]);
-        var service = new ProductService(repository);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.GetAllAsync(page: 1, limit: limit);
 
@@ -842,6 +843,157 @@ public sealed class ProductServiceTests
         Assert.Null(result.Data);
         Assert.Equal(0, repository.GetPublicListCallCount);
         Assert.Equal(0, repository.CountCallCount);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_WithProductPreviewFile_ReturnsThumbnail()
+    {
+        var productId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var fileLinkId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+        [
+            new ProductListItemReadModel
+            {
+                ProductId = productId,
+                ProductName = "Modern Floor Lamp",
+                Status = ProductStatus.ACTIVE
+            }
+        ]);
+        var files = new FakeCatalogProjectFileRepository
+        {
+            CatalogFiles =
+            [
+                CreateCatalogFile(productId, "PRODUCT", fileId, fileLinkId, FileType.PRODUCT_PREVIEW, "lamp-preview.jpg")
+            ]
+        };
+        var service = CatalogServiceTestHelper.CreateProductService(repository, files);
+
+        var result = await service.GetAllAsync(page: 1, limit: 20);
+
+        Assert.Equal(200, result.Status);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.NotNull(item.Thumbnail);
+        Assert.Equal(fileId, item.Thumbnail.FileId);
+        Assert.Equal(FileType.PRODUCT_PREVIEW, item.Thumbnail.FileType);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithProductAndVersionFiles_ReturnsFilesOnDetail()
+    {
+        var productId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            details:
+            [
+                new ProductDetailReadModel
+                {
+                    ProductId = productId,
+                    ProductName = "Modern Floor Lamp",
+                    Status = ProductStatus.ACTIVE,
+                    Versions =
+                    [
+                        new ProductVersionReadModel
+                        {
+                            ProductVersionId = versionId,
+                            VersionCode = "LAMP-001-STD",
+                            VersionName = "Standard White",
+                            Status = ProductStatus.ACTIVE,
+                            IsPublic = true
+                        }
+                    ],
+                    DefaultVersion = new ProductVersionReadModel
+                    {
+                        ProductVersionId = versionId,
+                        VersionCode = "LAMP-001-STD",
+                        VersionName = "Standard White",
+                        Status = ProductStatus.ACTIVE,
+                        IsPublic = true
+                    }
+                }
+            ]);
+        var files = new FakeCatalogProjectFileRepository
+        {
+            CatalogFiles =
+            [
+                CreateCatalogFile(productId, "PRODUCT", Guid.NewGuid(), Guid.NewGuid(), FileType.PRODUCT_PREVIEW, "product-preview.jpg"),
+                CreateCatalogFile(versionId, "PRODUCT_VERSION", Guid.NewGuid(), Guid.NewGuid(), FileType.MODEL_3D, "lamp.glb", "model/gltf-binary")
+            ]
+        };
+        var service = CatalogServiceTestHelper.CreateProductService(repository, files);
+
+        var result = await service.GetByIdAsync(productId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Files);
+        Assert.Equal(FileType.PRODUCT_PREVIEW, result.Data.Files[0].FileType);
+        Assert.Single(result.Data.DefaultVersion!.Files);
+        Assert.Equal(FileType.MODEL_3D, result.Data.DefaultVersion.Files[0].FileType);
+    }
+
+    [Fact]
+    public async Task GetByCategoryAsync_WithThumbnailFiles_ReturnsThumbnailOnItems()
+    {
+        var categoryId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+        [
+            new ProductListItemReadModel
+            {
+                ProductId = productId,
+                CategoryId = categoryId,
+                ProductName = "Modern Floor Lamp",
+                Status = ProductStatus.ACTIVE
+            }
+        ],
+        categories:
+        [
+            new ProductCategoryReadModel
+            {
+                CategoryId = categoryId,
+                CategoryName = "Lighting"
+            }
+        ]);
+        var files = new FakeCatalogProjectFileRepository
+        {
+            CatalogFiles =
+            [
+                CreateCatalogFile(productId, "PRODUCT", Guid.NewGuid(), Guid.NewGuid(), FileType.PRODUCT_PREVIEW, "lamp-preview.jpg")
+            ]
+        };
+        var service = CatalogServiceTestHelper.CreateProductService(repository, files);
+
+        var result = await service.GetByCategoryAsync(categoryId, page: 1, limit: 20, includeDefaultVersion: true);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(Assert.Single(result.Data!.Items).Thumbnail);
+    }
+
+    private static CatalogFileReadModel CreateCatalogFile(
+        Guid referenceId,
+        string referenceType,
+        Guid fileId,
+        Guid fileLinkId,
+        FileType fileType,
+        string fileName,
+        string mimeType = "image/jpeg")
+    {
+        return new CatalogFileReadModel
+        {
+            FileId = fileId,
+            FileLinkId = fileLinkId,
+            ReferenceId = referenceId,
+            ReferenceType = referenceType,
+            FileType = fileType,
+            OriginalFileName = fileName,
+            FileUrl = $"https://storage.example.com/{fileName}",
+            MimeType = mimeType,
+            FileSizeBytes = 1024,
+            Visibility = FileVisibility.CUSTOMER_VISIBLE,
+            Status = FileStatus.ACTIVE,
+            UploadedAt = DateTime.UtcNow
+        };
     }
 
     private sealed class FakeProductRepository : IProductRepository

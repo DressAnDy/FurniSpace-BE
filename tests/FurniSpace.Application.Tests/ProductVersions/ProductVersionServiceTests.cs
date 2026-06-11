@@ -2,14 +2,23 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.ProductVersions;
+using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Services.ProductVersions;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Infrastructure.DTOs.ProductVersions;
+using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Storage;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.ProductVersions;
@@ -21,7 +30,7 @@ public sealed class ProductVersionServiceTests
     {
         var productId = Guid.NewGuid();
         var repository = new FakeProductVersionRepository(productIds: [productId]);
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(productId, new CreateProductVersionRequestDto
         {
@@ -56,6 +65,8 @@ public sealed class ProductVersionServiceTests
         Assert.True(result.Data.IsPublic);
         Assert.False(result.Data.IsProjectSpecific);
         Assert.Equal(ProductStatus.ACTIVE, result.Data.Status);
+        Assert.Empty(result.Data.Files);
+        Assert.Null(result.Data.Thumbnail);
         Assert.Equal(1, repository.ProductExistsCallCount);
         Assert.Equal(1, repository.VersionCodeExistsCallCount);
         Assert.Equal(1, repository.SetDefaultCallCount);
@@ -68,7 +79,7 @@ public sealed class ProductVersionServiceTests
     {
         var productId = Guid.NewGuid();
         var repository = new FakeProductVersionRepository(productIds: [productId]);
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(productId, new CreateProductVersionRequestDto
         {
@@ -93,7 +104,7 @@ public sealed class ProductVersionServiceTests
     public async Task CreateAsync_WithEmptyProductId_ReturnsBadRequest()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(Guid.Empty, new CreateProductVersionRequestDto
         {
@@ -112,7 +123,7 @@ public sealed class ProductVersionServiceTests
     public async Task CreateAsync_WithInvalidRequest_ReturnsValidationErrors()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(Guid.NewGuid(), new CreateProductVersionRequestDto
         {
@@ -132,7 +143,7 @@ public sealed class ProductVersionServiceTests
     public async Task CreateAsync_WithTooLongFields_ReturnsValidationErrors()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(Guid.NewGuid(), new CreateProductVersionRequestDto
         {
@@ -149,7 +160,7 @@ public sealed class ProductVersionServiceTests
     public async Task CreateAsync_WithMissingProduct_ReturnsNotFound()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(Guid.NewGuid(), new CreateProductVersionRequestDto
         {
@@ -171,7 +182,7 @@ public sealed class ProductVersionServiceTests
         var repository = new FakeProductVersionRepository(
             versions: [new ProductVersion { ProductVersionId = Guid.NewGuid(), ProductId = productId, VersionCode = "PV" }],
             productIds: [productId]);
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.CreateAsync(productId, new CreateProductVersionRequestDto
         {
@@ -204,7 +215,7 @@ public sealed class ProductVersionServiceTests
                     Status = null
                 }
             ]);
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(productVersionId, new UpdateProductVersionRequestDto
         {
@@ -256,7 +267,7 @@ public sealed class ProductVersionServiceTests
                     Status = ProductStatus.ACTIVE
                 }
             ]);
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(productVersionId, new UpdateProductVersionRequestDto
         {
@@ -276,7 +287,7 @@ public sealed class ProductVersionServiceTests
     public async Task UpdateAsync_WithEmptyId_ReturnsBadRequest()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(Guid.Empty, new UpdateProductVersionRequestDto
         {
@@ -293,7 +304,7 @@ public sealed class ProductVersionServiceTests
     public async Task UpdateAsync_WithInvalidRequest_ReturnsValidationErrors()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateProductVersionRequestDto
         {
@@ -310,7 +321,7 @@ public sealed class ProductVersionServiceTests
     public async Task UpdateAsync_WithTooLongVersionName_ReturnsValidationError()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateProductVersionRequestDto
         {
@@ -325,7 +336,7 @@ public sealed class ProductVersionServiceTests
     public async Task UpdateAsync_WithMissingProductVersion_ReturnsNotFound()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateProductVersionRequestDto
         {
@@ -351,7 +362,7 @@ public sealed class ProductVersionServiceTests
                 new ProductVersion { ProductVersionId = selectedId, ProductId = productId, VersionCode = "A", VersionName = "A" },
                 new ProductVersion { ProductVersionId = otherId, ProductId = productId, VersionCode = "B", VersionName = "B", IsDefault = true }
             ]);
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.SetDefaultAsync(selectedId);
 
@@ -371,7 +382,7 @@ public sealed class ProductVersionServiceTests
     public async Task SetDefaultAsync_WithEmptyId_ReturnsBadRequest()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.SetDefaultAsync(Guid.Empty);
 
@@ -385,7 +396,7 @@ public sealed class ProductVersionServiceTests
     public async Task SetDefaultAsync_WithMissingVersion_ReturnsNotFound()
     {
         var repository = new FakeProductVersionRepository();
-        var service = new ProductVersionService(repository);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, new FakeCatalogProjectFileRepository());
 
         var result = await service.SetDefaultAsync(Guid.NewGuid());
 
@@ -394,6 +405,238 @@ public sealed class ProductVersionServiceTests
         Assert.Null(result.Data);
         Assert.Equal(1, repository.GetByIdCallCount);
         Assert.Equal(0, repository.SetDefaultCallCount);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithPublicVersion_ReturnsDetailWithFiles()
+    {
+        var productVersionId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var repository = new FakeProductVersionRepository(
+            versions:
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = productVersionId,
+                    ProductId = productId,
+                    VersionCode = "PV-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE,
+                    IsPublic = true
+                }
+            ],
+            productIds: [productId]);
+        var files = new FakeCatalogProjectFileRepository
+        {
+            CatalogFiles =
+            [
+                new CatalogFileReadModel
+                {
+                    FileId = Guid.NewGuid(),
+                    FileLinkId = Guid.NewGuid(),
+                    ReferenceId = productVersionId,
+                    ReferenceType = "PRODUCT_VERSION",
+                    FileType = FileType.MODEL_3D,
+                    OriginalFileName = "lamp.glb",
+                    FileUrl = "https://storage.example.com/lamp.glb",
+                    MimeType = "model/gltf-binary",
+                    FileSizeBytes = 2048,
+                    Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                    Status = FileStatus.ACTIVE,
+                    UploadedAt = DateTime.UtcNow
+                }
+            ]
+        };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(repository, files);
+
+        var result = await service.GetByIdAsync(productVersionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(productVersionId, result.Data.ProductVersionId);
+        Assert.Single(result.Data.Files);
+        Assert.Equal(FileType.MODEL_3D, result.Data.Files[0].FileType);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithMissingVersion_ReturnsNotFound()
+    {
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(),
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.GetByIdAsync(Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Product version not found.", result.Message);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithEmptyId_ReturnsBadRequest()
+    {
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(),
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.GetByIdAsync(Guid.Empty);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Product version id is required.", result.Message);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithValidModelFile_UploadsAndPersistsFile()
+    {
+        var adminId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository();
+        var storage = new VersionUploadFileStorage();
+        var versionRepository = new FakeProductVersionRepository(
+            versions:
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = productVersionId,
+                    ProductId = productId,
+                    VersionCode = "PV-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE
+                }
+            ],
+            productIds: [productId]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            versionRepository,
+            repository,
+            storage);
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            adminId,
+            new UploadCatalogFileRequestDto
+            {
+                Content = new MemoryStream([1, 2, 3]),
+                OriginalFileName = "lamp-white.glb",
+                ContentType = "model/gltf-binary",
+                FileSizeBytes = 12,
+                FileType = FileType.MODEL_3D
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal("Product version file uploaded successfully.", result.Message);
+        Assert.Equal("PRODUCT_VERSION", result.Data!.ReferenceType);
+        Assert.StartsWith($"product-versions/{productVersionId:D}/", storage.UploadRequest!.ObjectName, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithMissingVersion_ReturnsNotFound()
+    {
+        var repository = new VersionUploadFileRepository();
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new UploadCatalogFileRequestDto
+            {
+                Content = new MemoryStream([1, 2, 3]),
+                OriginalFileName = "lamp-white.glb",
+                ContentType = "model/gltf-binary",
+                FileSizeBytes = 12,
+                FileType = FileType.MODEL_3D
+            });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Product version not found.", result.Message);
+    }
+
+    private sealed class VersionUploadFileStorage : IFileStorageService
+    {
+        public StorageUploadRequest? UploadRequest { get; private set; }
+
+        public Task<StorageUploadResult> UploadAsync(
+            StorageUploadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            UploadRequest = request;
+            return Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+                Bucket = "test-bucket"
+            });
+        }
+
+        public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+    }
+
+    private sealed class VersionUploadFileRepository : IProjectFileRepository
+    {
+        public List<StoredFile> StoredFiles { get; } = [];
+        public List<FileLink> FileLinks { get; } = [];
+
+        public Task AddAsync(StoredFile entity, CancellationToken cancellationToken = default)
+        {
+            StoredFiles.Add(entity);
+            return Task.CompletedTask;
+        }
+
+        public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
+        {
+            FileLinks.Add(fileLink);
+            return Task.CompletedTask;
+        }
+
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(1);
+
+        public Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
+            string referenceType,
+            IReadOnlyList<Guid> referenceIds,
+            bool customerVisibleOnly,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<CatalogFileReadModel>>([]);
+
+        public Task<ProjectFileAccessReadModel?> GetProjectAccessAsync(Guid projectId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ProjectFileAccessReadModel?>(null);
+
+        public Task<ProjectFileAccessReadModel?> GetReferenceProjectAccessAsync(string referenceType, Guid referenceId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ProjectFileAccessReadModel?>(null);
+
+        public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<FileMetadataReadModel?> GetFileMetadataAsync(Guid fileId, CancellationToken cancellationToken = default)
+            => Task.FromResult<FileMetadataReadModel?>(null);
+
+        public Task<FileReferencePageReadModel> GetFilesByReferenceAsync(FileReferenceQueryReadModel query, CancellationToken cancellationToken = default)
+            => Task.FromResult(new FileReferencePageReadModel());
+
+        public Task<FileLinkReadModel?> GetFileLinkAsync(Guid fileLinkId, CancellationToken cancellationToken = default)
+            => Task.FromResult<FileLinkReadModel?>(null);
+
+        public Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByFileIdAsync(Guid fileId, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<FileLink>>([]);
+
+        public void RemoveFileLinks(IEnumerable<FileLink> fileLinks) { }
+
+        public IQueryable<StoredFile> Query() => StoredFiles.AsQueryable();
+
+        public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<StoredFile?>(StoredFiles.FirstOrDefault(file => file.FileId == id));
+
+        public Task<IReadOnlyList<StoredFile>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<StoredFile>>(StoredFiles);
+
+        public Task AddRangeAsync(IEnumerable<StoredFile> entities, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public void Update(StoredFile entity) { }
+
+        public void Remove(StoredFile entity) { }
     }
 
     private sealed class FakeProductVersionRepository : IProductVersionRepository
@@ -432,6 +675,36 @@ public sealed class ProductVersionServiceTests
         {
             ProductExistsCallCount++;
             return Task.FromResult(_productIds.Contains(productId));
+        }
+
+        public Task<ProductVersionDetailReadModel?> GetPublicDetailAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_versions
+                .Where(version =>
+                    version.ProductVersionId == productVersionId &&
+                    version.Status == ProductStatus.ACTIVE &&
+                    version.IsPublic == true)
+                .Select(version => new ProductVersionDetailReadModel
+                {
+                    ProductVersionId = version.ProductVersionId,
+                    ProductId = version.ProductId,
+                    VersionCode = version.VersionCode,
+                    VersionName = version.VersionName,
+                    VersionType = version.VersionType,
+                    Material = version.Material,
+                    Color = version.Color,
+                    Width = version.Width,
+                    Height = version.Height,
+                    Depth = version.Depth,
+                    EstimatedPrice = version.EstimatedPrice,
+                    IsDefault = version.IsDefault,
+                    IsPublic = version.IsPublic,
+                    IsProjectSpecific = version.IsProjectSpecific,
+                    Status = version.Status
+                })
+                .FirstOrDefault());
         }
 
         public Task SetDefaultAsync(

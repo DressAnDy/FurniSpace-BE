@@ -1,5 +1,7 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.DTOs.ProductVersions;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
@@ -26,6 +28,38 @@ public sealed class ProductVersionRepository : GenericRepository<ProductVersion>
         CancellationToken cancellationToken = default)
     {
         return DbContext.ProductSet.AnyAsync(product => product.ProductId == productId, cancellationToken);
+    }
+
+    public Task<ProductVersionDetailReadModel?> GetPublicDetailAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        return (
+            from version in DbContext.ProductVersionSet
+            join product in DbContext.ProductSet on version.ProductId equals product.ProductId
+            where version.ProductVersionId == productVersionId &&
+                  version.Status == ProductStatus.ACTIVE &&
+                  version.IsPublic == true
+            select new ProductVersionDetailReadModel
+            {
+                ProductVersionId = version.ProductVersionId,
+                ProductId = version.ProductId,
+                ProductName = product.ProductName,
+                VersionCode = version.VersionCode,
+                VersionName = version.VersionName,
+                VersionType = version.VersionType,
+                Material = version.Material,
+                Color = version.Color,
+                Width = version.Width,
+                Height = version.Height,
+                Depth = version.Depth,
+                EstimatedPrice = version.EstimatedPrice,
+                IsDefault = version.IsDefault,
+                IsPublic = version.IsPublic,
+                IsProjectSpecific = version.IsProjectSpecific,
+                Status = version.Status
+            })
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task SetDefaultAsync(

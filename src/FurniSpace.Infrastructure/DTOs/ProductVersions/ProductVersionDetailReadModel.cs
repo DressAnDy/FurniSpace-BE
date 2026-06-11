@@ -1,12 +1,12 @@
-using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Domain.Enums;
 
-namespace FurniSpace.Application.DTOs.ProductVersions;
+namespace FurniSpace.Infrastructure.DTOs.ProductVersions;
 
-public sealed class ProductVersionDto
+public sealed class ProductVersionDetailReadModel
 {
     public Guid ProductVersionId { get; set; }
     public Guid ProductId { get; set; }
+    public string? ProductName { get; set; }
     public string VersionCode { get; set; } = string.Empty;
     public string VersionName { get; set; } = string.Empty;
     public ProductVersionType? VersionType { get; set; }
@@ -20,6 +20,4 @@ public sealed class ProductVersionDto
     public bool? IsPublic { get; set; }
     public bool? IsProjectSpecific { get; set; }
     public ProductStatus? Status { get; set; }
-    public CatalogFileDto? Thumbnail { get; set; }
-    public IReadOnlyList<CatalogFileDto> Files { get; set; } = [];
 }

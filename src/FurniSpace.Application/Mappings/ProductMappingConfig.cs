@@ -2,6 +2,7 @@ using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Domain.Entities;
+using FurniSpace.Infrastructure.DTOs.ProductVersions;
 using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.DTOs.Projects;
 using Mapster;
@@ -27,5 +28,6 @@ public sealed class ProductMappingConfig : IRegister
         config.NewConfig<ProductVersionReadModel, ProductVersionSummaryDto>();
         config.NewConfig<ProductListItemReadModel, ProductListItemDto>();
         config.NewConfig<ProductDetailReadModel, ProductDetailDto>();
+        config.NewConfig<ProductVersionDetailReadModel, ProductVersionDetailDto>();
     }
 }

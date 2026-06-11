@@ -5,8 +5,10 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FurniSpace.API.Constants;
+using FurniSpace.API.Hubs;
 using FurniSpace.Application;
 using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.Realtime;
 using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.API.Middleware;
 using FurniSpace.Infrastructure.Data;
@@ -45,6 +47,7 @@ AddApiSwagger(builder.Services);
 builder.Services.AddApplication(builder.Configuration);
 AddJwtAuthentication(builder.Services, jwtSettings, builder.Environment);
 builder.Services.AddAuthorization();
+builder.Services.AddSignalR();
 
 var app = builder.Build();
 
@@ -61,6 +64,7 @@ app.UseMiddleware<RequestLoggingMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<NotificationsHub>(RealtimeGroupNames.HubPath);
 app.MapGet("/", () => "FurniSpace API");
 await app.RunAsync();
 await Log.CloseAndFlushAsync();
@@ -288,6 +292,16 @@ static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSet
                         context.Request.Cookies.TryGetValue("access_token", out var accessToken))
                     {
                         context.Token = accessToken;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(context.Token) &&
+                        context.HttpContext.Request.Path.StartsWithSegments(RealtimeGroupNames.HubPath))
+                    {
+                        var queryAccessToken = context.Request.Query["access_token"];
+                        if (!string.IsNullOrWhiteSpace(queryAccessToken))
+                        {
+                            context.Token = queryAccessToken;
+                        }
                     }
 
                     return Task.CompletedTask;

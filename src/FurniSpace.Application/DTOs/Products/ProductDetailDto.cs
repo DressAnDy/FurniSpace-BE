@@ -11,6 +11,8 @@ public sealed class ProductDetailDto
     public string ProductName { get; set; } = string.Empty;
     public string? Description { get; set; }
     public ProductStatus? Status { get; set; }
+    public CatalogFileDto? Thumbnail { get; set; }
+    public IReadOnlyList<CatalogFileDto> Files { get; set; } = [];
     public ProductVersionSummaryDto? DefaultVersion { get; set; }
     public IReadOnlyList<ProductVersionSummaryDto> Versions { get; set; } = [];
 }

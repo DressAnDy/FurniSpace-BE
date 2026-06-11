@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Catalog;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
 using FurniSpace.Domain.Entities;
@@ -28,7 +29,14 @@ public sealed class ProjectFileService : IProjectFileService
         "PROJECT_SCHEDULE",
         "PROPOSAL",
         "QUOTATION",
-        "ORDER"
+        "ORDER",
+        CatalogFileReferenceTypes.Product,
+        CatalogFileReferenceTypes.ProductVersion
+    };
+    private static readonly HashSet<string> CatalogReferenceTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        CatalogFileReferenceTypes.Product,
+        CatalogFileReferenceTypes.ProductVersion
     };
     private static readonly Dictionary<ProjectStatus, int> ProjectStatusRanks = new()
     {
@@ -55,17 +63,23 @@ public sealed class ProjectFileService : IProjectFileService
     };
 
     private readonly IProjectFileRepository _projectFiles;
+    private readonly IProductRepository _products;
+    private readonly IProductVersionRepository _productVersions;
     private readonly IFileStorageService _storage;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
 
     public ProjectFileService(
         IProjectFileRepository projectFiles,
+        IProductRepository products,
+        IProductVersionRepository productVersions,
         IFileStorageService storage,
         IOptions<FileUploadSettings> uploadSettings,
         IOptions<FirebaseStorageSettings> firebaseSettings)
     {
         _projectFiles = projectFiles;
+        _products = products;
+        _productVersions = productVersions;
         _storage = storage;
         _uploadSettings = uploadSettings.Value;
         _firebaseSettings = firebaseSettings.Value;
@@ -289,6 +303,16 @@ public sealed class ProjectFileService : IProjectFileService
             return ServiceResult<FilesByReferenceResponseDto>.BadRequest(validationErrors);
         }
 
+        if (CatalogReferenceTypes.Contains(normalizedReferenceType))
+        {
+            return await GetCatalogFilesByReferenceAsync(currentUserId, normalizedReferenceType, query, cancellationToken);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<FilesByReferenceResponseDto>.Unauthorized();
+        }
+
         var roleName = await GetRequiredRoleNameAsync(currentUserId, cancellationToken);
         if (roleName is null)
         {
@@ -315,6 +339,60 @@ public sealed class ProjectFileService : IProjectFileService
                 Visibility = query.Visibility,
                 CustomerVisibleOnly = IsCustomer(roleName),
                 CustomerAccountId = IsCustomer(roleName) ? currentUserId : null,
+                Page = query.Page,
+                Limit = query.Limit
+            },
+            cancellationToken);
+
+        return ServiceResult<FilesByReferenceResponseDto>.Success(
+            new FilesByReferenceResponseDto
+            {
+                ReferenceType = normalizedReferenceType,
+                ReferenceId = query.ReferenceId,
+                Items = page.Items.Adapt<List<FileListItemDto>>(),
+                Page = query.Page,
+                Limit = query.Limit,
+                Total = page.Total
+            },
+            "Files retrieved successfully.");
+    }
+
+    private async Task<ServiceResult<FilesByReferenceResponseDto>> GetCatalogFilesByReferenceAsync(
+        Guid currentUserId,
+        string normalizedReferenceType,
+        FilesByReferenceQueryDto query,
+        CancellationToken cancellationToken)
+    {
+        var referenceExists = normalizedReferenceType == CatalogFileReferenceTypes.Product
+            ? await _products.GetByIdAsync(query.ReferenceId, cancellationToken) is not null
+            : await _productVersions.GetByIdAsync(query.ReferenceId, cancellationToken) is not null;
+
+        if (!referenceExists)
+        {
+            return ServiceResult<FilesByReferenceResponseDto>.NotFound("Referenced object not found.");
+        }
+
+        string? roleName = null;
+        if (currentUserId != Guid.Empty)
+        {
+            roleName = await _projectFiles.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+            if (string.IsNullOrWhiteSpace(roleName))
+            {
+                return ServiceResult<FilesByReferenceResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
+            }
+        }
+
+        var customerVisibleOnly = roleName is null || !IsAdmin(roleName);
+
+        var page = await _projectFiles.GetFilesByReferenceAsync(
+            new FileReferenceQueryReadModel
+            {
+                ReferenceType = normalizedReferenceType,
+                ReferenceId = query.ReferenceId,
+                FileType = query.FileType,
+                Visibility = customerVisibleOnly ? null : query.Visibility,
+                CustomerVisibleOnly = customerVisibleOnly,
+                CustomerAccountId = null,
                 Page = query.Page,
                 Limit = query.Limit
             },

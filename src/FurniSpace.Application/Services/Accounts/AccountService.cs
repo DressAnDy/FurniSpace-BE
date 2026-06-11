@@ -18,6 +18,9 @@ public sealed class AccountService : IAccountService
     private const string AccountIndexName = "accounts";
     private const string AccountItemCachePrefix = "furnispace:accounts:item:";
     private const string AccountListCachePrefix = "furnispace:accounts:list:";
+    private const string AccountNotFoundCode = "ACCOUNT_NOT_FOUND";
+    private const string AccountDetailRetrievedMessage = "Account detail retrieved successfully.";
+    private const string ProfileUpdatedMessage = "Profile updated successfully.";
     private static readonly TimeSpan AccountItemCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(2);
 
@@ -99,6 +102,57 @@ public sealed class AccountService : IAccountService
         await CacheAccountAsync(dto, cancellationToken);
 
         return ServiceResult<AccountDto>.Success(dto);
+    }
+
+    public async Task<ServiceResult<AccountDetailDto>> GetAdminDetailAsync(Guid accountId, CancellationToken cancellationToken = default)
+    {
+        if (accountId == Guid.Empty)
+        {
+            return ServiceResult<AccountDetailDto>.BadRequest("Account id is required.");
+        }
+
+        var account = await _accounts.GetDetailAsync(accountId, cancellationToken);
+        return account is null
+            ? ServiceResult<AccountDetailDto>.NotFound(AccountNotFoundCode)
+            : ServiceResult<AccountDetailDto>.Success(account.Adapt<AccountDetailDto>(), AccountDetailRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<MyProfileDto>> UpdateMyProfileAsync(
+        Guid currentUserId,
+        UpdateMyProfileRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<MyProfileDto>.BadRequest("Account id is required.");
+        }
+
+        var validationErrors = ValidateProfileUpdateRequest(request);
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<MyProfileDto>.BadRequest(validationErrors);
+        }
+
+        var account = await _accounts.GetByIdAsync(currentUserId, cancellationToken);
+        if (account is null || account.DeletedAt is not null)
+        {
+            return ServiceResult<MyProfileDto>.NotFound("Account not found.");
+        }
+
+        account.FullName = request.FullName.Trim();
+        account.Phone = NormalizeOptional(request.Phone);
+        account.UpdatedAt = DateTime.UtcNow;
+
+        await _accounts.SaveChangesAsync(cancellationToken);
+
+        var accountDto = account.Adapt<AccountDto>();
+        await CacheAccountAsync(accountDto, cancellationToken);
+        await InvalidateAccountListsAsync(cancellationToken);
+        await IndexAccountAsync(accountDto, cancellationToken);
+
+        var dto = account.Adapt<MyProfileDto>();
+        dto.Role = await _accounts.GetRoleNameAsync(account.RoleId, cancellationToken) ?? string.Empty;
+        return ServiceResult<MyProfileDto>.Success(dto, ProfileUpdatedMessage);
     }
 
     public async Task<ServiceResult<PagedResult<AccountDto>>> GetPagedAsync(
@@ -393,6 +447,26 @@ public sealed class AccountService : IAccountService
     private static List<string> ValidateUpdateRequest(UpdateAccountRequestDto request)
     {
         return ValidateCommon(request.RoleId, request.Email, request.FullName, request.Status);
+    }
+
+    private static List<string> ValidateProfileUpdateRequest(UpdateMyProfileRequestDto request)
+    {
+        var errors = new List<string>();
+        if (string.IsNullOrWhiteSpace(request.FullName))
+        {
+            errors.Add("Full name is required.");
+        }
+        else if (request.FullName.Trim().Length > 100)
+        {
+            errors.Add("Full name must not exceed 100 characters.");
+        }
+
+        if (request.Phone?.Trim().Length > 20)
+        {
+            errors.Add("Phone must not exceed 20 characters.");
+        }
+
+        return errors;
     }
 
     private static List<string> ValidateCommon(Guid roleId, string email, string fullName, string? status)

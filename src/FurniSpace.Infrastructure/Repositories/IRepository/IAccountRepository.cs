@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Infrastructure.DTOs.Accounts;
 using FurniSpace.Infrastructure.Repositories.Base;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;
@@ -6,6 +7,7 @@ namespace FurniSpace.Infrastructure.Repositories.IRepository;
 public interface IAccountRepository : IGenericRepository<Account>
 {
     Task<Account?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
+    Task<AccountDetailReadModel?> GetDetailAsync(Guid accountId, CancellationToken cancellationToken = default);
     Task<string?> GetRoleNameAsync(Guid roleId, CancellationToken cancellationToken = default);
     Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default);
     Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default);

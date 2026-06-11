@@ -4,6 +4,7 @@ using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Storage;
 using Mapster;

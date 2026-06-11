@@ -301,15 +301,7 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectBasicInformationDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
         }
 
-        var errors = ValidateBasicInformation(
-            request.ProjectName,
-            request.BusinessType,
-            request.FurnitureRequirement,
-            request.TotalAreaSqm,
-            request.NumberOfFloors,
-            request.BudgetMin,
-            request.BudgetMax,
-            request.TargetCompletionDate);
+        var errors = ValidateBasicInformation(request);
         if (errors.Count > 0)
         {
             return ServiceResult<ProjectBasicInformationDto>.BadRequest(errors);
@@ -529,73 +521,57 @@ public sealed class ProjectService : IProjectService
 
     private static List<string> ValidateRequest(CreateProjectRequestDto request)
     {
-        return ValidateBasicInformation(
-            request.ProjectName,
-            request.BusinessType,
-            request.FurnitureRequirement,
-            request.TotalAreaSqm,
-            request.NumberOfFloors,
-            request.BudgetMin,
-            request.BudgetMax,
-            request.TargetCompletionDate);
+        return ValidateBasicInformation(request.Adapt<UpdateProjectBasicInformationRequestDto>());
     }
 
-    private static List<string> ValidateBasicInformation(
-        string? projectName,
-        string? businessType,
-        string? furnitureRequirement,
-        decimal? totalAreaSqm,
-        int? numberOfFloors,
-        decimal? budgetMin,
-        decimal? budgetMax,
-        DateOnly? targetCompletionDate)
+    private static List<string> ValidateBasicInformation(UpdateProjectBasicInformationRequestDto request)
     {
         var errors = new List<string>();
-        AddRequiredStringError(errors, projectName, "Project name is required.");
-        AddRequiredStringError(errors, businessType, "Business type is required.");
-        AddRequiredStringError(errors, furnitureRequirement, "Furniture requirement is required.");
+        AddRequiredStringError(errors, request.ProjectName, "Project name is required.");
+        AddRequiredStringError(errors, request.BusinessType, "Business type is required.");
+        AddRequiredStringError(errors, request.FurnitureRequirement, "Furniture requirement is required.");
 
-        if (!string.IsNullOrWhiteSpace(projectName) &&
-            projectName.Trim().Length > 150)
+        if (!string.IsNullOrWhiteSpace(request.ProjectName) &&
+            request.ProjectName.Trim().Length > 150)
         {
             errors.Add("Project name must not exceed 150 characters.");
         }
 
-        if (!string.IsNullOrWhiteSpace(businessType) &&
-            businessType.Trim().Length > 100)
+        if (!string.IsNullOrWhiteSpace(request.BusinessType) &&
+            request.BusinessType.Trim().Length > 100)
         {
             errors.Add("Business type must not exceed 100 characters.");
         }
 
-        if (totalAreaSqm is < 0)
+        if (request.TotalAreaSqm is < 0)
         {
             errors.Add("Total area must be greater than or equal to zero.");
         }
 
-        if (numberOfFloors is < 0)
+        if (request.NumberOfFloors is < 0)
         {
             errors.Add("Number of floors must be greater than or equal to zero.");
         }
 
-        if (budgetMin is < 0)
+        if (request.BudgetMin is < 0)
         {
             errors.Add("Minimum budget must be greater than or equal to zero.");
         }
 
-        if (budgetMax is < 0)
+        if (request.BudgetMax is < 0)
         {
             errors.Add("Maximum budget must be greater than or equal to zero.");
         }
 
-        if (budgetMin.HasValue &&
-            budgetMax.HasValue &&
-            budgetMin.Value > budgetMax.Value)
+        if (request.BudgetMin.HasValue &&
+            request.BudgetMax.HasValue &&
+            request.BudgetMin.Value > request.BudgetMax.Value)
         {
             errors.Add("Minimum budget must be less than or equal to maximum budget.");
         }
 
-        if (targetCompletionDate.HasValue &&
-            targetCompletionDate.Value < DateOnly.FromDateTime(DateTime.UtcNow.Date))
+        if (request.TargetCompletionDate.HasValue &&
+            request.TargetCompletionDate.Value < DateOnly.FromDateTime(DateTime.UtcNow.Date))
         {
             errors.Add("Target completion date must not be in the past.");
         }

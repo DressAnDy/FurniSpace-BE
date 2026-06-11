@@ -228,7 +228,7 @@ public sealed class ProductVersionService : IProductVersionService
             return ServiceResult<CatalogFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
         }
 
-        var validationErrors = ValidateCatalogFileRequest(request, AllowedProductVersionFileTypes);
+        var validationErrors = ValidateUpload(request);
         if (validationErrors.Count > 0)
         {
             return ServiceResult<CatalogFileUploadResponseDto>.BadRequest(validationErrors);
@@ -244,7 +244,11 @@ public sealed class ProductVersionService : IProductVersionService
         var fileLinkId = Guid.NewGuid();
         var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
         var generatedFileName = BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = BuildProductVersionObjectName(productVersionId, generatedFileName);
+        var objectName = BuildStorageObjectName(
+            "product-versions",
+            _firebaseSettings.ProductVersionFilesPrefix,
+            productVersionId,
+            generatedFileName);
         var visibility = request.Visibility ?? FileVisibility.CUSTOMER_VISIBLE;
 
         var uploadResult = await _storage.UploadAsync(
@@ -351,9 +355,12 @@ public sealed class ProductVersionService : IProductVersionService
         return errors;
     }
 
-    private List<string> ValidateCatalogFileRequest(
-        UploadCatalogFileRequestDto request,
-        HashSet<FileType> allowedFileTypes)
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private List<string> ValidateUpload(UploadCatalogFileRequestDto request)
     {
         var errors = new List<string>();
         if (request.Content == Stream.Null || !request.Content.CanRead)
@@ -377,13 +384,14 @@ public sealed class ProductVersionService : IProductVersionService
             errors.Add($"File size must not exceed {maxFileSize} bytes.");
         }
 
-        if (!allowedFileTypes.Contains(request.FileType))
+        if (!AllowedProductVersionFileTypes.Contains(request.FileType))
         {
             errors.Add("File type is not allowed for this upload.");
         }
 
         var extension = Path.GetExtension(request.OriginalFileName);
-        if (string.IsNullOrWhiteSpace(extension) || !AllowedExtensions().Contains(extension, StringComparer.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(extension) ||
+            !AllowedExtensions().Contains(extension, StringComparer.OrdinalIgnoreCase))
         {
             errors.Add("File extension is not allowed.");
         }
@@ -418,13 +426,17 @@ public sealed class ProductVersionService : IProductVersionService
             : _uploadSettings.AllowedMimeTypes;
     }
 
-    private string BuildProductVersionObjectName(Guid productVersionId, string generatedFileName)
+    private static string BuildStorageObjectName(
+        string defaultPrefix,
+        string? configuredPrefix,
+        Guid referenceId,
+        string generatedFileName)
     {
-        var prefix = string.IsNullOrWhiteSpace(_firebaseSettings.ProductVersionFilesPrefix)
-            ? "product-versions"
-            : _firebaseSettings.ProductVersionFilesPrefix.Trim().Trim('/');
+        var prefix = string.IsNullOrWhiteSpace(configuredPrefix)
+            ? defaultPrefix
+            : configuredPrefix.Trim().Trim('/');
 
-        return $"{prefix}/{productVersionId:D}/{generatedFileName}";
+        return $"{prefix}/{referenceId:D}/{generatedFileName}";
     }
 
     private static string BuildGeneratedFileName(Guid fileId, string originalFileName)
@@ -455,17 +467,18 @@ public sealed class ProductVersionService : IProductVersionService
         IEnumerable<CatalogFileReadModel> files,
         bool customerVisibleOnly)
     {
-        return files
-            .Where(file =>
-                file.Status == FileStatus.ACTIVE &&
-                (!customerVisibleOnly || file.Visibility == FileVisibility.CUSTOMER_VISIBLE))
+        return FilterVisible(files, customerVisibleOnly)
             .OrderByDescending(file => file.FileType == FileType.PRODUCT_PREVIEW)
             .ThenByDescending(file => file.UploadedAt)
             .Adapt<List<CatalogFileDto>>();
     }
 
-    private static string? NormalizeOptional(string? value)
+    private static IEnumerable<CatalogFileReadModel> FilterVisible(
+        IEnumerable<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
     {
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        return files.Where(file =>
+            file.Status == FileStatus.ACTIVE &&
+            (!customerVisibleOnly || file.Visibility == FileVisibility.CUSTOMER_VISIBLE));
     }
 }

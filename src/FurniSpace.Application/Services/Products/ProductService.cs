@@ -18,6 +18,7 @@ public sealed class ProductService : IProductService
     private static readonly HashSet<FileType> AllowedProductFileTypes =
     [
         FileType.PRODUCT_PREVIEW,
+        FileType.REFERENCE_IMAGE,
         FileType.OTHER
     ];
 
@@ -227,7 +228,7 @@ public sealed class ProductService : IProductService
             return ServiceResult<CatalogFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
         }
 
-        var validationErrors = ValidateCatalogFileRequest(request, AllowedProductFileTypes);
+        var validationErrors = ValidateUpload(request);
         if (validationErrors.Count > 0)
         {
             return ServiceResult<CatalogFileUploadResponseDto>.BadRequest(validationErrors);
@@ -243,7 +244,11 @@ public sealed class ProductService : IProductService
         var fileLinkId = Guid.NewGuid();
         var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
         var generatedFileName = BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = BuildProductObjectName(productId, generatedFileName);
+        var objectName = BuildStorageObjectName(
+            "products",
+            _firebaseSettings.ProductFilesPrefix,
+            productId,
+            generatedFileName);
         var visibility = request.Visibility ?? FileVisibility.CUSTOMER_VISIBLE;
 
         var uploadResult = await _storage.UploadAsync(
@@ -335,20 +340,20 @@ public sealed class ProductService : IProductService
                 customerVisibleOnly,
                 cancellationToken);
 
-        var productFilesById = GroupCatalogFilesByReferenceId(productFiles);
-        var versionFilesById = GroupCatalogFilesByReferenceId(versionFiles);
+        var productFilesById = GroupByReferenceId(productFiles);
+        var versionFilesById = GroupByReferenceId(versionFiles);
 
         foreach (var item in items)
         {
             if (productFilesById.TryGetValue(item.ProductId, out var files))
             {
-                item.Thumbnail = PickCatalogThumbnail(files, customerVisibleOnly);
+                item.Thumbnail = PickThumbnail(files, customerVisibleOnly);
             }
 
             if (item.DefaultVersion is not null &&
                 versionFilesById.TryGetValue(item.DefaultVersion.ProductVersionId, out var versionFileList))
             {
-                item.DefaultVersion.Thumbnail = PickCatalogThumbnail(versionFileList, customerVisibleOnly);
+                item.DefaultVersion.Thumbnail = PickThumbnail(versionFileList, customerVisibleOnly);
             }
         }
     }
@@ -362,7 +367,7 @@ public sealed class ProductService : IProductService
             customerVisibleOnly,
             cancellationToken);
         detail.Files = ToCatalogFileList(productFiles, customerVisibleOnly);
-        detail.Thumbnail = PickCatalogThumbnail(productFiles, customerVisibleOnly);
+        detail.Thumbnail = PickThumbnail(productFiles, customerVisibleOnly);
 
         var versionIds = detail.Versions.Select(version => version.ProductVersionId).ToList();
         if (versionIds.Count == 0)
@@ -375,7 +380,7 @@ public sealed class ProductService : IProductService
             versionIds,
             customerVisibleOnly,
             cancellationToken);
-        var versionFilesById = GroupCatalogFilesByReferenceId(versionFiles);
+        var versionFilesById = GroupByReferenceId(versionFiles);
 
         foreach (var version in detail.Versions)
         {
@@ -385,156 +390,15 @@ public sealed class ProductService : IProductService
             }
 
             version.Files = ToCatalogFileList(files, customerVisibleOnly);
-            version.Thumbnail = PickCatalogThumbnail(files, customerVisibleOnly);
+            version.Thumbnail = PickThumbnail(files, customerVisibleOnly);
         }
 
         if (detail.DefaultVersion is not null &&
             versionFilesById.TryGetValue(detail.DefaultVersion.ProductVersionId, out var defaultFiles))
         {
             detail.DefaultVersion.Files = ToCatalogFileList(defaultFiles, customerVisibleOnly);
-            detail.DefaultVersion.Thumbnail = PickCatalogThumbnail(defaultFiles, customerVisibleOnly);
+            detail.DefaultVersion.Thumbnail = PickThumbnail(defaultFiles, customerVisibleOnly);
         }
-    }
-
-    private List<string> ValidateCatalogFileRequest(
-        UploadCatalogFileRequestDto request,
-        HashSet<FileType> allowedFileTypes)
-    {
-        var errors = new List<string>();
-        if (request.Content == Stream.Null || !request.Content.CanRead)
-        {
-            errors.Add("File is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.OriginalFileName))
-        {
-            errors.Add("Original file name is required.");
-        }
-
-        if (request.FileSizeBytes <= 0)
-        {
-            errors.Add("File size must be greater than zero.");
-        }
-
-        var maxFileSize = ResolveMaxFileSize();
-        if (request.FileSizeBytes > maxFileSize)
-        {
-            errors.Add($"File size must not exceed {maxFileSize} bytes.");
-        }
-
-        if (!allowedFileTypes.Contains(request.FileType))
-        {
-            errors.Add("File type is not allowed for this upload.");
-        }
-
-        var extension = Path.GetExtension(request.OriginalFileName);
-        if (string.IsNullOrWhiteSpace(extension) || !AllowedExtensions().Contains(extension, StringComparer.OrdinalIgnoreCase))
-        {
-            errors.Add("File extension is not allowed.");
-        }
-
-        var contentType = NormalizeContentType(request.ContentType);
-        if (!AllowedMimeTypes().Contains(contentType, StringComparer.OrdinalIgnoreCase))
-        {
-            errors.Add("File MIME type is not allowed.");
-        }
-
-        return errors;
-    }
-
-    private long ResolveMaxFileSize()
-    {
-        return _uploadSettings.MaxFileSizeBytes > 0
-            ? _uploadSettings.MaxFileSizeBytes
-            : _firebaseSettings.MaxFileSizeBytes;
-    }
-
-    private string[] AllowedExtensions()
-    {
-        return _uploadSettings.AllowedExtensions.Length == 0
-            ? new FileUploadSettings().AllowedExtensions
-            : _uploadSettings.AllowedExtensions;
-    }
-
-    private string[] AllowedMimeTypes()
-    {
-        return _uploadSettings.AllowedMimeTypes.Length == 0
-            ? new FileUploadSettings().AllowedMimeTypes
-            : _uploadSettings.AllowedMimeTypes;
-    }
-
-    private string BuildProductObjectName(Guid productId, string generatedFileName)
-    {
-        var prefix = string.IsNullOrWhiteSpace(_firebaseSettings.ProductFilesPrefix)
-            ? "products"
-            : _firebaseSettings.ProductFilesPrefix.Trim().Trim('/');
-
-        return $"{prefix}/{productId:D}/{generatedFileName}";
-    }
-
-    private static string BuildGeneratedFileName(Guid fileId, string originalFileName)
-    {
-        var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
-        return $"{fileId:N}{extension}";
-    }
-
-    private static string? NormalizeExtension(string originalFileName)
-    {
-        var extension = Path.GetExtension(originalFileName);
-        if (string.IsNullOrWhiteSpace(extension))
-        {
-            return null;
-        }
-
-        return extension.TrimStart('.').ToLowerInvariant();
-    }
-
-    private static string NormalizeContentType(string? contentType)
-    {
-        return string.IsNullOrWhiteSpace(contentType)
-            ? "application/octet-stream"
-            : contentType.Trim();
-    }
-
-    private static CatalogFileDto? PickCatalogThumbnail(
-        IEnumerable<CatalogFileReadModel> files,
-        bool customerVisibleOnly)
-    {
-        var visibleFiles = FilterVisibleCatalogFiles(files, customerVisibleOnly).ToList();
-        if (visibleFiles.Count == 0)
-        {
-            return null;
-        }
-
-        var preview = visibleFiles.FirstOrDefault(file => file.FileType == FileType.PRODUCT_PREVIEW);
-        return (preview ?? visibleFiles[0]).Adapt<CatalogFileDto>();
-    }
-
-    private static List<CatalogFileDto> ToCatalogFileList(
-        IEnumerable<CatalogFileReadModel> files,
-        bool customerVisibleOnly)
-    {
-        return FilterVisibleCatalogFiles(files, customerVisibleOnly)
-            .OrderByDescending(file => file.FileType == FileType.PRODUCT_PREVIEW)
-            .ThenByDescending(file => file.UploadedAt)
-            .Adapt<List<CatalogFileDto>>();
-    }
-
-    private static Dictionary<Guid, List<CatalogFileReadModel>> GroupCatalogFilesByReferenceId(
-        IEnumerable<CatalogFileReadModel> files)
-    {
-        return files
-            .GroupBy(file => file.ReferenceId)
-            .ToDictionary(group => group.Key, group => group.ToList());
-    }
-
-    private static IEnumerable<CatalogFileReadModel> FilterVisibleCatalogFiles(
-        IEnumerable<CatalogFileReadModel> files,
-        bool customerVisibleOnly)
-    {
-        return files.Where(file =>
-            file.Status == FileStatus.ACTIVE &&
-            (!customerVisibleOnly || file.Visibility == FileVisibility.CUSTOMER_VISIBLE));
     }
 
     private static string? ValidatePagination(int page, int limit)
@@ -600,5 +464,149 @@ public sealed class ProductService : IProductService
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private List<string> ValidateUpload(UploadCatalogFileRequestDto request)
+    {
+        var errors = new List<string>();
+        if (request.Content == Stream.Null || !request.Content.CanRead)
+        {
+            errors.Add("File is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.OriginalFileName))
+        {
+            errors.Add("Original file name is required.");
+        }
+
+        if (request.FileSizeBytes <= 0)
+        {
+            errors.Add("File size must be greater than zero.");
+        }
+
+        var maxFileSize = ResolveMaxFileSize();
+        if (request.FileSizeBytes > maxFileSize)
+        {
+            errors.Add($"File size must not exceed {maxFileSize} bytes.");
+        }
+
+        if (!AllowedProductFileTypes.Contains(request.FileType))
+        {
+            errors.Add("File type is not allowed for this upload.");
+        }
+
+        var extension = Path.GetExtension(request.OriginalFileName);
+        if (string.IsNullOrWhiteSpace(extension) ||
+            !AllowedExtensions().Contains(extension, StringComparer.OrdinalIgnoreCase))
+        {
+            errors.Add("File extension is not allowed.");
+        }
+
+        var contentType = NormalizeContentType(request.ContentType);
+        if (!AllowedMimeTypes().Contains(contentType, StringComparer.OrdinalIgnoreCase))
+        {
+            errors.Add("File MIME type is not allowed.");
+        }
+
+        return errors;
+    }
+
+    private long ResolveMaxFileSize()
+    {
+        return _uploadSettings.MaxFileSizeBytes > 0
+            ? _uploadSettings.MaxFileSizeBytes
+            : _firebaseSettings.MaxFileSizeBytes;
+    }
+
+    private string[] AllowedExtensions()
+    {
+        return _uploadSettings.AllowedExtensions.Length == 0
+            ? new FileUploadSettings().AllowedExtensions
+            : _uploadSettings.AllowedExtensions;
+    }
+
+    private string[] AllowedMimeTypes()
+    {
+        return _uploadSettings.AllowedMimeTypes.Length == 0
+            ? new FileUploadSettings().AllowedMimeTypes
+            : _uploadSettings.AllowedMimeTypes;
+    }
+
+    private static string BuildStorageObjectName(
+        string defaultPrefix,
+        string? configuredPrefix,
+        Guid referenceId,
+        string generatedFileName)
+    {
+        var prefix = string.IsNullOrWhiteSpace(configuredPrefix)
+            ? defaultPrefix
+            : configuredPrefix.Trim().Trim('/');
+
+        return $"{prefix}/{referenceId:D}/{generatedFileName}";
+    }
+
+    private static string BuildGeneratedFileName(Guid fileId, string originalFileName)
+    {
+        var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
+        return $"{fileId:N}{extension}";
+    }
+
+    private static string? NormalizeExtension(string originalFileName)
+    {
+        var extension = Path.GetExtension(originalFileName);
+        if (string.IsNullOrWhiteSpace(extension))
+        {
+            return null;
+        }
+
+        return extension.TrimStart('.').ToLowerInvariant();
+    }
+
+    private static string NormalizeContentType(string? contentType)
+    {
+        return string.IsNullOrWhiteSpace(contentType)
+            ? "application/octet-stream"
+            : contentType.Trim();
+    }
+
+    private static CatalogFileDto? PickThumbnail(
+        IEnumerable<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
+    {
+        var visibleFiles = FilterVisible(files, customerVisibleOnly).ToList();
+        if (visibleFiles.Count == 0)
+        {
+            return null;
+        }
+
+        var preview = visibleFiles.FirstOrDefault(file => file.FileType == FileType.PRODUCT_PREVIEW);
+        return (preview ?? visibleFiles[0]).Adapt<CatalogFileDto>();
+    }
+
+    private static List<CatalogFileDto> ToCatalogFileList(
+        IEnumerable<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
+    {
+        return FilterVisible(files, customerVisibleOnly)
+            .OrderByDescending(file => file.FileType == FileType.PRODUCT_PREVIEW)
+            .ThenByDescending(file => file.UploadedAt)
+            .Adapt<List<CatalogFileDto>>();
+    }
+
+    private static Dictionary<Guid, List<CatalogFileReadModel>> GroupByReferenceId(
+        IEnumerable<CatalogFileReadModel> files)
+    {
+        return files
+            .GroupBy(file => file.ReferenceId)
+            .ToDictionary(group => group.Key, group => group.ToList());
+    }
+
+    private static IEnumerable<CatalogFileReadModel> FilterVisible(
+        IEnumerable<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
+    {
+        return files.Where(file =>
+            file.Status == FileStatus.ACTIVE &&
+            (!customerVisibleOnly || file.Visibility == FileVisibility.CUSTOMER_VISIBLE));
     }
 }

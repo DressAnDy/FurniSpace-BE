@@ -17,6 +17,7 @@ public sealed class ProductMappingConfig : IRegister
         config.NewConfig<Project, ProjectDto>();
         config.NewConfig<Project, ProjectSalesAssignmentDto>();
         config.NewConfig<Project, ProjectBasicInformationDto>();
+        config.NewConfig<CreateProjectRequestDto, UpdateProjectBasicInformationRequestDto>();
         config.NewConfig<Project, ProjectStatusUpdateDto>();
         config.NewConfig<Project, ProjectRejectionDto>();
         config.NewConfig<Project, ProjectInformationRequestDto>()

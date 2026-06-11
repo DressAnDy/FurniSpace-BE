@@ -1,6 +1,7 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.DTOs.Accounts;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,33 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
     public Task<Account?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
     {
         return DbSet.FirstOrDefaultAsync(account => account.Email == email, cancellationToken);
+    }
+
+    public Task<AccountDetailReadModel?> GetDetailAsync(Guid accountId, CancellationToken cancellationToken = default)
+    {
+        return (
+            from account in Query()
+            join role in DbContext.RoleSet on account.RoleId equals role.RoleId
+            where account.AccountId == accountId
+            select new AccountDetailReadModel
+            {
+                AccountId = account.AccountId,
+                Email = account.Email,
+                FullName = account.FullName,
+                Phone = account.Phone,
+                AvatarUrl = account.AvatarUrl,
+                Role = new AccountRoleReadModel
+                {
+                    RoleId = role.RoleId,
+                    RoleName = role.RoleName,
+                    Description = role.Description
+                },
+                Status = account.Status,
+                CreatedAt = account.CreatedAt,
+                UpdatedAt = account.UpdatedAt,
+                DeletedAt = account.DeletedAt
+            })
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public Task<string?> GetRoleNameAsync(Guid roleId, CancellationToken cancellationToken = default)

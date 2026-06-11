@@ -1,9 +1,12 @@
 #nullable enable
 
 using FurniSpace.API.Base;
+using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Accounts;
 using FurniSpace.Application.Interfaces.Accounts;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace FurniSpace.API.Controllers;
 
@@ -36,6 +39,25 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/accounts/{accountId:guid}")]
+    public async Task<IActionResult> GetAdminDetail(Guid accountId, CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetAdminDetailAsync(accountId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize]
+    [HttpPatch("/accounts/me")]
+    public async Task<IActionResult> UpdateMe(
+        [FromBody] UpdateMyProfileRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        return TryGetCurrentUserId(out var currentUserId)
+            ? ToActionResult(await _accounts.UpdateMyProfileAsync(currentUserId, request, cancellationToken))
+            : ToActionResult(ServiceResult.Unauthorized());
+    }
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateAccountRequestDto request, CancellationToken cancellationToken)
     {
@@ -55,5 +77,10 @@ public sealed class AccountsController : BaseApiController
     {
         var result = await _accounts.DeleteAsync(accountId, cancellationToken);
         return ToActionResult(result);
+    }
+
+    private bool TryGetCurrentUserId(out Guid currentUserId)
+    {
+        return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);
     }
 }

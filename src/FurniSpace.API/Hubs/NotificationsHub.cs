@@ -19,14 +19,11 @@ public sealed class NotificationsHub : Hub
         }
 
         var roleClaims = Context.User?.FindAll(ClaimTypes.Role) ?? [];
-        foreach (var roleClaim in roleClaims)
+        foreach (var role in roleClaims
+                     .Select(roleClaim => roleClaim.Value)
+                     .Where(role => !string.IsNullOrWhiteSpace(role)))
         {
-            if (string.IsNullOrWhiteSpace(roleClaim.Value))
-            {
-                continue;
-            }
-
-            await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroupNames.Role(roleClaim.Value));
+            await Groups.AddToGroupAsync(Context.ConnectionId, RealtimeGroupNames.Role(role));
         }
 
         await base.OnConnectedAsync();

@@ -2,6 +2,7 @@
 
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Catalog;
 using FurniSpace.Application.Mappings;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Services.Products;
@@ -28,8 +29,7 @@ public static class CatalogServiceTestHelper
         return new ProductService(
             products,
             files,
-            storage ?? new NoOpFileStorageService(),
-            Options.Create(DefaultUploadSettings()),
+            CreateCatalogReferenceFileUploader(files, storage),
             Options.Create(DefaultFirebaseSettings()));
     }
 
@@ -41,9 +41,22 @@ public static class CatalogServiceTestHelper
         return new ProductVersionService(
             productVersions,
             files,
-            storage ?? new NoOpFileStorageService(),
+            CreateCatalogReferenceFileUploader(files, storage),
+            Options.Create(DefaultFirebaseSettings()));
+    }
+
+    private static CatalogReferenceFileUploader CreateCatalogReferenceFileUploader(
+        IProjectFileRepository files,
+        IFileStorageService? storage)
+    {
+        var uploadRules = new CatalogFileUploadRules(
             Options.Create(DefaultUploadSettings()),
             Options.Create(DefaultFirebaseSettings()));
+
+        return new CatalogReferenceFileUploader(
+            files,
+            storage ?? new NoOpFileStorageService(),
+            uploadRules);
     }
 
     public static FileUploadSettings DefaultUploadSettings()

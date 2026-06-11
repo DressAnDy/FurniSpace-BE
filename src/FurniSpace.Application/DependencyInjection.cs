@@ -1,5 +1,6 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.Catalog;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.Categories;
 using FurniSpace.Application.Interfaces.Identity;
@@ -41,6 +42,8 @@ public static class DependencyInjection
         services.AddInfrastructure(configuration);
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<ICategoryService, CategoryService>();
+        services.AddScoped<CatalogFileUploadRules>();
+        services.AddScoped<CatalogReferenceFileUploader>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductVersionService, ProductVersionService>();
         services.AddScoped<IProjectFileService, ProjectFileService>();

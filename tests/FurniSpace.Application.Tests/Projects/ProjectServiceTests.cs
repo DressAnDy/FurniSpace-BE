@@ -1349,6 +1349,24 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task GetByIdAsync_WithSalesRoleAndUnassignedProject_ReturnsProjectDetail()
+    {
+        var projectId = Guid.NewGuid();
+        var detail = CreateProjectDetail(projectId, Guid.NewGuid());
+        detail.AssignedSalesId = null;
+        detail.AssignedDesignerId = null;
+        var repository = new FakeProjectRepository(roleName: "SALES", detail: detail);
+        var service = new ProjectService(repository);
+
+        var result = await service.GetByIdAsync(projectId, Guid.NewGuid());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Null(result.Data.AssignedSalesId);
+        Assert.Null(result.Data.AssignedDesignerId);
+    }
+
+    [Fact]
     public async Task GetByIdAsync_WithAssignedDesigner_ReturnsProjectDetail()
     {
         var projectId = Guid.NewGuid();
@@ -1410,7 +1428,6 @@ public sealed class ProjectServiceTests
 
     [Theory]
     [InlineData("CUSTOMER")]
-    [InlineData("SALES")]
     [InlineData("DESIGNER")]
     [InlineData(null)]
     public async Task GetByIdAsync_WithUnauthorizedParticipant_ReturnsForbidden(string? roleName)

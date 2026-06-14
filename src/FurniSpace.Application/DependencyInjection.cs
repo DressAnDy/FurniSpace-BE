@@ -3,16 +3,20 @@ using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.Categories;
 using FurniSpace.Application.Interfaces.Identity;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
 using FurniSpace.Application.Interfaces.ProjectFiles;
+using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Services.Accounts;
 using FurniSpace.Application.Services.Categories;
 using FurniSpace.Application.Services.Identity;
+using FurniSpace.Application.Services.Notifications;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Services.ProjectFiles;
+using FurniSpace.Application.Services.ProjectSchedules;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure;
@@ -52,6 +56,9 @@ public static class DependencyInjection
         services.AddScoped<IPasswordHasher<Account>, PasswordHasher<Account>>();
         services.AddScoped<IPasswordResetStore, PasswordResetStore>();
         services.AddScoped<IEmailOtpStore, EmailOtpStore>();
+        services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
+        services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
 
         return services;
     }

@@ -60,37 +60,7 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
 
         scheduleQuery = ApplyFilters(scheduleQuery, query);
 
-        var total = await scheduleQuery.CountAsync(cancellationToken);
-
-        var items = await scheduleQuery
-            .OrderByDescending(s => s.ScheduledStart)
-            .Skip((query.Page - 1) * query.Limit)
-            .Take(query.Limit)
-            .Join(
-                DbContext.ProjectSet,
-                s => s.ProjectId,
-                p => p.ProjectId,
-                (s, p) => new ProjectScheduleListItemReadModel
-                {
-                    ScheduleId = s.ScheduleId,
-                    ProjectId = s.ProjectId,
-                    ProjectAreaId = s.ProjectAreaId,
-                    CustomerId = p.CustomerId,
-                    AssignedSalesId = p.AssignedSalesId,
-                    AssignedDesignerId = p.AssignedDesignerId,
-                    AssignedStaffId = s.AssignedStaffId,
-                    CreatedBy = s.CreatedBy,
-                    ScheduleType = s.ScheduleType,
-                    Title = s.Title,
-                    ScheduledStart = s.ScheduledStart,
-                    ScheduledEnd = s.ScheduledEnd,
-                    Location = s.Location,
-                    Status = s.Status,
-                    CreatedAt = s.CreatedAt
-                })
-            .ToListAsync(cancellationToken);
-
-        return (items, total);
+        return await GetPagedListAsync(scheduleQuery, query, cancellationToken);
     }
 
     public async Task<(IReadOnlyList<ProjectScheduleListItemReadModel> Items, int Total)> GetMyAssignedAsync(
@@ -108,6 +78,14 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
 
         scheduleQuery = ApplyFilters(scheduleQuery, query);
 
+        return await GetPagedListAsync(scheduleQuery, query, cancellationToken);
+    }
+
+    private async Task<(IReadOnlyList<ProjectScheduleListItemReadModel> Items, int Total)> GetPagedListAsync(
+        IQueryable<ProjectSchedule> scheduleQuery,
+        ProjectScheduleListQueryReadModel query,
+        CancellationToken cancellationToken)
+    {
         var total = await scheduleQuery.CountAsync(cancellationToken);
 
         var items = await scheduleQuery

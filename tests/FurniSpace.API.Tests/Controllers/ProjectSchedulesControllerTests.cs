@@ -145,7 +145,7 @@ public sealed class ProjectSchedulesControllerTests
             ServiceResult<ProjectScheduleListResponseDto>.Success(new ProjectScheduleListResponseDto()));
         var controller = BuildNestedController(service);
 
-        var actionResult = await controller.GetList(Guid.NewGuid());
+        var actionResult = await controller.GetList(Guid.NewGuid(), new ProjectScheduleListQueryDto());
 
         Assert.IsType<UnauthorizedResult>(actionResult);
     }
@@ -161,10 +161,13 @@ public sealed class ProjectSchedulesControllerTests
 
         var actionResult = await controller.GetList(
             projectId,
-            scheduleType: ProjectScheduleType.DELIVERY,
-            status: ProjectScheduleStatus.CONFIRMED,
-            page: 2,
-            limit: 10);
+            new ProjectScheduleListQueryDto
+            {
+                ScheduleType = ProjectScheduleType.DELIVERY,
+                Status = ProjectScheduleStatus.CONFIRMED,
+                Page = 2,
+                Limit = 10
+            });
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(200, objectResult.StatusCode);

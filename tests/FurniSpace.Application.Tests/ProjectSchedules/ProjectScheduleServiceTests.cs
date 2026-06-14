@@ -544,7 +544,6 @@ public sealed class ProjectScheduleServiceTests
         public int AddCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
         public Guid? LastMyAssignedStaffId { get; private set; }
-        private bool _myAssignedStaffIdSet;
 
         public Task<ProjectScheduleDetailReadModel?> GetDetailAsync(
             Guid scheduleId, CancellationToken cancellationToken = default)
@@ -564,7 +563,6 @@ public sealed class ProjectScheduleServiceTests
             CancellationToken cancellationToken = default)
         {
             LastMyAssignedStaffId = staffId;
-            _myAssignedStaffIdSet = true;
             return Task.FromResult((_myAssignedItems, _myAssignedTotal));
         }
 

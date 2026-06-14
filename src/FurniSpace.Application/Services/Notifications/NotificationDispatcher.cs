@@ -42,9 +42,19 @@ public sealed class NotificationDispatcher : INotificationDispatcher
 
         if (template.DeliveryLevel == NotificationDeliveryLevel.InAppRealtime)
         {
+            var envelope = new DispatchEnvelope(
+                title,
+                message,
+                typeName,
+                projectId,
+                referenceType,
+                referenceId,
+                now);
+
             await DispatchInAppRealtimeAsync(
-                receivers, title, message, typeName, projectId,
-                referenceType, referenceId, now, cancellationToken);
+                receivers,
+                envelope,
+                cancellationToken);
         }
         else
         {
@@ -54,13 +64,7 @@ public sealed class NotificationDispatcher : INotificationDispatcher
 
     private async Task DispatchInAppRealtimeAsync(
         IReadOnlyList<Guid> receivers,
-        string title,
-        string message,
-        string typeName,
-        Guid? projectId,
-        string? referenceType,
-        Guid? referenceId,
-        DateTime now,
+        DispatchEnvelope envelope,
         CancellationToken cancellationToken)
     {
         foreach (var receiverId in receivers)
@@ -69,14 +73,14 @@ public sealed class NotificationDispatcher : INotificationDispatcher
             {
                 NotificationId = Guid.NewGuid(),
                 ReceiverId = receiverId,
-                ProjectId = projectId,
-                Title = title,
-                Message = message,
-                NotificationType = typeName,
-                ReferenceType = referenceType,
-                ReferenceId = referenceId,
+                ProjectId = envelope.ProjectId,
+                Title = envelope.Title,
+                Message = envelope.Message,
+                NotificationType = envelope.TypeName,
+                ReferenceType = envelope.ReferenceType,
+                ReferenceId = envelope.ReferenceId,
                 IsRead = false,
-                CreatedAt = now
+                CreatedAt = envelope.OccurredAt
             };
 
             try
@@ -89,7 +93,7 @@ public sealed class NotificationDispatcher : INotificationDispatcher
                 _logger.LogError(
                     exception,
                     "Failed to persist notification of type {NotificationType} for receiver {ReceiverId}",
-                    typeName,
+                    envelope.TypeName,
                     receiverId);
                 continue;
             }
@@ -97,13 +101,13 @@ public sealed class NotificationDispatcher : INotificationDispatcher
             var payload = new
             {
                 notificationId = notification.NotificationId,
-                title,
-                message,
-                notificationType = typeName,
-                projectId,
-                referenceType,
-                referenceId,
-                createdAt = now
+                title = envelope.Title,
+                message = envelope.Message,
+                notificationType = envelope.TypeName,
+                projectId = envelope.ProjectId,
+                referenceType = envelope.ReferenceType,
+                referenceId = envelope.ReferenceId,
+                createdAt = envelope.OccurredAt
             };
 
             try
@@ -146,4 +150,13 @@ public sealed class NotificationDispatcher : INotificationDispatcher
             }
         }
     }
+
+    private sealed record DispatchEnvelope(
+        string Title,
+        string Message,
+        string TypeName,
+        Guid? ProjectId,
+        string? ReferenceType,
+        Guid? ReferenceId,
+        DateTime OccurredAt);
 }

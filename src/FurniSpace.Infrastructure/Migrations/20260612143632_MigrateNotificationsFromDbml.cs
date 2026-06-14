@@ -8,6 +8,10 @@ namespace FurniSpace.Infrastructure.Migrations
     /// <inheritdoc />
     public partial class MigrateNotificationsFromDbml : Migration
     {
+        private static readonly string[] ReceiverCreatedIndexColumns = ["receiver_id", "created_at"];
+        private static readonly string[] ReceiverReadIndexColumns = ["receiver_id", "is_read"];
+        private static readonly string[] ReferenceIndexColumns = ["reference_type", "reference_id"];
+
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -62,17 +66,17 @@ namespace FurniSpace.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "idx_notifications_receiver_created",
                 table: "notifications",
-                columns: new[] { "receiver_id", "created_at" });
+                columns: ReceiverCreatedIndexColumns);
 
             migrationBuilder.CreateIndex(
                 name: "idx_notifications_receiver_read",
                 table: "notifications",
-                columns: new[] { "receiver_id", "is_read" });
+                columns: ReceiverReadIndexColumns);
 
             migrationBuilder.CreateIndex(
                 name: "idx_notifications_reference",
                 table: "notifications",
-                columns: new[] { "reference_type", "reference_id" });
+                columns: ReferenceIndexColumns);
         }
 
         /// <inheritdoc />

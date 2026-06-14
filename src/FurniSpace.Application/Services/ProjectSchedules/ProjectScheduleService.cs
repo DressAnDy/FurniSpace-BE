@@ -17,6 +17,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private const string SalesRole = "SALES";
     private const string CustomerRole = "CUSTOMER";
     private const string DesignerRole = "DESIGNER";
+    private const string ScheduleNotFoundMessage = "Schedule not found.";
+    private const string ProjectScheduleReferenceType = "PROJECT_SCHEDULE";
 
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectRepository _projects;
@@ -161,7 +163,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         var detail = await _schedules.GetDetailAsync(scheduleId, cancellationToken);
         if (detail is null)
         {
-            return ServiceResult<ProjectScheduleDto>.NotFound("Schedule not found.");
+            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -187,49 +189,29 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         var detail = await _schedules.GetDetailAsync(scheduleId, cancellationToken);
         if (detail is null)
         {
-            return ServiceResult<ProjectScheduleDto>.NotFound("Schedule not found.");
+            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role != AdminRole && !(role == SalesRole && detail.AssignedSalesId == currentUserId))
+        var authorizationError = ValidateUpdatePermission(role, detail, currentUserId);
+        if (authorizationError is not null)
         {
-            return ServiceResult<ProjectScheduleDto>.Forbidden("Only assigned Sales or Admin can update schedules.");
-        }
-
-        if (role != AdminRole &&
-            detail.Status is not (ProjectScheduleStatus.PENDING_CONFIRMATION or ProjectScheduleStatus.CONFIRMED))
-        {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Completed or cancelled schedules cannot be updated.");
-        }
-
-        if (request.ScheduledStart.HasValue && request.ScheduledStart.Value <= DateTime.UtcNow)
-        {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time must not be in the past.");
-        }
-
-        var effectiveStart = request.ScheduledStart ?? detail.ScheduledStart;
-        var effectiveEnd = request.ScheduledEnd ?? detail.ScheduledEnd;
-        if (effectiveEnd.HasValue && effectiveEnd.Value <= effectiveStart)
-        {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
+            return authorizationError;
         }
 
         var schedule = await _schedules.GetByIdAsync(scheduleId, cancellationToken);
         if (schedule is null)
         {
-            return ServiceResult<ProjectScheduleDto>.NotFound("Schedule not found.");
+            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
         }
 
-        var timeChanged = request.ScheduledStart.HasValue && request.ScheduledStart.Value != detail.ScheduledStart;
+        var validationError = ValidateUpdateTime(request, detail);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
 
-        if (request.Title is not null) schedule.Title = request.Title;
-        if (request.Description is not null) schedule.Description = request.Description;
-        if (request.AssignedStaffId.HasValue) schedule.AssignedStaffId = request.AssignedStaffId;
-        if (request.ScheduledStart.HasValue) schedule.ScheduledStart = request.ScheduledStart.Value;
-        if (request.ScheduledEnd.HasValue) schedule.ScheduledEnd = request.ScheduledEnd;
-        if (request.Location is not null) schedule.Location = request.Location;
-        if (request.CustomerNote is not null) schedule.CustomerNote = request.CustomerNote;
-        if (request.InternalNote is not null) schedule.InternalNote = request.InternalNote;
+        var timeChanged = ApplyScheduleUpdates(schedule, request, detail);
 
         if (timeChanged)
         {
@@ -271,7 +253,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         var detail = await _schedules.GetDetailAsync(scheduleId, cancellationToken);
         if (detail is null)
         {
-            return ServiceResult<ProjectScheduleDto>.NotFound("Schedule not found.");
+            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -287,7 +269,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         var schedule = await _schedules.GetByIdAsync(scheduleId, cancellationToken);
         if (schedule is null)
         {
-            return ServiceResult<ProjectScheduleDto>.NotFound("Schedule not found.");
+            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
         }
 
         var now = DateTime.UtcNow;
@@ -302,7 +284,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         _schedules.Update(schedule);
         await _schedules.SaveChangesAsync(cancellationToken);
 
-        await DispatchStatusChangedAsync(schedule, detail, currentStatus, newStatus, cancellationToken);
+        await DispatchStatusChangedAsync(schedule, detail, newStatus, cancellationToken);
 
         return ServiceResult<ProjectScheduleDto>.Success(
             schedule.Adapt<ProjectScheduleDto>(),
@@ -374,61 +356,157 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         ProjectScheduleDetailReadModel detail,
         Guid currentUserId)
     {
+        var terminalStatusError = ValidateTerminalStatus(currentStatus);
+        if (terminalStatusError is not null)
+        {
+            return terminalStatusError;
+        }
+
+        switch (newStatus)
+        {
+            case ProjectScheduleStatus.CONFIRMED:
+                return ValidateConfirmTransition(role, currentStatus, detail, currentUserId);
+            case ProjectScheduleStatus.COMPLETED:
+                return ValidateCompletedTransition(role, currentStatus, detail, currentUserId);
+            case ProjectScheduleStatus.CANCELLED:
+                return ValidateCancelledTransition(role, currentStatus, detail, currentUserId);
+            default:
+                return ServiceResult<ProjectScheduleDto>.BadRequest($"Invalid target status: {newStatus}.");
+        }
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateUpdatePermission(
+        string? role,
+        ProjectScheduleDetailReadModel detail,
+        Guid currentUserId)
+    {
+        if (role != AdminRole && !(role == SalesRole && detail.AssignedSalesId == currentUserId))
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden("Only assigned Sales or Admin can update schedules.");
+        }
+
+        if (role != AdminRole &&
+            detail.Status is not (ProjectScheduleStatus.PENDING_CONFIRMATION or ProjectScheduleStatus.CONFIRMED))
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Completed or cancelled schedules cannot be updated.");
+        }
+
+        return null;
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateUpdateTime(
+        UpdateProjectScheduleRequestDto request,
+        ProjectScheduleDetailReadModel detail)
+    {
+        if (request.ScheduledStart.HasValue && request.ScheduledStart.Value <= DateTime.UtcNow)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time must not be in the past.");
+        }
+
+        var effectiveStart = request.ScheduledStart ?? detail.ScheduledStart;
+        var effectiveEnd = request.ScheduledEnd ?? detail.ScheduledEnd;
+        if (effectiveEnd.HasValue && effectiveEnd.Value <= effectiveStart)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
+        }
+
+        return null;
+    }
+
+    private static bool ApplyScheduleUpdates(
+        ProjectSchedule schedule,
+        UpdateProjectScheduleRequestDto request,
+        ProjectScheduleDetailReadModel detail)
+    {
+        var timeChanged = request.ScheduledStart.HasValue && request.ScheduledStart.Value != detail.ScheduledStart;
+
+        if (request.Title is not null) schedule.Title = request.Title;
+        if (request.Description is not null) schedule.Description = request.Description;
+        if (request.AssignedStaffId.HasValue) schedule.AssignedStaffId = request.AssignedStaffId;
+        if (request.ScheduledStart.HasValue) schedule.ScheduledStart = request.ScheduledStart.Value;
+        if (request.ScheduledEnd.HasValue) schedule.ScheduledEnd = request.ScheduledEnd;
+        if (request.Location is not null) schedule.Location = request.Location;
+        if (request.CustomerNote is not null) schedule.CustomerNote = request.CustomerNote;
+        if (request.InternalNote is not null) schedule.InternalNote = request.InternalNote;
+
+        return timeChanged;
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateTerminalStatus(ProjectScheduleStatus? currentStatus)
+    {
         if (currentStatus is ProjectScheduleStatus.COMPLETED or ProjectScheduleStatus.CANCELLED)
         {
             return ServiceResult<ProjectScheduleDto>.BadRequest(
                 $"Cannot transition from terminal status {currentStatus}.");
         }
 
-        switch (newStatus)
+        return null;
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateConfirmTransition(
+        string? role,
+        ProjectScheduleStatus? currentStatus,
+        ProjectScheduleDetailReadModel detail,
+        Guid currentUserId)
+    {
+        if (currentStatus != ProjectScheduleStatus.PENDING_CONFIRMATION)
         {
-            case ProjectScheduleStatus.CONFIRMED:
-                if (currentStatus != ProjectScheduleStatus.PENDING_CONFIRMATION)
-                {
-                    return ServiceResult<ProjectScheduleDto>.BadRequest(
-                        "Only PENDING_CONFIRMATION schedules can be confirmed.");
-                }
-                if (role != CustomerRole || detail.CustomerId != currentUserId)
-                {
-                    return ServiceResult<ProjectScheduleDto>.Forbidden(
-                        "Only the customer owner can confirm a schedule.");
-                }
-                break;
+            return ServiceResult<ProjectScheduleDto>.BadRequest(
+                "Only PENDING_CONFIRMATION schedules can be confirmed.");
+        }
 
-            case ProjectScheduleStatus.COMPLETED:
-                if (currentStatus != ProjectScheduleStatus.CONFIRMED)
-                {
-                    return ServiceResult<ProjectScheduleDto>.BadRequest(
-                        "Only CONFIRMED schedules can be completed.");
-                }
-                var canComplete = role == AdminRole
-                    || role == SalesRole && detail.AssignedSalesId == currentUserId
-                    || detail.AssignedStaffId == currentUserId;
-                if (!canComplete)
-                {
-                    return ServiceResult<ProjectScheduleDto>.Forbidden(
-                        "Only assigned staff, assigned Sales, or Admin can complete a schedule.");
-                }
-                break;
+        if (role != CustomerRole || detail.CustomerId != currentUserId)
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden(
+                "Only the customer owner can confirm a schedule.");
+        }
 
-            case ProjectScheduleStatus.CANCELLED:
-                if (currentStatus is not (ProjectScheduleStatus.PENDING_CONFIRMATION or ProjectScheduleStatus.CONFIRMED))
-                {
-                    return ServiceResult<ProjectScheduleDto>.BadRequest(
-                        "Only PENDING_CONFIRMATION or CONFIRMED schedules can be cancelled.");
-                }
-                var canCancel = role == AdminRole
-                    || role == SalesRole && detail.AssignedSalesId == currentUserId
-                    || role == CustomerRole && detail.CustomerId == currentUserId;
-                if (!canCancel)
-                {
-                    return ServiceResult<ProjectScheduleDto>.Forbidden(
-                        "You are not authorized to cancel this schedule.");
-                }
-                break;
+        return null;
+    }
 
-            default:
-                return ServiceResult<ProjectScheduleDto>.BadRequest($"Invalid target status: {newStatus}.");
+    private static ServiceResult<ProjectScheduleDto>? ValidateCompletedTransition(
+        string? role,
+        ProjectScheduleStatus? currentStatus,
+        ProjectScheduleDetailReadModel detail,
+        Guid currentUserId)
+    {
+        if (currentStatus != ProjectScheduleStatus.CONFIRMED)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest(
+                "Only CONFIRMED schedules can be completed.");
+        }
+
+        var canComplete = role == AdminRole
+            || role == SalesRole && detail.AssignedSalesId == currentUserId
+            || detail.AssignedStaffId == currentUserId;
+        if (!canComplete)
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden(
+                "Only assigned staff, assigned Sales, or Admin can complete a schedule.");
+        }
+
+        return null;
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateCancelledTransition(
+        string? role,
+        ProjectScheduleStatus? currentStatus,
+        ProjectScheduleDetailReadModel detail,
+        Guid currentUserId)
+    {
+        if (currentStatus is not (ProjectScheduleStatus.PENDING_CONFIRMATION or ProjectScheduleStatus.CONFIRMED))
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest(
+                "Only PENDING_CONFIRMATION or CONFIRMED schedules can be cancelled.");
+        }
+
+        var canCancel = role == AdminRole
+            || role == SalesRole && detail.AssignedSalesId == currentUserId
+            || role == CustomerRole && detail.CustomerId == currentUserId;
+        if (!canCancel)
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden(
+                "You are not authorized to cancel this schedule.");
         }
 
         return null;
@@ -437,7 +515,16 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private static ProjectScheduleListQueryReadModel NormalizeQuery(ProjectScheduleListQueryDto query)
     {
         var page = query.Page < 1 ? 1 : query.Page;
-        var limit = query.Limit < 1 ? 20 : query.Limit > 100 ? 100 : query.Limit;
+        var limit = query.Limit;
+        if (limit < 1)
+        {
+            limit = 20;
+        }
+        else if (limit > 100)
+        {
+            limit = 100;
+        }
+
         return new ProjectScheduleListQueryReadModel
         {
             ScheduleType = query.ScheduleType,
@@ -449,7 +536,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         };
     }
 
-    private static IReadOnlyDictionary<string, string> BuildNotificationParameters(
+    private static Dictionary<string, string> BuildNotificationParameters(
         ProjectSchedule schedule,
         string projectName)
     {
@@ -474,7 +561,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             parameters,
             receivers,
             schedule.ProjectId,
-            "PROJECT_SCHEDULE",
+            ProjectScheduleReferenceType,
             schedule.ScheduleId,
             cancellationToken);
     }
@@ -492,7 +579,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             parameters,
             receivers,
             schedule.ProjectId,
-            "PROJECT_SCHEDULE",
+            ProjectScheduleReferenceType,
             schedule.ScheduleId,
             cancellationToken);
     }
@@ -500,7 +587,6 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private async Task DispatchStatusChangedAsync(
         ProjectSchedule schedule,
         ProjectScheduleDetailReadModel detail,
-        ProjectScheduleStatus? oldStatus,
         ProjectScheduleStatus newStatus,
         CancellationToken cancellationToken)
     {
@@ -516,7 +602,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     parameters,
                     receivers,
                     schedule.ProjectId,
-                    "PROJECT_SCHEDULE",
+                    ProjectScheduleReferenceType,
                     schedule.ScheduleId,
                     cancellationToken);
                 break;
@@ -540,7 +626,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     parameters,
                     receivers,
                     schedule.ProjectId,
-                    "PROJECT_SCHEDULE",
+                    ProjectScheduleReferenceType,
                     schedule.ScheduleId,
                     cancellationToken);
                 break;
@@ -548,7 +634,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
     }
 
-    private static IReadOnlyList<Guid> BuildReceivers(Guid? first, Guid? second)
+    private static List<Guid> BuildReceivers(Guid? first, Guid? second)
     {
         var receivers = new List<Guid>();
         if (first.HasValue) receivers.Add(first.Value);
@@ -556,7 +642,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         return receivers;
     }
 
-    private static IReadOnlyList<Guid> BuildReceivers(Guid first, Guid? second)
+    private static List<Guid> BuildReceivers(Guid first, Guid? second)
     {
         return BuildReceivers((Guid?)first, second);
     }

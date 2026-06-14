@@ -4,7 +4,6 @@ using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
-using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -41,12 +40,7 @@ public sealed class ProjectSchedulesController : BaseApiController
     [HttpGet]
     public async Task<IActionResult> GetList(
         Guid projectId,
-        [FromQuery] ProjectScheduleType? scheduleType = null,
-        [FromQuery] ProjectScheduleStatus? status = null,
-        [FromQuery] DateTime? from = null,
-        [FromQuery] DateTime? to = null,
-        [FromQuery] int page = 1,
-        [FromQuery] int limit = 20,
+        [FromQuery] ProjectScheduleListQueryDto query,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -57,15 +51,7 @@ public sealed class ProjectSchedulesController : BaseApiController
         var result = await _schedules.GetListByProjectAsync(
             projectId,
             currentUserId,
-            new ProjectScheduleListQueryDto
-            {
-                ScheduleType = scheduleType,
-                Status = status,
-                From = from,
-                To = to,
-                Page = page,
-                Limit = limit
-            },
+            query,
             cancellationToken);
 
         return ToActionResult(result);

@@ -641,6 +641,12 @@ public sealed class ProjectService : IProjectService
 
         if (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase))
         {
+            // Sales can inspect unassigned projects; once assigned, only assigned sales can view.
+            if (!project.AssignedSalesId.HasValue && !project.AssignedDesignerId.HasValue)
+            {
+                return true;
+            }
+
             return project.AssignedSalesId == currentUserId;
         }
 

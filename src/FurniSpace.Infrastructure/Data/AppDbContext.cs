@@ -39,7 +39,7 @@ public class AppDbContext : DbContext
     private const string PaymentTypeColumnType = "payment_type";
     private const string ProductionRequestStatusColumnType = "production_request_status";
     private const string ProductionItemStatusColumnType = "production_item_status";
-    private const string NotificationStatusColumnType = "notification_status";
+
     private const string ProjectChatTypeColumnType = "project_chat_type";
     private const string ProjectChatStatusColumnType = "project_chat_status";
     private const string ProjectChatMessageTypeColumnType = "project_chat_message_type";
@@ -356,11 +356,18 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Title).HasColumnName(TitleColumnName).HasColumnType(Varchar150ColumnType).IsRequired();
             entity.Property(e => e.Message).HasColumnName("message").HasColumnType(TextColumnType);
             entity.Property(e => e.NotificationType).HasColumnName("notification_type").HasColumnType(Varchar50ColumnType);
-            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(NotificationStatusColumnType).HasDefaultValueSql("'UNREAD'::notification_status");
-            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.ReferenceType).HasColumnName("reference_type").HasColumnType(Varchar50ColumnType);
+            entity.Property(e => e.ReferenceId).HasColumnName("reference_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.IsRead).HasColumnName("is_read").HasColumnType(BooleanColumnType).HasDefaultValue(false).IsRequired();
             entity.Property(e => e.ReadAt).HasColumnName("read_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.DeletedAt).HasColumnName("deleted_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ReceiverId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.ReceiverId, e.IsRead }).HasDatabaseName("idx_notifications_receiver_read");
+            entity.HasIndex(e => new { e.ReceiverId, e.CreatedAt }).HasDatabaseName("idx_notifications_receiver_created");
+            entity.HasIndex(e => new { e.ReferenceType, e.ReferenceId }).HasDatabaseName("idx_notifications_reference");
+            entity.HasIndex(e => e.ProjectId).HasDatabaseName("idx_notifications_project_id");
         });
     }
 

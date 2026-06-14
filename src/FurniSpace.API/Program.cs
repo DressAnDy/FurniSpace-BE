@@ -6,7 +6,9 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FurniSpace.API.Constants;
 using FurniSpace.API.Hubs;
+using FurniSpace.API.Realtime;
 using FurniSpace.Application;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Common.Realtime;
 using FurniSpace.Application.Interfaces.Identity;
@@ -48,6 +50,7 @@ builder.Services.AddApplication(builder.Configuration);
 AddJwtAuthentication(builder.Services, jwtSettings, builder.Environment);
 builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
+builder.Services.AddScoped<IRealtimeNotificationService, SignalRRealtimeNotificationService>();
 
 var app = builder.Build();
 

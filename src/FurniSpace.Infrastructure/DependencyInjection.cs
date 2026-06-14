@@ -55,6 +55,8 @@ public static class DependencyInjection
         services.AddScoped<IProductVersionRepository, ProductVersionRepository>();
         services.AddScoped<IProjectFileRepository, ProjectFileRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<IProjectScheduleRepository, ProjectScheduleRepository>();
         services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<IFileStorageService, FirebaseStorageService>();
 
@@ -104,7 +106,7 @@ public static class DependencyInjection
         builder.MapEnum<PaymentType>("payment_type", translator);
         builder.MapEnum<ProductionRequestStatus>("production_request_status", translator);
         builder.MapEnum<ProductionItemStatus>("production_item_status", translator);
-        builder.MapEnum<NotificationStatus>("notification_status", translator);
+
         builder.MapEnum<ProjectChatType>("project_chat_type", translator);
         builder.MapEnum<ProjectChatStatus>("project_chat_status", translator);
         builder.MapEnum<ProjectChatMessageType>("project_chat_message_type", translator);

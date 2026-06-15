@@ -51,7 +51,13 @@ jobs:
         shell: powershell
         run: |
           $scanner = "${{ runner.temp }}\scanner\dotnet-sonarscanner"
-          & $scanner begin /k:"DressAnDy_FurniSpace-BE" /o:"dressandy" /d:sonar.token="$env:SONAR_TOKEN" /d:sonar.cs.opencover.reportsPaths="**/TestResults/coverage.opencover.xml"
+          $coveragePaths = @(
+            "tests/FurniSpace.API.Tests/TestResults/coverage.opencover.xml",
+            "tests/FurniSpace.Application.Tests/TestResults/coverage.opencover.xml",
+            "tests/FurniSpace.Domain.Tests/TestResults/coverage.opencover.xml",
+            "tests/FurniSpace.Infrastructure.Tests/TestResults/coverage.opencover.xml"
+          ) -join ","
+          & $scanner begin /k:"DressAnDy_FurniSpace-BE" /o:"dressandy" /d:sonar.token="$env:SONAR_TOKEN" /d:sonar.cs.opencover.reportsPaths="$coveragePaths"
           dotnet build FurniSpace.sln -c Release
           dotnet test tests/FurniSpace.Tests.sln --no-build -c Release /p:CollectCoverage=true /p:CoverletOutputFormat=opencover /p:CoverletOutput=./TestResults/coverage.opencover.xml
           $coverageReports = Get-ChildItem -Path . -Recurse -Filter "coverage.opencover.xml"

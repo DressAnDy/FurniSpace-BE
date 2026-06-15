@@ -234,6 +234,10 @@ static void AddApiSwagger(IServiceCollection services)
 {
     services.AddSwaggerGen(options =>
     {
+        var xmlFileName = $"{typeof(Program).Assembly.GetName().Name}.xml";
+        var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFileName);
+        options.IncludeXmlComments(xmlPath, includeControllerXmlComments: true);
+
         options.SwaggerDoc("v1", new() { Title = "FurniSpace API", Version = "v1", Description = "FurniSpace Backend API" });
         options.MapType<DateOnly>(() => new Microsoft.OpenApi.Models.OpenApiSchema
         {

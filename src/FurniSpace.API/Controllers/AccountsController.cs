@@ -19,6 +19,9 @@ public sealed class AccountsController : BaseApiController
         _accounts = accounts;
     }
 
+    /// <summary>
+    /// Lấy danh sách tài khoản có phân trang và bộ lọc tùy chọn.
+    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetPaged(
         [FromQuery] int page = 1,
@@ -32,6 +35,9 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// Lấy chi tiết tài khoản theo account id.
+    /// </summary>
     [HttpGet("{accountId:guid}")]
     public async Task<IActionResult> GetById(Guid accountId, CancellationToken cancellationToken)
     {
@@ -39,6 +45,9 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// Lấy chi tiết tài khoản dành cho admin kèm các trường nội bộ.
+    /// </summary>
     [Authorize(Roles = "ADMIN")]
     [HttpGet("/admin/accounts/{accountId:guid}")]
     public async Task<IActionResult> GetAdminDetail(Guid accountId, CancellationToken cancellationToken = default)
@@ -47,6 +56,9 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// Cập nhật thông tin hồ sơ của người dùng hiện tại đã đăng nhập.
+    /// </summary>
     [Authorize]
     [HttpPatch("/accounts/me")]
     public async Task<IActionResult> UpdateMe(
@@ -58,6 +70,9 @@ public sealed class AccountsController : BaseApiController
             : ToActionResult(ServiceResult.Unauthorized());
     }
 
+    /// <summary>
+    /// Tạo tài khoản mới.
+    /// </summary>
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateAccountRequestDto request, CancellationToken cancellationToken)
     {
@@ -65,6 +80,9 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// Cập nhật thông tin tài khoản theo account id.
+    /// </summary>
     [HttpPut("{accountId:guid}")]
     public async Task<IActionResult> Update(Guid accountId, [FromBody] UpdateAccountRequestDto request, CancellationToken cancellationToken)
     {
@@ -72,6 +90,9 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// Xóa mềm tài khoản theo account id.
+    /// </summary>
     [HttpDelete("{accountId:guid}")]
     public async Task<IActionResult> Delete(Guid accountId, CancellationToken cancellationToken)
     {

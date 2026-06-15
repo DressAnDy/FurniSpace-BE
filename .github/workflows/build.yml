@@ -50,7 +50,11 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         shell: powershell
         run: |
-          ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"DressAnDy_FurniSpace-BE" /o:"dressandy" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.cs.opencover.reportsPaths="tests/**/TestResults/coverage.opencover.xml"
-          dotnet build FurniSpace.sln
+          $scanner = "${{ runner.temp }}\scanner\dotnet-sonarscanner"
+          & $scanner begin /k:"DressAnDy_FurniSpace-BE" /o:"dressandy" /d:sonar.token="$env:SONAR_TOKEN" /d:sonar.cs.opencover.reportsPaths="**/TestResults/coverage.opencover.xml"
+          dotnet build FurniSpace.sln -c Release
           dotnet test tests/FurniSpace.Tests.sln --no-build -c Release /p:CollectCoverage=true /p:CoverletOutputFormat=opencover /p:CoverletOutput=./TestResults/coverage.opencover.xml
-          ${{ runner.temp }}\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+          $coverageReports = Get-ChildItem -Path . -Recurse -Filter "coverage.opencover.xml"
+          if ($coverageReports.Count -eq 0) { throw "No OpenCover reports were generated." }
+          $coverageReports | ForEach-Object { Write-Host "Coverage report: $($_.FullName)" }
+          & $scanner end /d:sonar.token="$env:SONAR_TOKEN"

@@ -5,7 +5,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -1106,6 +1108,63 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task AssignSalesAsync_AfterSuccessfulAssignment_DispatchesAcceptedNotificationToCustomer()
+    {
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var dispatcher = new FakeNotificationDispatcher();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            ProjectName = "Moc Coffee",
+            Status = ProjectStatus.SUBMITTED
+        };
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(NotificationType.ProjectRequestAccepted, dispatcher.LastType);
+        Assert.Equal([customerId], dispatcher.LastReceiverIds);
+        Assert.Equal(projectId, dispatcher.LastProjectId);
+        Assert.Equal("PROJECT", dispatcher.LastReferenceType);
+        Assert.Equal(projectId, dispatcher.LastReferenceId);
+        Assert.NotNull(dispatcher.LastParameters);
+        Assert.Equal("Moc Coffee", dispatcher.LastParameters["ProjectName"]);
+    }
+
+    [Fact]
+    public async Task AssignSalesAsync_WhenAcceptedNotificationFails_StillAssignsSales()
+    {
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Moc Coffee",
+            Status = ProjectStatus.SUBMITTED
+        };
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(salesId, project.AssignedSalesId);
+        Assert.Equal(ProjectStatus.IN_CONSULTATION, project.Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+    }
+
+    [Fact]
     public async Task AssignSalesAsync_WithAdminRole_OverridesExistingSalesAssignment()
     {
         var projectId = Guid.NewGuid();
@@ -1641,6 +1700,56 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_AfterSuccessfulCreate_DispatchesProjectSubmittedNotification()
+    {
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var dispatcher = new FakeNotificationDispatcher();
+        var repository = new FakeProjectRepository(
+            roleName: "CUSTOMER",
+            receiverIds: [salesId, adminId],
+            accountFullName: "Moc Owner");
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.CreateAsync(customerId, ValidRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, repository.AddCallCount);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, repository.GetActiveAccountIdsByRoleNamesCallCount);
+        Assert.Equal(1, repository.GetAccountFullNameCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(NotificationType.ProjectRequestSubmitted, dispatcher.LastType);
+        Assert.Equal(result.Data!.ProjectId, dispatcher.LastProjectId);
+        Assert.Equal("PROJECT", dispatcher.LastReferenceType);
+        Assert.Equal(result.Data.ProjectId, dispatcher.LastReferenceId);
+        Assert.Equal([salesId, adminId], dispatcher.LastReceiverIds);
+        Assert.NotNull(dispatcher.LastParameters);
+        Assert.Equal("Moc Owner", dispatcher.LastParameters["CustomerName"]);
+        Assert.Equal("Moc Coffee Interior Setup", dispatcher.LastParameters["ProjectName"]);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenNotificationFails_StillReturnsCreatedProject()
+    {
+        var repository = new FakeProjectRepository(
+            roleName: "CUSTOMER",
+            receiverIds: [Guid.NewGuid()],
+            accountFullName: "Moc Owner");
+        var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.CreateAsync(Guid.NewGuid(), ValidRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Single(repository.Projects);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+    }
+
+    [Fact]
     public async Task CreateAsync_WithBlankOptionalFields_NormalizesToNull()
     {
         var repository = new FakeProjectRepository(roleName: "customer");
@@ -1912,6 +2021,8 @@ public sealed class ProjectServiceTests
         private readonly IReadOnlyList<ProjectListItemReadModel> _listItems;
         private readonly ProjectDetailReadModel? _detail;
         private readonly DesignerAccountReadModel? _designer;
+        private readonly IReadOnlyList<Guid> _receiverIds;
+        private readonly string? _accountFullName;
         private readonly List<Project> _projects = [];
 
         public FakeProjectRepository(
@@ -1920,7 +2031,9 @@ public sealed class ProjectServiceTests
             IReadOnlyList<ProjectListItemReadModel>? listItems = null,
             ProjectDetailReadModel? detail = null,
             IReadOnlyList<Project>? entities = null,
-            DesignerAccountReadModel? designer = null)
+            DesignerAccountReadModel? designer = null,
+            IReadOnlyList<Guid>? receiverIds = null,
+            string? accountFullName = null)
         {
             _roleName = roleName;
             _submittedCount = submittedCount;
@@ -1928,6 +2041,8 @@ public sealed class ProjectServiceTests
             _detail = detail;
             _projects = entities?.ToList() ?? [];
             _designer = designer;
+            _receiverIds = receiverIds ?? [];
+            _accountFullName = accountFullName;
         }
 
         public IReadOnlyList<Project> Projects => _projects;
@@ -1940,12 +2055,28 @@ public sealed class ProjectServiceTests
         public int CountCallCount { get; private set; }
         public int AddCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
+        public int GetActiveAccountIdsByRoleNamesCallCount { get; private set; }
+        public int GetAccountFullNameCallCount { get; private set; }
         public ProjectListQueryReadModel? LastListQuery { get; private set; }
 
         public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
         {
             GetAccountRoleNameCallCount++;
             return Task.FromResult(_roleName);
+        }
+
+        public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default)
+        {
+            GetAccountFullNameCallCount++;
+            return Task.FromResult(_accountFullName);
+        }
+
+        public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(
+            IReadOnlyCollection<string> roleNames,
+            CancellationToken cancellationToken = default)
+        {
+            GetActiveAccountIdsByRoleNamesCallCount++;
+            return Task.FromResult(_receiverIds);
         }
 
         public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default)
@@ -2026,6 +2157,49 @@ public sealed class ProjectServiceTests
         {
             SaveChangesCallCount++;
             return Task.FromResult(1);
+        }
+    }
+
+    private sealed class FakeNotificationDispatcher : INotificationDispatcher
+    {
+        private readonly bool _throwOnDispatch;
+
+        public FakeNotificationDispatcher(bool throwOnDispatch = false)
+        {
+            _throwOnDispatch = throwOnDispatch;
+        }
+
+        public int DispatchCallCount { get; private set; }
+        public NotificationType LastType { get; private set; }
+        public IReadOnlyDictionary<string, string>? LastParameters { get; private set; }
+        public IReadOnlyList<Guid> LastReceiverIds { get; private set; } = [];
+        public Guid? LastProjectId { get; private set; }
+        public string? LastReferenceType { get; private set; }
+        public Guid? LastReferenceId { get; private set; }
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            Guid? projectId = null,
+            string? referenceType = null,
+            Guid? referenceId = null,
+            CancellationToken cancellationToken = default)
+        {
+            DispatchCallCount++;
+            LastType = type;
+            LastParameters = parameters;
+            LastReceiverIds = receiverIds.ToList();
+            LastProjectId = projectId;
+            LastReferenceType = referenceType;
+            LastReferenceId = referenceId;
+
+            if (_throwOnDispatch)
+            {
+                throw new InvalidOperationException("Notification dispatch failed.");
+            }
+
+            return Task.CompletedTask;
         }
     }
 }

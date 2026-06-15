@@ -28,6 +28,43 @@ public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepo
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public Task<string?> GetAccountFullNameAsync(
+        Guid accountId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.AccountSet
+            .Where(account => account.AccountId == accountId && account.DeletedAt == null)
+            .Select(account => account.FullName)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(
+        IReadOnlyCollection<string> roleNames,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedRoleNames = roleNames
+            .Where(roleName => !string.IsNullOrWhiteSpace(roleName))
+            .Select(roleName => roleName.Trim().ToUpperInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        if (normalizedRoleNames.Count == 0)
+        {
+            return [];
+        }
+
+        return await DbContext.AccountSet
+            .Where(account => account.DeletedAt == null && account.Status == AccountStatus.ACTIVE)
+            .Join(
+                DbContext.RoleSet,
+                account => account.RoleId,
+                role => role.RoleId,
+                (account, role) => new { account, role })
+            .Where(joined => normalizedRoleNames.Contains(joined.role.RoleName.ToUpper()))
+            .Select(joined => joined.account.AccountId)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<int> CountSubmittedInYearAsync(
         int year,
         CancellationToken cancellationToken = default)

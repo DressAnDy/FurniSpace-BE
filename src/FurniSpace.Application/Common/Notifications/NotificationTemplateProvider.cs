@@ -9,12 +9,14 @@ public static class NotificationTemplateProvider
             NotificationType.ProjectRequestSubmitted => new NotificationTemplate(
                 "New project request",
                 "Customer {CustomerName} submitted a new project request \"{ProjectName}\".",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.request.submitted"),
 
             NotificationType.ProjectRequestAccepted => new NotificationTemplate(
                 "Project request accepted",
                 "Your project request \"{ProjectName}\" has been accepted by FurniSpace.",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.request.accepted"),
 
             NotificationType.ProjectMoreInformationRequested => new NotificationTemplate(
                 "More information required",

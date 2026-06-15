@@ -17,5 +17,8 @@ public sealed class AccountMappingConfig : IRegister
 
         config.NewConfig<AccountDetailReadModel, AccountDetailDto>()
             .Map(destination => destination.Status, source => source.Status.HasValue ? source.Status.Value.ToString() : null);
+
+        config.NewConfig<AvailableDesignerReadModel, AvailableDesignerDto>()
+            .Map(destination => destination.Status, source => source.Status.HasValue ? source.Status.Value.ToString() : null);
     }
 }

@@ -320,6 +320,128 @@ public sealed class AccountServiceTests
         Assert.Equal(0, repository.SaveChangesCallCount);
     }
 
+    [Fact]
+    public async Task GetAvailableDesignersAsync_WithValidQuery_ReturnsPagedDesigners()
+    {
+        var designerId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            AvailableDesigners =
+            [
+                new AvailableDesignerReadModel
+                {
+                    AccountId = designerId,
+                    Email = "designer01@furnispace.com",
+                    FullName = "Emily Davis",
+                    Phone = "0900000002",
+                    AvatarUrl = null,
+                    Status = AccountStatus.ACTIVE,
+                    CurrentActiveProjectCount = 1,
+                    MaxActiveProjects = 2,
+                    AvailableSlot = 1,
+                    CreatedAt = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc),
+                    UpdatedAt = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc)
+                }
+            ]
+        };
+        var service = CreateService(repository);
+
+        var result = await service.GetAvailableDesignersAsync(new AvailableDesignerQueryDto
+        {
+            Page = 1,
+            PageSize = 10,
+            Search = " Emily "
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Available designers retrieved successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(1, result.Data.Page);
+        Assert.Equal(10, result.Data.PageSize);
+        Assert.Equal(1, result.Data.TotalItems);
+        Assert.Equal(1, result.Data.TotalPages);
+        var designer = Assert.Single(result.Data.Items);
+        Assert.Equal(designerId, designer.AccountId);
+        Assert.Equal("designer01@furnispace.com", designer.Email);
+        Assert.Equal("Emily Davis", designer.FullName);
+        Assert.Equal("0900000002", designer.Phone);
+        Assert.Equal("ACTIVE", designer.Status);
+        Assert.Equal(1, designer.CurrentActiveProjectCount);
+        Assert.Equal(2, designer.MaxActiveProjects);
+        Assert.Equal(1, designer.AvailableSlot);
+        Assert.Equal(1, repository.GetAvailableDesignersCallCount);
+        Assert.Equal(1, repository.CountAvailableDesignersCallCount);
+        Assert.Equal(1, repository.Page);
+        Assert.Equal(10, repository.PageSize);
+        Assert.Equal(2, repository.MaxActiveProjects);
+        Assert.Equal("Emily", repository.Search);
+        Assert.DoesNotContain(
+            typeof(AvailableDesignerDto).GetProperties(),
+            property => property.Name.Contains("Password", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task GetAvailableDesignersAsync_WithEmptyResult_ReturnsEmptyPage()
+    {
+        var repository = new FakeAccountRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetAvailableDesignersAsync(new AvailableDesignerQueryDto
+        {
+            Page = 1,
+            PageSize = 10
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Empty(result.Data.Items);
+        Assert.Equal(0, result.Data.TotalItems);
+        Assert.Equal(0, result.Data.TotalPages);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task GetAvailableDesignersAsync_WithInvalidPage_ReturnsBadRequest(int page)
+    {
+        var repository = new FakeAccountRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetAvailableDesignersAsync(new AvailableDesignerQueryDto
+        {
+            Page = page,
+            PageSize = 10
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Page must be greater than zero.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetAvailableDesignersCallCount);
+        Assert.Equal(0, repository.CountAvailableDesignersCallCount);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public async Task GetAvailableDesignersAsync_WithInvalidPageSize_ReturnsBadRequest(int pageSize)
+    {
+        var repository = new FakeAccountRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetAvailableDesignersAsync(new AvailableDesignerQueryDto
+        {
+            Page = 1,
+            PageSize = pageSize
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Page size must be between 1 and 100.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetAvailableDesignersCallCount);
+        Assert.Equal(0, repository.CountAvailableDesignersCallCount);
+    }
+
     private static AccountService CreateService(FakeAccountRepository repository)
     {
         return new AccountService(
@@ -333,12 +455,19 @@ public sealed class AccountServiceTests
     {
         public AccountDetailReadModel? Detail { get; set; }
         public IReadOnlyList<Account> Accounts { get; set; } = [];
+        public IReadOnlyList<AvailableDesignerReadModel> AvailableDesigners { get; set; } = [];
         public Dictionary<Guid, string> RoleNames { get; } = [];
         public int GetDetailCallCount { get; private set; }
         public Guid DetailAccountId { get; private set; }
         public int GetByIdCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
         public int GetRoleNameCallCount { get; private set; }
+        public int GetAvailableDesignersCallCount { get; private set; }
+        public int CountAvailableDesignersCallCount { get; private set; }
+        public int Page { get; private set; }
+        public int PageSize { get; private set; }
+        public int MaxActiveProjects { get; private set; }
+        public string? Search { get; private set; }
 
         public Task<AccountDetailReadModel?> GetDetailAsync(
             Guid accountId,
@@ -377,6 +506,34 @@ public sealed class AccountServiceTests
         public Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default) => Task.FromResult<Guid?>(null);
         public Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<IReadOnlyList<AvailableDesignerReadModel>> GetAvailableDesignersAsync(
+            int page,
+            int pageSize,
+            int maxActiveProjects,
+            string? search,
+            CancellationToken cancellationToken = default)
+        {
+            GetAvailableDesignersCallCount++;
+            Page = page;
+            PageSize = pageSize;
+            MaxActiveProjects = maxActiveProjects;
+            Search = search;
+            return Task.FromResult<IReadOnlyList<AvailableDesignerReadModel>>(
+                AvailableDesigners
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToList());
+        }
+
+        public Task<int> CountAvailableDesignersAsync(
+            int maxActiveProjects,
+            string? search,
+            CancellationToken cancellationToken = default)
+        {
+            CountAvailableDesignersCallCount++;
+            return Task.FromResult(AvailableDesigners.Count);
+        }
+
         public Task<IReadOnlyList<Account>> GetPagedAsync(int page, int pageSize, string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Account>>([]);
         public Task<int> CountAsync(string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default) => Task.FromResult(0);
     }

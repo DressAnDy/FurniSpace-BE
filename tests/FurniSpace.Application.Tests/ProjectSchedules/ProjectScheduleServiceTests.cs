@@ -613,6 +613,14 @@ public sealed class ProjectScheduleServiceTests
         public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
             => Task.FromResult(_role);
 
+        public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default)
+            => Task.FromResult<string?>(null);
+
+        public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(
+            IReadOnlyCollection<string> roleNames,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Guid>>([]);
+
         public Task<ProjectDetailReadModel?> GetDetailAsync(Guid projectId, CancellationToken cancellationToken = default)
             => Task.FromResult(_detail?.ProjectId == projectId ? _detail : null);
 

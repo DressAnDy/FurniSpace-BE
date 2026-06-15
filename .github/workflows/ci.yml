@@ -35,10 +35,7 @@ jobs:
 
       - name: Run tests
         run: |
-          dotnet test tests/FurniSpace.Domain.Tests/FurniSpace.Domain.Tests.csproj --no-build -c Release
-          dotnet test tests/FurniSpace.Application.Tests/FurniSpace.Application.Tests.csproj --no-build -c Release
-          dotnet test tests/FurniSpace.Infrastructure.Tests/FurniSpace.Infrastructure.Tests.csproj --no-build -c Release
-          dotnet test tests/FurniSpace.API.Tests/FurniSpace.API.Tests.csproj --no-build -c Release
+          dotnet test tests/FurniSpace.Tests.sln --no-build -c Release
 
   code-quality:
     runs-on: ubuntu-latest

@@ -399,6 +399,18 @@ dotnet build FurniSpace.sln --no-restore
 dotnet test FurniSpace.sln --no-build
 ```
 
+Run all tests from the `tests` directory with the dedicated solution:
+
+```powershell
+dotnet test tests\FurniSpace.Tests.sln --no-build
+```
+
+Generate OpenCover reports for SonarQube:
+
+```powershell
+dotnet test tests\FurniSpace.Tests.sln --no-build /p:CollectCoverage=true /p:CoverletOutputFormat=opencover /p:CoverletOutput=.\TestResults\coverage.opencover.xml
+```
+
 ## 10. Feature Checklist
 
 Planning:

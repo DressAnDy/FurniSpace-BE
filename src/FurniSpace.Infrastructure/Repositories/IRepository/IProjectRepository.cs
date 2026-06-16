@@ -10,6 +10,14 @@ public interface IProjectRepository : IGenericRepository<Project>
         Guid accountId,
         CancellationToken cancellationToken = default);
 
+    Task<string?> GetAccountFullNameAsync(
+        Guid accountId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(
+        IReadOnlyCollection<string> roleNames,
+        CancellationToken cancellationToken = default);
+
     Task<int> CountSubmittedInYearAsync(
         int year,
         CancellationToken cancellationToken = default);

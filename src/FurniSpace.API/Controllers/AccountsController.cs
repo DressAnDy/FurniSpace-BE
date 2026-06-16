@@ -39,6 +39,25 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpGet("/accounts/designers/available")]
+    public async Task<IActionResult> GetAvailableDesigners(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetAvailableDesignersAsync(
+            new AvailableDesignerQueryDto
+            {
+                Page = page,
+                PageSize = pageSize,
+                Search = search
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "ADMIN")]
     [HttpGet("/admin/accounts/{accountId:guid}")]
     public async Task<IActionResult> GetAdminDetail(Guid accountId, CancellationToken cancellationToken = default)

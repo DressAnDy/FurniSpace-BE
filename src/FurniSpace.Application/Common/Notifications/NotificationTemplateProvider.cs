@@ -9,22 +9,32 @@ public static class NotificationTemplateProvider
             NotificationType.ProjectRequestSubmitted => new NotificationTemplate(
                 "New project request",
                 "Customer {CustomerName} submitted a new project request \"{ProjectName}\".",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.request.submitted"),
 
             NotificationType.ProjectRequestAccepted => new NotificationTemplate(
                 "Project request accepted",
                 "Your project request \"{ProjectName}\" has been accepted by FurniSpace.",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.request.accepted"),
 
             NotificationType.ProjectMoreInformationRequested => new NotificationTemplate(
                 "More information required",
                 "FurniSpace needs more information for your project \"{ProjectName}\". Please check the request details and update the required information.",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.more_information.requested"),
 
             NotificationType.ProjectBasicInformationUpdated => new NotificationTemplate(
                 "Project information updated",
                 "Customer has updated basic information for project \"{ProjectName}\".",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.basic_information.updated"),
+
+            NotificationType.ProjectStatusChanged => new NotificationTemplate(
+                "Project status changed",
+                "Project \"{ProjectName}\" status changed to {Status}.",
+                NotificationDeliveryLevel.RealtimeOnly,
+                "project.status.changed"),
 
             NotificationType.ProjectRequestRejected => new NotificationTemplate(
                 "Project request rejected",
@@ -32,9 +42,10 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime),
 
             NotificationType.ProjectDesignerAssigned => new NotificationTemplate(
-                "Project assigned to you",
+                "You have been assigned to a project",
                 "You have been assigned as Designer for project \"{ProjectName}\".",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.designer.assigned"),
 
             NotificationType.ProjectFileUploaded => new NotificationTemplate(
                 "Project file uploaded",

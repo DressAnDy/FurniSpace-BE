@@ -8,8 +8,6 @@ namespace FurniSpace.Application.Services.Notifications;
 
 public sealed class NotificationDispatcher : INotificationDispatcher
 {
-    private const string NotificationCreatedEvent = "notification.created";
-
     private readonly INotificationRepository _notifications;
     private readonly IRealtimeNotificationService _realtime;
     private readonly ILogger<NotificationDispatcher> _logger;
@@ -49,7 +47,8 @@ public sealed class NotificationDispatcher : INotificationDispatcher
                 projectId,
                 referenceType,
                 referenceId,
-                now);
+                now,
+                template.SignalREventName);
 
             await DispatchInAppRealtimeAsync(
                 receivers,
@@ -112,14 +111,14 @@ public sealed class NotificationDispatcher : INotificationDispatcher
 
             try
             {
-                await _realtime.SendToUserAsync(receiverId, NotificationCreatedEvent, payload, cancellationToken);
+                await _realtime.SendToUserAsync(receiverId, envelope.SignalREventName, payload, cancellationToken);
             }
             catch (Exception exception)
             {
                 _logger.LogWarning(
                     exception,
                     "Failed to push realtime event {EventName} to user {UserId}",
-                    NotificationCreatedEvent,
+                    envelope.SignalREventName,
                     receiverId);
             }
         }
@@ -158,5 +157,6 @@ public sealed class NotificationDispatcher : INotificationDispatcher
         Guid? ProjectId,
         string? ReferenceType,
         Guid? ReferenceId,
-        DateTime OccurredAt);
+        DateTime OccurredAt,
+        string SignalREventName);
 }

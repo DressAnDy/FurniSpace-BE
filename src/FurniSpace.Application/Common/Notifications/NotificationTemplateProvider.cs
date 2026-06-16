@@ -21,12 +21,20 @@ public static class NotificationTemplateProvider
             NotificationType.ProjectMoreInformationRequested => new NotificationTemplate(
                 "More information required",
                 "FurniSpace needs more information for your project \"{ProjectName}\". Please check the request details and update the required information.",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.more_information.requested"),
 
             NotificationType.ProjectBasicInformationUpdated => new NotificationTemplate(
                 "Project information updated",
                 "Customer has updated basic information for project \"{ProjectName}\".",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.basic_information.updated"),
+
+            NotificationType.ProjectStatusChanged => new NotificationTemplate(
+                "Project status changed",
+                "Project \"{ProjectName}\" status changed to {Status}.",
+                NotificationDeliveryLevel.RealtimeOnly,
+                "project.status.changed"),
 
             NotificationType.ProjectRequestRejected => new NotificationTemplate(
                 "Project request rejected",

@@ -6,6 +6,7 @@ public enum NotificationType
     ProjectRequestAccepted,
     ProjectMoreInformationRequested,
     ProjectBasicInformationUpdated,
+    ProjectStatusChanged,
     ProjectRequestRejected,
     ProjectDesignerAssigned,
     ProjectFileUploaded,

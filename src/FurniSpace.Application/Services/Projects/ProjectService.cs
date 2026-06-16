@@ -192,6 +192,109 @@ public sealed class ProjectService : IProjectService
         }
     }
 
+    private async Task DispatchProjectMoreInformationRequestedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectMoreInformationRequested,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [project.CustomerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project more information requested notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectBasicInformationUpdatedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || !project.AssignedSalesId.HasValue)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectBasicInformationUpdated,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [project.AssignedSalesId.Value],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project basic information updated notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectStatusChangedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var receiverIds = GetProjectParticipantIds(project);
+        if (receiverIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectStatusChanged,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName,
+                    ["Status"] = project.Status?.ToString() ?? string.Empty
+                },
+                receiverIds,
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project status changed notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
     public async Task<ServiceResult<ProjectListResponseDto>> GetListAsync(
         Guid currentUserId,
         ProjectListQueryDto query,
@@ -367,6 +470,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = requestedAt;
 
         await _projects.SaveChangesAsync(cancellationToken);
+        await DispatchProjectMoreInformationRequestedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectInformationRequestDto>.Success(
             project.Adapt<ProjectInformationRequestDto>(),
@@ -412,10 +516,15 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectBasicInformationDto>.BadRequest("Project basic information cannot be updated from its current status.");
         }
 
+        var shouldNotifyAssignedSales = project.Status == ProjectStatus.NEED_BASIC_INFORMATION;
         ApplyBasicInformation(project, request);
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projects.SaveChangesAsync(cancellationToken);
+        if (shouldNotifyAssignedSales)
+        {
+            await DispatchProjectBasicInformationUpdatedNotificationAsync(project, cancellationToken);
+        }
 
         return ServiceResult<ProjectBasicInformationDto>.Success(
             project.Adapt<ProjectBasicInformationDto>(),
@@ -473,6 +582,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = DateTime.UtcNow;
 
         await _projects.SaveChangesAsync(cancellationToken);
+        await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectStatusUpdateDto>.Success(
             project.Adapt<ProjectStatusUpdateDto>(),
@@ -817,6 +927,23 @@ public sealed class ProjectService : IProjectService
         {
             missing.Add(message);
         }
+    }
+
+    private static IReadOnlyList<Guid> GetProjectParticipantIds(Project project)
+    {
+        var receiverIds = new List<Guid> { project.CustomerId };
+
+        if (project.AssignedSalesId.HasValue)
+        {
+            receiverIds.Add(project.AssignedSalesId.Value);
+        }
+
+        if (project.AssignedDesignerId.HasValue)
+        {
+            receiverIds.Add(project.AssignedDesignerId.Value);
+        }
+
+        return receiverIds.Distinct().ToList();
     }
 
     private static bool CanUpdateBasicInformation(Project project, Guid currentUserId, string? roleName)

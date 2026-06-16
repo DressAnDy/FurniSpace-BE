@@ -178,6 +178,18 @@
         log("Received event: project.request.accepted", payload);
       });
 
+      connection.on("project.more_information.requested", payload => {
+        log("Received event: project.more_information.requested", payload);
+      });
+
+      connection.on("project.basic_information.updated", payload => {
+        log("Received event: project.basic_information.updated", payload);
+      });
+
+      connection.on("project.status.changed", payload => {
+        log("Received event: project.status.changed", payload);
+      });
+
       connection.on("notification.created", payload => {
         log("Received event: notification.created", payload);
       });

@@ -437,6 +437,72 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task UpdateStatusAsync_AfterSuccessfulUpdate_DispatchesRealtimeStatusChangedToProjectParticipants()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.AssignedDesignerId = designerId;
+        var dispatcher = new FakeNotificationDispatcher();
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.UpdateStatusAsync(projectId, salesId, ValidStatusRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(NotificationType.ProjectStatusChanged, dispatcher.LastType);
+        Assert.Equal(projectId, dispatcher.LastProjectId);
+        Assert.Equal("PROJECT", dispatcher.LastReferenceType);
+        Assert.Equal(projectId, dispatcher.LastReferenceId);
+        Assert.Equal(
+            [project.CustomerId, salesId, designerId],
+            dispatcher.LastReceiverIds);
+        Assert.NotNull(dispatcher.LastParameters);
+        Assert.Equal("Moc Coffee Interior Setup", dispatcher.LastParameters["ProjectName"]);
+        Assert.Equal(ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT.ToString(), dispatcher.LastParameters["Status"]);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WhenParticipantsContainDuplicates_DispatchesDistinctRealtimeReceivers()
+    {
+        var sharedAccountId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, sharedAccountId);
+        project.CustomerId = sharedAccountId;
+        project.AssignedDesignerId = sharedAccountId;
+        var dispatcher = new FakeNotificationDispatcher();
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.UpdateStatusAsync(projectId, sharedAccountId, ValidStatusRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal([sharedAccountId], dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WhenNotificationFails_StillReturnsSuccess()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.UpdateStatusAsync(projectId, salesId, ValidStatusRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT, result.Data.Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+    }
+
+    [Fact]
     public async Task UpdateStatusAsync_WithAdmin_UpdatesAnyQualifiedProject()
     {
         var projectId = Guid.NewGuid();
@@ -611,15 +677,18 @@ public sealed class ProjectServiceTests
     {
         var customerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
+        var assignedSalesId = Guid.NewGuid();
+        var dispatcher = new FakeNotificationDispatcher();
         var project = new Project
         {
             ProjectId = projectId,
             CustomerId = customerId,
+            AssignedSalesId = assignedSalesId,
             ProjectName = "Old",
             Status = ProjectStatus.NEED_BASIC_INFORMATION
         };
         var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
-        var service = new ProjectService(repository);
+        var service = new ProjectService(repository, dispatcher);
         var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30);
 
         var result = await service.UpdateBasicInformationAsync(projectId, customerId, new UpdateProjectBasicInformationRequestDto
@@ -659,6 +728,13 @@ public sealed class ProjectServiceTests
         Assert.Equal(1, repository.GetByIdCallCount);
         Assert.Equal(1, repository.GetAccountRoleNameCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(NotificationType.ProjectBasicInformationUpdated, dispatcher.LastType);
+        Assert.Equal([assignedSalesId], dispatcher.LastReceiverIds);
+        Assert.Equal(projectId, dispatcher.LastProjectId);
+        Assert.Equal("PROJECT", dispatcher.LastReferenceType);
+        Assert.Equal(projectId, dispatcher.LastReferenceId);
+        Assert.Equal("Moc Coffee Interior Setup", dispatcher.LastParameters!["ProjectName"]);
     }
 
     [Fact]
@@ -683,6 +759,55 @@ public sealed class ProjectServiceTests
         Assert.NotNull(result.Data);
         Assert.Equal(ProjectStatus.IN_CONSULTATION, result.Data.Status);
         Assert.Equal("Moc Coffee Interior Setup", project.ProjectName);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WithNeedBasicInformationAndNoAssignedSales_DoesNotDispatchNotification()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var dispatcher = new FakeNotificationDispatcher();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            ProjectName = "Old",
+            Status = ProjectStatus.NEED_BASIC_INFORMATION
+        };
+        var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.UpdateBasicInformationAsync(projectId, customerId, ValidBasicInformationRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(0, dispatcher.DispatchCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateBasicInformationAsync_WhenNotificationFails_StillReturnsSuccess()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var assignedSalesId = Guid.NewGuid();
+        var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            AssignedSalesId = assignedSalesId,
+            ProjectName = "Old",
+            Status = ProjectStatus.NEED_BASIC_INFORMATION
+        };
+        var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.UpdateBasicInformationAsync(projectId, customerId, ValidBasicInformationRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.NEED_BASIC_INFORMATION, project.Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
     }
 
     [Fact]
@@ -1160,6 +1285,70 @@ public sealed class ProjectServiceTests
         Assert.NotNull(result.Data);
         Assert.Equal(salesId, project.AssignedSalesId);
         Assert.Equal(ProjectStatus.IN_CONSULTATION, project.Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+    }
+
+    [Fact]
+    public async Task RequestInformationAsync_AfterSuccessfulUpdate_DispatchesMoreInformationNotificationToCustomer()
+    {
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var dispatcher = new FakeNotificationDispatcher();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            AssignedSalesId = salesId,
+            ProjectName = "Moc Coffee",
+            Status = ProjectStatus.IN_CONSULTATION
+        };
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.RequestInformationAsync(projectId, salesId, new RequestProjectInformationRequestDto
+        {
+            Message = "Please provide exact dimensions."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(NotificationType.ProjectMoreInformationRequested, dispatcher.LastType);
+        Assert.Equal([customerId], dispatcher.LastReceiverIds);
+        Assert.Equal(projectId, dispatcher.LastProjectId);
+        Assert.Equal("PROJECT", dispatcher.LastReferenceType);
+        Assert.Equal(projectId, dispatcher.LastReferenceId);
+        Assert.NotNull(dispatcher.LastParameters);
+        Assert.Equal("Moc Coffee", dispatcher.LastParameters["ProjectName"]);
+    }
+
+    [Fact]
+    public async Task RequestInformationAsync_WhenNotificationFails_StillReturnsSuccess()
+    {
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = salesId,
+            ProjectName = "Moc Coffee",
+            Status = ProjectStatus.IN_CONSULTATION
+        };
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.RequestInformationAsync(projectId, salesId, new RequestProjectInformationRequestDto
+        {
+            Message = "Please provide exact dimensions."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.NEED_BASIC_INFORMATION, project.Status);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Equal(1, dispatcher.DispatchCallCount);
     }

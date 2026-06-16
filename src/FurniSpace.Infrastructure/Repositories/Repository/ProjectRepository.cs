@@ -120,7 +120,7 @@ public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepo
                 account => account.RoleId,
                 role => role.RoleId,
                 (account, role) => new { account, role })
-            .Where(joined => joined.role.RoleName == "DESIGNER")
+            .Where(joined => joined.role.RoleName.ToUpper() == "DESIGNER")
             .Select(joined => new DesignerAccountReadModel
             {
                 AccountId = joined.account.AccountId,

@@ -42,9 +42,10 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime),
 
             NotificationType.ProjectDesignerAssigned => new NotificationTemplate(
-                "Project assigned to you",
+                "You have been assigned to a project",
                 "You have been assigned as Designer for project \"{ProjectName}\".",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.designer.assigned"),
 
             NotificationType.ProjectFileUploaded => new NotificationTemplate(
                 "Project file uploaded",

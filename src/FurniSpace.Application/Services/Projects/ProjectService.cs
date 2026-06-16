@@ -295,6 +295,39 @@ public sealed class ProjectService : IProjectService
         }
     }
 
+    private async Task DispatchProjectDesignerAssignedNotificationAsync(
+        Project project,
+        Guid designerId,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectDesignerAssigned,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [designerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project designer assigned notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
     public async Task<ServiceResult<ProjectListResponseDto>> GetListAsync(
         Guid currentUserId,
         ProjectListQueryDto query,
@@ -697,6 +730,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = project.DesignerAssignedAt;
 
         await _projects.SaveChangesAsync(cancellationToken);
+        await DispatchProjectDesignerAssignedNotificationAsync(project, designer.AccountId, cancellationToken);
 
         return ServiceResult<ProjectDesignerAssignmentDto>.Success(
             new ProjectDesignerAssignmentDto

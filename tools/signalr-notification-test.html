@@ -190,6 +190,10 @@
         log("Received event: project.status.changed", payload);
       });
 
+      connection.on("project.designer.assigned", payload => {
+        log("Received event: project.designer.assigned", payload);
+      });
+
       connection.on("notification.created", payload => {
         log("Received event: notification.created", payload);
       });

@@ -46,4 +46,14 @@ public sealed class NotificationTemplateProviderTests
         Assert.Equal("project.status.changed", template.SignalREventName);
         Assert.Equal("Project status changed", template.TitleTemplate);
     }
+
+    [Fact]
+    public void Get_ProjectDesignerAssigned_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProjectDesignerAssigned);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("project.designer.assigned", template.SignalREventName);
+        Assert.Equal("You have been assigned to a project", template.TitleTemplate);
+    }
 }

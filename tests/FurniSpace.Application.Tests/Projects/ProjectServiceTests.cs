@@ -240,6 +240,58 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task AssignDesignerAsync_AfterSuccessfulAssignment_DispatchesDesignerAssignedNotification()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var dispatcher = new FakeNotificationDispatcher();
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
+        {
+            DesignerId = designer.AccountId,
+            SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(NotificationType.ProjectDesignerAssigned, dispatcher.LastType);
+        Assert.Equal(projectId, dispatcher.LastProjectId);
+        Assert.Equal("PROJECT", dispatcher.LastReferenceType);
+        Assert.Equal(projectId, dispatcher.LastReferenceId);
+        Assert.Equal([designer.AccountId], dispatcher.LastReceiverIds);
+        Assert.NotNull(dispatcher.LastParameters);
+        Assert.Equal("Moc Coffee Interior Setup", dispatcher.LastParameters["ProjectName"]);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WhenNotificationFails_StillReturnsSuccess()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
+        var service = new ProjectService(repository, dispatcher);
+
+        var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
+        {
+            DesignerId = designer.AccountId,
+            SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.MEASUREMENT_REQUIRED, result.Data.Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+    }
+
+    [Fact]
     public async Task RejectAsync_WithAssignedSales_RejectsProject()
     {
         var salesId = Guid.NewGuid();

@@ -17,6 +17,8 @@ public class AppDbContext : DbContext
     private const string DateColumnType = "date";
     private const string BooleanColumnType = "boolean";
     private const string BigIntColumnType = "bigint";
+    private const string JsonbColumnType = "jsonb";
+    private const string Varchar10ColumnType = "varchar(10)";
     private const string Varchar20ColumnType = "varchar(20)";
     private const string Varchar30ColumnType = "varchar(30)";
     private const string Varchar50ColumnType = "varchar(50)";
@@ -37,6 +39,8 @@ public class AppDbContext : DbContext
     private const string OrderItemStatusColumnType = "order_item_status";
     private const string PaymentStatusColumnType = "payment_status";
     private const string PaymentTypeColumnType = "payment_type";
+    private const string PaymentTransactionTypeColumnType = "payment_transaction_type";
+    private const string PaymentTransactionStatusColumnType = "payment_transaction_status";
     private const string ProductionRequestStatusColumnType = "production_request_status";
     private const string ProductionItemStatusColumnType = "production_item_status";
 
@@ -96,6 +100,7 @@ public class AppDbContext : DbContext
     public DbSet<Order> OrderSet => Set<Order>();
     public DbSet<OrderItem> OrderItemSet => Set<OrderItem>();
     public DbSet<Payment> PaymentSet => Set<Payment>();
+    public DbSet<PaymentTransaction> PaymentTransactionSet => Set<PaymentTransaction>();
     public DbSet<ProductionRequest> ProductionRequestSet => Set<ProductionRequest>();
     public DbSet<ProductionItem> ProductionItemSet => Set<ProductionItem>();
     public DbSet<ProjectReview> ProjectReviewSet => Set<ProjectReview>();
@@ -118,6 +123,8 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:order_item_status", "PENDING,IN_PRODUCTION,READY,UNAVAILABLE,DELIVERED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_status", "PENDING,PAID,FAILED,REFUNDED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_type", "DEPOSIT,REMAINING_PAYMENT,FULL_PAYMENT,MEASUREMENT_FEE,DESIGN_FEE,CUSTOMIZATION_FEE,DELIVERY_FEE,CANCELLATION_FEE,REFUND,OTHER");
+        modelBuilder.HasAnnotation("Npgsql:Enum:payment_transaction_type", "CHARGE,REFUND,ADJUSTMENT");
+        modelBuilder.HasAnnotation("Npgsql:Enum:payment_transaction_status", "PENDING,SUCCESS,FAILED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:production_request_status", "PENDING_REVIEW,FEASIBLE,IN_PRODUCTION,COMPLETED,BLOCKED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:production_item_status", "PENDING,IN_PRODUCTION,COMPLETED,BLOCKED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:notification_status", "UNREAD,READ");
@@ -152,6 +159,7 @@ public class AppDbContext : DbContext
         ConfigureOrders(modelBuilder);
         ConfigureOrderItems(modelBuilder);
         ConfigurePayments(modelBuilder);
+        ConfigurePaymentTransactions(modelBuilder);
         ConfigureProductionRequests(modelBuilder);
         ConfigureProductionItems(modelBuilder);
         ConfigureProjectReviews(modelBuilder);
@@ -789,6 +797,41 @@ public class AppDbContext : DbContext
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AssignedTo).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigurePaymentTransactions(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<PaymentTransaction>(entity =>
+        {
+            entity.ToTable("payment_transactions");
+            entity.HasKey(e => e.PaymentTransactionId);
+            entity.Property(e => e.PaymentTransactionId).HasColumnName("payment_transaction_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.PaymentId).HasColumnName("payment_id").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ProjectId).HasColumnName("project_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.OrderId).HasColumnName("order_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.TransactionCode).HasColumnName("transaction_code").HasColumnType(Varchar100ColumnType).IsRequired();
+            entity.Property(e => e.TransactionType).HasColumnName("transaction_type").HasColumnType(PaymentTransactionTypeColumnType).HasDefaultValueSql("'CHARGE'::payment_transaction_type").IsRequired();
+            entity.Property(e => e.Amount).HasColumnName("amount").HasColumnType(Decimal12ColumnType).IsRequired();
+            entity.Property(e => e.Currency).HasColumnName("currency").HasColumnType(Varchar10ColumnType).HasDefaultValue("VND").IsRequired();
+            entity.Property(e => e.PaymentMethod).HasColumnName("payment_method").HasColumnType(Varchar50ColumnType);
+            entity.Property(e => e.ProviderTransactionId).HasColumnName("provider_transaction_id").HasColumnType(Varchar255ColumnType);
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType(PaymentTransactionStatusColumnType).HasDefaultValueSql("'PENDING'::payment_transaction_status").IsRequired();
+            entity.Property(e => e.TransactionTime).HasColumnName("transaction_time").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.ConfirmedBy).HasColumnName("confirmed_by").HasColumnType(UuidColumnType);
+            entity.Property(e => e.ConfirmedAt).HasColumnName("confirmed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.FailureReason).HasColumnName("failure_reason").HasColumnType(TextColumnType);
+            entity.Property(e => e.RawProviderPayload).HasColumnName("raw_provider_payload").HasColumnType(JsonbColumnType);
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at").HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.HasIndex(e => e.TransactionCode).IsUnique();
+            entity.HasIndex(e => e.PaymentId).HasDatabaseName("idx_payment_transactions_payment_id");
+            entity.HasIndex(e => new { e.ProjectId, e.CreatedAt }).HasDatabaseName("idx_payment_transactions_project_time");
+            entity.HasIndex(e => new { e.OrderId, e.CreatedAt }).HasDatabaseName("idx_payment_transactions_order_time");
+            entity.HasIndex(e => e.ProviderTransactionId).HasDatabaseName("idx_payment_transactions_provider_transaction_id");
+            entity.HasOne<Payment>().WithMany().HasForeignKey(e => e.PaymentId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ConfirmedBy).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

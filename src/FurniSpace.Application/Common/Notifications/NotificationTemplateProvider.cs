@@ -36,11 +36,6 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.RealtimeOnly,
                 "project.status.changed"),
 
-            NotificationType.ProjectStatusChanged => new NotificationTemplate(
-                "Project status updated",
-                "Project \"{ProjectName}\" is now in status {Status}.",
-                NotificationDeliveryLevel.InAppRealtime),
-
             NotificationType.ProjectRequestRejected => new NotificationTemplate(
                 "Project request rejected",
                 "Your project request \"{ProjectName}\" was rejected. Reason: {Reason}",

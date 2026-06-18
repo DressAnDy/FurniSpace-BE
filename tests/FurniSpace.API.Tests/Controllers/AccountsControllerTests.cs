@@ -74,6 +74,66 @@ public sealed class AccountsControllerTests
     }
 
     [Fact]
+    public void GetAvailableDesigners_RequiresSalesOrAdminRole()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(AccountsController.GetAvailableDesigners));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public void GetAvailableDesigners_UsesAvailableDesignersRoute()
+    {
+        var method = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetAvailableDesigners));
+
+        var route = method.GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+
+        Assert.Equal("/accounts/designers/available", route.Template);
+    }
+
+    [Fact]
+    public async Task GetAvailableDesigners_ReturnsServiceResultThroughBaseController()
+    {
+        var response = PagedResult<AvailableDesignerDto>.Create(
+        [
+            new AvailableDesignerDto
+            {
+                AccountId = Guid.NewGuid(),
+                Email = "designer01@furnispace.com",
+                FullName = "Emily Davis",
+                Status = "ACTIVE",
+                CurrentActiveProjectCount = 1,
+                MaxActiveProjects = 2,
+                AvailableSlot = 1
+            }
+        ], page: 2, pageSize: 5, totalItems: 6);
+        var service = new FakeAccountService(
+            adminDetailResult: ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            availableDesignersResult: ServiceResult<PagedResult<AvailableDesignerDto>>.Success(
+                response,
+                "Available designers retrieved successfully."));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetAvailableDesigners(page: 2, pageSize: 5, search: "Emily");
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<PagedResult<AvailableDesignerDto>>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Available designers retrieved successfully.", result.Message);
+        Assert.Same(response, result.Data);
+        Assert.NotNull(service.AvailableDesignerQuery);
+        Assert.Equal(2, service.AvailableDesignerQuery.Page);
+        Assert.Equal(5, service.AvailableDesignerQuery.PageSize);
+        Assert.Equal("Emily", service.AvailableDesignerQuery.Search);
+    }
+
+    [Fact]
     public void UpdateMe_RequiresAuthenticatedUser()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(AccountsController.UpdateMe));
@@ -157,18 +217,24 @@ public sealed class AccountsControllerTests
     {
         private readonly ServiceResult<AccountDetailDto> _adminDetailResult;
         private readonly ServiceResult<MyProfileDto> _updateProfileResult;
+        private readonly ServiceResult<PagedResult<AvailableDesignerDto>> _availableDesignersResult;
 
         public FakeAccountService(
             ServiceResult<AccountDetailDto> adminDetailResult,
-            ServiceResult<MyProfileDto>? updateProfileResult = null)
+            ServiceResult<MyProfileDto>? updateProfileResult = null,
+            ServiceResult<PagedResult<AvailableDesignerDto>>? availableDesignersResult = null)
         {
             _adminDetailResult = adminDetailResult;
             _updateProfileResult = updateProfileResult ?? ServiceResult<MyProfileDto>.Success(new MyProfileDto());
+            _availableDesignersResult = availableDesignersResult ??
+                ServiceResult<PagedResult<AvailableDesignerDto>>.Success(
+                    PagedResult<AvailableDesignerDto>.Create([], page: 1, pageSize: 10, totalItems: 0));
         }
 
         public Guid AdminDetailAccountId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public UpdateMyProfileRequestDto? UpdateProfileRequest { get; private set; }
+        public AvailableDesignerQueryDto? AvailableDesignerQuery { get; private set; }
 
         public Task<ServiceResult<AccountDetailDto>> GetAdminDetailAsync(
             Guid accountId,
@@ -186,6 +252,14 @@ public sealed class AccountsControllerTests
             CurrentUserId = currentUserId;
             UpdateProfileRequest = request;
             return Task.FromResult(_updateProfileResult);
+        }
+
+        public Task<ServiceResult<PagedResult<AvailableDesignerDto>>> GetAvailableDesignersAsync(
+            AvailableDesignerQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            AvailableDesignerQuery = query;
+            return Task.FromResult(_availableDesignersResult);
         }
 
         public Task<ServiceResult<AccountDto>> CreateAsync(CreateAccountRequestDto request, CancellationToken cancellationToken = default)

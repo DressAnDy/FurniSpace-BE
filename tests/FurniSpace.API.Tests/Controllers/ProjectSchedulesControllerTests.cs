@@ -23,7 +23,7 @@ public sealed class ProjectSchedulesControllerTests
     // ── Attribute checks ─────────────────────────────────────────────────────────
 
     [Fact]
-    public void NestedController_RequiresAuthorization()
+    public void Controller_RequiresAuthorization()
     {
         var attr = typeof(ProjectSchedulesController)
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
@@ -53,21 +53,9 @@ public sealed class ProjectSchedulesControllerTests
     }
 
     [Fact]
-    public void TopLevelController_RequiresAuthorization()
-    {
-        var attr = typeof(ProjectScheduleController)
-            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
-            .Cast<AuthorizeAttribute>()
-            .SingleOrDefault();
-
-        Assert.NotNull(attr);
-        Assert.Null(attr.Roles);
-    }
-
-    [Fact]
     public void GetMyAssigned_RequiresSalesDesignerAndAdminRoles()
     {
-        var attr = GetMethodAuthorize<ProjectScheduleController>(nameof(ProjectScheduleController.GetMyAssigned));
+        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.GetMyAssigned));
 
         Assert.NotNull(attr);
         Assert.Equal("SALES,DESIGNER,ADMIN", attr.Roles);
@@ -76,7 +64,7 @@ public sealed class ProjectSchedulesControllerTests
     [Fact]
     public void GetDetail_RequiresProjectParticipantRoles()
     {
-        var attr = GetMethodAuthorize<ProjectScheduleController>(nameof(ProjectScheduleController.GetDetail));
+        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.GetDetail));
 
         Assert.NotNull(attr);
         Assert.Equal("CUSTOMER,SALES,DESIGNER,ADMIN", attr.Roles);
@@ -85,7 +73,7 @@ public sealed class ProjectSchedulesControllerTests
     [Fact]
     public void Update_RequiresSalesAndAdminRoles()
     {
-        var attr = GetMethodAuthorize<ProjectScheduleController>(nameof(ProjectScheduleController.Update));
+        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.Update));
 
         Assert.NotNull(attr);
         Assert.Equal("SALES,ADMIN", attr.Roles);
@@ -94,7 +82,7 @@ public sealed class ProjectSchedulesControllerTests
     [Fact]
     public void UpdateStatus_RequiresCustomerSalesAndAdminRoles()
     {
-        var attr = GetMethodAuthorize<ProjectScheduleController>(nameof(ProjectScheduleController.UpdateStatus));
+        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.UpdateStatus));
 
         Assert.NotNull(attr);
         Assert.Equal("CUSTOMER,SALES,ADMIN", attr.Roles);
@@ -106,7 +94,7 @@ public sealed class ProjectSchedulesControllerTests
     public async Task Create_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Created(new ProjectScheduleDto()));
-        var controller = BuildNestedController(service);
+        var controller = BuildController(service);
 
         var actionResult = await controller.Create(Guid.NewGuid(), new CreateProjectScheduleRequestDto());
 
@@ -120,7 +108,7 @@ public sealed class ProjectSchedulesControllerTests
         var projectId = Guid.NewGuid();
         var response = new ProjectScheduleDto { ScheduleId = Guid.NewGuid(), ProjectId = projectId };
         var service = new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Created(response, "Schedule created."));
-        var controller = BuildNestedController(service, userId);
+        var controller = BuildController(service, userId);
         var request = new CreateProjectScheduleRequestDto
         {
             ScheduleType = ProjectScheduleType.MEASUREMENT,
@@ -143,7 +131,7 @@ public sealed class ProjectSchedulesControllerTests
     {
         var service = new FakeProjectScheduleService(
             ServiceResult<ProjectScheduleListResponseDto>.Success(new ProjectScheduleListResponseDto()));
-        var controller = BuildNestedController(service);
+        var controller = BuildController(service);
 
         var actionResult = await controller.GetList(Guid.NewGuid(), new ProjectScheduleListQueryDto());
 
@@ -157,7 +145,7 @@ public sealed class ProjectSchedulesControllerTests
         var projectId = Guid.NewGuid();
         var service = new FakeProjectScheduleService(
             ServiceResult<ProjectScheduleListResponseDto>.Success(new ProjectScheduleListResponseDto()));
-        var controller = BuildNestedController(service, userId);
+        var controller = BuildController(service, userId);
 
         var actionResult = await controller.GetList(
             projectId,
@@ -186,7 +174,7 @@ public sealed class ProjectSchedulesControllerTests
     public async Task GetDetail_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto()));
-        var controller = BuildTopLevelController(service);
+        var controller = BuildController(service);
 
         var actionResult = await controller.GetDetail(Guid.NewGuid());
 
@@ -200,7 +188,7 @@ public sealed class ProjectSchedulesControllerTests
         var scheduleId = Guid.NewGuid();
         var response = new ProjectScheduleDto { ScheduleId = scheduleId };
         var service = new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Success(response));
-        var controller = BuildTopLevelController(service, userId);
+        var controller = BuildController(service, userId);
 
         var actionResult = await controller.GetDetail(scheduleId);
 
@@ -216,7 +204,7 @@ public sealed class ProjectSchedulesControllerTests
     public async Task Update_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto()));
-        var controller = BuildTopLevelController(service);
+        var controller = BuildController(service);
 
         var actionResult = await controller.Update(Guid.NewGuid(), new UpdateProjectScheduleRequestDto());
 
@@ -229,7 +217,7 @@ public sealed class ProjectSchedulesControllerTests
         var userId = Guid.NewGuid();
         var scheduleId = Guid.NewGuid();
         var service = new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto()));
-        var controller = BuildTopLevelController(service, userId);
+        var controller = BuildController(service, userId);
         var request = new UpdateProjectScheduleRequestDto { Title = "Updated" };
 
         await controller.Update(scheduleId, request);
@@ -244,7 +232,7 @@ public sealed class ProjectSchedulesControllerTests
     public async Task UpdateStatus_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto()));
-        var controller = BuildTopLevelController(service);
+        var controller = BuildController(service);
 
         var actionResult = await controller.UpdateStatus(Guid.NewGuid(), new UpdateProjectScheduleStatusRequestDto());
 
@@ -258,7 +246,7 @@ public sealed class ProjectSchedulesControllerTests
     {
         var service = new FakeProjectScheduleService(
             ServiceResult<ProjectScheduleListResponseDto>.Success(new ProjectScheduleListResponseDto()));
-        var controller = BuildTopLevelController(service);
+        var controller = BuildController(service);
 
         var actionResult = await controller.GetMyAssigned();
 
@@ -271,7 +259,7 @@ public sealed class ProjectSchedulesControllerTests
         var userId = Guid.NewGuid();
         var service = new FakeProjectScheduleService(
             ServiceResult<ProjectScheduleListResponseDto>.Success(new ProjectScheduleListResponseDto { Total = 3 }));
-        var controller = BuildTopLevelController(service, userId);
+        var controller = BuildController(service, userId);
 
         var actionResult = await controller.GetMyAssigned(
             scheduleType: ProjectScheduleType.HANDOVER,
@@ -289,31 +277,11 @@ public sealed class ProjectSchedulesControllerTests
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
-    private static ProjectSchedulesController BuildNestedController(
+    private static ProjectSchedulesController BuildController(
         IProjectScheduleService service,
         Guid? userId = null)
     {
         var controller = new ProjectSchedulesController(service)
-        {
-            ControllerContext = new ControllerContext
-            {
-                HttpContext = new DefaultHttpContext
-                {
-                    User = userId.HasValue
-                        ? new ClaimsPrincipal(new ClaimsIdentity(
-                            [new Claim(ClaimTypes.NameIdentifier, userId.Value.ToString())], "TestAuth"))
-                        : new ClaimsPrincipal()
-                }
-            }
-        };
-        return controller;
-    }
-
-    private static ProjectScheduleController BuildTopLevelController(
-        IProjectScheduleService service,
-        Guid? userId = null)
-    {
-        var controller = new ProjectScheduleController(service)
         {
             ControllerContext = new ControllerContext
             {

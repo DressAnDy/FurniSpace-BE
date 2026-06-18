@@ -4,13 +4,14 @@ using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
+using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FurniSpace.API.Controllers;
 
 [Authorize]
-[Route("projects/{projectId:guid}/schedules")]
+[Route("project-schedules")]
 public sealed class ProjectSchedulesController : BaseApiController
 {
     private readonly IProjectScheduleService _schedules;
@@ -21,7 +22,7 @@ public sealed class ProjectSchedulesController : BaseApiController
     }
 
     [Authorize(Roles = "SALES,ADMIN")]
-    [HttpPost]
+    [HttpPost("{projectId:guid}")]
     public async Task<IActionResult> Create(
         Guid projectId,
         [FromBody] CreateProjectScheduleRequestDto request,
@@ -39,7 +40,7 @@ public sealed class ProjectSchedulesController : BaseApiController
     [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
     [HttpGet]
     public async Task<IActionResult> GetList(
-        Guid projectId,
+        [FromQuery] Guid projectId,
         [FromQuery] ProjectScheduleListQueryDto query,
         CancellationToken cancellationToken = default)
     {
@@ -54,6 +55,85 @@ public sealed class ProjectSchedulesController : BaseApiController
             query,
             cancellationToken);
 
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
+    [HttpGet("my-assigned")]
+    public async Task<IActionResult> GetMyAssigned(
+        [FromQuery] ProjectScheduleType? scheduleType = null,
+        [FromQuery] ProjectScheduleStatus? status = null,
+        [FromQuery] DateTime? from = null,
+        [FromQuery] DateTime? to = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _schedules.GetMyAssignedAsync(
+            currentUserId,
+            new ProjectScheduleListQueryDto
+            {
+                ScheduleType = scheduleType,
+                Status = status,
+                From = from,
+                To = to,
+                Page = page,
+                Limit = limit
+            },
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [HttpGet("{scheduleId:guid}")]
+    public async Task<IActionResult> GetDetail(
+        Guid scheduleId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _schedules.GetDetailAsync(scheduleId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("{scheduleId:guid}")]
+    public async Task<IActionResult> Update(
+        Guid scheduleId,
+        [FromBody] UpdateProjectScheduleRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _schedules.UpdateAsync(scheduleId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [HttpPatch("{scheduleId:guid}/status")]
+    public async Task<IActionResult> UpdateStatus(
+        Guid scheduleId,
+        [FromBody] UpdateProjectScheduleStatusRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _schedules.UpdateStatusAsync(scheduleId, currentUserId, request, cancellationToken);
         return ToActionResult(result);
     }
 

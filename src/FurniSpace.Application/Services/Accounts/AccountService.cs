@@ -22,6 +22,8 @@ public sealed class AccountService : IAccountService
     private const string AccountNotFoundCode = "ACCOUNT_NOT_FOUND";
     private const string AccountDetailRetrievedMessage = "Account detail retrieved successfully.";
     private const string ProfileUpdatedMessage = "Profile updated successfully.";
+    private const string AvailableDesignersRetrievedMessage = "Available designers retrieved successfully.";
+    private const int MaxActiveDesignerProjects = 2;
     private static readonly TimeSpan AccountItemCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(2);
 
@@ -157,6 +159,40 @@ public sealed class AccountService : IAccountService
         var dto = account.Adapt<MyProfileDto>();
         dto.Role = await _accounts.GetRoleNameAsync(account.RoleId, cancellationToken) ?? string.Empty;
         return ServiceResult<MyProfileDto>.Success(dto, ProfileUpdatedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<AvailableDesignerDto>>> GetAvailableDesignersAsync(
+        AvailableDesignerQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest("Page must be greater than zero.");
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest("Page size must be between 1 and 100.");
+        }
+
+        var normalizedSearch = NormalizeOptional(query.Search);
+        var designers = await _accounts.GetAvailableDesignersAsync(
+            query.Page,
+            query.PageSize,
+            MaxActiveDesignerProjects,
+            normalizedSearch,
+            cancellationToken);
+        var totalItems = await _accounts.CountAvailableDesignersAsync(
+            MaxActiveDesignerProjects,
+            normalizedSearch,
+            cancellationToken);
+        var data = PagedResult<AvailableDesignerDto>.Create(
+            designers.Adapt<List<AvailableDesignerDto>>(),
+            query.Page,
+            query.PageSize,
+            totalItems);
+
+        return ServiceResult<PagedResult<AvailableDesignerDto>>.Success(data, AvailableDesignersRetrievedMessage);
     }
 
     public async Task<ServiceResult<PagedResult<AccountDto>>> GetPagedAsync(

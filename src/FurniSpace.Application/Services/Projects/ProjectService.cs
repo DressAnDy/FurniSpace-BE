@@ -25,6 +25,7 @@ public sealed class ProjectService : IProjectService
     private const string AuthenticatedAccountIdRequiredMessage = "Authenticated account id is required.";
     private const string ProjectIdRequiredMessage = "Project id is required.";
     private const string ProjectNotFoundMessage = "Project not found.";
+    private static readonly string[] ProjectSubmittedReceiverRoles = [SalesRole, AdminRole];
     private static readonly Dictionary<ProjectStatus, int> ProjectStatusRanks = new()
     {
         [ProjectStatus.SUBMITTED] = 10,
@@ -114,11 +115,222 @@ public sealed class ProjectService : IProjectService
 
         await _projects.AddAsync(project, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _projects.SaveChangesAsync(cancellationToken);
         await DispatchProjectSubmittedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectDto>.Created(
             project.Adapt<ProjectDto>(),
             "Project request submitted successfully.");
+    }
+
+    private async Task DispatchProjectSubmittedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var receiverIds = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+                ProjectSubmittedReceiverRoles,
+                cancellationToken);
+            if (receiverIds.Count == 0)
+            {
+                return;
+            }
+
+            var customerName = await _projects.GetAccountFullNameAsync(project.CustomerId, cancellationToken) ?? "Customer";
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectRequestSubmitted,
+                new Dictionary<string, string>
+                {
+                    ["CustomerName"] = customerName,
+                    ["ProjectName"] = project.ProjectName
+                },
+                receiverIds,
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project request submitted notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectAcceptedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectRequestAccepted,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [project.CustomerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project request accepted notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectMoreInformationRequestedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectMoreInformationRequested,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [project.CustomerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project more information requested notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectBasicInformationUpdatedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || !project.AssignedSalesId.HasValue)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectBasicInformationUpdated,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [project.AssignedSalesId.Value],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project basic information updated notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectStatusChangedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var receiverIds = GetProjectParticipantIds(project);
+        if (receiverIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectStatusChanged,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName,
+                    ["Status"] = project.Status?.ToString() ?? string.Empty
+                },
+                receiverIds,
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project status changed notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectDesignerAssignedNotificationAsync(
+        Project project,
+        Guid designerId,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectDesignerAssigned,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [designerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project designer assigned notification for project {ProjectId}",
+                project.ProjectId);
+        }
     }
 
     public async Task<ServiceResult<ProjectListResponseDto>> GetListAsync(
@@ -246,6 +458,7 @@ public sealed class ProjectService : IProjectService
         project.SalesAssignedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _projects.SaveChangesAsync(cancellationToken);
         await DispatchProjectAcceptedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectSalesAssignmentDto>.Success(
@@ -296,6 +509,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = requestedAt;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _projects.SaveChangesAsync(cancellationToken);
         await DispatchProjectMoreInformationRequestedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectInformationRequestDto>.Success(
@@ -347,6 +561,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _projects.SaveChangesAsync(cancellationToken);
         if (shouldNotifyAssignedSales)
         {
             await DispatchProjectBasicInformationUpdatedNotificationAsync(project, cancellationToken);
@@ -408,6 +623,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _projects.SaveChangesAsync(cancellationToken);
         await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectStatusUpdateDto>.Success(
@@ -523,6 +739,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = project.DesignerAssignedAt;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _projects.SaveChangesAsync(cancellationToken);
         await DispatchProjectDesignerAssignedNotificationAsync(project, designer.AccountId, cancellationToken);
 
         return ServiceResult<ProjectDesignerAssignmentDto>.Success(

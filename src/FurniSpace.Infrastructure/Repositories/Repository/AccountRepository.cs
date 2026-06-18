@@ -10,6 +10,27 @@ namespace FurniSpace.Infrastructure.Repositories.Repository;
 
 public sealed class AccountRepository : GenericRepository<Account>, IAccountRepository
 {
+    private const string DesignerRoleName = "DESIGNER";
+
+    private static readonly ProjectStatus[] ActiveDesignerProjectStatuses =
+    [
+        ProjectStatus.IN_CONSULTATION,
+        ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT,
+        ProjectStatus.MEASUREMENT_REQUIRED,
+        ProjectStatus.SPACE_VERIFIED,
+        ProjectStatus.PROPOSAL_DRAFTING,
+        ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
+        ProjectStatus.REVISION_REQUESTED,
+        ProjectStatus.PROPOSAL_SELECTED,
+        ProjectStatus.QUOTATION_SENT,
+        ProjectStatus.ORDER_CONFIRMED,
+        ProjectStatus.IN_PRODUCTION,
+        ProjectStatus.PRODUCTION_BLOCKED,
+        ProjectStatus.READY_FOR_DELIVERY,
+        ProjectStatus.DELIVERING,
+        ProjectStatus.DELIVERED
+    ];
+
     public AccountRepository(AppDbContext dbContext) : base(dbContext)
     {
     }
@@ -75,6 +96,30 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<AvailableDesignerReadModel>> GetAvailableDesignersAsync(
+        int page,
+        int pageSize,
+        int maxActiveProjects,
+        string? search,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildAvailableDesignerQuery(maxActiveProjects, search)
+            .OrderBy(designer => designer.CurrentActiveProjectCount)
+            .ThenBy(designer => designer.FullName)
+            .ThenBy(designer => designer.Email)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountAvailableDesignersAsync(
+        int maxActiveProjects,
+        string? search,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildAvailableDesignerQuery(maxActiveProjects, search).CountAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Account>> GetPagedAsync(
         int page,
         int pageSize,
@@ -121,6 +166,48 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         }
 
         return query;
+    }
+
+    private IQueryable<AvailableDesignerReadModel> BuildAvailableDesignerQuery(
+        int maxActiveProjects,
+        string? search)
+    {
+        var query =
+            from account in Query()
+            join role in DbContext.RoleSet on account.RoleId equals role.RoleId
+            where role.RoleName == DesignerRoleName &&
+                account.Status == AccountStatus.ACTIVE &&
+                account.DeletedAt == null
+            let activeProjectCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedDesignerId == account.AccountId &&
+                project.Status.HasValue &&
+                ActiveDesignerProjectStatuses.Contains(project.Status.Value))
+            where activeProjectCount < maxActiveProjects
+            select new AvailableDesignerReadModel
+            {
+                AccountId = account.AccountId,
+                Email = account.Email,
+                FullName = account.FullName,
+                Phone = account.Phone,
+                AvatarUrl = account.AvatarUrl,
+                Status = account.Status,
+                CurrentActiveProjectCount = activeProjectCount,
+                MaxActiveProjects = maxActiveProjects,
+                AvailableSlot = maxActiveProjects - activeProjectCount,
+                CreatedAt = account.CreatedAt,
+                UpdatedAt = account.UpdatedAt
+            };
+
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            return query;
+        }
+
+        var pattern = BuildSearchPattern(search);
+        return query.Where(designer =>
+            EF.Functions.ILike(designer.Email, pattern) ||
+            EF.Functions.ILike(designer.FullName, pattern) ||
+            (designer.Phone != null && EF.Functions.ILike(designer.Phone, pattern)));
     }
 
     private static string BuildSearchPattern(string search)

@@ -1,6 +1,8 @@
+using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Domain.Entities;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Logging;
 
@@ -11,15 +13,18 @@ public sealed class NotificationDispatcher : INotificationDispatcher
     private readonly INotificationRepository _notifications;
     private readonly IRealtimeNotificationService _realtime;
     private readonly ILogger<NotificationDispatcher> _logger;
+    private readonly IUnitOfWork _unitOfWork;
 
     public NotificationDispatcher(
         INotificationRepository notifications,
         IRealtimeNotificationService realtime,
-        ILogger<NotificationDispatcher> logger)
+        ILogger<NotificationDispatcher> logger,
+        IUnitOfWork unitOfWork)
     {
         _notifications = notifications;
         _realtime = realtime;
         _logger = logger;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task DispatchAsync(
@@ -85,7 +90,7 @@ public sealed class NotificationDispatcher : INotificationDispatcher
             try
             {
                 await _notifications.AddAsync(notification, cancellationToken);
-                await _notifications.SaveChangesAsync(cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
             }
             catch (Exception exception)
             {

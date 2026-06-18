@@ -6,6 +6,7 @@ using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 using Microsoft.Extensions.Logging;
@@ -50,15 +51,18 @@ public sealed class ProjectService : IProjectService
     };
 
     private readonly IProjectRepository _projects;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<ProjectService>? _logger;
 
     public ProjectService(
         IProjectRepository projects,
+        IUnitOfWork unitOfWork,
         INotificationDispatcher? notifications = null,
         ILogger<ProjectService>? logger = null)
     {
         _projects = projects;
+        _unitOfWork = unitOfWork;
         _notifications = notifications;
         _logger = logger;
     }
@@ -110,7 +114,7 @@ public sealed class ProjectService : IProjectService
         };
 
         await _projects.AddAsync(project, cancellationToken);
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         await DispatchProjectSubmittedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectDto>.Created(
@@ -452,7 +456,7 @@ public sealed class ProjectService : IProjectService
         project.Status = ProjectStatus.IN_CONSULTATION;
         project.SalesAssignedAt = DateTime.UtcNow;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         await DispatchProjectAcceptedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectSalesAssignmentDto>.Success(
@@ -502,7 +506,7 @@ public sealed class ProjectService : IProjectService
         project.Status = ProjectStatus.NEED_BASIC_INFORMATION;
         project.UpdatedAt = requestedAt;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         await DispatchProjectMoreInformationRequestedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectInformationRequestDto>.Success(
@@ -553,7 +557,7 @@ public sealed class ProjectService : IProjectService
         ApplyBasicInformation(project, request);
         project.UpdatedAt = DateTime.UtcNow;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         if (shouldNotifyAssignedSales)
         {
             await DispatchProjectBasicInformationUpdatedNotificationAsync(project, cancellationToken);
@@ -614,7 +618,7 @@ public sealed class ProjectService : IProjectService
         project.Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT;
         project.UpdatedAt = DateTime.UtcNow;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectStatusUpdateDto>.Success(
@@ -667,7 +671,7 @@ public sealed class ProjectService : IProjectService
         project.RejectedAt = DateTime.UtcNow;
         project.UpdatedAt = project.RejectedAt;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProjectRejectionDto>.Success(
             project.Adapt<ProjectRejectionDto>(),
@@ -729,7 +733,7 @@ public sealed class ProjectService : IProjectService
         project.Status = ResolveDesignerAssignmentStatus(request.SpaceDataStatus!.Value);
         project.UpdatedAt = project.DesignerAssignedAt;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         await DispatchProjectDesignerAssignedNotificationAsync(project, designer.AccountId, cancellationToken);
 
         return ServiceResult<ProjectDesignerAssignmentDto>.Success(
@@ -1071,4 +1075,5 @@ public sealed class ProjectService : IProjectService
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
+
 }

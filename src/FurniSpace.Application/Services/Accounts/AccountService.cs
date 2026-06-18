@@ -5,6 +5,7 @@ using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Persistence;
 using Mapster;
 using System.Security.Cryptography;
 using System.Text;
@@ -28,6 +29,7 @@ public sealed class AccountService : IAccountService
 
     private readonly IAccountRepository _accounts;
     private readonly IAuthService _auth;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly InfrastructureCacheService _cache;
     private readonly InfrastructureSearchIndexService _search;
 
@@ -35,10 +37,12 @@ public sealed class AccountService : IAccountService
         IAccountRepository accounts,
         IAuthService auth,
         InfrastructureCacheService cache,
-        InfrastructureSearchIndexService search)
+        InfrastructureSearchIndexService search,
+        IUnitOfWork unitOfWork)
     {
         _accounts = accounts;
         _auth = auth;
+        _unitOfWork = unitOfWork;
         _cache = cache;
         _search = search;
     }
@@ -75,7 +79,7 @@ public sealed class AccountService : IAccountService
         };
 
         await _accounts.AddAsync(account, cancellationToken);
-        await _accounts.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var dto = account.Adapt<AccountDto>();
         await CacheAccountAsync(dto, cancellationToken);
@@ -145,7 +149,7 @@ public sealed class AccountService : IAccountService
         account.Phone = NormalizeOptional(request.Phone);
         account.UpdatedAt = DateTime.UtcNow;
 
-        await _accounts.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var accountDto = account.Adapt<AccountDto>();
         await CacheAccountAsync(accountDto, cancellationToken);
@@ -264,7 +268,7 @@ public sealed class AccountService : IAccountService
         account.AvatarUrl = NormalizeOptional(request.AvatarUrl);
         account.Status = NormalizeStatus(request.Status);
 
-        await _accounts.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         var dto = account.Adapt<AccountDto>();
         await CacheAccountAsync(dto, cancellationToken);
@@ -288,7 +292,7 @@ public sealed class AccountService : IAccountService
 
         account.DeletedAt = DateTime.UtcNow;
         account.Status = AccountStatus.INACTIVE;
-        await _accounts.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         await TryRemoveCacheAsync(AccountItemCacheKey(accountId), cancellationToken);
         await InvalidateAccountListsAsync(cancellationToken);

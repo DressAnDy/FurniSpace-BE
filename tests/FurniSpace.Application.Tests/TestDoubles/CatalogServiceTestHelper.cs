@@ -31,7 +31,8 @@ public static class CatalogServiceTestHelper
             files,
             storage ?? new NoOpFileStorageService(),
             Options.Create(DefaultUploadSettings()),
-            Options.Create(DefaultFirebaseSettings()));
+            Options.Create(DefaultFirebaseSettings()),
+            TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
     }
 
     public static ProductVersionService CreateProductVersionService(
@@ -44,7 +45,8 @@ public static class CatalogServiceTestHelper
             files,
             storage ?? new NoOpFileStorageService(),
             Options.Create(DefaultUploadSettings()),
-            Options.Create(DefaultFirebaseSettings()));
+            Options.Create(DefaultFirebaseSettings()),
+            TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync));
     }
 
     public static FileUploadSettings DefaultUploadSettings()

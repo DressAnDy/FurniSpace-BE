@@ -422,7 +422,8 @@ public sealed class ProjectFileServiceTests
             {
                 Bucket = "test-bucket",
                 ProjectFilesPrefix = "projects"
-            }));
+            }),
+            global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
     }
 
     private static UploadProjectFileRequestDto CreateUploadRequest(

@@ -3,6 +3,7 @@ using FurniSpace.Application.DTOs.Categories;
 using FurniSpace.Application.Interfaces.Categories;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Persistence;
 using Mapster;
 
 namespace FurniSpace.Application.Services.Categories;
@@ -10,10 +11,12 @@ namespace FurniSpace.Application.Services.Categories;
 public sealed class CategoryService : ICategoryService
 {
     private readonly ICategoryRepository _categories;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public CategoryService(ICategoryRepository categories)
+    public CategoryService(ICategoryRepository categories, IUnitOfWork unitOfWork)
     {
         _categories = categories;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<ServiceResult<CategoryDto>> CreateAsync(
@@ -41,7 +44,7 @@ public sealed class CategoryService : ICategoryService
         };
 
         await _categories.AddAsync(category, cancellationToken);
-        await _categories.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<CategoryDto>.Created(
             category.Adapt<CategoryDto>(),
@@ -80,7 +83,7 @@ public sealed class CategoryService : ICategoryService
         category.Description = NormalizeOptional(request.Description);
         category.Status ??= ProductStatus.ACTIVE;
 
-        await _categories.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<CategoryDto>.Success(
             category.Adapt<CategoryDto>(),

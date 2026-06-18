@@ -7,6 +7,7 @@ using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.AspNetCore.Identity;
 using InfrastructureCacheService = FurniSpace.Infrastructure.Interfaces.ICacheService;
@@ -19,6 +20,7 @@ public sealed class IdentityService : IIdentityService
     private static readonly TimeSpan EmailRateLimitWindow = TimeSpan.FromMinutes(5);
     private readonly IAccountRepository _accounts;
     private readonly IAuthService _auth;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly IPasswordHasher<Account> _passwordHasher;
     private readonly IPasswordResetStore _passwordResetStore;
     private readonly IEmailOtpStore _emailOtpStore;
@@ -34,10 +36,12 @@ public sealed class IdentityService : IIdentityService
         IEmailOtpStore emailOtpStore,
         IRefreshTokenStore refreshTokens,
         IEmailService email,
-        InfrastructureCacheService cache)
+        InfrastructureCacheService cache,
+        IUnitOfWork unitOfWork)
     {
         _accounts = accounts;
         _auth = auth;
+        _unitOfWork = unitOfWork;
         _passwordHasher = passwordHasher;
         _passwordResetStore = passwordResetStore;
         _emailOtpStore = emailOtpStore;
@@ -84,8 +88,13 @@ public sealed class IdentityService : IIdentityService
         };
         account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
 
-        await _accounts.AddAsync(account, cancellationToken);
-        await _accounts.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                await _accounts.AddAsync(account, ct);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
         await SendVerificationOtpAsync(account, cancellationToken);
 
         return ServiceResult.Created(new { account.AccountId, account.Email }, "Account registered. Please verify your email with the OTP sent to your inbox.");
@@ -122,8 +131,13 @@ public sealed class IdentityService : IIdentityService
             return ServiceResult<AuthResponseDto>.BadRequest("OTP code is invalid or expired.");
         }
 
-        account.Status = AccountStatus.ACTIVE;
-        await _accounts.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                account.Status = AccountStatus.ACTIVE;
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
 
         var role = await _accounts.GetRoleNameAsync(account.RoleId, cancellationToken);
         var session = await _auth.CreateSessionAsync(
@@ -193,8 +207,13 @@ public sealed class IdentityService : IIdentityService
 
         if (verificationResult == PasswordVerificationResult.SuccessRehashNeeded)
         {
-            activeAccount.PasswordHash = _passwordHasher.HashPassword(activeAccount, request.Password);
-            await _accounts.SaveChangesAsync(cancellationToken);
+            await ExecuteInTransactionAsync(
+                async ct =>
+                {
+                    activeAccount.PasswordHash = _passwordHasher.HashPassword(activeAccount, request.Password);
+                    await _unitOfWork.SaveChangesAsync(ct);
+                },
+                cancellationToken);
         }
 
         var role = await _accounts.GetRoleNameAsync(activeAccount.RoleId, cancellationToken);
@@ -296,8 +315,13 @@ public sealed class IdentityService : IIdentityService
             return ServiceResult.BadRequest("Reset token is invalid or expired.");
         }
 
-        account.PasswordHash = _passwordHasher.HashPassword(account, request.NewPassword);
-        await _accounts.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                account.PasswordHash = _passwordHasher.HashPassword(account, request.NewPassword);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
         await _refreshTokens.RevokeAllAsync(account.AccountId, cancellationToken);
         await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
         return ServiceResult.Success("Password reset successfully.");
@@ -337,9 +361,14 @@ public sealed class IdentityService : IIdentityService
             return ServiceResult<CurrentUserDto>.NotFound("Account not found.");
         }
 
-        account.FullName = request.FullName.Trim();
-        account.Phone = NormalizeOptional(request.Phone);
-        await _accounts.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                account.FullName = request.FullName.Trim();
+                account.Phone = NormalizeOptional(request.Phone);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
         return ServiceResult<CurrentUserDto>.Success(
             await ToCurrentUserAsync(account, cancellationToken),
             "Profile updated successfully.");
@@ -373,8 +402,13 @@ public sealed class IdentityService : IIdentityService
             return ServiceResult.Unauthorized("Current password is invalid.");
         }
 
-        account.PasswordHash = _passwordHasher.HashPassword(account, request.NewPassword);
-        await _accounts.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                account.PasswordHash = _passwordHasher.HashPassword(account, request.NewPassword);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
         await _refreshTokens.RevokeAllAsync(account.AccountId, cancellationToken);
         await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
         return ServiceResult.Success("Password changed successfully.");
@@ -471,5 +505,22 @@ public sealed class IdentityService : IIdentityService
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
         return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private async Task ExecuteInTransactionAsync(
+        Func<CancellationToken, Task> action,
+        CancellationToken cancellationToken)
+    {
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await action(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
     }
 }

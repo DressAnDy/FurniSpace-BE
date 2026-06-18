@@ -6,6 +6,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Storage;
 using Mapster;
@@ -24,6 +25,7 @@ public sealed class ProductService : IProductService
 
     private readonly IProductRepository _products;
     private readonly IProjectFileRepository _files;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
@@ -33,10 +35,12 @@ public sealed class ProductService : IProductService
         IProjectFileRepository files,
         IFileStorageService storage,
         IOptions<FileUploadSettings> uploadSettings,
-        IOptions<FirebaseStorageSettings> firebaseSettings)
+        IOptions<FirebaseStorageSettings> firebaseSettings,
+        IUnitOfWork unitOfWork)
     {
         _products = products;
         _files = files;
+        _unitOfWork = unitOfWork;
         _storage = storage;
         _uploadSettings = uploadSettings.Value;
         _firebaseSettings = firebaseSettings.Value;
@@ -74,7 +78,7 @@ public sealed class ProductService : IProductService
         };
 
         await _products.AddAsync(product, cancellationToken);
-        await _products.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         product.Status ??= ProductStatus.ACTIVE;
 
         return ServiceResult<ProductDto>.Created(product.Adapt<ProductDto>(), "Product master created successfully.");
@@ -112,7 +116,7 @@ public sealed class ProductService : IProductService
         product.Description = NormalizeOptional(request.Description);
         product.Status ??= ProductStatus.ACTIVE;
 
-        await _products.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProductDto>.Success(
             product.Adapt<ProductDto>(),
@@ -290,7 +294,7 @@ public sealed class ProductService : IProductService
 
         await _files.AddAsync(storedFile, cancellationToken);
         await _files.AddFileLinkAsync(fileLink, cancellationToken);
-        await _files.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<CatalogFileUploadResponseDto>.Created(
             new CatalogFileUploadResponseDto

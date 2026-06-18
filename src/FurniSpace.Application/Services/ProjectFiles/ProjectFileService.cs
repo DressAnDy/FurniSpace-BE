@@ -7,6 +7,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.DTOs.ProjectFiles;
 using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Storage;
 using Mapster;
@@ -65,6 +66,7 @@ public sealed class ProjectFileService : IProjectFileService
     private readonly IProjectFileRepository _projectFiles;
     private readonly IProductRepository _products;
     private readonly IProductVersionRepository _productVersions;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
@@ -75,11 +77,13 @@ public sealed class ProjectFileService : IProjectFileService
         IProductVersionRepository productVersions,
         IFileStorageService storage,
         IOptions<FileUploadSettings> uploadSettings,
-        IOptions<FirebaseStorageSettings> firebaseSettings)
+        IOptions<FirebaseStorageSettings> firebaseSettings,
+        IUnitOfWork unitOfWork)
     {
         _projectFiles = projectFiles;
         _products = products;
         _productVersions = productVersions;
+        _unitOfWork = unitOfWork;
         _storage = storage;
         _uploadSettings = uploadSettings.Value;
         _firebaseSettings = firebaseSettings.Value;
@@ -169,9 +173,22 @@ public sealed class ProjectFileService : IProjectFileService
             CreatedAt = now
         };
 
-        await _projectFiles.AddAsync(storedFile, cancellationToken);
-        await _projectFiles.AddFileLinkAsync(fileLink, cancellationToken);
-        await _projectFiles.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await ExecuteInTransactionAsync(
+                async ct =>
+                {
+                    await _projectFiles.AddAsync(storedFile, ct);
+                    await _projectFiles.AddFileLinkAsync(fileLink, ct);
+                    await _unitOfWork.SaveChangesAsync(ct);
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
+            throw;
+        }
 
         var response = new ProjectFileUploadResponseDto
         {
@@ -447,9 +464,14 @@ public sealed class ProjectFileService : IProjectFileService
         await _storage.DeleteAsync(file.StoragePath, cancellationToken);
 
         var fileLinks = await _projectFiles.GetFileLinkEntitiesByFileIdAsync(fileId, cancellationToken);
-        _projectFiles.RemoveFileLinks(fileLinks);
-        _projectFiles.Remove(file);
-        await _projectFiles.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                _projectFiles.RemoveFileLinks(fileLinks);
+                _projectFiles.Remove(file);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
 
         return ServiceResult<DeleteFileResponseDto>.Success(
             new DeleteFileResponseDto
@@ -501,10 +523,15 @@ public sealed class ProjectFileService : IProjectFileService
         }
 
         var archivedAt = DateTime.UtcNow;
-        file.Status = FileStatus.ARCHIVED;
-        file.ArchivedAt = archivedAt;
-        _projectFiles.Update(file);
-        await _projectFiles.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                file.Status = FileStatus.ARCHIVED;
+                file.ArchivedAt = archivedAt;
+                _projectFiles.Update(file);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
 
         return ServiceResult<ArchiveFileResponseDto>.Success(
             new ArchiveFileResponseDto
@@ -810,4 +837,20 @@ public sealed class ProjectFileService : IProjectFileService
             : referenceType.Trim().ToUpperInvariant();
     }
 
+    private async Task ExecuteInTransactionAsync(
+        Func<CancellationToken, Task> action,
+        CancellationToken cancellationToken)
+    {
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await action(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+    }
 }

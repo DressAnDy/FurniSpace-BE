@@ -448,7 +448,8 @@ public sealed class AccountServiceTests
             repository,
             new FakeAuthService(),
             new InMemoryCacheService(),
-            new FakeSearchIndexService());
+            new FakeSearchIndexService(),
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
     }
 
     private sealed class FakeAccountRepository : IAccountRepository

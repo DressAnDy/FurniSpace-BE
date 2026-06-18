@@ -869,48 +869,96 @@ public sealed class ProjectService : IProjectService
         Project project,
         CancellationToken cancellationToken)
     {
-        if (_notifications is null || !CanDispatchToReceiver(project.CustomerId))
+        if (_notifications is null)
         {
             return;
         }
 
-        await DispatchProjectNotificationAsync(
-            NotificationType.ProjectRequestSubmitted,
-            project,
-            [project.CustomerId],
-            cancellationToken);
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectRequestSubmitted,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [project.CustomerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project request submitted notification for project {ProjectId}",
+                project.ProjectId);
+        }
     }
 
     private async Task DispatchProjectAcceptedNotificationAsync(
         Project project,
         CancellationToken cancellationToken)
     {
-        if (_notifications is null || !CanDispatchToReceiver(project.CustomerId))
+        if (_notifications is null)
         {
             return;
         }
 
-        await DispatchProjectNotificationAsync(
-            NotificationType.ProjectRequestAccepted,
-            project,
-            [project.CustomerId],
-            cancellationToken);
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectRequestAccepted,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [project.CustomerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project request accepted notification for project {ProjectId}",
+                project.ProjectId);
+        }
     }
 
     private async Task DispatchProjectMoreInformationRequestedNotificationAsync(
         Project project,
         CancellationToken cancellationToken)
     {
-        if (_notifications is null || !CanDispatchToReceiver(project.CustomerId))
+        if (_notifications is null)
         {
             return;
         }
 
-        await DispatchProjectNotificationAsync(
-            NotificationType.ProjectMoreInformationRequested,
-            project,
-            [project.CustomerId],
-            cancellationToken);
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectMoreInformationRequested,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [project.CustomerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project more information requested notification for project {ProjectId}",
+                project.ProjectId);
+        }
     }
 
     private async Task DispatchProjectBasicInformationUpdatedNotificationAsync(
@@ -922,11 +970,27 @@ public sealed class ProjectService : IProjectService
             return;
         }
 
-        await DispatchProjectNotificationAsync(
-            NotificationType.ProjectBasicInformationUpdated,
-            project,
-            [project.AssignedSalesId.Value],
-            cancellationToken);
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectBasicInformationUpdated,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                [project.AssignedSalesId.Value],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project basic information updated notification for project {ProjectId}",
+                project.ProjectId);
+        }
     }
 
     private async Task DispatchProjectStatusChangedNotificationAsync(
@@ -944,11 +1008,28 @@ public sealed class ProjectService : IProjectService
             return;
         }
 
-        await DispatchProjectNotificationAsync(
-            NotificationType.ProjectStatusChanged,
-            project,
-            receiverIds,
-            cancellationToken);
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectStatusChanged,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName,
+                    ["Status"] = project.Status?.ToString() ?? string.Empty
+                },
+                receiverIds,
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project status changed notification for project {ProjectId}",
+                project.ProjectId);
+        }
     }
 
     private async Task DispatchProjectDesignerAssignedNotificationAsync(
@@ -956,25 +1037,7 @@ public sealed class ProjectService : IProjectService
         Guid designerId,
         CancellationToken cancellationToken)
     {
-        if (_notifications is null || !CanDispatchToReceiver(designerId))
-        {
-            return;
-        }
-
-        await DispatchProjectNotificationAsync(
-            NotificationType.ProjectDesignerAssigned,
-            project,
-            [designerId],
-            cancellationToken);
-    }
-
-    private async Task DispatchProjectNotificationAsync(
-        NotificationType type,
-        Project project,
-        IReadOnlyList<Guid> receiverIds,
-        CancellationToken cancellationToken)
-    {
-        if (_notifications is null || receiverIds.Count == 0)
+        if (_notifications is null)
         {
             return;
         }
@@ -982,32 +1045,23 @@ public sealed class ProjectService : IProjectService
         try
         {
             await _notifications.DispatchAsync(
-                type,
+                NotificationType.ProjectDesignerAssigned,
                 new Dictionary<string, string>
                 {
-                    ["ProjectName"] = project.ProjectName,
-                    ["CustomerName"] = project.CustomerId.ToString(),
-                    ["Reason"] = project.RejectionReason ?? string.Empty,
-                    ["Status"] = project.Status?.ToString() ?? string.Empty
+                    ["ProjectName"] = project.ProjectName
                 },
-                receiverIds,
+                [designerId],
                 project.ProjectId,
                 ProjectReferenceType,
                 project.ProjectId,
-                cancellationToken: cancellationToken);
+                cancellationToken);
         }
         catch (Exception exception)
         {
             _logger?.LogWarning(
                 exception,
-                "Failed to dispatch project notification {NotificationType} for project {ProjectId}",
-                type,
+                "Failed to dispatch project designer assigned notification for project {ProjectId}",
                 project.ProjectId);
         }
-    }
-
-    private static bool CanDispatchToReceiver(Guid receiverId)
-    {
-        return receiverId != Guid.Empty;
     }
 }

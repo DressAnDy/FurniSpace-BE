@@ -4,6 +4,7 @@ using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 
@@ -45,10 +46,12 @@ public sealed class ProjectService : IProjectService
     };
 
     private readonly IProjectRepository _projects;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public ProjectService(IProjectRepository projects)
+    public ProjectService(IProjectRepository projects, IUnitOfWork unitOfWork)
     {
         _projects = projects;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(
@@ -98,7 +101,7 @@ public sealed class ProjectService : IProjectService
         };
 
         await _projects.AddAsync(project, cancellationToken);
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProjectDto>.Created(
             project.Adapt<ProjectDto>(),
@@ -229,7 +232,7 @@ public sealed class ProjectService : IProjectService
         project.Status = ProjectStatus.IN_CONSULTATION;
         project.SalesAssignedAt = DateTime.UtcNow;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProjectSalesAssignmentDto>.Success(
             project.Adapt<ProjectSalesAssignmentDto>(),
@@ -278,7 +281,7 @@ public sealed class ProjectService : IProjectService
         project.Status = ProjectStatus.NEED_BASIC_INFORMATION;
         project.UpdatedAt = requestedAt;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProjectInformationRequestDto>.Success(
             project.Adapt<ProjectInformationRequestDto>(),
@@ -327,7 +330,7 @@ public sealed class ProjectService : IProjectService
         ApplyBasicInformation(project, request);
         project.UpdatedAt = DateTime.UtcNow;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProjectBasicInformationDto>.Success(
             project.Adapt<ProjectBasicInformationDto>(),
@@ -384,7 +387,7 @@ public sealed class ProjectService : IProjectService
         project.Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT;
         project.UpdatedAt = DateTime.UtcNow;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProjectStatusUpdateDto>.Success(
             project.Adapt<ProjectStatusUpdateDto>(),
@@ -436,7 +439,7 @@ public sealed class ProjectService : IProjectService
         project.RejectedAt = DateTime.UtcNow;
         project.UpdatedAt = project.RejectedAt;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProjectRejectionDto>.Success(
             project.Adapt<ProjectRejectionDto>(),
@@ -498,7 +501,7 @@ public sealed class ProjectService : IProjectService
         project.Status = ResolveDesignerAssignmentStatus(request.SpaceDataStatus!.Value);
         project.UpdatedAt = project.DesignerAssignedAt;
 
-        await _projects.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProjectDesignerAssignmentDto>.Success(
             new ProjectDesignerAssignmentDto

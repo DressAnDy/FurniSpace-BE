@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 
 using System;
 using System.Collections.Generic;
@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Categories;
 using FurniSpace.Application.Services.Categories;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -20,7 +21,7 @@ public sealed class CategoryServiceTests
     public async Task CreateAsync_WithValidRequest_CreatesActiveCategory()
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
         var request = new CreateCategoryRequestDto
         {
             CategoryName = " Lighting ",
@@ -46,7 +47,7 @@ public sealed class CategoryServiceTests
     public async Task CreateAsync_WithBlankDescription_CreatesCategoryWithNullDescription()
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
 
         var result = await service.CreateAsync(new CreateCategoryRequestDto
         {
@@ -65,7 +66,7 @@ public sealed class CategoryServiceTests
     public async Task CreateAsync_WithMissingCategoryName_ReturnsBadRequest(string categoryName)
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
 
         var result = await service.CreateAsync(new CreateCategoryRequestDto
         {
@@ -86,7 +87,7 @@ public sealed class CategoryServiceTests
     public async Task CreateAsync_WithTooLongCategoryName_ReturnsBadRequest()
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.CreateAsync(new CreateCategoryRequestDto
         {
@@ -112,7 +113,7 @@ public sealed class CategoryServiceTests
                 Status = ProductStatus.ACTIVE
             }
         ]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.CreateAsync(new CreateCategoryRequestDto
         {
@@ -141,7 +142,7 @@ public sealed class CategoryServiceTests
                 Status = ProductStatus.ACTIVE
             }
         ]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
 
         var result = await service.UpdateAsync(categoryId, new UpdateCategoryRequestDto
         {
@@ -174,7 +175,7 @@ public sealed class CategoryServiceTests
                 Status = null
             }
         ]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.UpdateAsync(categoryId, new UpdateCategoryRequestDto
         {
@@ -192,7 +193,7 @@ public sealed class CategoryServiceTests
     public async Task UpdateAsync_WithEmptyCategoryId_ReturnsBadRequest()
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.UpdateAsync(Guid.Empty, new UpdateCategoryRequestDto
         {
@@ -212,7 +213,7 @@ public sealed class CategoryServiceTests
     public async Task UpdateAsync_WithMissingCategoryName_ReturnsBadRequest(string categoryName)
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateCategoryRequestDto
         {
@@ -231,7 +232,7 @@ public sealed class CategoryServiceTests
     public async Task UpdateAsync_WithTooLongCategoryName_ReturnsBadRequest()
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateCategoryRequestDto
         {
@@ -249,7 +250,7 @@ public sealed class CategoryServiceTests
     public async Task UpdateAsync_WithMissingCategory_ReturnsNotFound()
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.UpdateAsync(Guid.NewGuid(), new UpdateCategoryRequestDto
         {
@@ -273,7 +274,7 @@ public sealed class CategoryServiceTests
             new Category { CategoryId = categoryId, CategoryName = "Lighting", Status = ProductStatus.ACTIVE },
             new Category { CategoryId = Guid.NewGuid(), CategoryName = "Decor", Status = ProductStatus.ACTIVE }
         ]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.UpdateAsync(categoryId, new UpdateCategoryRequestDto
         {
@@ -308,7 +309,7 @@ public sealed class CategoryServiceTests
                 Status = ProductStatus.INACTIVE
             }
         ]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.GetAllAsync(page: 1, limit: 20);
 
@@ -340,7 +341,7 @@ public sealed class CategoryServiceTests
             new Category { CategoryId = Guid.NewGuid(), CategoryName = "B", Status = ProductStatus.ACTIVE },
             new Category { CategoryId = Guid.NewGuid(), CategoryName = "C", Status = ProductStatus.ACTIVE }
         ]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.GetAllAsync(page: 2, limit: 2);
 
@@ -357,7 +358,7 @@ public sealed class CategoryServiceTests
     public async Task GetAllAsync_WithInvalidPage_ReturnsBadRequest(int page)
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.GetAllAsync(page, limit: 20);
 
@@ -375,7 +376,7 @@ public sealed class CategoryServiceTests
     public async Task GetAllAsync_WithInvalidLimit_ReturnsBadRequest(int limit)
     {
         var repository = new FakeCategoryRepository([]);
-        var service = new CategoryService(repository);
+        var service = new CategoryService(repository, TestUnitOfWork.Instance);
 
         var result = await service.GetAllAsync(page: 1, limit: limit);
 

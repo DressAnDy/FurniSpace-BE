@@ -6,6 +6,7 @@ using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 
@@ -23,15 +24,18 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectRepository _projects;
     private readonly INotificationDispatcher _dispatcher;
+    private readonly IUnitOfWork _unitOfWork;
 
     public ProjectScheduleService(
         IProjectScheduleRepository schedules,
         IProjectRepository projects,
-        INotificationDispatcher dispatcher)
+        INotificationDispatcher dispatcher,
+        IUnitOfWork unitOfWork)
     {
         _schedules = schedules;
         _projects = projects;
         _dispatcher = dispatcher;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<ServiceResult<ProjectScheduleDto>> CreateAsync(
@@ -97,8 +101,13 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             UpdatedAt = now
         };
 
-        await _schedules.AddAsync(schedule, cancellationToken);
-        await _schedules.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                await _schedules.AddAsync(schedule, ct);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
 
         await DispatchScheduleCreatedAsync(schedule, project, cancellationToken);
 
@@ -220,8 +229,13 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         schedule.UpdatedAt = DateTime.UtcNow;
 
-        _schedules.Update(schedule);
-        await _schedules.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                _schedules.Update(schedule);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
 
         var updatedDetail = new ProjectScheduleDetailReadModel
         {
@@ -281,8 +295,13 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             schedule.CancelledAt = now;
         }
 
-        _schedules.Update(schedule);
-        await _schedules.SaveChangesAsync(cancellationToken);
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                _schedules.Update(schedule);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
 
         await DispatchStatusChangedAsync(schedule, detail, newStatus, cancellationToken);
 
@@ -656,5 +675,22 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (detail.AssignedDesignerId.HasValue) receivers.Add(detail.AssignedDesignerId.Value);
         if (schedule.AssignedStaffId.HasValue) receivers.Add(schedule.AssignedStaffId.Value);
         return [.. receivers];
+    }
+
+    private async Task ExecuteInTransactionAsync(
+        Func<CancellationToken, Task> action,
+        CancellationToken cancellationToken)
+    {
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await action(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
     }
 }

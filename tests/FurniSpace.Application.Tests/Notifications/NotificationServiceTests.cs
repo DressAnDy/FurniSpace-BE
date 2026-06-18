@@ -1,4 +1,4 @@
-#nullable enable
+﻿#nullable enable
 
 using System;
 using System.Collections.Generic;
@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Notifications;
 using FurniSpace.Application.Services.Notifications;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
@@ -18,7 +19,7 @@ public sealed class NotificationServiceTests
     [Fact]
     public async Task GetMyNotificationsAsync_ReturnsUnauthorized_WhenUserIdIsEmpty()
     {
-        var service = new NotificationService(new FakeNotificationRepository());
+        var service = new NotificationService(new FakeNotificationRepository(), TestUnitOfWork.Instance);
 
         var result = await service.GetMyNotificationsAsync(Guid.Empty, null, 1, 20);
 
@@ -28,7 +29,7 @@ public sealed class NotificationServiceTests
     [Fact]
     public async Task GetMyNotificationsAsync_ReturnsBadRequest_WhenPageIsZero()
     {
-        var service = new NotificationService(new FakeNotificationRepository());
+        var service = new NotificationService(new FakeNotificationRepository(), TestUnitOfWork.Instance);
 
         var result = await service.GetMyNotificationsAsync(Guid.NewGuid(), null, page: 0, limit: 20);
 
@@ -38,7 +39,7 @@ public sealed class NotificationServiceTests
     [Fact]
     public async Task GetMyNotificationsAsync_ReturnsBadRequest_WhenLimitExceedsMax()
     {
-        var service = new NotificationService(new FakeNotificationRepository());
+        var service = new NotificationService(new FakeNotificationRepository(), TestUnitOfWork.Instance);
 
         var result = await service.GetMyNotificationsAsync(Guid.NewGuid(), null, page: 1, limit: 101);
 
@@ -51,7 +52,7 @@ public sealed class NotificationServiceTests
         var userId = Guid.NewGuid();
         var notification = CreateNotification(userId);
         var repo = new FakeNotificationRepository(pagedItems: [notification], pagedTotal: 1);
-        var service = new NotificationService(repo);
+        var service = new NotificationService(repo, TestUnitOfWork.Instance);
 
         var result = await service.GetMyNotificationsAsync(userId, isUnread: true, page: 2, limit: 10);
 
@@ -70,7 +71,7 @@ public sealed class NotificationServiceTests
     [Fact]
     public async Task GetUnreadCountAsync_ReturnsUnauthorized_WhenUserIdIsEmpty()
     {
-        var service = new NotificationService(new FakeNotificationRepository());
+        var service = new NotificationService(new FakeNotificationRepository(), TestUnitOfWork.Instance);
 
         var result = await service.GetUnreadCountAsync(Guid.Empty);
 
@@ -82,7 +83,7 @@ public sealed class NotificationServiceTests
     {
         var userId = Guid.NewGuid();
         var repo = new FakeNotificationRepository(unreadCount: 5);
-        var service = new NotificationService(repo);
+        var service = new NotificationService(repo, TestUnitOfWork.Instance);
 
         var result = await service.GetUnreadCountAsync(userId);
 
@@ -94,7 +95,7 @@ public sealed class NotificationServiceTests
     [Fact]
     public async Task MarkAsReadAsync_ReturnsUnauthorized_WhenUserIdIsEmpty()
     {
-        var service = new NotificationService(new FakeNotificationRepository());
+        var service = new NotificationService(new FakeNotificationRepository(), TestUnitOfWork.Instance);
 
         var result = await service.MarkAsReadAsync(Guid.NewGuid(), Guid.Empty);
 
@@ -104,7 +105,7 @@ public sealed class NotificationServiceTests
     [Fact]
     public async Task MarkAsReadAsync_ReturnsBadRequest_WhenNotificationIdIsEmpty()
     {
-        var service = new NotificationService(new FakeNotificationRepository());
+        var service = new NotificationService(new FakeNotificationRepository(), TestUnitOfWork.Instance);
 
         var result = await service.MarkAsReadAsync(Guid.Empty, Guid.NewGuid());
 
@@ -115,7 +116,7 @@ public sealed class NotificationServiceTests
     public async Task MarkAsReadAsync_ReturnsNotFound_WhenNotificationDoesNotExist()
     {
         var repo = new FakeNotificationRepository(activeNotification: null);
-        var service = new NotificationService(repo);
+        var service = new NotificationService(repo, TestUnitOfWork.Instance);
 
         var result = await service.MarkAsReadAsync(Guid.NewGuid(), Guid.NewGuid());
 
@@ -128,7 +129,7 @@ public sealed class NotificationServiceTests
         var userId = Guid.NewGuid();
         var notification = CreateNotification(userId, isRead: true);
         var repo = new FakeNotificationRepository(activeNotification: notification);
-        var service = new NotificationService(repo);
+        var service = new NotificationService(repo, TestUnitOfWork.ForSaveChanges(repo.SaveChangesAsync));
 
         var result = await service.MarkAsReadAsync(notification.NotificationId, userId);
 
@@ -144,7 +145,7 @@ public sealed class NotificationServiceTests
         var userId = Guid.NewGuid();
         var notification = CreateNotification(userId, isRead: false);
         var repo = new FakeNotificationRepository(activeNotification: notification);
-        var service = new NotificationService(repo);
+        var service = new NotificationService(repo, TestUnitOfWork.ForSaveChanges(repo.SaveChangesAsync));
 
         var result = await service.MarkAsReadAsync(notification.NotificationId, userId);
 
@@ -160,7 +161,7 @@ public sealed class NotificationServiceTests
     [Fact]
     public async Task MarkAllAsReadAsync_ReturnsUnauthorized_WhenUserIdIsEmpty()
     {
-        var service = new NotificationService(new FakeNotificationRepository());
+        var service = new NotificationService(new FakeNotificationRepository(), TestUnitOfWork.Instance);
 
         var result = await service.MarkAllAsReadAsync(Guid.Empty);
 
@@ -172,7 +173,7 @@ public sealed class NotificationServiceTests
     {
         var userId = Guid.NewGuid();
         var repo = new FakeNotificationRepository();
-        var service = new NotificationService(repo);
+        var service = new NotificationService(repo, TestUnitOfWork.Instance);
 
         var result = await service.MarkAllAsReadAsync(userId);
 

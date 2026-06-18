@@ -2,6 +2,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Persistence;
 using Mapster;
 
 namespace FurniSpace.Application.Services.Notifications;
@@ -12,10 +13,12 @@ public sealed class NotificationService : INotificationService
     private const string NotificationNotFoundMessage = "Notification not found.";
 
     private readonly INotificationRepository _notifications;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public NotificationService(INotificationRepository notifications)
+    public NotificationService(INotificationRepository notifications, IUnitOfWork unitOfWork)
     {
         _notifications = notifications;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<ServiceResult<NotificationListResponseDto>> GetMyNotificationsAsync(
@@ -100,7 +103,7 @@ public sealed class NotificationService : INotificationService
         var now = DateTime.UtcNow;
         notification.IsRead = true;
         notification.ReadAt = now;
-        await _notifications.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<MarkNotificationReadDto>.Success(
             new MarkNotificationReadDto

@@ -7,6 +7,7 @@ using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Email;
 using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using FurniSpace.Infrastructure.Search;
@@ -57,6 +58,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IProjectScheduleRepository, ProjectScheduleRepository>();
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<IFileStorageService, FirebaseStorageService>();
 

@@ -432,7 +432,11 @@ public sealed class ProjectScheduleServiceTests
         scheduleRepo ??= new FakeProjectScheduleRepository(detail: scheduleDetail);
         var projectRepo = new FakeProjectRepository(role: role, detail: projectDetail);
         dispatcher ??= new FakeNotificationDispatcher();
-        return new ProjectScheduleService(scheduleRepo, projectRepo, dispatcher);
+        return new ProjectScheduleService(
+            scheduleRepo,
+            projectRepo,
+            dispatcher,
+            global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(scheduleRepo.SaveChangesAsync));
     }
 
     private static CreateProjectScheduleRequestDto ValidCreateRequest() => new()

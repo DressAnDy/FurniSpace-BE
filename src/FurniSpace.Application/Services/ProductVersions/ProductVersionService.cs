@@ -7,6 +7,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Storage;
 using Mapster;
@@ -29,6 +30,7 @@ public sealed class ProductVersionService : IProductVersionService
 
     private readonly IProductVersionRepository _productVersions;
     private readonly IProjectFileRepository _files;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
@@ -38,10 +40,12 @@ public sealed class ProductVersionService : IProductVersionService
         IProjectFileRepository files,
         IFileStorageService storage,
         IOptions<FileUploadSettings> uploadSettings,
-        IOptions<FirebaseStorageSettings> firebaseSettings)
+        IOptions<FirebaseStorageSettings> firebaseSettings,
+        IUnitOfWork unitOfWork)
     {
         _productVersions = productVersions;
         _files = files;
+        _unitOfWork = unitOfWork;
         _storage = storage;
         _uploadSettings = uploadSettings.Value;
         _firebaseSettings = firebaseSettings.Value;
@@ -98,7 +102,7 @@ public sealed class ProductVersionService : IProductVersionService
         }
 
         await _productVersions.AddAsync(productVersion, cancellationToken);
-        await _productVersions.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
         productVersion.Status ??= ProductStatus.ACTIVE;
 
         return ServiceResult<ProductVersionDto>.Created(
@@ -149,7 +153,7 @@ public sealed class ProductVersionService : IProductVersionService
             productVersion.IsDefault = request.IsDefault ?? false;
         }
 
-        await _productVersions.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProductVersionDto>.Success(
             ToVersionDto(productVersion),
@@ -173,7 +177,7 @@ public sealed class ProductVersionService : IProductVersionService
 
         await _productVersions.SetDefaultAsync(productVersion, cancellationToken);
         productVersion.IsDefault = true;
-        await _productVersions.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<SetDefaultProductVersionDto>.Success(
             new SetDefaultProductVersionDto
@@ -290,7 +294,7 @@ public sealed class ProductVersionService : IProductVersionService
 
         await _files.AddAsync(storedFile, cancellationToken);
         await _files.AddFileLinkAsync(fileLink, cancellationToken);
-        await _files.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<CatalogFileUploadResponseDto>.Created(
             new CatalogFileUploadResponseDto

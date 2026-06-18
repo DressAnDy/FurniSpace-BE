@@ -21,6 +21,7 @@ public sealed class ProjectService : IProjectService
     private const string SalesRole = "SALES";
     private const int MaxNoteLength = 1000;
     private const int MaxRejectionReasonLength = 1000;
+    private const string ProjectReferenceType = "PROJECT";
     private const string AuthenticatedAccountIdRequiredMessage = "Authenticated account id is required.";
     private const string ProjectIdRequiredMessage = "Project id is required.";
     private const string ProjectNotFoundMessage = "Project not found.";
@@ -341,10 +342,15 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectBasicInformationDto>.BadRequest("Project basic information cannot be updated from its current status.");
         }
 
+        var shouldNotifyAssignedSales = project.Status == ProjectStatus.NEED_BASIC_INFORMATION;
         ApplyBasicInformation(project, request);
         project.UpdatedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        if (shouldNotifyAssignedSales)
+        {
+            await DispatchProjectBasicInformationUpdatedNotificationAsync(project, cancellationToken);
+        }
 
         return ServiceResult<ProjectBasicInformationDto>.Success(
             project.Adapt<ProjectBasicInformationDto>(),
@@ -402,6 +408,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectStatusUpdateDto>.Success(
             project.Adapt<ProjectStatusUpdateDto>(),
@@ -516,6 +523,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = project.DesignerAssignedAt;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchProjectDesignerAssignedNotificationAsync(project, designer.AccountId, cancellationToken);
 
         return ServiceResult<ProjectDesignerAssignmentDto>.Success(
             new ProjectDesignerAssignmentDto
@@ -748,6 +756,23 @@ public sealed class ProjectService : IProjectService
         }
     }
 
+    private static IReadOnlyList<Guid> GetProjectParticipantIds(Project project)
+    {
+        var receiverIds = new List<Guid> { project.CustomerId };
+
+        if (project.AssignedSalesId.HasValue)
+        {
+            receiverIds.Add(project.AssignedSalesId.Value);
+        }
+
+        if (project.AssignedDesignerId.HasValue)
+        {
+            receiverIds.Add(project.AssignedDesignerId.Value);
+        }
+
+        return receiverIds.Distinct().ToList();
+    }
+
     private static bool CanUpdateBasicInformation(Project project, Guid currentUserId, string? roleName)
     {
         if (IsAdmin(roleName))
@@ -888,6 +913,61 @@ public sealed class ProjectService : IProjectService
             cancellationToken);
     }
 
+    private async Task DispatchProjectBasicInformationUpdatedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || !project.AssignedSalesId.HasValue)
+        {
+            return;
+        }
+
+        await DispatchProjectNotificationAsync(
+            NotificationType.ProjectBasicInformationUpdated,
+            project,
+            [project.AssignedSalesId.Value],
+            cancellationToken);
+    }
+
+    private async Task DispatchProjectStatusChangedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var receiverIds = GetProjectParticipantIds(project);
+        if (receiverIds.Count == 0)
+        {
+            return;
+        }
+
+        await DispatchProjectNotificationAsync(
+            NotificationType.ProjectStatusChanged,
+            project,
+            receiverIds,
+            cancellationToken);
+    }
+
+    private async Task DispatchProjectDesignerAssignedNotificationAsync(
+        Project project,
+        Guid designerId,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || !CanDispatchToReceiver(designerId))
+        {
+            return;
+        }
+
+        await DispatchProjectNotificationAsync(
+            NotificationType.ProjectDesignerAssigned,
+            project,
+            [designerId],
+            cancellationToken);
+    }
+
     private async Task DispatchProjectNotificationAsync(
         NotificationType type,
         Project project,
@@ -907,9 +987,12 @@ public sealed class ProjectService : IProjectService
                 {
                     ["ProjectName"] = project.ProjectName,
                     ["CustomerName"] = project.CustomerId.ToString(),
-                    ["Reason"] = project.RejectionReason ?? string.Empty
+                    ["Reason"] = project.RejectionReason ?? string.Empty,
+                    ["Status"] = project.Status?.ToString() ?? string.Empty
                 },
                 receiverIds,
+                project.ProjectId,
+                ProjectReferenceType,
                 project.ProjectId,
                 cancellationToken: cancellationToken);
         }

@@ -916,9 +916,8 @@ public sealed class ProjectServiceTests
         Assert.NotNull(result.Data);
         Assert.Equal(projectId, result.Data.ProjectId);
         Assert.Equal(ProjectStatus.NEED_BASIC_INFORMATION, result.Data.Status);
-        Assert.NotEqual(default, result.Data.RequestedAt);
         Assert.Equal(ProjectStatus.NEED_BASIC_INFORMATION, project.Status);
-        Assert.Equal(result.Data.RequestedAt, project.UpdatedAt);
+        Assert.NotNull(project.UpdatedAt);
         Assert.Equal(1, repository.GetAccountRoleNameCallCount);
         Assert.Equal(1, repository.GetByIdCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);

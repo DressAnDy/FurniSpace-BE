@@ -1,5 +1,7 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -7,6 +9,7 @@ using FurniSpace.Infrastructure.DTOs.Projects;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
+using Microsoft.Extensions.Logging;
 
 namespace FurniSpace.Application.Services.Projects;
 
@@ -47,11 +50,19 @@ public sealed class ProjectService : IProjectService
 
     private readonly IProjectRepository _projects;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationDispatcher? _notifications;
+    private readonly ILogger<ProjectService>? _logger;
 
-    public ProjectService(IProjectRepository projects, IUnitOfWork unitOfWork)
+    public ProjectService(
+        IProjectRepository projects,
+        IUnitOfWork unitOfWork,
+        INotificationDispatcher? notifications = null,
+        ILogger<ProjectService>? logger = null)
     {
         _projects = projects;
         _unitOfWork = unitOfWork;
+        _notifications = notifications;
+        _logger = logger;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(
@@ -102,6 +113,7 @@ public sealed class ProjectService : IProjectService
 
         await _projects.AddAsync(project, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchProjectSubmittedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectDto>.Created(
             project.Adapt<ProjectDto>(),
@@ -233,6 +245,7 @@ public sealed class ProjectService : IProjectService
         project.SalesAssignedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchProjectAcceptedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectSalesAssignmentDto>.Success(
             project.Adapt<ProjectSalesAssignmentDto>(),
@@ -282,6 +295,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = requestedAt;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchProjectMoreInformationRequestedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectInformationRequestDto>.Success(
             project.Adapt<ProjectInformationRequestDto>(),
@@ -824,5 +838,93 @@ public sealed class ProjectService : IProjectService
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private async Task DispatchProjectSubmittedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || !CanDispatchToReceiver(project.CustomerId))
+        {
+            return;
+        }
+
+        await DispatchProjectNotificationAsync(
+            NotificationType.ProjectRequestSubmitted,
+            project,
+            [project.CustomerId],
+            cancellationToken);
+    }
+
+    private async Task DispatchProjectAcceptedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || !CanDispatchToReceiver(project.CustomerId))
+        {
+            return;
+        }
+
+        await DispatchProjectNotificationAsync(
+            NotificationType.ProjectRequestAccepted,
+            project,
+            [project.CustomerId],
+            cancellationToken);
+    }
+
+    private async Task DispatchProjectMoreInformationRequestedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || !CanDispatchToReceiver(project.CustomerId))
+        {
+            return;
+        }
+
+        await DispatchProjectNotificationAsync(
+            NotificationType.ProjectMoreInformationRequested,
+            project,
+            [project.CustomerId],
+            cancellationToken);
+    }
+
+    private async Task DispatchProjectNotificationAsync(
+        NotificationType type,
+        Project project,
+        IReadOnlyList<Guid> receiverIds,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || receiverIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                type,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName,
+                    ["CustomerName"] = project.CustomerId.ToString(),
+                    ["Reason"] = project.RejectionReason ?? string.Empty
+                },
+                receiverIds,
+                project.ProjectId,
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project notification {NotificationType} for project {ProjectId}",
+                type,
+                project.ProjectId);
+        }
+    }
+
+    private static bool CanDispatchToReceiver(Guid receiverId)
+    {
+        return receiverId != Guid.Empty;
     }
 }

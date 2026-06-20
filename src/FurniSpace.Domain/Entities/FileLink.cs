@@ -11,6 +11,8 @@ public class FileLink
     public Guid ReferenceId { get; set; }
     public FileType? FileType { get; set; }
     public FileVisibility? Visibility { get; set; }
+    public bool? IsPrimary { get; set; }
+    public int? DisplayOrder { get; set; }
     public string? Description { get; set; }
     public Guid? CreatedBy { get; set; }
     public DateTime? CreatedAt { get; set; }

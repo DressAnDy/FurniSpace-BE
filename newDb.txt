@@ -1,0 +1,1381 @@
+// =========================================================
+// FURNISPACE DATABASE SCHEMA - DBML v2
+// FurniSpace là hệ thống nghiệp vụ của doanh nghiệp cung cấp
+// giải pháp nội thất / thiết kế không gian bán lẻ.
+// Ghi chú:
+// - Không dùng consultation_requests riêng, dùng projects.status để quản lý từ request đến hoàn tất.
+// - Không tách role Delivery Staff; Sales/Production phối hợp xử lý giao hàng.
+// - Không dùng bảng deliveries / delivery_items; giao hàng được tracking qua orders, order_items và project_schedules.
+// - Dữ liệu scene 2D/3D chi tiết lưu ở MongoDB, SQL chỉ lưu metadata và business items.
+// - File lưu qua files + file_links.
+// =========================================================
+
+
+// =========================================================
+// ENUMS
+// =========================================================
+
+Enum account_status {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+Enum project_status {
+  SUBMITTED                     // Khách đã gửi project request, đang chờ Sales nhận
+  IN_CONSULTATION               // Sales đang tư vấn/chat với khách
+  NEED_BASIC_INFORMATION        // Cần khách bổ sung thông tin cơ bản
+
+  WAITING_FOR_DESIGNER_ASSIGNMENT // Sales đã duyệt, đang chờ assign Designer
+  MEASUREMENT_REQUIRED          // Cần đo đạc/LiDAR vì dữ liệu chưa đủ
+  SPACE_VERIFIED                // Dữ liệu không gian đã đủ để làm layout
+
+  PROPOSAL_DRAFTING             // Designer đang tạo proposal 3D
+  WAITING_FOR_CUSTOMER_REVIEW   // Customer đang xem và so sánh các proposal
+  REVISION_REQUESTED            // Khách yêu cầu chỉnh sửa proposal
+  PROPOSAL_SELECTED             // Khách đã chọn proposal cuối cùng
+
+  QUOTATION_SENT                // Báo giá đã gửi cho khách
+  QUOTATION_REVISION_REQUESTED  // Khách yêu cầu chỉnh báo giá
+  ORDER_CONFIRMED               // Đơn hàng đã được tạo/xác nhận
+
+  IN_PRODUCTION                 // Đang sản xuất/chuẩn bị sản phẩm
+  PRODUCTION_BLOCKED            // Sản xuất bị chặn do vấn đề kỹ thuật/vật liệu/custom
+
+  READY_FOR_DELIVERY            // Sản phẩm đã sẵn sàng giao  
+  DELIVERING                    // Đang giao hàng
+  DELIVERED                     // Đã giao đủ, chờ hoàn tất/xác nhận cuối
+  COMPLETED                     // Project hoàn tất
+
+  REJECTED                      // Doanh nghiệp từ chối project request
+  
+}
+
+// Enum project_assignment_status {
+//   ACTIVE
+//   INACTIVE
+//   REASSIGNED
+//   CANCELLED
+// }
+
+// Enum project_assignment_role {
+//   SALES_CONSULTANT
+//   DESIGNER_STAFF
+//   PRODUCTION_STAFF
+//   ADMIN_SUPPORT
+// }
+
+Enum project_area_type {
+  STORE
+  FLOOR
+  ROOM
+  ZONE
+  OUTDOOR_AREA
+  OTHER
+}
+
+Enum project_area_status {
+  DRAFT
+  NEED_MEASUREMENT
+  MEASURED
+  VERIFIED
+  CANCELLED
+}
+
+Enum project_schedule_type {
+  MEASUREMENT                   // Lịch đo đạc/LiDAR
+  CONSULTATION                  // Lịch tư vấn nếu cần
+  DESIGN_REVIEW                 // Lịch review thiết kế nếu cần
+  DELIVERY                      // Lịch giao hàng; không dùng bảng delivery riêng
+  HANDOVER                      // Lịch bàn giao nếu cần
+  OTHER
+}
+
+Enum project_schedule_status {
+  PENDING_CONFIRMATION          // Đang chờ khách xác nhận lịch
+  CONFIRMED                     // Khách đã xác nhận lịch
+  COMPLETED                     // Lịch đã hoàn thành
+  CANCELLED                     // Lịch bị hủy
+}
+
+Enum proposal_status {
+  DRAFT                         // Bản nháp nội bộ, khách chưa thấy
+  PUBLISHED                     // Đã gửi/publish cho khách xem trong project
+  VIEWED                        // Khách đã mở xem proposal
+  SELECTED                      // Khách đã chọn proposal này
+  REVISION_REQUESTED            // Khách yêu cầu chỉnh sửa proposal
+  REJECTED                      // Khách từ chối proposal này
+  ARCHIVED                      // Proposal cũ/không dùng nữa
+}
+
+Enum proposal_scene_type {
+  TWO_D
+  THREE_D
+}
+
+Enum customization_status {
+  SUBMITTED                     // Customer đã gửi yêu cầu customize
+  DESIGN_REVIEWING              // Designer đang review và tạo bản vẽ/spec
+  WAITING_FOR_DESIGN_APPROVAL   // Chờ Customer duyệt bản vẽ/spec custom
+  DESIGN_REVISION_REQUESTED     // Customer yêu cầu chỉnh lại bản vẽ/spec
+
+  PRODUCTION_REVIEWING          // Production kiểm tra khả thi sau khi Customer duyệt bản vẽ
+  NOT_FEASIBLE                  // Production không chấp nhận phương án hiện tại, Designer cần chỉnh/vẽ lại
+
+  ACCEPTED                      // Customization đã được Customer duyệt và Production xác nhận khả thi
+  REJECTED_BY_CUSTOMER          // Customer từ chối bản vẽ/spec custom
+  CANCELLED                     // Yêu cầu customize bị hủy
+}
+
+
+Enum quotation_status {
+  DRAFT
+  SENT
+  REVISION_REQUESTED
+  REVISED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+Enum order_status {
+  CREATED                       // Order vừa được tạo từ accepted quotation
+  DEPOSIT_PENDING               // Chờ khách thanh toán đặt cọc
+  DEPOSIT_PAID                  // Khách đã thanh toán đặt cọc, chuẩn bị vào production
+
+  IN_PRODUCTION                 // Đang sản xuất/chuẩn bị sản phẩm
+  PRODUCTION_PARTIALLY_FAILED   // Có item không sản xuất được, order vẫn tiếp tục với phần còn lại
+  PRODUCTION_COMPLETED          // Các item có thể sản xuất đã hoàn tất
+
+  READY_FOR_DELIVERY            // Sẵn sàng giao hàng
+  DELIVERY_SCHEDULED            // Đã lên lịch giao
+  DELIVERING                    // Đang giao
+  DELIVERED                     // Đã giao đủ các item khả dụng
+
+  FINAL_PAYMENT_PENDING         // Chờ khách thanh toán phần còn lại sau điều chỉnh
+  COMPLETED                     // Khách đã xác nhận/đơn hàng hoàn tất
+
+  CANCELLED
+}
+
+Enum order_item_status {
+  PENDING
+  IN_PRODUCTION
+  READY
+  UNAVAILABLE                  // Không làm được / không chuẩn bị được
+  DELIVERED
+  CANCELLED
+}
+
+Enum payment_status {
+  PENDING         // Chưa thanh toán
+  PROCESSING      // Đang xử lý thanh toán
+  PAID            // Đã thanh toán đủ
+  PARTIALLY_PAID  // Đã thanh toán một phần
+  FAILED          // Thanh toán thất bại
+  CANCELLED       // Khoản thanh toán bị hủy
+  REFUNDED        // Đã hoàn tiền
+}
+
+Enum payment_type {
+  DEPOSIT                       // Tiền đặt cọc
+  REMAINING_PAYMENT             // Tiền còn lại
+  FULL_PAYMENT                  // Thanh toán toàn bộ
+  MEASUREMENT_FEE               // Phí đo đạc/LiDAR
+  DESIGN_FEE                    // Phí thiết kế/proposal
+  CUSTOMIZATION_FEE             // Phí tùy chỉnh sản phẩm
+  DELIVERY_FEE                  // Phí giao hàng
+  CANCELLATION_FEE              // Phí hủy nếu có
+  REFUND // Khoản hoàn tiền cần trả lại cho khách hàng
+  OTHER
+}
+
+Enum payment_transaction_type {
+  CHARGE      // Giao dịch thu tiền từ khách hàng
+  REFUND      // Giao dịch hoàn tiền lại cho khách hàng
+  ADJUSTMENT  // Giao dịch điều chỉnh tiền, ví dụ bù/trừ do thay đổi đơn hàng
+}
+
+Enum payment_transaction_status {
+  PENDING    // Giao dịch đang chờ xử lý
+  SUCCESS    // Giao dịch thành công
+  FAILED     // Giao dịch thất bại
+  CANCELLED  // Giao dịch bị hủy
+}
+
+Enum production_request_status {
+  PENDING_REVIEW
+  FEASIBLE
+  IN_PRODUCTION
+  COMPLETED
+  BLOCKED
+  CANCELLED
+}
+
+Enum production_item_status {
+  PENDING
+  IN_PRODUCTION
+  COMPLETED
+  BLOCKED
+  CANCELLED
+}
+
+Enum notification_status {
+  UNREAD
+  READ
+}
+
+Enum project_chat_type {
+  SALES                         // Khung chat với Sales
+  DESIGNER                      // Khung chat với Designer
+  PRODUCTION                    // Khung chat liên quan sản xuất
+  DELIVERY                      // Topic giao hàng, staff phụ trách thường là Sales
+  GENERAL                       // Khung chat chung nếu cần
+  INTERNAL                      // Chat/note nội bộ nhân viên
+}
+
+Enum project_chat_status {
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+Enum project_chat_message_type {
+  TEXT
+  FILE
+  SYSTEM
+}
+
+Enum file_status {
+  ACTIVE      // File đang sử dụng bình thường
+  ARCHIVED    // File đã được lưu trữ, không còn dùng chính trong workflow
+}
+
+Enum file_visibility {
+  CUSTOMER_VISIBLE    // Khách và staff đều xem được
+  STAFF_ONLY          // Chỉ nhân viên nội bộ xem được
+  PRIVATE             // Chỉ người upload/admin xem được
+}
+
+Enum file_type {
+  SPACE_IMAGE                   // Ảnh hiện trạng mặt bằng
+  FLOOR_PLAN                    // Mặt bằng/floor plan
+  REFERENCE_IMAGE               // Ảnh tham khảo
+  BRAND_ASSET                   // Logo/menu/brand asset
+  CAD_FILE                      // File CAD
+  PDF_DRAWING                   // Bản vẽ PDF
+
+  MEASUREMENT_REPORT            // Báo cáo đo đạc
+  LIDAR_SCAN                    // File/kết quả LiDAR
+
+  MODEL_3D                      // Model 3D, ví dụ .glb/.gltf
+  TEXTURE                       // Texture/material file
+  PRODUCT_PREVIEW               // Ảnh preview sản phẩm
+
+  PROPOSAL_PREVIEW              // Ảnh preview proposal
+  PROPOSAL_FILE                 // File proposal/PDF/render liên quan proposal
+
+  QUOTATION_FILE                // File báo giá
+  ORDER_DOCUMENT                // Tài liệu đơn hàng
+
+  PRODUCTION_FILE               // Tài liệu/hình ảnh sản xuất
+  DELIVERY_PHOTO                // Ảnh giao hàng
+  DELIVERY_NOTE                 // Biên nhận/ghi chú giao hàng
+
+  REVIEW_IMAGE                  // Ảnh đính kèm review sau project
+  OTHER
+}
+
+Enum product_status {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+Enum product_version_type {
+  STANDARD                      // Phiên bản chuẩn
+  CUSTOM                        // Phiên bản custom thông thường
+  PROJECT_SPECIFIC              // Phiên bản chỉ dành riêng cho một project
+}
+
+
+
+// =========================================================
+// 1. ACCOUNT & ROLE MANAGEMENT
+// =========================================================
+
+// Bảng vai trò trong hệ thống.
+// Ví dụ: CUSTOMER, SALES_CONSULTANT, DESIGNER_STAFF,
+// PRODUCTION_STAFF, ADMIN.
+Table roles {
+  role_id uuid [pk]
+  role_name varchar(50) [unique, not null]
+  description text
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Bảng tài khoản người dùng.
+// Hiện tại một account có một role chính thông qua role_id.
+// Nếu sau này muốn một người có nhiều role thì thêm bảng account_roles.
+Table accounts {
+  account_id uuid [pk]
+
+  role_id uuid [not null, ref: > roles.role_id]
+
+  email varchar(100) [unique, not null]
+  password varchar(255) [not null]
+  full_name nvarchar(100) [not null]
+  phone varchar(20)
+  avatar_url text
+
+  status account_status [default: 'ACTIVE']
+
+  created_at timestamp
+  updated_at timestamp
+  deleted_at timestamp
+}
+
+
+// =========================================================
+// 2. PRODUCT MANAGEMENT
+// =========================================================
+
+// Danh mục sản phẩm.
+// Ví dụ: Bàn, Ghế, Tủ trưng bày, Kệ, Quầy thu ngân.
+Table categories {
+  category_id uuid [pk]
+
+
+
+  category_name varchar(100) [not null]
+  description text
+  status product_status [default: 'ACTIVE']
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Sản phẩm tổng quát trong catalog.
+// Ví dụ: Display Cabinet, Coffee Table, Cashier Counter.
+Table products {
+  product_id uuid [pk]
+
+  category_id uuid [ref: > categories.category_id]
+
+  product_code varchar(50) [unique]
+  product_name varchar(150) [not null]
+  description text
+
+  status product_status [default: 'ACTIVE']
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Phiên bản cụ thể của sản phẩm.
+// Ví dụ: Cabinet 4 ngăn màu nâu, Cabinet 5 ngăn màu trắng.
+// Nếu là phiên bản riêng cho project thì project_id sẽ có giá trị.
+Table product_versions {
+  product_version_id uuid [pk]
+
+  product_id uuid [not null, ref: > products.product_id]
+
+  // THÊM
+  project_id uuid [ref: > projects.project_id]  // Thêm để truy vấn: Product Version custom cho Project A
+                                                                  // → is_project_specific = true
+                                                                  // → is_public = false
+                                                                  // → project_id = project_id của Project A
+  
+  dimension_unit varchar(10) [default: 'cm']  // Room Planner cần biết width/height/depth đang là cm, m hay mm. Nếu không, Babylon.js dễ scale sai model.
+
+  version_code varchar(50) [unique]
+  version_name varchar(150) [not null]
+  version_type product_version_type [default: 'STANDARD']
+
+  material varchar(100)
+  color varchar(100)
+
+  width decimal(10,2)
+  height decimal(10,2)
+  depth decimal(10,2)
+
+  estimated_price decimal(12,2)
+
+  is_default boolean [default: false]
+  is_public boolean [default: true] // false nếu không muốn hiện cho project khác
+  is_project_specific boolean [default: false]
+
+  status product_status [default: 'ACTIVE']
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+
+// =========================================================
+// 3. GENERIC FILE STORAGE
+// =========================================================
+
+// Bảng lưu thông tin file vật lý.
+// Bảng này chỉ lưu metadata của file upload.
+// File thuộc object nào sẽ được lưu ở bảng file_links.
+Table files {
+  file_id uuid [pk]                         // Khóa chính của file
+
+  uploaded_by uuid [not null, ref: > accounts.account_id] 
+  // Người upload file lên hệ thống
+
+  original_file_name varchar(255) [not null]
+  // Tên file gốc do user upload, ví dụ: "mat-bang-quan-cafe.pdf"
+
+  stored_file_name varchar(255) [not null]
+  // Tên file đã được hệ thống đổi để tránh trùng, ví dụ: "uuid-current-space.jpg"
+
+  file_url text [not null]
+  // URL dùng để xem hoặc tải file từ Firebase Storage
+
+  storage_path text [not null]
+  // Đường dẫn thật trong Firebase Storage, ví dụ: "projects/{projectId}/files/{fileName}"
+
+  mime_type varchar(100) [not null]
+  // MIME type của file, ví dụ: image/jpeg, application/pdf, model/gltf-binary
+
+  file_extension varchar(20)
+  // Phần mở rộng của file, ví dụ: jpg, png, pdf, glb
+
+  file_size_bytes bigint [not null]
+  // Dung lượng file tính bằng bytes
+
+  checksum varchar(255)
+  // Mã kiểm tra file, dùng để phát hiện file trùng hoặc kiểm tra toàn vẹn file nếu cần
+
+  status file_status [not null, default: 'ACTIVE']
+  // Trạng thái file: ACTIVE, ARCHIVED, DELETED
+
+  uploaded_at timestamp [not null]
+  // Thời điểm file được upload
+
+  archived_at timestamp
+  // Thời điểm file được archive, nếu có
+
+
+  indexes {
+  uploaded_by [name: 'idx_files_uploaded_by']
+  status [name: 'idx_files_status']
+  storage_path [unique, name: 'uq_files_storage_path']
+  }
+}
+
+// Bảng link file tới các object nghiệp vụ.
+// Một file có thể gắn với nhiều object khác nhau.
+//
+// owner_type ví dụ:
+// PROJECT, PROJECT_AREA, PROJECT_SCHEDULE, PROPOSAL,
+// PROPOSAL_SCENE, PRODUCT_VERSION, CUSTOMIZATION_REQUEST,
+// QUOTATION, ORDER, PRODUCTION_REQUEST, PROJECT_REVIEW.
+//
+// Lưu ý: owner_id là polymorphic reference.
+// Database không tự enforce FK cho owner_id.
+// Backend/service layer phải validate owner_type + owner_id.
+Table file_links {
+  file_link_id uuid [pk]   // Khóa chính của liên kết file
+
+  file_id uuid [not null, ref: > files.file_id]
+  // File được liên kết
+
+  reference_type varchar(50) [not null]
+  // Loại đối tượng nghiệp vụ mà file gắn vào, ví dụ: PROJECT, PROPOSAL, ORDER, PROJECT_SCHEDULE
+
+  reference_id uuid [not null]
+  // ID của đối tượng nghiệp vụ tương ứng với reference_type
+
+  file_type file_type [not null, default: "OTHER"]
+  // Loại file theo nghiệp vụ, ví dụ: SPACE_IMAGE, FLOOR_PLAN, MEASUREMENT_FILE, DESIGN_PREVIEW, CONTRACT, OTHER
+
+  visibility file_visibility [not null, default: 'CUSTOMER_VISIBLE']
+  // Quyền hiển thị của file
+
+  // Thêm
+  is_primary boolean [default: false]
+  // UI cần biết ảnh nào là ảnh chính
+
+  display_order int [default: 0]
+  // Kéo thả thứ tự sản phẩm 
+
+  description text
+  // Mô tả ngắn về file
+
+  created_by uuid [ref: > accounts.account_id]
+  // Người tạo liên kết file với đối tượng nghiệp vụ
+
+  created_at timestamp [not null]
+  // Thời điểm tạo liên kết file
+
+  indexes {
+    (reference_type, reference_id) [name: 'idx_file_links_reference']
+    file_id [name: 'idx_file_links_file_id']
+    (file_id, reference_type, reference_id, file_type) [unique, name: 'uq_file_links_unique_reference']
+  }
+}
+
+
+// =========================================================
+// 4. PROJECT CORE
+// =========================================================
+
+// Bảng project trung tâm.
+// Project được tạo từ giai đoạn customer request ban đầu,
+// không dùng bảng consultation_requests riêng.
+// Toàn bộ flow được điều khiển bằng project.status.
+Table projects {
+  project_id uuid [pk]
+
+  customer_id uuid [not null, ref: > accounts.account_id]
+
+  assigned_sales_id uuid [ref: > accounts.account_id]     // Sales hiện tại đang phụ trách
+  assigned_designer_id uuid [ref: > accounts.account_id]  // Designer hiện tại đang phụ trách
+
+  project_code varchar(50) [unique]
+  project_name varchar(150) [not null]
+
+  business_type varchar(100)       // Loại cửa hàng: cafe, fashion store, showroom...
+  project_address text
+  business_purpose text            // Optional
+
+  // Mô tả tự nhiên của khách về nội thất cần thiết.
+  // Ví dụ: "4 bàn tròn khoảng 2m, ghế 4 chân có tựa lưng,
+  // quầy thu ngân nhỏ, vài kệ trưng bày..."
+  furniture_requirement text
+
+  description text
+
+  total_area_sqm decimal(10,2)
+  number_of_floors int
+
+  budget_min decimal(12,2)          // Optional
+  budget_max decimal(12,2)          // Optional
+
+  target_completion_date date // Ngày khách mong muốn hoàn tất project, ví dụ trước ngày khai trương
+
+  status project_status [default: 'SUBMITTED']
+
+  submitted_at timestamp
+  sales_assigned_at timestamp
+  approved_at timestamp
+  designer_assigned_at timestamp
+
+  completed_at timestamp
+  rejected_at timestamp
+
+  rejection_reason text
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Lịch sử phân công nhân sự cho project.
+// Dùng để biết ai từng phụ trách Sales/Designer/Production.
+// Không có Delivery Staff riêng; giao hàng do Sales/Production phối hợp xử lý.
+// Table project_assignments {
+//   assignment_id uuid [pk]
+
+//   project_id uuid [not null, ref: > projects.project_id]
+//   account_id uuid [not null, ref: > accounts.account_id]
+
+//   assignment_role project_assignment_role [not null]
+//   status project_assignment_status [default: 'ACTIVE']
+
+//   assigned_by uuid [ref: > accounts.account_id]
+//   assigned_at timestamp
+//   unassigned_at timestamp
+
+//   note text
+// }
+
+// Thông báo workflow cho người dùng.
+// Ví dụ: proposal đã sẵn sàng, báo giá đã gửi, lịch đo/lịch giao đã tạo.
+Table notifications {
+  notification_id uuid [pk]
+  // Khóa chính của notification
+
+  receiver_id uuid [not null, ref: > accounts.account_id]
+  // Người nhận notification
+
+  project_id uuid [ref: > projects.project_id]
+  // Project liên quan, dùng để FE có context và fallback route về project detail
+
+  title varchar(150) [not null]
+  // Tiêu đề thông báo
+
+  message text
+  // Nội dung thông báo đã được render sẵn từ template
+
+  notification_type varchar(50)
+  // Loại notification/event, ví dụ:
+  // PROJECT_REQUEST_SUBMITTED
+  // PROJECT_REQUEST_ACCEPTED
+  // PROJECT_MORE_INFORMATION_REQUESTED
+  // PROJECT_BASIC_INFORMATION_UPDATED
+  // PROJECT_STATUS_CHANGED
+  // PROJECT_REQUEST_REJECTED
+  // PROJECT_DESIGNER_ASSIGNED
+  // PROJECT_FILE_UPLOADED
+  // PROJECT_SCHEDULE_CREATED
+  // PROJECT_SCHEDULE_UPDATED
+  // PROJECT_SCHEDULE_CONFIRMED
+  // PROJECT_SCHEDULE_CANCELLED
+
+  reference_type varchar(50)
+  // Loại object mà notification trỏ tới, ví dụ:
+  // PROJECT, PROJECT_SCHEDULE, PROPOSAL, QUOTATION, ORDER, FILE
+
+  reference_id uuid
+  // ID của object theo reference_type.
+  // Ví dụ reference_type = PROJECT_SCHEDULE thì reference_id = schedule_id
+
+  is_read boolean [not null, default: false]
+  // Đã đọc hay chưa
+
+  read_at timestamp
+  // Thời điểm user đọc notification
+
+  deleted_at timestamp
+  // Soft delete notification.
+  // Khi query danh sách notification thì lọc deleted_at IS NULL
+
+  created_at timestamp [not null]
+  // Thời điểm tạo notification
+
+  indexes {
+    (receiver_id, is_read) [name: 'idx_notifications_receiver_read']
+    (receiver_id, created_at) [name: 'idx_notifications_receiver_created']
+    (reference_type, reference_id) [name: 'idx_notifications_reference']
+    project_id [name: 'idx_notifications_project_id']
+  }
+}
+
+
+// =========================================================
+// 5. PROJECT CHAT
+// =========================================================
+
+// Khung chat trong project.
+// Một project có thể có nhiều khung chat theo topic/vai trò:
+// chat với Sales, Designer, Production, hoặc topic Delivery.
+// Vì không có role Delivery Staff riêng, DELIVERY chat thường do Sales phụ trách.
+Table project_chats {
+  chat_id uuid [pk]
+
+  project_id uuid [not null, ref: > projects.project_id]
+
+  chat_type project_chat_type [not null]
+
+  // Nhân viên chính phụ trách khung chat này.
+  // Ví dụ: SALES chat -> Sales phụ trách,
+  // DESIGNER chat -> Designer phụ trách,
+  // DELIVERY chat -> thường là Sales phụ trách.
+  staff_id uuid [ref: > accounts.account_id]
+
+  title varchar(150)
+  status project_chat_status [default: 'OPEN']
+
+  created_at timestamp
+  closed_at timestamp
+}
+
+// Tin nhắn trong từng khung chat project.
+// attachment_file_id trỏ tới file đính kèm nếu message có file.
+Table project_chat_messages {
+  message_id uuid [pk]
+
+  chat_id uuid [not null, ref: > project_chats.chat_id]
+
+  sender_id uuid [ref: > accounts.account_id]
+
+  message_type project_chat_message_type [default: 'TEXT']
+  content text
+
+  attachment_file_id uuid [ref: > files.file_id]
+
+  created_at timestamp
+  edited_at timestamp
+  deleted_at timestamp
+  read_at timestamp
+}
+
+
+// =========================================================
+// 6. SPACE / AREA / SCHEDULE
+// =========================================================
+
+// Cấu trúc khu vực trong project.
+// Dùng parent_area_id để biểu diễn Floor -> Room -> Zone.
+Table project_areas {
+  project_area_id uuid [pk]
+
+  project_id uuid [not null, ref: > projects.project_id]
+  parent_area_id uuid [ref: > project_areas.project_area_id]
+
+  area_name varchar(150) [not null]
+  area_type project_area_type [default: 'ZONE']
+
+  floor_number int
+
+  description text
+
+  area_sqm decimal(10,2)
+  width decimal(10,2)
+  length decimal(10,2)
+  height decimal(10,2)
+
+  current_condition text
+  requirement_note text
+
+  status project_area_status [default: 'DRAFT']
+
+  created_by uuid [ref: > accounts.account_id]
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Lịch làm việc/hẹn trong project.
+// Dùng cho lịch đo đạc/LiDAR, tư vấn, review thiết kế, giao hàng hoặc bàn giao.
+// Với MEASUREMENT: Sales đặt lịch với khách, Designer là người đi đo.
+// Với DELIVERY: Sales tạo lịch giao, Sales/Production cập nhật tiến độ giao trên order_items.
+Table project_schedules {
+  schedule_id uuid [pk]
+
+  project_id uuid [not null, ref: > projects.project_id]
+  project_area_id uuid [ref: > project_areas.project_area_id]
+
+  schedule_type project_schedule_type [default: 'MEASUREMENT']
+
+  title varchar(150)
+  description text
+
+  created_by uuid [ref: > accounts.account_id]       // Người tạo lịch, thường là Sales
+  assigned_staff_id uuid [ref: > accounts.account_id] // Người thực hiện/phụ trách lịch
+
+  scheduled_start timestamp [not null]
+  scheduled_end timestamp
+
+  location text
+
+  status project_schedule_status [default: 'PENDING_CONFIRMATION']
+
+  customer_note text
+  internal_note text
+
+  created_at timestamp
+  updated_at timestamp
+  cancelled_at timestamp
+}
+
+
+// =========================================================
+// 7. DESIGN PROPOSAL / SCENE / ITEMS
+// =========================================================
+
+// Proposal thiết kế cho project.
+// Một project có thể có nhiều proposal.
+// parent_proposal_id dùng cho bản revision nếu cần.
+Table proposals {
+  proposal_id uuid [pk]
+
+  project_id uuid [not null, ref: > projects.project_id]
+
+  parent_proposal_id uuid [ref: > proposals.proposal_id]
+
+  proposal_name varchar(150) [not null]
+  description text
+  design_concept text
+
+  version_no int [default: 1]
+  estimated_price decimal(12,2)
+
+  status proposal_status [default: 'DRAFT']
+
+  created_by uuid [ref: > accounts.account_id]
+
+  published_at timestamp
+  selected_at timestamp
+  rejected_at timestamp
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Scene là một màn hình 2D/3D của proposal theo từng area.
+// Dữ liệu scene chi tiết như vị trí model, rotation, scale, camera, lighting
+// được lưu ở MongoDB, không lưu trực tiếp trong SQL.
+Table proposal_scenes {
+  scene_id uuid [pk]
+
+  proposal_id uuid [not null, ref: > proposals.proposal_id]
+  project_area_id uuid [ref: > project_areas.project_area_id]
+
+  scene_name varchar(150)
+  scene_type proposal_scene_type [default: 'THREE_D']
+
+  // ID document bên MongoDB lưu scene config:
+  // object transform, camera, lighting, material override...
+  mongo_scene_id varchar(100)
+
+  preview_file_id uuid [ref: > files.file_id] // Ảnh preview scene nếu có
+
+  version_no int [default: 1]
+  is_active boolean [default: true]
+
+  created_by uuid [ref: > accounts.account_id]
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Sản phẩm/phiên bản sản phẩm được đặt trong proposal scene.
+// Bảng này lưu business item để tạo quotation/order.
+// Vị trí model/rotation/scale nằm trong MongoDB scene document.
+Table proposal_items {
+  proposal_item_id uuid [pk]
+
+  proposal_id uuid [not null, ref: > proposals.proposal_id]
+  scene_id uuid [ref: > proposal_scenes.scene_id]
+  project_area_id uuid [ref: > project_areas.project_area_id]
+  // Thêm 
+  // Product version ban đầu được Designer chọn từ catalog
+  product_version_id uuid [ref: > product_versions.product_version_id]
+
+  // Product version cuối cùng sau customization được duyệt, nếu có
+  approved_product_version_id uuid [ref: > product_versions.product_version_id]
+
+  item_name varchar(150) [not null]
+  item_type varchar(50)
+
+  quantity int [default: 1]
+
+  // Snapshot tại thời điểm item được đưa vào proposal.
+  // Không tự thay đổi khi product_versions đổi sau này.
+  width decimal(10,2)
+  height decimal(10,2)
+  depth decimal(10,2)
+
+  material varchar(100)
+  color varchar(100)
+
+  unit_price_snapshot decimal(12,2) // Giá tại thời điểm đưa item vào proposal
+
+  // THÊM
+  total_price_snapshot decimal(12,2)  // quantity * unit_price_snapshot
+
+  note text
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+
+// =========================================================
+// 8. CUSTOMIZATION REQUEST
+// =========================================================
+
+// Yêu cầu tùy chỉnh sản phẩm trong proposal.
+// Nếu khách đồng ý và xưởng khả thi, có thể tạo product_version riêng cho project.
+Table customization_requests {
+  customization_request_id uuid [pk]
+
+  project_id uuid [not null, ref: > projects.project_id]
+  proposal_id uuid [ref: > proposals.proposal_id]
+  proposal_item_id uuid [ref: > proposal_items.proposal_item_id]
+
+  requested_by_customer_id uuid [ref: > accounts.account_id]
+
+  request_title varchar(150) [not null]
+  request_description text
+
+  requested_width decimal(10,2)
+  requested_height decimal(10,2)
+  requested_depth decimal(10,2)
+
+  requested_material varchar(100)
+  requested_color varchar(100)
+  requested_change_note text
+
+  designer_id uuid [ref: > accounts.account_id]
+  designer_spec_note text
+
+  production_review_by uuid [ref: > accounts.account_id]
+  feasibility_note text
+
+  estimated_production_days int
+  estimated_additional_cost decimal(12,2)
+
+  material_available boolean
+  production_risk_note text
+
+  sales_review_by uuid [ref: > accounts.account_id]
+
+  approved_product_version_id uuid [ref: > product_versions.product_version_id]
+
+  status customization_status [default: 'SUBMITTED']
+
+  customer_accepted_at timestamp
+  customer_rejected_at timestamp
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+
+// =========================================================
+// 9. QUOTATION
+// =========================================================
+
+// Báo giá được tạo từ proposal đã chọn.
+Table quotations {
+  quotation_id uuid [pk]
+
+  project_id uuid [not null, ref: > projects.project_id]
+  proposal_id uuid [not null, ref: > proposals.proposal_id]
+
+  quotation_code varchar(50) [unique, not null]
+  version_no int [default: 1]
+
+  subtotal_amount decimal(12,2) [default: 0]
+  discount_amount decimal(12,2) [default: 0]
+  tax_amount decimal(12,2) [default: 0]
+  service_fee decimal(12,2) [default: 0]
+  customization_fee decimal(12,2) [default: 0]
+  delivery_fee decimal(12,2) [default: 0]
+  total_amount decimal(12,2) [default: 0]
+
+  status quotation_status [default: 'DRAFT']
+
+  valid_until date
+  customer_note text
+  sales_note text
+
+  created_by uuid [ref: > accounts.account_id]
+
+  sent_at timestamp
+  accepted_at timestamp
+  rejected_at timestamp
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Chi tiết báo giá.
+// Dùng snapshot để dữ liệu báo giá không đổi khi product catalog thay đổi.
+Table quotation_items {
+  quotation_item_id uuid [pk]
+
+  quotation_id uuid [not null, ref: > quotations.quotation_id]
+  proposal_item_id uuid [ref: > proposal_items.proposal_item_id]
+
+  product_version_id uuid [ref: > product_versions.product_version_id]
+
+  product_name_snapshot varchar(150)
+  product_version_name_snapshot varchar(150)
+  product_version_code_snapshot varchar(50)
+
+  quantity int [default: 1]
+  unit_price decimal(12,2) [default: 0]
+
+  customization_fee decimal(12,2) [default: 0]
+  discount_amount decimal(12,2) [default: 0]
+  subtotal_amount decimal(12,2) [default: 0]
+
+  note text
+}
+
+
+// =========================================================
+// 10. ORDER & PAYMENT
+// =========================================================
+
+// Đơn hàng được tạo từ báo giá đã accepted.
+// Delivery được quản lý ở mức order/order_items, không dùng bảng deliveries riêng.
+Table orders {
+  order_id uuid [pk]
+
+  project_id uuid [not null, ref: > projects.project_id]
+  proposal_id uuid [ref: > proposals.proposal_id]
+  quotation_id uuid [unique, not null, ref: > quotations.quotation_id]
+
+  order_code varchar(50) [unique, not null]
+
+  customer_id uuid [not null, ref: > accounts.account_id]
+  sales_id uuid [ref: > accounts.account_id]
+
+  original_total_amount decimal(12,2) [not null]      // Tổng ban đầu từ quotation
+  item_adjustment_amount decimal(12,2) [default: 0]   // Tổng tiền trừ do item không làm được
+  additional_discount_amount decimal(12,2) [default: 0] // Discount thêm sau production issue
+  final_total_amount decimal(12,2) [not null]         // Tổng cuối sau điều chỉnh
+
+  deposit_amount decimal(12,2) [default: 0]           // Tiền cọc cần trả
+  paid_amount decimal(12,2) [default: 0]
+  remaining_amount decimal(12,2) [default: 0]
+
+//   final_total_amount = original_total_amount - item_adjustment_amount - additional_discount_amount
+
+// remaining_amount = final_total_amount - paid_amount
+
+  status order_status [default: 'CREATED']
+
+  delivery_address text
+  receiver_name varchar(150)
+  receiver_phone varchar(20)
+  delivery_note text
+  customer_delivery_note text
+  customer_confirmed_delivery_at timestamp
+
+  confirmed_by uuid [ref: > accounts.account_id]
+  confirmed_at timestamp
+
+  cancelled_at timestamp
+  cancellation_reason text
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Chi tiết đơn hàng.
+// Copy từ quotation_items để giữ lịch sử sản phẩm/giá tại thời điểm đặt hàng.
+// Đồng thời dùng để tracking số lượng đã giao nếu không tách bảng delivery_items.
+Table order_items {
+  order_item_id uuid [pk]
+
+  order_id uuid [not null, ref: > orders.order_id]
+  quotation_item_id uuid [ref: > quotation_items.quotation_item_id]
+
+  product_version_id uuid [ref: > product_versions.product_version_id]
+
+  product_name_snapshot varchar(150)
+  product_version_name_snapshot varchar(150)
+  product_version_code_snapshot varchar(50)
+
+  quantity int [default: 1]             // Tổng số lượng cần giao
+  delivered_quantity int [default: 0]   // Số lượng đã giao
+
+  status order_item_status [default: 'PENDING']
+
+  unit_price decimal(12,2) [default: 0]
+  customization_fee decimal(12,2) [default: 0]
+  discount_amount decimal(12,2) [default: 0]
+  subtotal_amount decimal(12,2) [default: 0]
+
+  adjustment_amount decimal(12,2) [default: 0] // Tiền trừ nếu item không làm được
+  unavailable_reason text
+
+  production_note text
+  delivery_note text
+
+  last_delivered_at timestamp
+  last_delivered_by uuid [ref: > accounts.account_id]
+  customer_confirmed_at timestamp
+}
+
+// Khoản thanh toán / payment summary.
+// Mỗi payment đại diện cho một khoản cần thu hoặc hoàn.
+// Lịch sử giao dịch thực tế nằm ở payment_transactions.
+Table payments {
+  payment_id uuid [pk] 
+  // Khóa chính của khoản thanh toán
+
+  project_id uuid [not null, ref: > projects.project_id]
+  // Dự án liên quan đến khoản thanh toán
+
+  order_id uuid [ref: > orders.order_id]
+  // Đơn hàng liên quan đến khoản thanh toán, nếu có
+
+  quotation_id uuid [ref: > quotations.quotation_id]
+  // Báo giá liên quan đến khoản thanh toán, nếu có
+
+  paid_by uuid [ref: > accounts.account_id]
+  // Người cần thanh toán, thường là Customer
+
+  payment_type payment_type [default: 'OTHER']
+  // Loại khoản thanh toán: DEPOSIT, REMAINING_PAYMENT, FULL_PAYMENT, MEASUREMENT_FEE, DESIGN_FEE, CUSTOMIZATION_FEE, DELIVERY_FEE, CANCELLATION_FEE, REFUND, OTHER
+
+  amount decimal(12,2) [not null]
+  // Số tiền cần thanh toán của khoản này
+
+  paid_amount decimal(12,2) [not null, default: 0]
+  // Tổng số tiền đã thanh toán thành công từ các payment_transactions
+
+  remaining_amount decimal(12,2) [not null, default: 0]
+  // Số tiền còn lại cần thanh toán
+
+  currency varchar(10) [not null, default: 'VND']
+  // Đơn vị tiền tệ
+
+  status payment_status [default: 'PENDING']
+  // Trạng thái tổng hiện tại của payment
+
+  due_date date
+  // Hạn thanh toán nếu có
+
+  paid_at timestamp
+  // Thời điểm khoản thanh toán được xem là đã thanh toán đủ
+
+  cancelled_at timestamp
+  // Thời điểm khoản thanh toán bị hủy, nếu có
+
+  note text
+  // Ghi chú nội bộ về khoản thanh toán
+
+  created_at timestamp
+  // Thời điểm tạo payment
+
+  updated_at timestamp
+  // Thời điểm cập nhật payment gần nhất
+}
+
+Table payment_transactions {
+  payment_transaction_id uuid [pk]
+  // Khóa chính của transaction
+
+  payment_id uuid [not null, ref: > payments.payment_id]
+  // Khoản payment mà transaction này thuộc về
+
+  project_id uuid [ref: > projects.project_id]
+  // Dự án liên quan, lưu thêm để query lịch sử giao dịch theo project nhanh hơn
+
+  order_id uuid [ref: > orders.order_id]
+  // Đơn hàng liên quan, lưu thêm để query lịch sử giao dịch theo order nhanh hơn
+
+  transaction_code varchar(100) [not null, unique]
+  // Mã giao dịch nội bộ, ví dụ: TXN-2026-0001
+
+  transaction_type payment_transaction_type [not null, default: 'CHARGE']
+  // Loại giao dịch: CHARGE, REFUND, ADJUSTMENT
+
+  amount decimal(12,2) [not null]
+  // Số tiền của giao dịch này
+
+  currency varchar(10) [not null, default: 'VND']
+  // Đơn vị tiền tệ
+
+  payment_method varchar(50)
+  // Phương thức thanh toán, ví dụ: CASH, BANK_TRANSFER, VNPAY, MOMO
+
+  provider_transaction_id varchar(255)
+  // Mã giao dịch từ cổng thanh toán nếu có
+
+  status payment_transaction_status [not null, default: 'PENDING']
+  // Trạng thái của giao dịch
+
+  transaction_time timestamp
+  // Thời điểm giao dịch thực tế xảy ra
+
+  confirmed_by uuid [ref: > accounts.account_id]
+  // Nhân viên xác nhận giao dịch nếu cần xác nhận thủ công
+
+  confirmed_at timestamp
+  // Thời điểm xác nhận giao dịch
+
+  failure_reason text
+  // Lý do thất bại nếu giao dịch thất bại
+
+  raw_provider_payload jsonb
+  // Dữ liệu callback/raw response từ payment gateway hoặc sao kê gốc nếu cần lưu
+
+  created_at timestamp [not null]
+  // Thời điểm tạo transaction record
+
+  indexes {
+    payment_id [name: 'idx_payment_transactions_payment_id']
+    (project_id, created_at) [name: 'idx_payment_transactions_project_time']
+    (order_id, created_at) [name: 'idx_payment_transactions_order_time']
+    provider_transaction_id [name: 'idx_payment_transactions_provider_transaction_id']
+  }
+}
+
+
+// =========================================================
+// 11. PRODUCTION
+// =========================================================
+
+// Yêu cầu sản xuất sau khi order được xác nhận.
+Table production_requests {
+  production_request_id uuid [pk]
+
+  production_code varchar(50) [unique]
+
+  project_id uuid [not null, ref: > projects.project_id]
+  order_id uuid [not null, ref: > orders.order_id]
+
+  assigned_to uuid [ref: > accounts.account_id]
+
+  status production_request_status [default: 'PENDING_REVIEW']
+  priority varchar(30)
+
+  estimated_start_date date
+  estimated_completion_date date
+
+  actual_start_date date
+  actual_completion_date date
+
+  note text
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// Các item cần sản xuất/chuẩn bị.
+// Sinh ra từ order_items.
+Table production_items {
+  production_item_id uuid [pk]
+
+  production_request_id uuid [not null, ref: > production_requests.production_request_id]
+  order_item_id uuid [not null, ref: > order_items.order_item_id]
+
+  product_version_id uuid [ref: > product_versions.product_version_id]
+
+  product_name_snapshot varchar(150)
+  product_version_name_snapshot varchar(150)
+
+  quantity int [default: 1]
+
+  status production_item_status [default: 'PENDING']
+  material_note text
+  production_note text
+
+  estimated_completion_date date
+  completed_at timestamp
+}
+
+
+// =========================================================
+// 12. AFTER-PROJECT REVIEW
+// =========================================================
+
+// Review sau khi project/order hoàn tất.
+// Không dùng bảng này cho revision proposal.
+// Các vấn đề trong quá trình làm sẽ trao đổi qua project chat.
+Table project_reviews {
+  review_id uuid [pk]
+
+  project_id uuid [unique, not null, ref: > projects.project_id]
+  order_id uuid [ref: > orders.order_id]
+  customer_id uuid [not null, ref: > accounts.account_id]
+
+  rating int
+  design_quality_rating int
+  service_quality_rating int
+  delivery_rating int
+
+  comment text
+
+  created_at timestamp
+  updated_at timestamp
+}
+
+// =========================================================
+// 14. PROPOSAL SCENE VARIANT MANAGEMENT
+// Dùng khi Customer được phép thử/suggest thay đổi trên bản vẽ:
+// - đổi vị trí product
+// - đổi màu/vật liệu
+// - đổi sang Product Version khác
+// nhưng không được sửa trực tiếp bản official của Designer.
+// =========================================================
+
+// Trạng thái của một scene variant.
+// DRAFT: Customer/Designer đang chỉnh, chưa gửi.
+// SUBMITTED: đã gửi cho Designer review.
+// ACCEPTED: Designer đồng ý suggestion.
+// REJECTED: Designer từ chối suggestion.
+// APPLIED: suggestion đã được apply vào official proposal scene.
+Enum proposal_scene_variant_status {
+  DRAFT
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+  APPLIED
+}
+
+// Loại variant.
+// CUSTOMER_SUGGESTION: bản Customer tự chỉnh để góp ý.
+// DESIGNER_REVISION: bản Designer tạo như một revision/alternative.
+Enum proposal_scene_variant_type {
+  CUSTOMER_SUGGESTION
+  DESIGNER_REVISION
+}
+
+// Bảng metadata cho các bản scene variant.
+// Dữ liệu 3D chi tiết của variant vẫn lưu MongoDB qua mongo_variant_scene_id.
+// SQL chỉ lưu metadata để query, phân quyền, review và tracking trạng thái.
+Table proposal_scene_variants {
+  variant_id uuid [pk]
+  // Khóa chính của scene variant.
+
+  proposal_id uuid [not null, ref: > proposals.proposal_id]
+  // Proposal mà variant này thuộc về.
+  // Giúp query tất cả variant theo một proposal.
+
+  scene_id uuid [not null, ref: > proposal_scenes.scene_id]
+  // Official scene gốc mà variant dựa trên.
+  // Variant không thay thế trực tiếp scene này cho tới khi Designer apply.
+
+  created_by uuid [not null, ref: > accounts.account_id]
+  // Người tạo variant.
+  // Thường là Customer nếu variant_type = CUSTOMER_SUGGESTION.
+  // Có thể là Designer nếu variant_type = DESIGNER_REVISION.
+
+  variant_type proposal_scene_variant_type [default: 'CUSTOMER_SUGGESTION']
+  // Phân biệt variant do Customer suggest hay Designer tạo revision.
+
+  status proposal_scene_variant_status [default: 'DRAFT']
+  // Trạng thái review/apply của variant.
+
+  mongo_variant_scene_id varchar(100) [not null]
+  // ID document trong MongoDB lưu scene data của variant.
+  // Document này lưu object positions, rotations, material override,...
+  // Không lưu full JSON scene trong SQL.
+
+  note text
+  // Ghi chú tổng quan của người tạo variant.
+  // Ví dụ: "Muốn đổi ghế sang màu nâu và kéo bàn sát cửa sổ hơn."
+
+  submitted_at timestamp
+  // Thời điểm Customer/Designer submit variant để review.
+  // Null nếu variant còn DRAFT.
+
+  reviewed_by uuid [ref: > accounts.account_id]
+  // Người review variant.
+  // Thường là assigned Designer hoặc Admin.
+
+  reviewed_at timestamp
+  // Thời điểm Designer/Admin review variant.
+
+  review_note text
+  // Ghi chú khi Designer accept/reject.
+  // Ví dụ: "Đồng ý đổi màu ghế nhưng không nên kéo bàn sát cửa vì vướng lối đi."
+
+  applied_at timestamp
+  // Thời điểm variant được apply vào official scene.
+  // Chỉ có giá trị khi status = APPLIED.
+
+  applied_by uuid [ref: > accounts.account_id]
+  // Người apply variant vào official scene.
+  // Thường là Designer.
+
+  created_at timestamp
+  // Thời điểm tạo variant.
+
+  updated_at timestamp
+  // Thời điểm cập nhật variant gần nhất.
+
+  indexes {
+    proposal_id [name: 'idx_scene_variants_proposal']
+    scene_id [name: 'idx_scene_variants_scene']
+    created_by [name: 'idx_scene_variants_created_by']
+    status [name: 'idx_scene_variants_status']
+    (scene_id, status) [name: 'idx_scene_variants_scene_status']
+  }
+}
+

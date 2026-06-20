@@ -1,0 +1,22 @@
+# FurniSpace DB Migration Plan
+
+Source of truth: `docs/furnispace_db.dbml`.
+
+This plan is for rebuilding the EF model, PostgreSQL schema, and affected code paths so the project matches the new DBML while preserving established project field names where they already exist.
+
+## 1. Naming Rules
+
+- If a DBML field has the same business meaning as an existing project field but a different name, keep the project field name.
+- Example: DBML `accounts.password` maps to project `Account.PasswordHash` and column `password_hash`.
+- Exception: `file_links.reference_type/reference_id` should replace current `FileLink.OwnerType/OwnerId` and columns `owner_type/owner_id`.
+- Status field names and status enum values should follow the DBML when the DBML changed the workflow language.
+- New fields that do not exist in the project should follow the DBML business name using C# PascalCase and PostgreSQL snake_case.
+- Existing DTO/API field names should only change when the DBML removes the concept entirely.
+
+## 2. Enum Class Policy
+
+All enum-like string fields must become C# enum classes under `src/FurniSpace.Domain/Enums`, following the existing `AccountStatus` style.
+
+Each enum must live in its own file, matching entity organization. Do not group multiple enum classes into one shared file.
+
+Use nullable enum properties only when the DBML column is optional or the current entity intentionally allows null. Defaults should be configured in `AppDbContext`.

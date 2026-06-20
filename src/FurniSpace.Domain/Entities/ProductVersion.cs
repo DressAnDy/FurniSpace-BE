@@ -7,6 +7,8 @@ public class ProductVersion
 {
     public Guid ProductVersionId { get; set; }
     public Guid ProductId { get; set; }
+    public Guid? ProjectId { get; set; }
+    public string? DimensionUnit { get; set; }
     public string VersionCode { get; set; } = null!;
     public string VersionName { get; set; } = null!;
     public ProductVersionType? VersionType { get; set; }

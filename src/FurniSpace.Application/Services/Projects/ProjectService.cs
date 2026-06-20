@@ -359,6 +359,10 @@ public sealed class ProjectService : IProjectService
         {
             repositoryQuery.CustomerId = currentUserId;
         }
+        else if (IsDesigner(roleName))
+        {
+            repositoryQuery.AssignedDesignerId = currentUserId;
+        }
 
         var projects = await _projects.GetListAsync(repositoryQuery, cancellationToken);
         var total = await _projects.CountAsync(repositoryQuery, cancellationToken);
@@ -856,6 +860,7 @@ public sealed class ProjectService : IProjectService
     private static bool CanViewProjects(string? roleName)
     {
         return IsCustomer(roleName) ||
+            IsDesigner(roleName) ||
             IsAdmin(roleName) ||
             string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase);
     }
@@ -1069,6 +1074,11 @@ public sealed class ProjectService : IProjectService
     private static bool IsCustomer(string? roleName)
     {
         return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDesigner(string? roleName)
+    {
+        return string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? NormalizeOptional(string? value)

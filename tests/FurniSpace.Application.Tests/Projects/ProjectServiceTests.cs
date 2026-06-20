@@ -1856,6 +1856,35 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task GetListAsync_WithDesignerRole_RestrictsToAssignedProjects()
+    {
+        var designerId = Guid.NewGuid();
+        var assignedSalesId = Guid.NewGuid();
+        var repository = new FakeProjectRepository(roleName: "designer");
+        var service = new ProjectService(repository, TestUnitOfWork.Instance);
+
+        var result = await service.GetListAsync(designerId, new ProjectListQueryDto
+        {
+            AssignedDesignerId = Guid.NewGuid(),
+            AssignedSalesId = assignedSalesId,
+            Status = ProjectStatus.SPACE_VERIFIED,
+            Search = "coffee",
+            Page = 2,
+            Limit = 10
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(designerId, repository.LastListQuery!.AssignedDesignerId);
+        Assert.Equal(assignedSalesId, repository.LastListQuery.AssignedSalesId);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, repository.LastListQuery.Status);
+        Assert.Equal("coffee", repository.LastListQuery.Search);
+        Assert.Equal(2, repository.LastListQuery.Page);
+        Assert.Equal(10, repository.LastListQuery.Limit);
+        Assert.Null(repository.LastListQuery.CustomerId);
+    }
+
+    [Fact]
     public async Task GetListAsync_WithAdminRole_UsesDefaultPagination()
     {
         var repository = new FakeProjectRepository(roleName: "ADMIN");
@@ -1910,7 +1939,6 @@ public sealed class ProjectServiceTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("DESIGNER")]
     public async Task GetListAsync_WithUnsupportedRole_ReturnsForbidden(string? roleName)
     {
         var repository = new FakeProjectRepository(roleName: roleName);

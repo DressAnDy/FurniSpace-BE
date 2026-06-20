@@ -41,12 +41,12 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
-    public void GetList_AllowsSalesAdminAndCustomerRoles()
+    public void GetList_AllowsAllProjectRoles()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.GetList));
 
         Assert.NotNull(authorize);
-        Assert.Equal("SALES,ADMIN,CUSTOMER", authorize.Roles);
+        Assert.Equal("SALES,ADMIN,CUSTOMER,DESIGNER", authorize.Roles);
     }
 
     [Fact]

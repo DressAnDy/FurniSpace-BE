@@ -6,8 +6,5 @@ public enum ProjectAreaStatus
     NEED_MEASUREMENT,
     MEASURED,
     VERIFIED,
-    DESIGNING,
-    DESIGNED,
-    APPROVED,
     CANCELLED
 }

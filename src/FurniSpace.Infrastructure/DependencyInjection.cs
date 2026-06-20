@@ -100,6 +100,8 @@ public static class DependencyInjection
         builder.MapEnum<ProjectScheduleStatus>("project_schedule_status", translator);
         builder.MapEnum<ProposalStatus>("proposal_status", translator);
         builder.MapEnum<ProposalSceneType>("proposal_scene_type", translator);
+        builder.MapEnum<ProposalSceneVariantStatus>("proposal_scene_variant_status", translator);
+        builder.MapEnum<ProposalSceneVariantType>("proposal_scene_variant_type", translator);
         builder.MapEnum<CustomizationStatus>("customization_status", translator);
         builder.MapEnum<QuotationStatus>("quotation_status", translator);
         builder.MapEnum<OrderStatus>("order_status", translator);

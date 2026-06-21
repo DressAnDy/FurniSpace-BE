@@ -9,6 +9,7 @@ using FurniSpace.API.Hubs;
 using FurniSpace.API.Realtime;
 using FurniSpace.Application;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Common.Realtime;
 using FurniSpace.Application.Interfaces.Identity;
@@ -51,6 +52,7 @@ AddJwtAuthentication(builder.Services, jwtSettings, builder.Environment);
 builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IRealtimeNotificationService, SignalRRealtimeNotificationService>();
+builder.Services.AddScoped<IProjectChatRealtimeService, SignalRProjectChatRealtimeService>();
 
 var app = builder.Build();
 
@@ -68,6 +70,7 @@ app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<NotificationsHub>(RealtimeGroupNames.HubPath);
+app.MapHub<ProjectChatHub>(ProjectChatRealtimeConstants.HubPath);
 app.MapGet("/", () => "FurniSpace API");
 await app.RunAsync();
 await Log.CloseAndFlushAsync();
@@ -298,7 +301,8 @@ static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSet
                     }
 
                     if (string.IsNullOrWhiteSpace(context.Token) &&
-                        context.HttpContext.Request.Path.StartsWithSegments(RealtimeGroupNames.HubPath))
+                        (context.HttpContext.Request.Path.StartsWithSegments(RealtimeGroupNames.HubPath) ||
+                         context.HttpContext.Request.Path.StartsWithSegments(ProjectChatRealtimeConstants.HubPath)))
                     {
                         var queryAccessToken = context.Request.Query["access_token"];
                         if (!string.IsNullOrWhiteSpace(queryAccessToken))

@@ -3,6 +3,7 @@ using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.DTOs.ProjectChats;
 using Mapster;
@@ -20,10 +21,76 @@ public sealed class ProjectChatService : IProjectChatService
         [ProjectChatType.SALES, ProjectChatType.DESIGNER];
     private static readonly ProjectChatType[] DesignerChatTypes = [ProjectChatType.DESIGNER];
     private readonly IProjectChatRepository _chats;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public ProjectChatService(IProjectChatRepository chats)
+    public ProjectChatService(IProjectChatRepository chats, IUnitOfWork unitOfWork)
     {
         _chats = chats;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<bool> CanAccessProjectAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty || currentUserId == Guid.Empty)
+        {
+            return false;
+        }
+
+        var access = await _chats.GetAccessAsync(projectId, currentUserId, cancellationToken);
+        return access is not null && CanAccessProject(access, currentUserId);
+    }
+
+    public async Task<ServiceResult<ProjectChatSummaryDto>> CreateManualAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CreateProjectChatRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var validationError = ValidateManualCreateRequest(projectId, currentUserId, request);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        var access = await _chats.GetAccessAsync(projectId, currentUserId, cancellationToken);
+        if (access is null)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.NotFound("Project not found.");
+        }
+
+        if (!IsRole(access.RoleName, AdminRole))
+        {
+            return ServiceResult<ProjectChatSummaryDto>.Forbidden(
+                "Only administrators can manually create project chats.");
+        }
+
+        var activeChat = await _chats.GetActiveAsync(projectId, request.ChatType, cancellationToken);
+        if (activeChat is not null)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.Conflict(
+                "An active project chat with the same type already exists.");
+        }
+
+        var chat = new ProjectChat
+        {
+            ChatId = Guid.NewGuid(),
+            ProjectId = projectId,
+            ChatType = request.ChatType,
+            StaffId = request.StaffId,
+            Title = request.Title.Trim(),
+            Status = ProjectChatStatus.OPEN,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _chats.AddAsync(chat, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<ProjectChatSummaryDto>.Created(
+            ToSummaryDto(chat),
+            "Project chat created successfully.");
     }
 
     public async Task<ServiceResult<ProjectChatListResponseDto>> GetProjectChatsAsync(
@@ -146,6 +213,48 @@ public sealed class ProjectChatService : IProjectChatService
         {
             throw new ArgumentException("Chat title must not exceed 150 characters.", nameof(title));
         }
+    }
+
+    private static ServiceResult<ProjectChatSummaryDto>? ValidateManualCreateRequest(
+        Guid projectId,
+        Guid currentUserId,
+        CreateProjectChatRequestDto request)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.BadRequest("Project id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        if (!Enum.IsDefined(typeof(ProjectChatType), request.ChatType))
+        {
+            return ServiceResult<ProjectChatSummaryDto>.BadRequest("Project chat type is invalid.");
+        }
+
+        if (request.ChatType is ProjectChatType.SALES or ProjectChatType.DESIGNER)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.BadRequest(
+                "Sales and Designer chats must be created through project assignment.");
+        }
+
+        if (request.StaffId == Guid.Empty)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.BadRequest("Staff id is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            return ServiceResult<ProjectChatSummaryDto>.BadRequest("Chat title is required.");
+        }
+
+        return request.Title.Trim().Length > MaxTitleLength
+            ? ServiceResult<ProjectChatSummaryDto>.BadRequest(
+                "Chat title must not exceed 150 characters.")
+            : null;
     }
 
     private static ServiceResult<ProjectChatListResponseDto>? ValidateListRequest(

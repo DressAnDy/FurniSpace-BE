@@ -6,6 +6,17 @@ namespace FurniSpace.Application.Interfaces.ProjectChats;
 
 public interface IProjectChatService
 {
+    Task<bool> CanAccessProjectAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectChatSummaryDto>> CreateManualAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CreateProjectChatRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectChatListResponseDto>> GetProjectChatsAsync(
         Guid projectId,
         Guid currentUserId,

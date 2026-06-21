@@ -21,6 +21,27 @@ public sealed class ProjectChatsController : BaseApiController
         _projectChats = projectChats;
     }
 
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost]
+    public async Task<IActionResult> Create(
+        Guid projectId,
+        [FromBody] CreateProjectChatRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projectChats.CreateManualAsync(
+            projectId,
+            currentUserId,
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
     [HttpGet]
     public async Task<IActionResult> GetList(

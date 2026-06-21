@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FurniSpace Project Chat Test</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f4f6f9;
+      color: #172033;
+    }
+
+    main {
+      width: min(1080px, calc(100% - 32px));
+      margin: 28px auto;
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    .panel {
+      margin-bottom: 16px;
+      padding: 18px;
+      border: 1px solid #d7dce5;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .field-wide {
+      grid-column: 1 / -1;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      margin: 0;
+      padding: 10px 12px;
+      border: 1px solid #b9c2d0;
+      border-radius: 6px;
+      background: #fff;
+      color: #172033;
+      font: inherit;
+    }
+
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    button {
+      min-height: 40px;
+      padding: 9px 14px;
+      border: 0;
+      border-radius: 6px;
+      background: #1769d2;
+      color: #fff;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #dce2eb;
+      color: #172033;
+    }
+
+    button.danger {
+      background: #c62835;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .status {
+      margin-left: 4px;
+      font-weight: 700;
+    }
+
+    .connected {
+      color: #16743a;
+    }
+
+    .disconnected {
+      color: #c62835;
+    }
+
+    pre {
+      min-height: 320px;
+      max-height: 520px;
+      margin: 0;
+      overflow: auto;
+      padding: 14px;
+      border-radius: 8px;
+      background: #111827;
+      color: #e5edf7;
+      font: 13px/1.5 Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    @media (max-width: 720px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .field-wide {
+        grid-column: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>FurniSpace Project Chat Test</h1>
+
+    <section class="panel">
+      <h2>Connection</h2>
+      <div class="grid">
+        <div>
+          <label for="baseUrl">API base URL</label>
+          <input id="baseUrl" value="http://localhost:5001">
+        </div>
+        <div class="field-wide">
+          <label for="token">Access token</label>
+          <textarea id="token" placeholder="Paste access token here"></textarea>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="connect">Connect</button>
+        <button id="disconnect" class="danger">Disconnect</button>
+        <span id="status" class="status disconnected">Disconnected</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Groups</h2>
+      <div class="grid">
+        <div>
+          <label for="projectId">Project ID</label>
+          <input id="projectId" placeholder="Project UUID">
+          <div class="actions">
+            <button id="joinProject">Join Project</button>
+            <button id="leaveProject" class="secondary">Leave Project</button>
+          </div>
+        </div>
+        <div>
+          <label for="chatId">Chat ID</label>
+          <input id="chatId" placeholder="Chat UUID">
+          <div class="actions">
+            <button id="joinChat">Join Chat</button>
+            <button id="leaveChat" class="secondary">Leave Chat</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Messages</h2>
+      <div class="grid">
+        <div>
+          <label for="page">Page</label>
+          <input id="page" type="number" min="1" value="1">
+        </div>
+        <div>
+          <label for="limit">Limit</label>
+          <input id="limit" type="number" min="1" max="100" value="30">
+        </div>
+        <div>
+          <label for="sort">Sort</label>
+          <select id="sort">
+            <option value="ASC">ASC</option>
+            <option value="DESC">DESC</option>
+          </select>
+        </div>
+        <div class="field-wide">
+          <label for="content">Text message</label>
+          <textarea id="content" maxlength="4000" placeholder="Enter message"></textarea>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="send">Send Message</button>
+        <button id="load" class="secondary">Load Messages</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="actions" style="margin-top: 0; margin-bottom: 12px;">
+        <h2 style="margin: 0;">Events</h2>
+        <button id="clear" class="secondary">Clear Log</button>
+      </div>
+      <pre id="log"></pre>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"></script>
+  <script>
+    let connection = null;
+    const joinedProjects = new Set();
+    const joinedChats = new Set();
+
+    const elements = {
+      baseUrl: document.getElementById("baseUrl"),
+      token: document.getElementById("token"),
+      projectId: document.getElementById("projectId"),
+      chatId: document.getElementById("chatId"),
+      page: document.getElementById("page"),
+      limit: document.getElementById("limit"),
+      sort: document.getElementById("sort"),
+      content: document.getElementById("content"),
+      status: document.getElementById("status"),
+      log: document.getElementById("log")
+    };
+
+    function apiBaseUrl() {
+      return elements.baseUrl.value.trim().replace(/\/$/, "");
+    }
+
+    function accessToken() {
+      return elements.token.value.trim();
+    }
+
+    function setStatus(text, connected) {
+      elements.status.textContent = text;
+      elements.status.className = "status " + (connected ? "connected" : "disconnected");
+    }
+
+    function log(message, data) {
+      const time = new Date().toLocaleTimeString();
+      const details = data === undefined ? "" : "\n" + JSON.stringify(data, null, 2);
+      elements.log.textContent += `[${time}] ${message}${details}\n\n`;
+      elements.log.scrollTop = elements.log.scrollHeight;
+      console.log(message, data ?? "");
+    }
+
+    function requireValue(element, label) {
+      const value = element.value.trim();
+      if (!value) {
+        log(`${label} is required.`);
+        return null;
+      }
+      return value;
+    }
+
+    function requireConnection() {
+      if (!connection || connection.state !== signalR.HubConnectionState.Connected) {
+        log("SignalR is not connected.");
+        return false;
+      }
+      return true;
+    }
+
+    async function restoreGroups() {
+      for (const projectId of joinedProjects) {
+        await connection.invoke("JoinProject", projectId);
+      }
+      for (const chatId of joinedChats) {
+        await connection.invoke("JoinChat", chatId);
+      }
+      log("Groups restored after reconnect.", {
+        projects: [...joinedProjects],
+        chats: [...joinedChats]
+      });
+    }
+
+    async function connect() {
+      const baseUrl = requireValue(elements.baseUrl, "API base URL");
+      const token = requireValue(elements.token, "Access token");
+      if (!baseUrl || !token) return;
+
+      if (connection) {
+        await connection.stop();
+      }
+
+      connection = new signalR.HubConnectionBuilder()
+        .withUrl(`${baseUrl}/hubs/project-chat`, {
+          accessTokenFactory: () => accessToken()
+        })
+        .withAutomaticReconnect()
+        .build();
+
+      [
+        "project_chat.created",
+        "project_chat.updated",
+        "project_chat.message_sent",
+        "project_chat.status_changed"
+      ].forEach(eventName => {
+        connection.on(eventName, payload => log(`Received event: ${eventName}`, payload));
+      });
+
+      connection.onreconnecting(error => {
+        setStatus("Reconnecting", false);
+        log("Connection reconnecting.", error?.message);
+      });
+
+      connection.onreconnected(async connectionId => {
+        setStatus("Connected", true);
+        log("Connection reconnected.", { connectionId });
+        try {
+          await restoreGroups();
+        } catch (error) {
+          log("Failed to restore groups.", error?.message || error);
+        }
+      });
+
+      connection.onclose(error => {
+        setStatus("Disconnected", false);
+        log("Connection closed.", error?.message);
+      });
+
+      try {
+        await connection.start();
+        setStatus("Connected", true);
+        log("Connected to Project Chat Hub.", { connectionId: connection.connectionId });
+      } catch (error) {
+        setStatus("Disconnected", false);
+        log("Connection failed.", error?.message || error);
+      }
+    }
+
+    async function disconnect() {
+      if (connection) {
+        await connection.stop();
+        connection = null;
+      }
+      joinedProjects.clear();
+      joinedChats.clear();
+      setStatus("Disconnected", false);
+      log("Disconnected manually.");
+    }
+
+    async function invokeGroup(method, id, joinedSet, action) {
+      if (!requireConnection() || !id) return;
+      try {
+        await connection.invoke(method, id);
+        if (action === "join") joinedSet.add(id);
+        if (action === "leave") joinedSet.delete(id);
+        log(`${method} succeeded.`, { id });
+      } catch (error) {
+        log(`${method} failed.`, error?.message || error);
+      }
+    }
+
+    async function sendMessage() {
+      const chatId = requireValue(elements.chatId, "Chat ID");
+      const content = requireValue(elements.content, "Message content");
+      const baseUrl = requireValue(elements.baseUrl, "API base URL");
+      const token = requireValue(elements.token, "Access token");
+      if (!chatId || !content || !baseUrl || !token) return;
+
+      try {
+        const response = await fetch(`${baseUrl}/project-chats/${chatId}/messages`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ messageType: "TEXT", content })
+        });
+        const body = await response.json();
+        log(`POST messages: HTTP ${response.status}`, body);
+        if (response.ok) elements.content.value = "";
+      } catch (error) {
+        log("Send message failed.", error?.message || error);
+      }
+    }
+
+    async function loadMessages() {
+      const chatId = requireValue(elements.chatId, "Chat ID");
+      const baseUrl = requireValue(elements.baseUrl, "API base URL");
+      const token = requireValue(elements.token, "Access token");
+      if (!chatId || !baseUrl || !token) return;
+
+      const query = new URLSearchParams({
+        page: elements.page.value || "1",
+        limit: elements.limit.value || "30",
+        sort: elements.sort.value
+      });
+
+      try {
+        const response = await fetch(`${baseUrl}/project-chats/${chatId}/messages?${query}`, {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const body = await response.json();
+        log(`GET messages: HTTP ${response.status}`, body);
+      } catch (error) {
+        log("Load messages failed.", error?.message || error);
+      }
+    }
+
+    document.getElementById("connect").addEventListener("click", connect);
+    document.getElementById("disconnect").addEventListener("click", disconnect);
+    document.getElementById("joinProject").addEventListener("click", () => {
+      const id = requireValue(elements.projectId, "Project ID");
+      return invokeGroup("JoinProject", id, joinedProjects, "join");
+    });
+    document.getElementById("leaveProject").addEventListener("click", () => {
+      const id = requireValue(elements.projectId, "Project ID");
+      return invokeGroup("LeaveProject", id, joinedProjects, "leave");
+    });
+    document.getElementById("joinChat").addEventListener("click", () => {
+      const id = requireValue(elements.chatId, "Chat ID");
+      return invokeGroup("JoinChat", id, joinedChats, "join");
+    });
+    document.getElementById("leaveChat").addEventListener("click", () => {
+      const id = requireValue(elements.chatId, "Chat ID");
+      return invokeGroup("LeaveChat", id, joinedChats, "leave");
+    });
+    document.getElementById("send").addEventListener("click", sendMessage);
+    document.getElementById("load").addEventListener("click", loadMessages);
+    document.getElementById("clear").addEventListener("click", () => {
+      elements.log.textContent = "";
+    });
+  </script>
+</body>
+</html>

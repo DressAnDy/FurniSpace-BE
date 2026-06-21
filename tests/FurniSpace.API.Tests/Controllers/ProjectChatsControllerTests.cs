@@ -48,6 +48,73 @@ public sealed class ProjectChatsControllerTests
     }
 
     [Fact]
+    public void Create_AllowsAdminOnlyAndUsesPost()
+    {
+        var method = typeof(ProjectChatsController).GetMethod(nameof(ProjectChatsController.Create))!;
+        var authorize = method
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .Single();
+        var httpPost = method
+            .GetCustomAttributes(typeof(HttpPostAttribute), inherit: false)
+            .Cast<HttpPostAttribute>()
+            .Single();
+
+        Assert.Equal("ADMIN", authorize.Roles);
+        Assert.Null(httpPost.Template);
+    }
+
+    [Fact]
+    public async Task Create_ReturnsCreatedServiceResultAndPassesRequest()
+    {
+        var projectId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var request = new CreateProjectChatRequestDto
+        {
+            ChatType = ProjectChatType.GENERAL,
+            StaffId = Guid.NewGuid(),
+            Title = "General Project Discussion"
+        };
+        var response = new ProjectChatSummaryDto
+        {
+            ChatId = Guid.NewGuid(),
+            ProjectId = projectId,
+            ChatType = ProjectChatType.GENERAL.ToString()
+        };
+        var service = new FakeProjectChatService(
+            ServiceResult<ProjectChatSummaryDto>.Created(
+                response,
+                "Project chat created successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.Create(projectId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectChatSummaryDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(1, service.CreateCallCount);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.CreateRequest);
+    }
+
+    [Fact]
+    public async Task Create_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectChatService(
+            ServiceResult<ProjectChatSummaryDto>.Created(new ProjectChatSummaryDto()));
+        var controller = BuildController(service);
+
+        var actionResult = await controller.Create(
+            Guid.NewGuid(),
+            new CreateProjectChatRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(0, service.CreateCallCount);
+    }
+
+    [Fact]
     public async Task GetList_ReturnsServiceResultAndPassesQuery()
     {
         var projectId = Guid.NewGuid();
@@ -120,17 +187,46 @@ public sealed class ProjectChatsControllerTests
 
     private sealed class FakeProjectChatService : IProjectChatService
     {
-        private readonly ServiceResult<ProjectChatListResponseDto> _result;
+        private readonly ServiceResult<ProjectChatSummaryDto>? _createResult;
+        private readonly ServiceResult<ProjectChatListResponseDto>? _listResult;
 
         public FakeProjectChatService(ServiceResult<ProjectChatListResponseDto> result)
         {
-            _result = result;
+            _listResult = result;
         }
 
+        public FakeProjectChatService(ServiceResult<ProjectChatSummaryDto> result)
+        {
+            _createResult = result;
+        }
+
+        public int CreateCallCount { get; private set; }
         public int GetListCallCount { get; private set; }
         public Guid ProjectId { get; private set; }
         public Guid CurrentUserId { get; private set; }
+        public CreateProjectChatRequestDto? CreateRequest { get; private set; }
         public ProjectChatListQueryDto? Query { get; private set; }
+
+        public Task<bool> CanAccessProjectAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<ServiceResult<ProjectChatSummaryDto>> CreateManualAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CreateProjectChatRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            CreateCallCount++;
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            CreateRequest = request;
+            return Task.FromResult(_createResult!);
+        }
 
         public Task<ServiceResult<ProjectChatListResponseDto>> GetProjectChatsAsync(
             Guid projectId,
@@ -142,7 +238,7 @@ public sealed class ProjectChatsControllerTests
             ProjectId = projectId;
             CurrentUserId = currentUserId;
             Query = query;
-            return Task.FromResult(_result);
+            return Task.FromResult(_listResult!);
         }
 
         public Task<ProjectChatSummaryDto> UpsertProjectChatAsync(

@@ -5,9 +5,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -1286,7 +1289,11 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.SUBMITTED
         };
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
-        var service = new ProjectService(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+        var projectChats = new FakeProjectChatService();
+        var service = new ProjectService(
+            repository,
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            projectChats: projectChats);
 
         var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto
         {
@@ -1300,12 +1307,21 @@ public sealed class ProjectServiceTests
         Assert.Equal(salesId, result.Data.AssignedSalesId);
         Assert.Equal(ProjectStatus.IN_CONSULTATION, result.Data.Status);
         Assert.NotNull(result.Data.SalesAssignedAt);
+        Assert.NotNull(result.Data.SalesChat);
+        Assert.Equal(projectChats.Summary.ChatId, result.Data.SalesChat.ChatId);
+        Assert.Equal("SALES", result.Data.SalesChat.ChatType);
+        Assert.Equal(salesId, result.Data.SalesChat.StaffId);
         Assert.Equal(salesId, project.AssignedSalesId);
         Assert.Equal(ProjectStatus.IN_CONSULTATION, project.Status);
         Assert.NotNull(project.SalesAssignedAt);
         Assert.Equal(1, repository.GetAccountRoleNameCallCount);
         Assert.Equal(1, repository.GetByIdCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(projectId, projectChats.ProjectId);
+        Assert.Equal(ProjectChatType.SALES, projectChats.ChatType);
+        Assert.Equal(salesId, projectChats.StaffId);
+        Assert.Equal("Sales Consultation", projectChats.Title);
     }
 
     [Fact]
@@ -1323,10 +1339,12 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.SUBMITTED
         };
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var projectChats = new FakeProjectChatService();
         var service = new ProjectService(
             repository,
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            dispatcher);
+            dispatcher,
+            projectChats: projectChats);
 
         var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto());
 
@@ -1340,6 +1358,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(projectId, dispatcher.LastReferenceId);
         Assert.NotNull(dispatcher.LastParameters);
         Assert.Equal("Moc Coffee", dispatcher.LastParameters["ProjectName"]);
+        Assert.Equal(1, projectChats.UpsertCallCount);
     }
 
     [Fact]
@@ -1356,10 +1375,12 @@ public sealed class ProjectServiceTests
         };
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
         var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
+        var projectChats = new FakeProjectChatService();
         var service = new ProjectService(
             repository,
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            dispatcher);
+            dispatcher,
+            projectChats: projectChats);
 
         var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto());
 
@@ -1369,6 +1390,112 @@ public sealed class ProjectServiceTests
         Assert.Equal(ProjectStatus.IN_CONSULTATION, project.Status);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(1, projectChats.UpsertCallCount);
+    }
+
+    [Fact]
+    public async Task AssignSalesAsync_WhenSuccessful_CommitsAssignmentAndChatTransaction()
+    {
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Moc Coffee",
+            Status = ProjectStatus.SUBMITTED
+        };
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var projectChats = new FakeProjectChatService();
+        var beginCallCount = 0;
+        var commitCallCount = 0;
+        var rollbackCallCount = 0;
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ =>
+            {
+                beginCallCount++;
+                return Task.CompletedTask;
+            },
+            repository.SaveChangesAsync,
+            _ =>
+            {
+                commitCallCount++;
+                return Task.CompletedTask;
+            },
+            _ =>
+            {
+                rollbackCallCount++;
+                return Task.CompletedTask;
+            });
+        var service = new ProjectService(
+            repository,
+            unitOfWork,
+            projectChats: projectChats);
+
+        var result = await service.AssignSalesAsync(
+            projectId,
+            salesId,
+            new AssignProjectSalesRequestDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, beginCallCount);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, commitCallCount);
+        Assert.Equal(0, rollbackCallCount);
+        Assert.Equal(1, projectChats.UpsertCallCount);
+    }
+
+    [Fact]
+    public async Task AssignSalesAsync_WhenChatUpsertFails_RollsBackAndDoesNotNotify()
+    {
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Moc Coffee",
+            Status = ProjectStatus.SUBMITTED
+        };
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var projectChats = new FakeProjectChatService(throwOnUpsert: true);
+        var dispatcher = new FakeNotificationDispatcher();
+        var beginCallCount = 0;
+        var commitCallCount = 0;
+        var rollbackCallCount = 0;
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ =>
+            {
+                beginCallCount++;
+                return Task.CompletedTask;
+            },
+            repository.SaveChangesAsync,
+            _ =>
+            {
+                commitCallCount++;
+                return Task.CompletedTask;
+            },
+            _ =>
+            {
+                rollbackCallCount++;
+                return Task.CompletedTask;
+            });
+        var service = new ProjectService(
+            repository,
+            unitOfWork,
+            dispatcher,
+            projectChats: projectChats);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto()));
+
+        Assert.Equal("Project chat upsert failed.", exception.Message);
+        Assert.Equal(1, beginCallCount);
+        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+        Assert.Equal(0, commitCallCount);
+        Assert.Equal(1, rollbackCallCount);
+        Assert.Equal(0, dispatcher.DispatchCallCount);
     }
 
     [Fact]
@@ -1455,7 +1582,11 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.NEED_BASIC_INFORMATION
         };
         var repository = new FakeProjectRepository(roleName: "ADMIN", entities: [project]);
-        var service = new ProjectService(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+        var projectChats = new FakeProjectChatService();
+        var service = new ProjectService(
+            repository,
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            projectChats: projectChats);
 
         var result = await service.AssignSalesAsync(projectId, adminId, new AssignProjectSalesRequestDto());
 
@@ -1464,6 +1595,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(adminId, result.Data.AssignedSalesId);
         Assert.Equal(ProjectStatus.IN_CONSULTATION, result.Data.Status);
         Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(adminId, projectChats.StaffId);
     }
 
     [Fact]
@@ -1480,13 +1612,18 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.SUBMITTED
         };
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
-        var service = new ProjectService(repository, TestUnitOfWork.Instance);
+        var projectChats = new FakeProjectChatService();
+        var service = new ProjectService(
+            repository,
+            TestUnitOfWork.Instance,
+            projectChats: projectChats);
 
         var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto());
 
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
         Assert.Equal(salesId, result.Data.AssignedSalesId);
+        Assert.Equal(1, projectChats.UpsertCallCount);
     }
 
     [Fact]
@@ -1584,7 +1721,11 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.IN_CONSULTATION
         };
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
-        var service = new ProjectService(repository, TestUnitOfWork.Instance);
+        var projectChats = new FakeProjectChatService();
+        var service = new ProjectService(
+            repository,
+            TestUnitOfWork.Instance,
+            projectChats: projectChats);
 
         var result = await service.AssignSalesAsync(projectId, Guid.NewGuid(), new AssignProjectSalesRequestDto());
 
@@ -1592,6 +1733,7 @@ public sealed class ProjectServiceTests
         Assert.Equal("Project cannot be accepted from its current status.", result.Message);
         Assert.Null(result.Data);
         Assert.Equal(0, repository.SaveChangesCallCount);
+        Assert.Equal(0, projectChats.UpsertCallCount);
     }
 
     [Fact]
@@ -2468,6 +2610,71 @@ public sealed class ProjectServiceTests
         {
             SaveChangesCallCount++;
             return Task.FromResult(1);
+        }
+    }
+
+    private sealed class FakeProjectChatService : IProjectChatService
+    {
+        private readonly bool _throwOnUpsert;
+
+        public FakeProjectChatService(bool throwOnUpsert = false)
+        {
+            _throwOnUpsert = throwOnUpsert;
+            Summary = new ProjectChatSummaryDto
+            {
+                ChatId = Guid.NewGuid(),
+                ChatType = ProjectChatType.SALES.ToString(),
+                Title = "Sales Consultation",
+                Status = ProjectChatStatus.OPEN.ToString()
+            };
+        }
+
+        public int UpsertCallCount { get; private set; }
+        public Guid ProjectId { get; private set; }
+        public ProjectChatType ChatType { get; private set; }
+        public Guid StaffId { get; private set; }
+        public string? Title { get; private set; }
+        public ProjectChatSummaryDto Summary { get; }
+
+        public Task<bool> CanAccessProjectAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) => Task.FromResult(true);
+
+        public Task<ServiceResult<ProjectChatSummaryDto>> CreateManualAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CreateProjectChatRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectChatSummaryDto>.Created(Summary));
+
+        public Task<ServiceResult<ProjectChatListResponseDto>> GetProjectChatsAsync(
+            Guid projectId,
+            Guid currentUserId,
+            ProjectChatListQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectChatListResponseDto>.Success(
+                new ProjectChatListResponseDto()));
+
+        public Task<ProjectChatSummaryDto> UpsertProjectChatAsync(
+            Guid projectId,
+            ProjectChatType chatType,
+            Guid staffId,
+            string title,
+            CancellationToken cancellationToken = default)
+        {
+            UpsertCallCount++;
+            ProjectId = projectId;
+            ChatType = chatType;
+            StaffId = staffId;
+            Title = title;
+            Summary.ProjectId = projectId;
+            Summary.StaffId = staffId;
+
+            return _throwOnUpsert
+                ? Task.FromException<ProjectChatSummaryDto>(
+                    new InvalidOperationException("Project chat upsert failed."))
+                : Task.FromResult(Summary);
         }
     }
 

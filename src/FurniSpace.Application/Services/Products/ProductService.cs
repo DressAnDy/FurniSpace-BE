@@ -90,7 +90,7 @@ public sealed class ProductService : IProductService
     {
         if (productId == Guid.Empty)
         {
-            return ServiceResult<ProductDto>.BadRequest("Product id is required.");
+            return ServiceResult<ProductDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
         }
 
         var errors = ValidateUpdateRequest(request);
@@ -102,7 +102,7 @@ public sealed class ProductService : IProductService
         var product = await _products.GetByIdAsync(productId, cancellationToken);
         if (product is null)
         {
-            return ServiceResult<ProductDto>.NotFound("Product not found.");
+            return ServiceResult<ProductDto>.NotFound(ProductValidationMessages.ProductNotFound);
         }
 
         if (await _products.GetCategoryAsync(request.CategoryId, cancellationToken) is null)
@@ -128,13 +128,13 @@ public sealed class ProductService : IProductService
     {
         if (productId == Guid.Empty)
         {
-            return ServiceResult<ProductDetailDto>.BadRequest("Product id is required.");
+            return ServiceResult<ProductDetailDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
         }
 
         var product = await _products.GetDetailAsync(productId, cancellationToken);
         if (product is null)
         {
-            return ServiceResult<ProductDetailDto>.NotFound("Product not found.");
+            return ServiceResult<ProductDetailDto>.NotFound(ProductValidationMessages.ProductNotFound);
         }
 
         var detail = product.Adapt<ProductDetailDto>();
@@ -223,7 +223,7 @@ public sealed class ProductService : IProductService
     {
         if (productId == Guid.Empty)
         {
-            return ServiceResult<CatalogFileUploadResponseDto>.BadRequest("Product id is required.");
+            return ServiceResult<CatalogFileUploadResponseDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
         }
 
         if (currentUserId == Guid.Empty)
@@ -247,7 +247,7 @@ public sealed class ProductService : IProductService
 
         if (await _products.GetByIdAsync(productId, cancellationToken) is null)
         {
-            return ServiceResult<CatalogFileUploadResponseDto>.NotFound("Product not found.");
+            return ServiceResult<CatalogFileUploadResponseDto>.NotFound(ProductValidationMessages.ProductNotFound);
         }
 
         var now = DateTime.UtcNow;
@@ -592,7 +592,7 @@ public sealed class ProductService : IProductService
 
         var preview = visibleFiles
             .Where(file => file.FileType == FileType.PRODUCT_PREVIEW)
-            .OrderBy(file => file.DisplayOrder is null or <= 0 ? int.MaxValue : file.DisplayOrder)
+            .OrderBy(file => ResolvePreviewDisplayOrderSortKey(file.DisplayOrder))
             .ThenByDescending(file => file.UploadedAt)
             .FirstOrDefault();
         return (preview ?? visibleFiles[0]).Adapt<CatalogFileDto>();
@@ -605,10 +605,20 @@ public sealed class ProductService : IProductService
         return FilterVisible(files, customerVisibleOnly)
             .OrderByDescending(file => file.FileType == FileType.PRODUCT_PREVIEW)
             .ThenBy(file => file.FileType == FileType.PRODUCT_PREVIEW
-                ? file.DisplayOrder is null or <= 0 ? int.MaxValue : file.DisplayOrder
+                ? ResolvePreviewDisplayOrderSortKey(file.DisplayOrder)
                 : int.MaxValue)
             .ThenByDescending(file => file.UploadedAt)
             .Adapt<List<CatalogFileDto>>();
+    }
+
+    private static int ResolvePreviewDisplayOrderSortKey(int? displayOrder)
+    {
+        if (displayOrder is null or <= 0)
+        {
+            return int.MaxValue;
+        }
+
+        return displayOrder.Value;
     }
 
     private static Dictionary<Guid, List<CatalogFileReadModel>> GroupByReferenceId(

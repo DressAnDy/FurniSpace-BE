@@ -7,6 +7,12 @@ namespace FurniSpace.Infrastructure.Migrations
     /// <inheritdoc />
     public partial class AddProductPreviewFileLinkIndexes : Migration
     {
+        private static readonly string[] ReferenceTypeDisplayOrderIndexColumns =
+            ["reference_type", "reference_id", "file_type", "display_order"];
+
+        private static readonly string[] ProductPreviewDisplayOrderUniqueColumns =
+            ["reference_type", "reference_id", "display_order"];
+
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -41,12 +47,12 @@ namespace FurniSpace.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "idx_file_links_reference_type_display_order",
                 table: "file_links",
-                columns: new[] { "reference_type", "reference_id", "file_type", "display_order" });
+                columns: ReferenceTypeDisplayOrderIndexColumns);
 
             migrationBuilder.CreateIndex(
                 name: "uq_file_links_product_preview_display_order",
                 table: "file_links",
-                columns: new[] { "reference_type", "reference_id", "display_order" },
+                columns: ProductPreviewDisplayOrderUniqueColumns,
                 unique: true,
                 filter: "reference_type = 'PRODUCT' AND file_type = 'PRODUCT_PREVIEW'::file_type AND display_order > 0");
         }

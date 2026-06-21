@@ -45,7 +45,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
     {
         if (productId == Guid.Empty)
         {
-            return ServiceResult<ProductPreviewImageUploadResponseDto>.BadRequest("Product id is required.");
+            return ServiceResult<ProductPreviewImageUploadResponseDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
         }
 
         if (currentUserId == Guid.Empty)
@@ -61,7 +61,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
 
         if (await _products.GetByIdAsync(productId, cancellationToken) is null)
         {
-            return ServiceResult<ProductPreviewImageUploadResponseDto>.NotFound("Product not found.");
+            return ServiceResult<ProductPreviewImageUploadResponseDto>.NotFound(ProductValidationMessages.ProductNotFound);
         }
 
         var existingCount = await _files.CountProductPreviewFilesAsync(productId, cancellationToken);
@@ -162,12 +162,12 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
     {
         if (productId == Guid.Empty)
         {
-            return ServiceResult<ProductPreviewImageListResponseDto>.BadRequest("Product id is required.");
+            return ServiceResult<ProductPreviewImageListResponseDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
         }
 
         if (await _products.GetByIdAsync(productId, cancellationToken) is null)
         {
-            return ServiceResult<ProductPreviewImageListResponseDto>.NotFound("Product not found.");
+            return ServiceResult<ProductPreviewImageListResponseDto>.NotFound(ProductValidationMessages.ProductNotFound);
         }
 
         var previews = await _files.GetProductPreviewFilesAsync(productId, cancellationToken);
@@ -187,12 +187,12 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
     {
         if (productId == Guid.Empty)
         {
-            return ServiceResult<ProductPreviewImageListResponseDto>.BadRequest("Product id is required.");
+            return ServiceResult<ProductPreviewImageListResponseDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
         }
 
         if (await _products.GetByIdAsync(productId, cancellationToken) is null)
         {
-            return ServiceResult<ProductPreviewImageListResponseDto>.NotFound("Product not found.");
+            return ServiceResult<ProductPreviewImageListResponseDto>.NotFound(ProductValidationMessages.ProductNotFound);
         }
 
         var fileLinks = (await _files.GetProductPreviewFileLinkEntitiesAsync(productId, cancellationToken)).ToList();
@@ -238,7 +238,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
     {
         if (productId == Guid.Empty)
         {
-            return ServiceResult<DeleteProductPreviewImageResponseDto>.BadRequest("Product id is required.");
+            return ServiceResult<DeleteProductPreviewImageResponseDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
         }
 
         if (fileId == Guid.Empty)
@@ -248,7 +248,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
 
         if (await _products.GetByIdAsync(productId, cancellationToken) is null)
         {
-            return ServiceResult<DeleteProductPreviewImageResponseDto>.NotFound("Product not found.");
+            return ServiceResult<DeleteProductPreviewImageResponseDto>.NotFound(ProductValidationMessages.ProductNotFound);
         }
 
         if (await _files.GetProductPreviewFileAsync(productId, fileId, cancellationToken) is null)
@@ -425,7 +425,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
         return null;
     }
 
-    private static void ReindexDisplayOrders(IReadOnlyList<FileLink> fileLinks)
+    private static void ReindexDisplayOrders(List<FileLink> fileLinks)
     {
         for (var index = 0; index < fileLinks.Count; index++)
         {
@@ -433,7 +433,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
         }
     }
 
-    private static IReadOnlyList<ProductPreviewImageDto> MapPreviewItems(
+    private static List<ProductPreviewImageDto> MapPreviewItems(
         IReadOnlyList<Infrastructure.DTOs.Products.ProductPreviewImageReadModel> previews)
     {
         var ordered = previews

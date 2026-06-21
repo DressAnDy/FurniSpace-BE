@@ -15,12 +15,15 @@ namespace FurniSpace.API.Controllers;
 public sealed class ProductsController : BaseApiController
 {
     private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
+    private const long PreviewMultipartRequestLimitBytes = 10L * 1024L * 1024L;
 
     private readonly IProductService _products;
+    private readonly IProductPreviewImageService _previewImages;
 
-    public ProductsController(IProductService products)
+    public ProductsController(IProductService products, IProductPreviewImageService previewImages)
     {
         _products = products;
+        _previewImages = previewImages;
     }
 
     [HttpGet]
@@ -111,6 +114,68 @@ public sealed class ProductsController : BaseApiController
 
         return ToActionResult(result);
     }
+
+    [HttpGet("{productId:guid}/preview-files")]
+    public async Task<IActionResult> GetPreviewFiles(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _previewImages.GetListAsync(productId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("{productId:guid}/preview-files")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(PreviewMultipartRequestLimitBytes)]
+    public async Task<IActionResult> UploadPreviewFile(
+        Guid productId,
+        [FromForm] UploadProductPreviewImageFormRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _previewImages.UploadAsync(
+            productId,
+            currentUserId,
+            new UploadProductPreviewImageRequestDto
+            {
+                Content = request.File?.OpenReadStream() ?? Stream.Null,
+                OriginalFileName = request.File?.FileName ?? string.Empty,
+                ContentType = request.File?.ContentType ?? "application/octet-stream",
+                FileSizeBytes = request.File?.Length ?? 0,
+                Description = request.Description,
+                DisplayOrder = request.DisplayOrder
+            },
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("{productId:guid}/preview-files/reorder")]
+    public async Task<IActionResult> ReorderPreviewFiles(
+        Guid productId,
+        [FromBody] ReorderProductPreviewImagesRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _previewImages.ReorderAsync(productId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpDelete("{productId:guid}/preview-files/{fileId:guid}")]
+    public async Task<IActionResult> DeletePreviewFile(
+        Guid productId,
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _previewImages.DeleteAsync(productId, fileId, cancellationToken);
+        return ToActionResult(result);
+    }
 }
 
 public sealed class UploadCatalogFileFormRequest
@@ -119,4 +184,11 @@ public sealed class UploadCatalogFileFormRequest
     public FileType FileType { get; set; } = FileType.OTHER;
     public FileVisibility? Visibility { get; set; }
     public string? Description { get; set; }
+}
+
+public sealed class UploadProductPreviewImageFormRequest
+{
+    public IFormFile? File { get; set; }
+    public string? Description { get; set; }
+    public int? DisplayOrder { get; set; }
 }

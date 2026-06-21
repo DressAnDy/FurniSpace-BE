@@ -35,6 +35,21 @@ public static class CatalogServiceTestHelper
             TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
     }
 
+    public static ProductPreviewImageService CreateProductPreviewImageService(
+        IProductRepository products,
+        IProjectFileRepository files,
+        IFileStorageService? storage = null,
+        ProductPreviewImageSettings? previewSettings = null)
+    {
+        return new ProductPreviewImageService(
+            products,
+            files,
+            storage ?? new NoOpFileStorageService(),
+            Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
+            Options.Create(DefaultFirebaseSettings()),
+            TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
+    }
+
     public static ProductVersionService CreateProductVersionService(
         IProductVersionRepository productVersions,
         IProjectFileRepository files,
@@ -56,6 +71,17 @@ public static class CatalogServiceTestHelper
             MaxFileSizeBytes = 1024 * 1024,
             AllowedExtensions = [".jpg", ".jpeg", ".glb"],
             AllowedMimeTypes = ["image/jpeg", "model/gltf-binary", "application/octet-stream"]
+        };
+    }
+
+    public static ProductPreviewImageSettings DefaultPreviewImageSettings()
+    {
+        return new ProductPreviewImageSettings
+        {
+            MaxCount = 5,
+            MaxFileSizeBytes = 1024 * 1024,
+            AllowedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"],
+            AllowedMimeTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"]
         };
     }
 

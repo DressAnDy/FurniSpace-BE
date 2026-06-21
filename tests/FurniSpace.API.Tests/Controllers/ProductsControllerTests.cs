@@ -81,7 +81,7 @@ public sealed class ProductsControllerTests
             getByCategoryResult: ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty),
             getByIdResult: ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty),
             createResult: ServiceResult<ProductDto>.Created(response, "Product master created successfully."));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
         var request = new CreateProductRequestDto
         {
             CategoryId = response.CategoryId!.Value,
@@ -119,7 +119,7 @@ public sealed class ProductsControllerTests
             getByCategoryResult: ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty),
             getByIdResult: ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty),
             updateResult: ServiceResult<ProductDto>.Success(response, "Product master updated successfully."));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
         var request = new UpdateProductRequestDto
         {
             CategoryId = response.CategoryId!.Value,
@@ -165,7 +165,7 @@ public sealed class ProductsControllerTests
             ]
         };
         var service = new FakeProductService(ServiceResult<ProductListResponseDto>.Success(response, string.Empty));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
 
         var actionResult = await controller.GetAll(page: 1, limit: 20);
 
@@ -201,7 +201,7 @@ public sealed class ProductsControllerTests
             getAllResult: ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty),
             getByCategoryResult: ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty),
             getByIdResult: ServiceResult<ProductDetailDto>.Success(response, string.Empty));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
 
         var actionResult = await controller.GetById(productId);
 
@@ -239,7 +239,7 @@ public sealed class ProductsControllerTests
         var service = new FakeProductService(
             getAllResult: ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty),
             getByCategoryResult: ServiceResult<ProductByCategoryResponseDto>.Success(response, string.Empty));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
 
         var actionResult = await controller.GetByCategory(
             categoryId,
@@ -314,7 +314,7 @@ public sealed class ProductsControllerTests
 
     private static ProductsController CreateController(FakeProductService service, Guid userId)
     {
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext

@@ -668,6 +668,25 @@ public sealed class ProjectFileServiceTests
             bool customerVisibleOnly,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CatalogFileReadModel>>([]);
+
+        public Task<int> CountProductPreviewFilesAsync(Guid productId, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<IReadOnlyList<ProductPreviewImageReadModel>> GetProductPreviewFilesAsync(
+            Guid productId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProductPreviewImageReadModel>>([]);
+
+        public Task<ProductPreviewImageReadModel?> GetProductPreviewFileAsync(
+            Guid productId,
+            Guid fileId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductPreviewImageReadModel?>(null);
+
+        public Task<IReadOnlyList<FileLink>> GetProductPreviewFileLinkEntitiesAsync(
+            Guid productId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<FileLink>>([]);
     }
 
     private sealed class FakeCatalogProductRepository : IProductRepository

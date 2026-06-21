@@ -49,4 +49,14 @@ public sealed class Error
     {
         return new Error(code, message, 500);
     }
+
+    public static Error PayloadTooLarge(string code, string message)
+    {
+        return new Error(code, message, 413);
+    }
+
+    public static Error UnsupportedMediaType(string code, string message)
+    {
+        return new Error(code, message, 415);
+    }
 }

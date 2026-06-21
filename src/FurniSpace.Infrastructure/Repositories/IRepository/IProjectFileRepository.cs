@@ -47,4 +47,21 @@ public interface IProjectFileRepository : IGenericRepository<StoredFile>
         IReadOnlyList<Guid> referenceIds,
         bool customerVisibleOnly,
         CancellationToken cancellationToken = default);
+
+    Task<int> CountProductPreviewFilesAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProductPreviewImageReadModel>> GetProductPreviewFilesAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default);
+
+    Task<ProductPreviewImageReadModel?> GetProductPreviewFileAsync(
+        Guid productId,
+        Guid fileId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<FileLink>> GetProductPreviewFileLinkEntitiesAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default);
 }

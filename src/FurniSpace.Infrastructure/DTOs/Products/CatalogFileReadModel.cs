@@ -15,5 +15,7 @@ public sealed class CatalogFileReadModel
     public long FileSizeBytes { get; set; }
     public FileVisibility? Visibility { get; set; }
     public FileStatus? Status { get; set; }
+    public int? DisplayOrder { get; set; }
+    public string? Description { get; set; }
     public DateTime UploadedAt { get; set; }
 }

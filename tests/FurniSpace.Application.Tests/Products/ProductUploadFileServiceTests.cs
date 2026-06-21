@@ -38,17 +38,36 @@ public sealed class ProductUploadFileServiceTests
         var result = await service.UploadFileAsync(
             productId,
             adminId,
-            CreateUploadRequest("lamp-preview.jpg", FileType.PRODUCT_PREVIEW, description: " Preview "));
+            CreateUploadRequest("reference.jpg", FileType.REFERENCE_IMAGE, description: " Reference "));
 
         Assert.Equal(201, result.Status);
         Assert.Equal("Product file uploaded successfully.", result.Message);
         Assert.NotNull(result.Data);
         Assert.Equal("PRODUCT", result.Data.ReferenceType);
         Assert.Equal(productId, result.Data.ReferenceId);
-        Assert.Equal(FileType.PRODUCT_PREVIEW, result.Data.FileType);
+        Assert.Equal(FileType.REFERENCE_IMAGE, result.Data.FileType);
         Assert.StartsWith($"products/{productId:D}/", storage.UploadRequest!.ObjectName, StringComparison.Ordinal);
         Assert.Single(repository.StoredFiles);
-        Assert.Equal("Preview", repository.FileLinks[0].Description);
+        Assert.Equal("Reference", repository.FileLinks[0].Description);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithProductPreviewType_ReturnsUsePreviewFilesEndpoint()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new CatalogFileTestRepository();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("preview.jpg", FileType.PRODUCT_PREVIEW));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.UsePreviewFilesEndpoint, result.ErrorCode);
+        Assert.Empty(repository.StoredFiles);
     }
 
     [Fact]
@@ -62,7 +81,7 @@ public sealed class ProductUploadFileServiceTests
         var result = await service.UploadFileAsync(
             Guid.NewGuid(),
             Guid.NewGuid(),
-            CreateUploadRequest("lamp-preview.jpg", FileType.PRODUCT_PREVIEW));
+            CreateUploadRequest("reference.jpg", FileType.REFERENCE_IMAGE));
 
         Assert.Equal(404, result.Status);
         Assert.Equal("Product not found.", result.Message);
@@ -201,6 +220,25 @@ public sealed class ProductUploadFileServiceTests
             => Task.FromResult<IReadOnlyList<FileLink>>([]);
 
         public void RemoveFileLinks(IEnumerable<FileLink> fileLinks) { }
+
+        public Task<int> CountProductPreviewFilesAsync(Guid productId, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<IReadOnlyList<ProductPreviewImageReadModel>> GetProductPreviewFilesAsync(
+            Guid productId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProductPreviewImageReadModel>>([]);
+
+        public Task<ProductPreviewImageReadModel?> GetProductPreviewFileAsync(
+            Guid productId,
+            Guid fileId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductPreviewImageReadModel?>(null);
+
+        public Task<IReadOnlyList<FileLink>> GetProductPreviewFileLinkEntitiesAsync(
+            Guid productId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<FileLink>>([]);
 
         public IQueryable<StoredFile> Query() => StoredFiles.AsQueryable();
 

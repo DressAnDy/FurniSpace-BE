@@ -14,6 +14,9 @@ public class ServiceResult : IServiceResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Errors { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
+
     public ServiceResult()
     {
         Status = -1;
@@ -97,7 +100,7 @@ public class ServiceResult : IServiceResult
 
     public static ServiceResult Failure(Error error)
     {
-        return new ServiceResult(error.Status, error.Message);
+        return new ServiceResult(error.Status, error.Message) { ErrorCode = error.Code };
     }
 }
 
@@ -109,6 +112,9 @@ public class ServiceResult<T> : IServiceResult
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Errors { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
 
     object? IServiceResult.Data
     {
@@ -194,6 +200,6 @@ public class ServiceResult<T> : IServiceResult
 
     public static ServiceResult<T> Failure(Error error)
     {
-        return new ServiceResult<T>(error.Status, error.Message);
+        return new ServiceResult<T>(error.Status, error.Message) { ErrorCode = error.Code };
     }
 }

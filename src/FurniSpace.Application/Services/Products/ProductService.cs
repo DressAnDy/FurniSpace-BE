@@ -18,7 +18,6 @@ public sealed class ProductService : IProductService
 {
     private static readonly HashSet<FileType> AllowedProductFileTypes =
     [
-        FileType.PRODUCT_PREVIEW,
         FileType.REFERENCE_IMAGE,
         FileType.OTHER
     ];
@@ -230,6 +229,14 @@ public sealed class ProductService : IProductService
         if (currentUserId == Guid.Empty)
         {
             return ServiceResult<CatalogFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        if (request.FileType == FileType.PRODUCT_PREVIEW)
+        {
+            return ServiceResult<CatalogFileUploadResponseDto>.Failure(
+                Error.BadRequest(
+                    ProductPreviewImageErrorCodes.UsePreviewFilesEndpoint,
+                    "Product preview images must be uploaded via POST /api/products/{productId}/preview-files."));
         }
 
         var validationErrors = ValidateUpload(request);
@@ -583,7 +590,11 @@ public sealed class ProductService : IProductService
             return null;
         }
 
-        var preview = visibleFiles.FirstOrDefault(file => file.FileType == FileType.PRODUCT_PREVIEW);
+        var preview = visibleFiles
+            .Where(file => file.FileType == FileType.PRODUCT_PREVIEW)
+            .OrderBy(file => file.DisplayOrder is null or <= 0 ? int.MaxValue : file.DisplayOrder)
+            .ThenByDescending(file => file.UploadedAt)
+            .FirstOrDefault();
         return (preview ?? visibleFiles[0]).Adapt<CatalogFileDto>();
     }
 
@@ -593,6 +604,9 @@ public sealed class ProductService : IProductService
     {
         return FilterVisible(files, customerVisibleOnly)
             .OrderByDescending(file => file.FileType == FileType.PRODUCT_PREVIEW)
+            .ThenBy(file => file.FileType == FileType.PRODUCT_PREVIEW
+                ? file.DisplayOrder is null or <= 0 ? int.MaxValue : file.DisplayOrder
+                : int.MaxValue)
             .ThenByDescending(file => file.UploadedAt)
             .Adapt<List<CatalogFileDto>>();
     }

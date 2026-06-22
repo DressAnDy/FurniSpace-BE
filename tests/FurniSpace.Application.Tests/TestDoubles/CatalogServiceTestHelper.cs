@@ -7,6 +7,7 @@ using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Storage;
 using Mapster;
@@ -39,7 +40,8 @@ public static class CatalogServiceTestHelper
         IProductRepository products,
         IProjectFileRepository files,
         IFileStorageService? storage = null,
-        ProductPreviewImageSettings? previewSettings = null)
+        ProductPreviewImageSettings? previewSettings = null,
+        IUnitOfWork? unitOfWork = null)
     {
         return new ProductPreviewImageService(
             products,
@@ -47,7 +49,7 @@ public static class CatalogServiceTestHelper
             storage ?? new NoOpFileStorageService(),
             Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
             Options.Create(DefaultFirebaseSettings()),
-            TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
+            unitOfWork ?? TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
     }
 
     public static ProductVersionService CreateProductVersionService(

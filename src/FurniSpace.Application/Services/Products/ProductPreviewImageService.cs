@@ -14,6 +14,8 @@ namespace FurniSpace.Application.Services.Products;
 
 public sealed class ProductPreviewImageService : IProductPreviewImageService
 {
+    private const string PreviewFileNotFoundMessage = "Product preview image not found.";
+
     private readonly IProductRepository _products;
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
@@ -59,9 +61,9 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             return ServiceResult<ProductPreviewImageUploadResponseDto>.Failure(validationError);
         }
 
-        if (await _products.GetByIdAsync(productId, cancellationToken) is null)
+        if (await ResolveProductErrorAsync<ProductPreviewImageUploadResponseDto>(productId, cancellationToken) is { } productError)
         {
-            return ServiceResult<ProductPreviewImageUploadResponseDto>.NotFound(ProductValidationMessages.ProductNotFound);
+            return productError;
         }
 
         var existingCount = await _files.CountProductPreviewFilesAsync(productId, cancellationToken);
@@ -160,24 +162,15 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
         Guid productId,
         CancellationToken cancellationToken = default)
     {
-        if (productId == Guid.Empty)
+        if (await ResolveProductErrorAsync<ProductPreviewImageListResponseDto>(productId, cancellationToken) is { } productError)
         {
-            return ServiceResult<ProductPreviewImageListResponseDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
+            return productError;
         }
 
-        if (await _products.GetByIdAsync(productId, cancellationToken) is null)
-        {
-            return ServiceResult<ProductPreviewImageListResponseDto>.NotFound(ProductValidationMessages.ProductNotFound);
-        }
-
-        var previews = await _files.GetProductPreviewFilesAsync(productId, cancellationToken);
-        return ServiceResult<ProductPreviewImageListResponseDto>.Success(
-            new ProductPreviewImageListResponseDto
-            {
-                ProductId = productId,
-                Items = MapPreviewItems(previews)
-            },
-            "Product preview images retrieved successfully.");
+        return await BuildListSuccessAsync(
+            productId,
+            "Product preview images retrieved successfully.",
+            cancellationToken);
     }
 
     public async Task<ServiceResult<ProductPreviewImageListResponseDto>> ReorderAsync(
@@ -185,14 +178,9 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
         ReorderProductPreviewImagesRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (productId == Guid.Empty)
+        if (await ResolveProductErrorAsync<ProductPreviewImageListResponseDto>(productId, cancellationToken) is { } productError)
         {
-            return ServiceResult<ProductPreviewImageListResponseDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
-        }
-
-        if (await _products.GetByIdAsync(productId, cancellationToken) is null)
-        {
-            return ServiceResult<ProductPreviewImageListResponseDto>.NotFound(ProductValidationMessages.ProductNotFound);
+            return productError;
         }
 
         var fileLinks = (await _files.GetProductPreviewFileLinkEntitiesAsync(productId, cancellationToken)).ToList();
@@ -221,14 +209,10 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             },
             cancellationToken);
 
-        var previews = await _files.GetProductPreviewFilesAsync(productId, cancellationToken);
-        return ServiceResult<ProductPreviewImageListResponseDto>.Success(
-            new ProductPreviewImageListResponseDto
-            {
-                ProductId = productId,
-                Items = MapPreviewItems(previews)
-            },
-            "Product preview images reordered successfully.");
+        return await BuildListSuccessAsync(
+            productId,
+            "Product preview images reordered successfully.",
+            cancellationToken);
     }
 
     public async Task<ServiceResult<DeleteProductPreviewImageResponseDto>> DeleteAsync(
@@ -246,26 +230,20 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             return ServiceResult<DeleteProductPreviewImageResponseDto>.BadRequest("File id is required.");
         }
 
-        if (await _products.GetByIdAsync(productId, cancellationToken) is null)
+        if (await ResolveProductErrorAsync<DeleteProductPreviewImageResponseDto>(productId, cancellationToken) is { } productError)
         {
-            return ServiceResult<DeleteProductPreviewImageResponseDto>.NotFound(ProductValidationMessages.ProductNotFound);
+            return productError;
         }
 
         if (await _files.GetProductPreviewFileAsync(productId, fileId, cancellationToken) is null)
         {
-            return ServiceResult<DeleteProductPreviewImageResponseDto>.Failure(
-                Error.NotFound(
-                    ProductPreviewImageErrorCodes.PreviewFileNotFound,
-                    "Product preview image not found."));
+            return PreviewFileNotFound();
         }
 
         var file = await _files.GetByIdAsync(fileId, cancellationToken);
         if (file is null)
         {
-            return ServiceResult<DeleteProductPreviewImageResponseDto>.Failure(
-                Error.NotFound(
-                    ProductPreviewImageErrorCodes.PreviewFileNotFound,
-                    "Product preview image not found."));
+            return PreviewFileNotFound();
         }
 
         await _storage.DeleteAsync(file.StoragePath, cancellationToken);
@@ -295,6 +273,46 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
                 DeletedAt = DateTime.UtcNow
             },
             "Product preview image deleted successfully.");
+    }
+
+    private async Task<ServiceResult<T>?> ResolveProductErrorAsync<T>(
+        Guid productId,
+        CancellationToken cancellationToken)
+    {
+        if (productId == Guid.Empty)
+        {
+            return ServiceResult<T>.BadRequest(ProductValidationMessages.ProductIdRequired);
+        }
+
+        if (await _products.GetByIdAsync(productId, cancellationToken) is null)
+        {
+            return ServiceResult<T>.NotFound(ProductValidationMessages.ProductNotFound);
+        }
+
+        return null;
+    }
+
+    private async Task<ServiceResult<ProductPreviewImageListResponseDto>> BuildListSuccessAsync(
+        Guid productId,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        var previews = await _files.GetProductPreviewFilesAsync(productId, cancellationToken);
+        return ServiceResult<ProductPreviewImageListResponseDto>.Success(
+            new ProductPreviewImageListResponseDto
+            {
+                ProductId = productId,
+                Items = MapPreviewItems(previews)
+            },
+            message);
+    }
+
+    private static ServiceResult<DeleteProductPreviewImageResponseDto> PreviewFileNotFound()
+    {
+        return ServiceResult<DeleteProductPreviewImageResponseDto>.Failure(
+            Error.NotFound(
+                ProductPreviewImageErrorCodes.PreviewFileNotFound,
+                PreviewFileNotFoundMessage));
     }
 
     private Error? ValidateUploadRequest(UploadProductPreviewImageRequestDto request)
@@ -459,16 +477,17 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
 
     private string[] AllowedExtensions()
     {
-        return _settings.AllowedExtensions.Length == 0
-            ? new ProductPreviewImageSettings().AllowedExtensions
-            : _settings.AllowedExtensions;
+        return ResolveConfiguredOrDefault(_settings.AllowedExtensions, new ProductPreviewImageSettings().AllowedExtensions);
     }
 
     private string[] AllowedMimeTypes()
     {
-        return _settings.AllowedMimeTypes.Length == 0
-            ? new ProductPreviewImageSettings().AllowedMimeTypes
-            : _settings.AllowedMimeTypes;
+        return ResolveConfiguredOrDefault(_settings.AllowedMimeTypes, new ProductPreviewImageSettings().AllowedMimeTypes);
+    }
+
+    private static string[] ResolveConfiguredOrDefault(string[] configured, string[] defaults)
+    {
+        return configured.Length == 0 ? defaults : configured;
     }
 
     private string BuildStorageObjectName(Guid productId, string generatedFileName)

@@ -16,6 +16,7 @@ using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.DTOs.ProjectFiles;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Storage;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.Products;
@@ -279,6 +280,300 @@ public sealed class ProductPreviewImageServiceTests
         Assert.Equal("File id is required.", result.Message);
     }
 
+    [Fact]
+    public async Task UploadAsync_WithEmptyProductId_ReturnsBadRequest()
+    {
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(Guid.NewGuid()),
+            new PreviewImageTestRepository());
+
+        var result = await service.UploadAsync(Guid.Empty, Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Product id is required.", result.Message);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithEmptyUserId_ReturnsUnauthorized()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository());
+
+        var result = await service.UploadAsync(productId, Guid.Empty, CreateUploadRequest("preview.jpg"));
+
+        Assert.Equal(401, result.Status);
+        Assert.Equal("Authenticated account id is required.", result.Message);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithMissingProduct_ReturnsNotFound()
+    {
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(),
+            new PreviewImageTestRepository());
+
+        var result = await service.UploadAsync(Guid.NewGuid(), Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Product not found.", result.Message);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithoutDisplayOrder_AssignsNextAvailableOrder()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new PreviewImageTestRepository();
+        repository.SeedPreview(productId, 1);
+        repository.SeedPreview(productId, 2);
+
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.UploadAsync(productId, Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(3, result.Data!.DisplayOrder);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithDisplayOrder_ShiftsExistingOrders()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new PreviewImageTestRepository();
+        repository.SeedPreview(productId, 1);
+        repository.SeedPreview(productId, 2);
+
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.UploadAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("preview.jpg", displayOrder: 1));
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, repository.FileLinks.Count(link => link.DisplayOrder == 1));
+        Assert.Equal(1, repository.FileLinks.Count(link => link.DisplayOrder == 2));
+        Assert.Equal(1, repository.FileLinks.Count(link => link.DisplayOrder == 3));
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithInvalidMimeType_ReturnsUnsupportedMediaType()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository());
+
+        var result = await service.UploadAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("preview.jpg", contentType: "application/pdf"));
+
+        Assert.Equal(415, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidFileType, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithEmptyFileName_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository());
+
+        var result = await service.UploadAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest(string.Empty));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidFileType, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithZeroFileSize_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository());
+
+        var result = await service.UploadAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("preview.jpg", fileSizeBytes: 0));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidFileType, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithInvalidDisplayOrder_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository());
+
+        var result = await service.UploadAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("preview.jpg", displayOrder: 99));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidFileType, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WhenSaveFails_DeletesUploadedObject()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new PreviewImageTestRepository();
+        var storage = new TrackingPreviewStorage();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            repository,
+            storage,
+            unitOfWork: TestUnitOfWork.ForFailingSaveChanges());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UploadAsync(productId, Guid.NewGuid(), CreateUploadRequest("preview.jpg")));
+
+        Assert.NotNull(storage.DeletedObjectName);
+    }
+
+    [Fact]
+    public async Task ReorderAsync_WithEmptyProductId_ReturnsBadRequest()
+    {
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(Guid.NewGuid()),
+            new PreviewImageTestRepository());
+
+        var result = await service.ReorderAsync(
+            Guid.Empty,
+            new ReorderProductPreviewImagesRequestDto { FileIds = [Guid.NewGuid()] });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Product id is required.", result.Message);
+    }
+
+    [Fact]
+    public async Task ReorderAsync_WithMissingProduct_ReturnsNotFound()
+    {
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(),
+            new PreviewImageTestRepository());
+
+        var result = await service.ReorderAsync(
+            Guid.NewGuid(),
+            new ReorderProductPreviewImagesRequestDto { FileIds = [Guid.NewGuid()] });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Product not found.", result.Message);
+    }
+
+    [Fact]
+    public async Task ReorderAsync_WithNoPreviews_ReturnsEmptyList()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository());
+
+        var result = await service.ReorderAsync(
+            productId,
+            new ReorderProductPreviewImagesRequestDto { FileIds = [Guid.NewGuid()] });
+
+        Assert.Equal(200, result.Status);
+        Assert.Empty(result.Data!.Items);
+    }
+
+    [Fact]
+    public async Task ReorderAsync_WithInvalidFileIds_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var repository = new PreviewImageTestRepository();
+        repository.SeedPreview(productId, 1, fileId);
+
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.ReorderAsync(
+            productId,
+            new ReorderProductPreviewImagesRequestDto { FileIds = [Guid.NewGuid()] });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidReorderPayload, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReorderAsync_WithNeitherPayload_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new PreviewImageTestRepository();
+        repository.SeedPreview(productId, 1);
+
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.ReorderAsync(
+            productId,
+            new ReorderProductPreviewImagesRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidReorderPayload, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WithEmptyProductId_ReturnsBadRequest()
+    {
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(Guid.NewGuid()),
+            new PreviewImageTestRepository());
+
+        var result = await service.DeleteAsync(Guid.Empty, Guid.NewGuid());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Product id is required.", result.Message);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WithMissingProduct_ReturnsNotFound()
+    {
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(),
+            new PreviewImageTestRepository());
+
+        var result = await service.DeleteAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Product not found.", result.Message);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenStoredFileMissing_ReturnsPreviewNotFound()
+    {
+        var productId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var repository = new OrphanPreviewTestRepository(productId, fileId);
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.DeleteAsync(productId, fileId);
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.PreviewFileNotFound, result.ErrorCode);
+    }
+
     private static UploadProductPreviewImageRequestDto CreateUploadRequest(
         string fileName,
         string contentType = "image/jpeg",
@@ -320,7 +615,7 @@ public sealed class ProductPreviewImageServiceTests
         public Task<int> CountByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
 
-    private sealed class PreviewImageTestRepository : IProjectFileRepository
+    private class PreviewImageTestRepository : IProjectFileRepository
     {
         public List<StoredFile> StoredFiles { get; } = [];
         public List<FileLink> FileLinks { get; } = [];
@@ -402,7 +697,7 @@ public sealed class ProductPreviewImageServiceTests
             => Task.FromResult<IReadOnlyList<FileLink>>(FileLinks.Where(l => l.FileId == fileId).ToList());
         public void RemoveFileLinks(IEnumerable<FileLink> fileLinks) { foreach (var l in fileLinks.ToList()) FileLinks.Remove(l); }
         public void Remove(StoredFile entity) { StoredFiles.Remove(entity); }
-        public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        public virtual Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
             => Task.FromResult<StoredFile?>(StoredFiles.FirstOrDefault(f => f.FileId == id));
         public Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(string referenceType, IReadOnlyList<Guid> referenceIds, bool customerVisibleOnly, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CatalogFileReadModel>>([]);
@@ -417,5 +712,39 @@ public sealed class ProductPreviewImageServiceTests
         public Task AddRangeAsync(IEnumerable<StoredFile> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public void Update(StoredFile entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+    }
+
+    private sealed class TrackingPreviewStorage : IFileStorageService
+    {
+        public string? DeletedObjectName { get; private set; }
+
+        public Task<StorageUploadResult> UploadAsync(
+            StorageUploadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+                Bucket = "test-bucket"
+            });
+        }
+
+        public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default)
+        {
+            DeletedObjectName = objectName;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class OrphanPreviewTestRepository : PreviewImageTestRepository
+    {
+        public OrphanPreviewTestRepository(Guid productId, Guid fileId)
+        {
+            SeedPreview(productId, 1, fileId);
+        }
+
+        public override Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<StoredFile?>(null);
     }
 }

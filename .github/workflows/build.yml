@@ -50,6 +50,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         shell: powershell
         run: |
-          ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"DressAnDy_FurniSpace-BE" /o:"dressandy" /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+          ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"DressAnDy_FurniSpace-BE" /o:"dressandy" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.cs.vscoveragexml.reportsPaths="**/coverage.cobertura.xml"
           dotnet build FurniSpace.sln
+          dotnet test FurniSpace.sln --no-build --collect:"XPlat Code Coverage" --results-directory "${{ runner.temp }}/coverage"
           ${{ runner.temp }}\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"

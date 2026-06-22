@@ -7,6 +7,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+env:
+  DOTNET_VERSION: '8.0.x'
+  BUILD_CONFIGURATION: Release
+
 jobs:
   build:
     name: Build and analyze
@@ -22,6 +26,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f612fddd4aaf572137ea2be02 # v4.3.1
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Cache SonarQube Cloud packages
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -42,17 +51,40 @@ jobs:
         if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
         shell: powershell
         run: |
-          New-Item -Path ${{ runner.temp }}\scanner -ItemType Directory
+          New-Item -Path ${{ runner.temp }}\scanner -ItemType Directory -Force
           dotnet tool update dotnet-sonarscanner --tool-path ${{ runner.temp }}\scanner
 
       - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SCANNER_PATH: ${{ runner.temp }}\scanner
-          COVERAGE_DIR: ${{ runner.temp }}\coverage
+          BUILD_CONFIGURATION: ${{ env.BUILD_CONFIGURATION }}
         shell: powershell
         run: |
-          & "$env:SCANNER_PATH\dotnet-sonarscanner" begin /k:"DressAnDy_FurniSpace-BE" /o:"dressandy" /d:sonar.token="$env:SONAR_TOKEN" /d:sonar.cs.vscoveragexml.reportsPaths="**/coverage.cobertura.xml"
-          dotnet build FurniSpace.sln
-          dotnet test FurniSpace.sln --no-build --collect:"XPlat Code Coverage" --results-directory "$env:COVERAGE_DIR"
+          & "$env:SCANNER_PATH\dotnet-sonarscanner" begin `
+            /k:"DressAnDy_FurniSpace-BE" `
+            /o:"dressandy" `
+            /d:sonar.token="$env:SONAR_TOKEN" `
+            /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml" `
+            /d:sonar.coverage.exclusions="**/Migrations/**,**/*Tests/**"
+
+          dotnet build FurniSpace.sln -c $env:BUILD_CONFIGURATION
+
+          dotnet test FurniSpace.sln `
+            -c $env:BUILD_CONFIGURATION `
+            --no-build `
+            --settings coverlet.runsettings `
+            --collect:"XPlat Code Coverage" `
+            --results-directory TestResults/coverage `
+            --logger "console;verbosity=normal"
+
+          $coverageFiles = Get-ChildItem -Path TestResults -Recurse -Filter coverage.opencover.xml -ErrorAction SilentlyContinue
+          if (-not $coverageFiles) {
+            Write-Error "No OpenCover report found under TestResults. SonarQube coverage will stay at 0%."
+            exit 1
+          }
+
+          Write-Host "Found coverage reports:"
+          $coverageFiles | ForEach-Object { Write-Host $_.FullName }
+
           & "$env:SCANNER_PATH\dotnet-sonarscanner" end /d:sonar.token="$env:SONAR_TOKEN"

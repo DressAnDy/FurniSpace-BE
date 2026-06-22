@@ -48,9 +48,11 @@ jobs:
       - name: Build and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SCANNER_PATH: ${{ runner.temp }}\scanner
+          COVERAGE_DIR: ${{ runner.temp }}\coverage
         shell: powershell
         run: |
-          ${{ runner.temp }}\scanner\dotnet-sonarscanner begin /k:"DressAnDy_FurniSpace-BE" /o:"dressandy" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.cs.vscoveragexml.reportsPaths="**/coverage.cobertura.xml"
+          & "$env:SCANNER_PATH\dotnet-sonarscanner" begin /k:"DressAnDy_FurniSpace-BE" /o:"dressandy" /d:sonar.token="$env:SONAR_TOKEN" /d:sonar.cs.vscoveragexml.reportsPaths="**/coverage.cobertura.xml"
           dotnet build FurniSpace.sln
-          dotnet test FurniSpace.sln --no-build --collect:"XPlat Code Coverage" --results-directory "${{ runner.temp }}/coverage"
-          ${{ runner.temp }}\scanner\dotnet-sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+          dotnet test FurniSpace.sln --no-build --collect:"XPlat Code Coverage" --results-directory "$env:COVERAGE_DIR"
+          & "$env:SCANNER_PATH\dotnet-sonarscanner" end /d:sonar.token="$env:SONAR_TOKEN"

@@ -18,7 +18,7 @@ public sealed class ProductService : IProductService
 {
     private static readonly HashSet<FileType> AllowedProductFileTypes =
     [
-        FileType.REFERENCE_IMAGE,
+        FileType.PRODUCT_PREVIEW,
         FileType.OTHER
     ];
 

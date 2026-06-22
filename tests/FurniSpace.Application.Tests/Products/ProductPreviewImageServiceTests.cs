@@ -130,6 +130,155 @@ public sealed class ProductPreviewImageServiceTests
         Assert.Equal(1, repository.FileLinks.Single(link => link.FileId == secondId).DisplayOrder);
     }
 
+    [Fact]
+    public async Task GetListAsync_WithEmptyProductId_ReturnsBadRequest()
+    {
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(Guid.NewGuid()),
+            new PreviewImageTestRepository());
+
+        var result = await service.GetListAsync(Guid.Empty);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Product id is required.", result.Message);
+    }
+
+    [Fact]
+    public async Task GetListAsync_WithMissingProduct_ReturnsNotFound()
+    {
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(),
+            new PreviewImageTestRepository());
+
+        var result = await service.GetListAsync(Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Product not found.", result.Message);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithInvalidExtension_ReturnsUnsupportedMediaType()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository());
+
+        var result = await service.UploadAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("preview.exe"));
+
+        Assert.Equal(415, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidFileType, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadAsync_WithOversizedFile_ReturnsPayloadTooLarge()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository(),
+            previewSettings: new ProductPreviewImageSettings
+            {
+                MaxCount = 5,
+                MaxFileSizeBytes = 8,
+                AllowedExtensions = [".jpg"],
+                AllowedMimeTypes = ["image/jpeg"]
+            });
+
+        var result = await service.UploadAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("preview.jpg", fileSizeBytes: 100));
+
+        Assert.Equal(413, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.FileTooLarge, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReorderAsync_WithItemsPayload_NormalizesDisplayOrder()
+    {
+        var productId = Guid.NewGuid();
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var repository = new PreviewImageTestRepository();
+        repository.SeedPreview(productId, 1, firstId);
+        repository.SeedPreview(productId, 2, secondId);
+
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.ReorderAsync(
+            productId,
+            new ReorderProductPreviewImagesRequestDto
+            {
+                Items =
+                [
+                    new ReorderProductPreviewImageItemDto { FileId = secondId, DisplayOrder = 1 },
+                    new ReorderProductPreviewImageItemDto { FileId = firstId, DisplayOrder = 2 }
+                ]
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(secondId, result.Data.Items[0].FileId);
+    }
+
+    [Fact]
+    public async Task ReorderAsync_WithBothPayloads_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var repository = new PreviewImageTestRepository();
+        repository.SeedPreview(productId, 1, fileId);
+
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.ReorderAsync(
+            productId,
+            new ReorderProductPreviewImagesRequestDto
+            {
+                FileIds = [fileId],
+                Items = [new ReorderProductPreviewImageItemDto { FileId = fileId, DisplayOrder = 1 }]
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidReorderPayload, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WithMissingPreview_ReturnsNotFound()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository());
+
+        var result = await service.DeleteAsync(productId, Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.PreviewFileNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WithEmptyFileId_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            new PreviewImageTestRepository());
+
+        var result = await service.DeleteAsync(productId, Guid.Empty);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("File id is required.", result.Message);
+    }
+
     private static UploadProductPreviewImageRequestDto CreateUploadRequest(
         string fileName,
         string contentType = "image/jpeg",

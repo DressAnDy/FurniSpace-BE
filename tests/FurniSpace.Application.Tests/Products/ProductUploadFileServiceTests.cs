@@ -24,7 +24,7 @@ namespace FurniSpace.Application.Tests.Products;
 public sealed class ProductUploadFileServiceTests
 {
     [Fact]
-    public async Task UploadFileAsync_WithValidRequest_UploadsAndPersistsFile()
+    public async Task UploadFileAsync_WithValidOtherType_UploadsAndPersistsFile()
     {
         var adminId = Guid.NewGuid();
         var productId = Guid.NewGuid();
@@ -38,17 +38,36 @@ public sealed class ProductUploadFileServiceTests
         var result = await service.UploadFileAsync(
             productId,
             adminId,
-            CreateUploadRequest("reference.jpg", FileType.REFERENCE_IMAGE, description: " Reference "));
+            CreateUploadRequest("catalog.jpg", FileType.OTHER, description: " Catalog note "));
 
         Assert.Equal(201, result.Status);
         Assert.Equal("Product file uploaded successfully.", result.Message);
         Assert.NotNull(result.Data);
         Assert.Equal("PRODUCT", result.Data.ReferenceType);
         Assert.Equal(productId, result.Data.ReferenceId);
-        Assert.Equal(FileType.REFERENCE_IMAGE, result.Data.FileType);
+        Assert.Equal(FileType.OTHER, result.Data.FileType);
         Assert.StartsWith($"products/{productId:D}/", storage.UploadRequest!.ObjectName, StringComparison.Ordinal);
         Assert.Single(repository.StoredFiles);
-        Assert.Equal("Reference", repository.FileLinks[0].Description);
+        Assert.Equal("Catalog note", repository.FileLinks[0].Description);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithReferenceImageType_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new CatalogFileTestRepository();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("reference.jpg", FileType.REFERENCE_IMAGE));
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("File type is not allowed for this upload.", result.Errors!);
+        Assert.Empty(repository.StoredFiles);
     }
 
     [Fact]
@@ -81,10 +100,43 @@ public sealed class ProductUploadFileServiceTests
         var result = await service.UploadFileAsync(
             Guid.NewGuid(),
             Guid.NewGuid(),
-            CreateUploadRequest("reference.jpg", FileType.REFERENCE_IMAGE));
+            CreateUploadRequest("catalog.jpg", FileType.OTHER));
 
         Assert.Equal(404, result.Status);
         Assert.Equal("Product not found.", result.Message);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithEmptyProductId_ReturnsBadRequest()
+    {
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(Guid.NewGuid()),
+            new CatalogFileTestRepository());
+
+        var result = await service.UploadFileAsync(
+            Guid.Empty,
+            Guid.NewGuid(),
+            CreateUploadRequest("catalog.jpg", FileType.OTHER));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Product id is required.", result.Message);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithEmptyUserId_ReturnsUnauthorized()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            new CatalogFileTestRepository());
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.Empty,
+            CreateUploadRequest("catalog.jpg", FileType.OTHER));
+
+        Assert.Equal(401, result.Status);
+        Assert.Equal("Authenticated account id is required.", result.Message);
     }
 
     [Fact]
@@ -103,6 +155,23 @@ public sealed class ProductUploadFileServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Contains("File type is not allowed for this upload.", result.Errors!);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithInvalidExtension_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            new CatalogFileTestRepository());
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("catalog.exe", FileType.OTHER));
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("File extension is not allowed.", result.Errors!);
     }
 
     private static UploadCatalogFileRequestDto CreateUploadRequest(

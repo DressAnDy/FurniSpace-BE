@@ -18,7 +18,9 @@ public sealed class FakeProductPreviewImageService : IProductPreviewImageService
 
     public Guid? ProductId { get; private set; }
     public Guid? CurrentUserId { get; private set; }
+    public Guid? FileId { get; private set; }
     public UploadProductPreviewImageRequestDto? UploadRequest { get; private set; }
+    public ReorderProductPreviewImagesRequestDto? ReorderRequest { get; private set; }
 
     public Task<ServiceResult<ProductPreviewImageUploadResponseDto>> UploadAsync(
         Guid productId,
@@ -44,11 +46,19 @@ public sealed class FakeProductPreviewImageService : IProductPreviewImageService
         Guid productId,
         ReorderProductPreviewImagesRequestDto request,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(ReorderResult ?? ServiceResult<ProductPreviewImageListResponseDto>.BadRequest("Reorder not configured."));
+    {
+        ProductId = productId;
+        ReorderRequest = request;
+        return Task.FromResult(ReorderResult ?? ServiceResult<ProductPreviewImageListResponseDto>.BadRequest("Reorder not configured."));
+    }
 
     public Task<ServiceResult<DeleteProductPreviewImageResponseDto>> DeleteAsync(
         Guid productId,
         Guid fileId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(DeleteResult ?? ServiceResult<DeleteProductPreviewImageResponseDto>.BadRequest("Delete not configured."));
+    {
+        ProductId = productId;
+        FileId = fileId;
+        return Task.FromResult(DeleteResult ?? ServiceResult<DeleteProductPreviewImageResponseDto>.BadRequest("Delete not configured."));
+    }
 }

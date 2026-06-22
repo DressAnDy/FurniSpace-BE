@@ -312,9 +312,157 @@ public sealed class ProductsControllerTests
         Assert.Equal("Preview image", service.UploadFileRequest.Description);
     }
 
+    [Fact]
+    public void GetPreviewFiles_DoesNotRequireAuthorization()
+    {
+        var method = typeof(ProductsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.GetPreviewFiles));
+
+        var authorize = method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault();
+
+        Assert.Null(authorize);
+    }
+
+    [Fact]
+    public void UploadPreviewFile_RequiresAdminRole()
+    {
+        var method = typeof(ProductsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.UploadPreviewFile));
+
+        var authorize = method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(authorize);
+        Assert.Equal("ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task GetPreviewFiles_PassesProductIdToPreviewService()
+    {
+        var productId = Guid.NewGuid();
+        var response = new ProductPreviewImageListResponseDto
+        {
+            ProductId = productId,
+            Items = []
+        };
+        var previewService = new FakeProductPreviewImageService
+        {
+            GetListResult = ServiceResult<ProductPreviewImageListResponseDto>.Success(
+                response,
+                "Product preview images retrieved successfully.")
+        };
+        var controller = new ProductsController(CreateDefaultProductService(), previewService);
+
+        var actionResult = await controller.GetPreviewFiles(productId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(productId, previewService.ProductId);
+    }
+
+    [Fact]
+    public async Task UploadPreviewFile_PassesRequestToPreviewService()
+    {
+        var userId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var response = new ProductPreviewImageUploadResponseDto
+        {
+            FileId = Guid.NewGuid(),
+            Url = "https://storage.example.com/preview.jpg",
+            DisplayOrder = 1,
+            FileType = FileType.PRODUCT_PREVIEW
+        };
+        var previewService = new FakeProductPreviewImageService
+        {
+            UploadResult = ServiceResult<ProductPreviewImageUploadResponseDto>.Created(
+                response,
+                "Product preview image uploaded successfully.")
+        };
+        var controller = CreateController(CreateDefaultProductService(), previewService, userId);
+        var request = new UploadProductPreviewImageFormRequest
+        {
+            File = CreateFormFile("preview.jpg", "image/jpeg", "file-content"),
+            Description = "Cover image",
+            DisplayOrder = 1
+        };
+
+        var actionResult = await controller.UploadPreviewFile(productId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(productId, previewService.ProductId);
+        Assert.Equal(userId, previewService.CurrentUserId);
+        Assert.NotNull(previewService.UploadRequest);
+        Assert.Equal("preview.jpg", previewService.UploadRequest.OriginalFileName);
+        Assert.Equal("Cover image", previewService.UploadRequest.Description);
+        Assert.Equal(1, previewService.UploadRequest.DisplayOrder);
+    }
+
+    [Fact]
+    public async Task ReorderPreviewFiles_PassesRequestToPreviewService()
+    {
+        var productId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var previewService = new FakeProductPreviewImageService
+        {
+            ReorderResult = ServiceResult<ProductPreviewImageListResponseDto>.Success(
+                new ProductPreviewImageListResponseDto { ProductId = productId, Items = [] },
+                "Product preview images reordered successfully.")
+        };
+        var controller = CreateController(CreateDefaultProductService(), previewService, Guid.NewGuid());
+        var request = new ReorderProductPreviewImagesRequestDto { FileIds = [fileId] };
+
+        var actionResult = await controller.ReorderPreviewFiles(productId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(productId, previewService.ProductId);
+        Assert.NotNull(previewService.ReorderRequest);
+        Assert.Equal(fileId, Assert.Single(previewService.ReorderRequest.FileIds!));
+    }
+
+    [Fact]
+    public async Task DeletePreviewFile_PassesIdsToPreviewService()
+    {
+        var productId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var previewService = new FakeProductPreviewImageService
+        {
+            DeleteResult = ServiceResult<DeleteProductPreviewImageResponseDto>.Success(
+                new DeleteProductPreviewImageResponseDto { ProductId = productId, FileId = fileId },
+                "Product preview image deleted successfully.")
+        };
+        var controller = CreateController(CreateDefaultProductService(), previewService, Guid.NewGuid());
+
+        var actionResult = await controller.DeletePreviewFile(productId, fileId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(productId, previewService.ProductId);
+        Assert.Equal(fileId, previewService.FileId);
+    }
+
+    private static FakeProductService CreateDefaultProductService()
+    {
+        return new FakeProductService(ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty));
+    }
+
     private static ProductsController CreateController(FakeProductService service, Guid userId)
     {
-        var controller = new ProductsController(service, new FakeProductPreviewImageService());
+        return CreateController(service, new FakeProductPreviewImageService(), userId);
+    }
+
+    private static ProductsController CreateController(
+        FakeProductService service,
+        FakeProductPreviewImageService previewService,
+        Guid userId)
+    {
+        var controller = new ProductsController(service, previewService);
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext

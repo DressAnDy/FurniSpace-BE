@@ -762,12 +762,33 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest("Designer account is not active or does not have Designer role.");
         }
 
-        project.AssignedDesignerId = designer.AccountId;
-        project.DesignerAssignedAt = DateTime.UtcNow;
-        project.Status = ResolveDesignerAssignmentStatus(request.SpaceDataStatus!.Value);
-        project.UpdatedAt = project.DesignerAssignedAt;
+        var projectChats = _projectChats ?? throw new InvalidOperationException(
+            "Project chat service is not configured.");
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            project.AssignedDesignerId = designer.AccountId;
+            project.DesignerAssignedAt = DateTime.UtcNow;
+            project.Status = ResolveDesignerAssignmentStatus(request.SpaceDataStatus!.Value);
+            project.UpdatedAt = project.DesignerAssignedAt;
+
+            await projectChats.UpsertProjectChatAsync(
+                project.ProjectId,
+                ProjectChatType.DESIGNER,
+                designer.AccountId,
+                "Design Discussion",
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+
         await DispatchProjectDesignerAssignedNotificationAsync(project, designer.AccountId, cancellationToken);
 
         return ServiceResult<ProjectDesignerAssignmentDto>.Success(

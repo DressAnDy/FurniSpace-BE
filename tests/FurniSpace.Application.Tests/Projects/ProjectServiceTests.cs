@@ -31,7 +31,11 @@ public sealed class ProjectServiceTests
         var designer = CreateDesigner();
         var project = CreateDesignerAssignableProject(projectId, salesId);
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
-        var service = new ProjectService(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+        var projectChats = new FakeProjectChatService();
+        var service = new ProjectService(
+            repository,
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            projectChats: projectChats);
 
         var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
         {
@@ -55,6 +59,11 @@ public sealed class ProjectServiceTests
         Assert.Equal(1, repository.GetAccountRoleNameCallCount);
         Assert.Equal(1, repository.GetActiveDesignerCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(projectId, projectChats.ProjectId);
+        Assert.Equal(ProjectChatType.DESIGNER, projectChats.ChatType);
+        Assert.Equal(designer.AccountId, projectChats.StaffId);
+        Assert.Equal("Design Discussion", projectChats.Title);
     }
 
     [Fact]
@@ -64,7 +73,11 @@ public sealed class ProjectServiceTests
         var designer = CreateDesigner();
         var project = CreateDesignerAssignableProject(projectId, Guid.NewGuid());
         var repository = new FakeProjectRepository(roleName: "ADMIN", entities: [project], designer: designer);
-        var service = new ProjectService(repository, TestUnitOfWork.Instance);
+        var projectChats = new FakeProjectChatService();
+        var service = new ProjectService(
+            repository,
+            TestUnitOfWork.Instance,
+            projectChats: projectChats);
 
         var result = await service.AssignDesignerAsync(projectId, Guid.NewGuid(), new AssignProjectDesignerRequestDto
         {
@@ -75,6 +88,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
         Assert.Equal(ProjectStatus.MEASUREMENT_REQUIRED, result.Data.Status);
+        Assert.Equal(1, projectChats.UpsertCallCount);
     }
 
     [Fact]
@@ -215,7 +229,11 @@ public sealed class ProjectServiceTests
         var project = CreateDesignerAssignableProject(projectId, salesId);
         project.Status = ProjectStatus.IN_CONSULTATION;
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: CreateDesigner());
-        var service = new ProjectService(repository, TestUnitOfWork.Instance);
+        var projectChats = new FakeProjectChatService();
+        var service = new ProjectService(
+            repository,
+            TestUnitOfWork.Instance,
+            projectChats: projectChats);
 
         var result = await service.AssignDesignerAsync(projectId, salesId, ValidAssignDesignerRequest());
 
@@ -223,6 +241,7 @@ public sealed class ProjectServiceTests
         Assert.Equal("Project must be waiting for designer assignment.", result.Message);
         Assert.Null(result.Data);
         Assert.Equal(0, repository.GetActiveDesignerCallCount);
+        Assert.Equal(0, projectChats.UpsertCallCount);
     }
 
     [Fact]
@@ -251,11 +270,13 @@ public sealed class ProjectServiceTests
         var designer = CreateDesigner();
         var project = CreateDesignerAssignableProject(projectId, salesId);
         var dispatcher = new FakeNotificationDispatcher();
+        var projectChats = new FakeProjectChatService();
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
         var service = new ProjectService(
             repository,
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            dispatcher);
+            dispatcher,
+            projectChats: projectChats);
 
         var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
         {
@@ -272,6 +293,7 @@ public sealed class ProjectServiceTests
         Assert.Equal([designer.AccountId], dispatcher.LastReceiverIds);
         Assert.NotNull(dispatcher.LastParameters);
         Assert.Equal("Moc Coffee Interior Setup", dispatcher.LastParameters["ProjectName"]);
+        Assert.Equal(1, projectChats.UpsertCallCount);
     }
 
     [Fact]
@@ -282,11 +304,13 @@ public sealed class ProjectServiceTests
         var designer = CreateDesigner();
         var project = CreateDesignerAssignableProject(projectId, salesId);
         var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
+        var projectChats = new FakeProjectChatService();
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
         var service = new ProjectService(
             repository,
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            dispatcher);
+            dispatcher,
+            projectChats: projectChats);
 
         var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
         {
@@ -299,6 +323,161 @@ public sealed class ProjectServiceTests
         Assert.Equal(ProjectStatus.MEASUREMENT_REQUIRED, result.Data.Status);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(1, projectChats.UpsertCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WhenSuccessful_CommitsBeforeNotification()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var repository = new FakeProjectRepository(
+            roleName: "SALES",
+            entities: [project],
+            designer: designer);
+        var projectChats = new FakeProjectChatService();
+        var beginCallCount = 0;
+        var commitCallCount = 0;
+        var rollbackCallCount = 0;
+        var dispatcher = new FakeNotificationDispatcher(
+            onDispatch: () => Assert.Equal(1, commitCallCount));
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ =>
+            {
+                beginCallCount++;
+                return Task.CompletedTask;
+            },
+            repository.SaveChangesAsync,
+            _ =>
+            {
+                commitCallCount++;
+                return Task.CompletedTask;
+            },
+            _ =>
+            {
+                rollbackCallCount++;
+                return Task.CompletedTask;
+            });
+        var service = new ProjectService(
+            repository,
+            unitOfWork,
+            dispatcher,
+            projectChats: projectChats);
+
+        var result = await service.AssignDesignerAsync(
+            projectId,
+            salesId,
+            new AssignProjectDesignerRequestDto
+            {
+                DesignerId = designer.AccountId,
+                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, beginCallCount);
+        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(1, commitCallCount);
+        Assert.Equal(0, rollbackCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WhenChatUpsertFails_RollsBackAndDoesNotNotify()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var repository = new FakeProjectRepository(
+            roleName: "SALES",
+            entities: [project],
+            designer: designer);
+        var projectChats = new FakeProjectChatService(throwOnUpsert: true);
+        var dispatcher = new FakeNotificationDispatcher();
+        var rollbackCallCount = 0;
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            repository.SaveChangesAsync,
+            _ => Task.CompletedTask,
+            _ =>
+            {
+                rollbackCallCount++;
+                return Task.CompletedTask;
+            });
+        var service = new ProjectService(
+            repository,
+            unitOfWork,
+            dispatcher,
+            projectChats: projectChats);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AssignDesignerAsync(
+                projectId,
+                salesId,
+                new AssignProjectDesignerRequestDto
+                {
+                    DesignerId = designer.AccountId,
+                    SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+                }));
+
+        Assert.Equal("Project chat upsert failed.", exception.Message);
+        Assert.Equal(1, rollbackCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+        Assert.Equal(0, dispatcher.DispatchCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WhenSaveFails_RollsBackAndDoesNotNotify()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var repository = new FakeProjectRepository(
+            roleName: "SALES",
+            entities: [project],
+            designer: designer);
+        var projectChats = new FakeProjectChatService();
+        var dispatcher = new FakeNotificationDispatcher();
+        var commitCallCount = 0;
+        var rollbackCallCount = 0;
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ => Task.FromException<int>(new InvalidOperationException("Project save failed.")),
+            _ =>
+            {
+                commitCallCount++;
+                return Task.CompletedTask;
+            },
+            _ =>
+            {
+                rollbackCallCount++;
+                return Task.CompletedTask;
+            });
+        var service = new ProjectService(
+            repository,
+            unitOfWork,
+            dispatcher,
+            projectChats: projectChats);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.AssignDesignerAsync(
+                projectId,
+                salesId,
+                new AssignProjectDesignerRequestDto
+                {
+                    DesignerId = designer.AccountId,
+                    SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+                }));
+
+        Assert.Equal("Project save failed.", exception.Message);
+        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(0, commitCallCount);
+        Assert.Equal(1, rollbackCallCount);
+        Assert.Equal(0, dispatcher.DispatchCallCount);
     }
 
     [Fact]
@@ -1410,6 +1589,8 @@ public sealed class ProjectServiceTests
         var beginCallCount = 0;
         var commitCallCount = 0;
         var rollbackCallCount = 0;
+        var dispatcher = new FakeNotificationDispatcher(
+            onDispatch: () => Assert.Equal(1, commitCallCount));
         var unitOfWork = TestUnitOfWork.ForTransaction(
             _ =>
             {
@@ -1430,6 +1611,7 @@ public sealed class ProjectServiceTests
         var service = new ProjectService(
             repository,
             unitOfWork,
+            dispatcher,
             projectChats: projectChats);
 
         var result = await service.AssignSalesAsync(
@@ -1443,6 +1625,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(1, commitCallCount);
         Assert.Equal(0, rollbackCallCount);
         Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
     }
 
     [Fact]
@@ -2681,10 +2864,14 @@ public sealed class ProjectServiceTests
     private sealed class FakeNotificationDispatcher : INotificationDispatcher
     {
         private readonly bool _throwOnDispatch;
+        private readonly Action? _onDispatch;
 
-        public FakeNotificationDispatcher(bool throwOnDispatch = false)
+        public FakeNotificationDispatcher(
+            bool throwOnDispatch = false,
+            Action? onDispatch = null)
         {
             _throwOnDispatch = throwOnDispatch;
+            _onDispatch = onDispatch;
         }
 
         public int DispatchCallCount { get; private set; }
@@ -2711,6 +2898,7 @@ public sealed class ProjectServiceTests
             LastProjectId = projectId;
             LastReferenceType = referenceType;
             LastReferenceId = referenceId;
+            _onDispatch?.Invoke();
 
             if (_throwOnDispatch)
             {

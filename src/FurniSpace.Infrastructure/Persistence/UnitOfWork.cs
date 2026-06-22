@@ -32,13 +32,11 @@ public class UnitOfWork : IUnitOfWork
     {
         if (_transaction is null)
         {
-            await SaveChangesAsync(cancellationToken);
             return;
         }
 
         try
         {
-            await SaveChangesAsync(cancellationToken);
             await _transaction.CommitAsync(cancellationToken);
         }
         finally

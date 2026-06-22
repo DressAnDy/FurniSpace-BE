@@ -652,13 +652,17 @@ public sealed class ProjectChatServiceTests
         Assert.Equal(0, repository.SaveChangesCallCount);
     }
 
-    [Fact]
-    public async Task UpsertProjectChatAsync_WhenOpenChatExists_UpdatesOnlyStaffAndKeepsMessages()
+    [Theory]
+    [InlineData(ProjectChatType.SALES)]
+    [InlineData(ProjectChatType.DESIGNER)]
+    public async Task UpsertProjectChatAsync_WhenOpenChatExists_UpdatesOnlyStaffAndKeepsMessages(
+        ProjectChatType chatType)
     {
         var projectId = Guid.NewGuid();
         var originalStaffId = Guid.NewGuid();
         var newStaffId = Guid.NewGuid();
         var chat = CreateChat(projectId, originalStaffId, ProjectChatStatus.OPEN);
+        chat.ChatType = chatType;
         var message = new ProjectChatMessage
         {
             MessageId = Guid.NewGuid(),
@@ -670,7 +674,7 @@ public sealed class ProjectChatServiceTests
 
         var result = await service.UpsertProjectChatAsync(
             projectId,
-            ProjectChatType.SALES,
+            chatType,
             newStaffId,
             "Replacement title");
 

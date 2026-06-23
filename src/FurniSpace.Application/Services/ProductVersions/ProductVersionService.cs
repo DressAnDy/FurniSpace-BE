@@ -563,17 +563,19 @@ public sealed class ProductVersionService : IProductVersionService
                         request,
                         now);
 
-                    var fileLink = CatalogFileEntityFactory.CreateFileLink(
-                        fileLinkId,
-                        fileId,
-                        CatalogFileReferenceTypes.ProductVersion,
-                        productVersionId,
-                        FileType.PRODUCT_PREVIEW,
-                        visibility,
-                        currentUserId,
-                        now,
-                        request.Description,
-                        displayOrder);
+                    var fileLink = CatalogFileEntityFactory.CreateFileLink(new CatalogFileLinkCreationContext
+                    {
+                        FileLinkId = fileLinkId,
+                        FileId = fileId,
+                        ReferenceType = CatalogFileReferenceTypes.ProductVersion,
+                        ReferenceId = productVersionId,
+                        FileType = FileType.PRODUCT_PREVIEW,
+                        Visibility = visibility,
+                        CreatedBy = currentUserId,
+                        CreatedAt = now,
+                        Description = request.Description,
+                        DisplayOrder = displayOrder
+                    });
 
                     await _files.AddAsync(storedFile, ct);
                     await _files.AddFileLinkAsync(fileLink, ct);
@@ -648,16 +650,18 @@ public sealed class ProductVersionService : IProductVersionService
             request,
             now);
 
-        var fileLink = CatalogFileEntityFactory.CreateFileLink(
-            fileLinkId,
-            fileId,
-            CatalogFileReferenceTypes.ProductVersion,
-            productVersionId,
-            request.FileType,
-            visibility,
-            currentUserId,
-            now,
-            request.Description);
+        var fileLink = CatalogFileEntityFactory.CreateFileLink(new CatalogFileLinkCreationContext
+        {
+            FileLinkId = fileLinkId,
+            FileId = fileId,
+            ReferenceType = CatalogFileReferenceTypes.ProductVersion,
+            ReferenceId = productVersionId,
+            FileType = request.FileType,
+            Visibility = visibility,
+            CreatedBy = currentUserId,
+            CreatedAt = now,
+            Description = request.Description
+        });
 
         await _files.AddAsync(storedFile, cancellationToken);
         await _files.AddFileLinkAsync(fileLink, cancellationToken);

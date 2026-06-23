@@ -32,30 +32,20 @@ internal static class CatalogFileEntityFactory
         };
     }
 
-    public static FileLink CreateFileLink(
-        Guid fileLinkId,
-        Guid fileId,
-        string referenceType,
-        Guid referenceId,
-        FileType fileType,
-        FileVisibility visibility,
-        Guid createdBy,
-        DateTime createdAt,
-        string? description,
-        int? displayOrder = null)
+    public static FileLink CreateFileLink(CatalogFileLinkCreationContext context)
     {
         return new FileLink
         {
-            FileLinkId = fileLinkId,
-            FileId = fileId,
-            ReferenceType = referenceType,
-            ReferenceId = referenceId,
-            FileType = fileType,
-            Visibility = visibility,
-            Description = CatalogFileStorageHelpers.NormalizeOptional(description),
-            DisplayOrder = displayOrder,
-            CreatedBy = createdBy,
-            CreatedAt = createdAt
+            FileLinkId = context.FileLinkId,
+            FileId = context.FileId,
+            ReferenceType = context.ReferenceType,
+            ReferenceId = context.ReferenceId,
+            FileType = context.FileType,
+            Visibility = context.Visibility,
+            Description = CatalogFileStorageHelpers.NormalizeOptional(context.Description),
+            DisplayOrder = context.DisplayOrder,
+            CreatedBy = context.CreatedBy,
+            CreatedAt = context.CreatedAt
         };
     }
 }

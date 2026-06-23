@@ -56,6 +56,8 @@ public static class DependencyInjection
         services.AddScoped<IProductRepository, ProductRepository>();
         services.AddScoped<IProductVersionRepository, ProductVersionRepository>();
         services.AddScoped<IProjectFileRepository, ProjectFileRepository>();
+        services.AddScoped<IProjectChatRepository, ProjectChatRepository>();
+        services.AddScoped<IProjectChatMessageRepository, ProjectChatMessageRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IProjectScheduleRepository, ProjectScheduleRepository>();

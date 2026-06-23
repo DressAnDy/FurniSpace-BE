@@ -36,7 +36,7 @@ public sealed class ProjectsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,ADMIN,CUSTOMER")]
+    [Authorize(Roles = "SALES,ADMIN,CUSTOMER,DESIGNER")]
     [HttpGet]
     public async Task<IActionResult> GetList(
         [FromQuery] ProjectStatus? status = null,

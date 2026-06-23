@@ -9,6 +9,7 @@ using FurniSpace.API.Hubs;
 using FurniSpace.API.Realtime;
 using FurniSpace.Application;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Common.Realtime;
 using FurniSpace.Application.Interfaces.Identity;
@@ -51,6 +52,7 @@ AddJwtAuthentication(builder.Services, jwtSettings, builder.Environment);
 builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IRealtimeNotificationService, SignalRRealtimeNotificationService>();
+builder.Services.AddScoped<IProjectChatRealtimeService, SignalRProjectChatRealtimeService>();
 
 var app = builder.Build();
 
@@ -68,6 +70,7 @@ app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<NotificationsHub>(RealtimeGroupNames.HubPath);
+app.MapHub<ProjectChatHub>(ProjectChatRealtimeConstants.HubPath);
 app.MapGet("/", () => "FurniSpace API");
 await app.RunAsync();
 await Log.CloseAndFlushAsync();
@@ -268,6 +271,30 @@ static void AddApiSwagger(IServiceCollection services)
     });
 }
 
+static Task ReadJwtBearerTokenAsync(MessageReceivedContext context)
+{
+    if (string.IsNullOrWhiteSpace(context.Token) &&
+        context.Request.Cookies.TryGetValue("access_token", out var accessToken))
+    {
+        context.Token = accessToken;
+    }
+
+    if (string.IsNullOrWhiteSpace(context.Token) && IsRealtimeHubPath(context.HttpContext.Request.Path))
+    {
+        var queryAccessToken = context.Request.Query["access_token"];
+        if (!string.IsNullOrWhiteSpace(queryAccessToken))
+        {
+            context.Token = queryAccessToken;
+        }
+    }
+
+    return Task.CompletedTask;
+}
+
+static bool IsRealtimeHubPath(PathString path) =>
+    path.StartsWithSegments(RealtimeGroupNames.HubPath) ||
+    path.StartsWithSegments(ProjectChatRealtimeConstants.HubPath);
+
 static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSettings, IWebHostEnvironment environment)
 {
     services
@@ -289,26 +316,7 @@ static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSet
             };
             options.Events = new JwtBearerEvents
             {
-                OnMessageReceived = context =>
-                {
-                    if (string.IsNullOrWhiteSpace(context.Token) &&
-                        context.Request.Cookies.TryGetValue("access_token", out var accessToken))
-                    {
-                        context.Token = accessToken;
-                    }
-
-                    if (string.IsNullOrWhiteSpace(context.Token) &&
-                        context.HttpContext.Request.Path.StartsWithSegments(RealtimeGroupNames.HubPath))
-                    {
-                        var queryAccessToken = context.Request.Query["access_token"];
-                        if (!string.IsNullOrWhiteSpace(queryAccessToken))
-                        {
-                            context.Token = queryAccessToken;
-                        }
-                    }
-
-                    return Task.CompletedTask;
-                },
+                OnMessageReceived = ReadJwtBearerTokenAsync,
                 OnTokenValidated = ValidateAccessTokenAsync
             };
         });

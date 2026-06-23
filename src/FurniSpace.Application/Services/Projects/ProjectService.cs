@@ -1,7 +1,9 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -54,17 +56,20 @@ public sealed class ProjectService : IProjectService
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<ProjectService>? _logger;
+    private readonly IProjectChatService? _projectChats;
 
     public ProjectService(
         IProjectRepository projects,
         IUnitOfWork unitOfWork,
         INotificationDispatcher? notifications = null,
-        ILogger<ProjectService>? logger = null)
+        ILogger<ProjectService>? logger = null,
+        IProjectChatService? projectChats = null)
     {
         _projects = projects;
         _unitOfWork = unitOfWork;
         _notifications = notifications;
         _logger = logger;
+        _projectChats = projectChats;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(
@@ -359,6 +364,10 @@ public sealed class ProjectService : IProjectService
         {
             repositoryQuery.CustomerId = currentUserId;
         }
+        else if (IsDesigner(roleName))
+        {
+            repositoryQuery.AssignedDesignerId = currentUserId;
+        }
 
         var projects = await _projects.GetListAsync(repositoryQuery, cancellationToken);
         var total = await _projects.CountAsync(repositoryQuery, cancellationToken);
@@ -452,15 +461,40 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectSalesAssignmentDto>.Conflict("Project is already assigned to another sales account.");
         }
 
-        project.AssignedSalesId = currentUserId;
-        project.Status = ProjectStatus.IN_CONSULTATION;
-        project.SalesAssignedAt = DateTime.UtcNow;
+        var projectChats = _projectChats ?? throw new InvalidOperationException(
+            "Project chat service is not configured.");
+        ProjectChatSummaryDto salesChat;
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            project.AssignedSalesId = currentUserId;
+            project.Status = ProjectStatus.IN_CONSULTATION;
+            project.SalesAssignedAt = DateTime.UtcNow;
+
+            salesChat = await projectChats.UpsertProjectChatAsync(
+                project.ProjectId,
+                ProjectChatType.SALES,
+                currentUserId,
+                "Sales Consultation",
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+
         await DispatchProjectAcceptedNotificationAsync(project, cancellationToken);
 
+        var response = project.Adapt<ProjectSalesAssignmentDto>();
+        response.SalesChat = salesChat;
+
         return ServiceResult<ProjectSalesAssignmentDto>.Success(
-            project.Adapt<ProjectSalesAssignmentDto>(),
+            response,
             "Project request accepted successfully.");
     }
 
@@ -728,12 +762,33 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest("Designer account is not active or does not have Designer role.");
         }
 
-        project.AssignedDesignerId = designer.AccountId;
-        project.DesignerAssignedAt = DateTime.UtcNow;
-        project.Status = ResolveDesignerAssignmentStatus(request.SpaceDataStatus!.Value);
-        project.UpdatedAt = project.DesignerAssignedAt;
+        var projectChats = _projectChats ?? throw new InvalidOperationException(
+            "Project chat service is not configured.");
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            project.AssignedDesignerId = designer.AccountId;
+            project.DesignerAssignedAt = DateTime.UtcNow;
+            project.Status = ResolveDesignerAssignmentStatus(request.SpaceDataStatus!.Value);
+            project.UpdatedAt = project.DesignerAssignedAt;
+
+            await projectChats.UpsertProjectChatAsync(
+                project.ProjectId,
+                ProjectChatType.DESIGNER,
+                designer.AccountId,
+                "Design Discussion",
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+
         await DispatchProjectDesignerAssignedNotificationAsync(project, designer.AccountId, cancellationToken);
 
         return ServiceResult<ProjectDesignerAssignmentDto>.Success(
@@ -856,6 +911,7 @@ public sealed class ProjectService : IProjectService
     private static bool CanViewProjects(string? roleName)
     {
         return IsCustomer(roleName) ||
+            IsDesigner(roleName) ||
             IsAdmin(roleName) ||
             string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase);
     }
@@ -1069,6 +1125,11 @@ public sealed class ProjectService : IProjectService
     private static bool IsCustomer(string? roleName)
     {
         return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDesigner(string? roleName)
+    {
+        return string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? NormalizeOptional(string? value)

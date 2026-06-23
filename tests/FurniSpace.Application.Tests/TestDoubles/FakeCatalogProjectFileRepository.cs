@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,9 +13,19 @@ using FurniSpace.Infrastructure.Repositories.IRepository;
 
 namespace FurniSpace.Application.Tests.TestDoubles;
 
+[SuppressMessage(
+    "Minor Code Smell",
+    "S2325",
+    Justification = "IProjectFileRepository test double; interface members cannot be static.")]
+[SuppressMessage(
+    "Minor Code Smell",
+    "S1172",
+    Justification = "Stub methods must keep interface parameter lists.")]
 public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
 {
     public IReadOnlyList<CatalogFileReadModel> CatalogFiles { get; init; } = [];
+    public List<StoredFile> StoredFiles { get; } = [];
+    public List<FileLink> FileLinks { get; } = [];
 
     public Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
         string referenceType,
@@ -23,6 +34,7 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
         CancellationToken cancellationToken = default)
     {
         _ = customerVisibleOnly;
+        _ = cancellationToken;
         var normalizedReferenceType = referenceType.Trim().ToUpperInvariant();
         var idSet = referenceIds.ToHashSet();
         var files = CatalogFiles
@@ -34,90 +46,176 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
         return Task.FromResult<IReadOnlyList<CatalogFileReadModel>>(files);
     }
 
-    public Task<ProjectFileAccessReadModel?> GetProjectAccessAsync(Guid projectId, CancellationToken cancellationToken = default)
-        => Task.FromResult<ProjectFileAccessReadModel?>(null);
+    public Task<ProjectFileAccessReadModel?> GetProjectAccessAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.NullProjectAccess(projectId, cancellationToken);
 
     public Task<ProjectFileAccessReadModel?> GetReferenceProjectAccessAsync(
         string referenceType,
         Guid referenceId,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult<ProjectFileAccessReadModel?>(null);
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.NullReferenceProjectAccess(
+            referenceType,
+            referenceId,
+            cancellationToken);
 
-    public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
-        => Task.FromResult<string?>(null);
+    public Task<string?> GetAccountRoleNameAsync(
+        Guid accountId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.NullRoleName(accountId, cancellationToken);
 
     public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
-        => Task.CompletedTask;
+    {
+        FileLinks.Add(fileLink);
+        return Task.CompletedTask;
+    }
 
-    public Task<FileMetadataReadModel?> GetFileMetadataAsync(Guid fileId, CancellationToken cancellationToken = default)
-        => Task.FromResult<FileMetadataReadModel?>(null);
+    public Task<FileMetadataReadModel?> GetFileMetadataAsync(
+        Guid fileId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.NullFileMetadata(fileId, cancellationToken);
 
     public Task<FileReferencePageReadModel> GetFilesByReferenceAsync(
         FileReferenceQueryReadModel query,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult(new FileReferencePageReadModel());
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.EmptyFileReferencePage(query, cancellationToken);
 
-    public Task<FileLinkReadModel?> GetFileLinkAsync(Guid fileLinkId, CancellationToken cancellationToken = default)
-        => Task.FromResult<FileLinkReadModel?>(null);
+    public Task<FileLinkReadModel?> GetFileLinkAsync(
+        Guid fileLinkId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.NullFileLink(fileLinkId, cancellationToken);
 
     public Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByFileIdAsync(
         Guid fileId,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<FileLink>>([]);
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.EmptyFileLinks(fileId, cancellationToken);
 
     public void RemoveFileLinks(IEnumerable<FileLink> fileLinks)
     {
+        _ = fileLinks;
     }
 
-    public IQueryable<StoredFile> Query() => Enumerable.Empty<StoredFile>().AsQueryable();
+    public IQueryable<StoredFile> Query() => StoredFiles.AsQueryable();
 
-    public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-        => Task.FromResult<StoredFile?>(null);
+    public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.NullStoredFile(id, cancellationToken);
 
-    public Task<IReadOnlyList<StoredFile>> ListAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<StoredFile>>([]);
+    public Task<IReadOnlyList<StoredFile>> ListAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<StoredFile>>(StoredFiles);
 
     public Task AddAsync(StoredFile entity, CancellationToken cancellationToken = default)
-        => Task.CompletedTask;
+    {
+        StoredFiles.Add(entity);
+        return Task.CompletedTask;
+    }
 
     public Task AddRangeAsync(IEnumerable<StoredFile> entities, CancellationToken cancellationToken = default)
-        => Task.CompletedTask;
+    {
+        _ = entities;
+        return Task.CompletedTask;
+    }
 
     public void Update(StoredFile entity)
     {
+        _ = entity;
     }
 
     public void Remove(StoredFile entity)
     {
+        _ = entity;
     }
 
-    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult(1);
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.SaveChanges(cancellationToken);
 
-    public Task<int> CountProductPreviewFilesAsync(Guid productId, CancellationToken cancellationToken = default)
-        => Task.FromResult(0);
+    public Task<int> CountProductPreviewFilesAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.ZeroCount(productId, cancellationToken);
 
     public Task<IReadOnlyList<ProductPreviewImageReadModel>> GetProductPreviewFilesAsync(
         Guid productId,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<ProductPreviewImageReadModel>>([]);
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.EmptyProductPreviewFiles(productId, cancellationToken);
 
     public Task<ProductPreviewImageReadModel?> GetProductPreviewFileAsync(
         Guid productId,
         Guid fileId,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult<ProductPreviewImageReadModel?>(null);
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.NullProductPreviewFile(productId, fileId, cancellationToken);
 
     public Task<IReadOnlyList<FileLink>> GetProductPreviewFileLinkEntitiesAsync(
         Guid productId,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<FileLink>>([]);
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.EmptyFileLinks(productId, cancellationToken);
 
-    public Task<int> CountProductVersionPreviewFilesAsync(Guid productVersionId, CancellationToken cancellationToken = default)
-        => Task.FromResult(0);
+    public Task<int> CountProductVersionPreviewFilesAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.ZeroCount(productVersionId, cancellationToken);
 
     public Task<IReadOnlyList<FileLink>> GetProductVersionPreviewFileLinkEntitiesAsync(
         Guid productVersionId,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<FileLink>>([]);
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.EmptyFileLinks(productVersionId, cancellationToken);
+}
+
+[SuppressMessage(
+    "Minor Code Smell",
+    "S2325",
+    Justification = "Static helpers for IProjectFileRepository test stubs.")]
+[SuppressMessage(
+    "Minor Code Smell",
+    "S1172",
+    Justification = "Stub helpers mirror interface parameter lists.")]
+internal static class ProjectFileRepositoryStubResponses
+{
+    public static Task<ProjectFileAccessReadModel?> NullProjectAccess(
+        Guid _,
+        CancellationToken __) =>
+        Task.FromResult<ProjectFileAccessReadModel?>(null);
+
+    public static Task<ProjectFileAccessReadModel?> NullReferenceProjectAccess(
+        string _,
+        Guid __,
+        CancellationToken ___) =>
+        Task.FromResult<ProjectFileAccessReadModel?>(null);
+
+    public static Task<string?> NullRoleName(Guid _, CancellationToken __) =>
+        Task.FromResult<string?>(null);
+
+    public static Task<FileMetadataReadModel?> NullFileMetadata(Guid _, CancellationToken __) =>
+        Task.FromResult<FileMetadataReadModel?>(null);
+
+    public static Task<FileReferencePageReadModel> EmptyFileReferencePage(
+        FileReferenceQueryReadModel _,
+        CancellationToken __) =>
+        Task.FromResult(new FileReferencePageReadModel());
+
+    public static Task<FileLinkReadModel?> NullFileLink(Guid _, CancellationToken __) =>
+        Task.FromResult<FileLinkReadModel?>(null);
+
+    public static Task<IReadOnlyList<FileLink>> EmptyFileLinks(Guid _, CancellationToken __) =>
+        Task.FromResult<IReadOnlyList<FileLink>>([]);
+
+    public static Task<StoredFile?> NullStoredFile(Guid _, CancellationToken __) =>
+        Task.FromResult<StoredFile?>(null);
+
+    public static Task<int> SaveChanges(CancellationToken _) =>
+        Task.FromResult(1);
+
+    public static Task<int> ZeroCount(Guid _, CancellationToken __) =>
+        Task.FromResult(0);
+
+    public static Task<IReadOnlyList<ProductPreviewImageReadModel>> EmptyProductPreviewFiles(
+        Guid _,
+        CancellationToken __) =>
+        Task.FromResult<IReadOnlyList<ProductPreviewImageReadModel>>([]);
+
+    public static Task<ProductPreviewImageReadModel?> NullProductPreviewFile(
+        Guid _,
+        Guid __,
+        CancellationToken ___) =>
+        Task.FromResult<ProductPreviewImageReadModel?>(null);
 }

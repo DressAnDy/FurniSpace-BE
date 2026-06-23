@@ -98,6 +98,16 @@ public class ServiceResult : IServiceResult
         return new ServiceResult(429, message);
     }
 
+    public static ServiceResult PayloadTooLarge(string message = "Payload too large")
+    {
+        return new ServiceResult(413, message);
+    }
+
+    public static ServiceResult UnsupportedMediaType(string message = "Unsupported media type")
+    {
+        return new ServiceResult(415, message);
+    }
+
     public static ServiceResult Failure(Error error)
     {
         return new ServiceResult(error.Status, error.Message) { ErrorCode = error.Code };
@@ -196,6 +206,16 @@ public class ServiceResult<T> : IServiceResult
     public static ServiceResult<T> TooManyRequests(string message = "Too many requests")
     {
         return new ServiceResult<T>(429, message);
+    }
+
+    public static ServiceResult<T> PayloadTooLarge(string message = "Payload too large")
+    {
+        return new ServiceResult<T>(413, message);
+    }
+
+    public static ServiceResult<T> UnsupportedMediaType(string message = "Unsupported media type")
+    {
+        return new ServiceResult<T>(415, message);
     }
 
     public static ServiceResult<T> Failure(Error error)

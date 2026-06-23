@@ -41,4 +41,9 @@ internal sealed class TestUnitOfWork : IUnitOfWork
     {
         return Task.CompletedTask;
     }
+
+    public static IUnitOfWork ForFailingSaveChanges()
+    {
+        return new TestUnitOfWork(_ => throw new InvalidOperationException("Save failed."));
+    }
 }

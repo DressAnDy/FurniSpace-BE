@@ -16,4 +16,8 @@ public sealed class CatalogFileUploadResponseDto
     public FileVisibility Visibility { get; set; }
     public Guid UploadedBy { get; set; }
     public DateTime UploadedAt { get; set; }
+    public string? Description { get; set; }
+    public int? DisplayOrder { get; set; }
+    public bool? IsPrimary { get; set; }
+    public DateTime? CreatedAt { get; set; }
 }

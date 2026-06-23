@@ -2,6 +2,7 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.API.DTOs.ProjectFiles;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
 using FurniSpace.Domain.Enums;
@@ -40,16 +41,7 @@ public sealed class ProjectFilesController : BaseApiController
         var result = await _projectFiles.UploadProjectFileAsync(
             projectId,
             currentUserId,
-            new UploadProjectFileRequestDto
-            {
-                Content = request.File?.OpenReadStream() ?? Stream.Null,
-                OriginalFileName = request.File?.FileName ?? string.Empty,
-                ContentType = request.File?.ContentType ?? "application/octet-stream",
-                FileSizeBytes = request.File?.Length ?? 0,
-                FileType = request.FileType,
-                Visibility = request.Visibility,
-                Note = request.Note
-            },
+            request.ToRequestDto(),
             cancellationToken);
 
         return ToActionResult(result);
@@ -88,12 +80,4 @@ public sealed class ProjectFilesController : BaseApiController
     {
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);
     }
-}
-
-public sealed class UploadProjectFileFormRequest
-{
-    public IFormFile? File { get; set; }
-    public FileType FileType { get; set; } = FileType.OTHER;
-    public FileVisibility? Visibility { get; set; }
-    public string? Note { get; set; }
 }

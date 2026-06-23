@@ -11,4 +11,5 @@ public sealed class UploadCatalogFileRequestDto
     public FileType FileType { get; init; } = FileType.OTHER;
     public FileVisibility? Visibility { get; init; }
     public string? Description { get; init; }
+    public int? DisplayOrder { get; init; }
 }

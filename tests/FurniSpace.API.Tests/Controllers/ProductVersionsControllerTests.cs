@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -159,13 +160,17 @@ public sealed class ProductVersionsControllerTests
         private readonly ServiceResult<SetDefaultProductVersionDto> _setDefaultResult;
         private readonly ServiceResult<ProductVersionDetailDto> _getByIdResult;
         private readonly ServiceResult<CatalogFileUploadResponseDto> _uploadFileResult;
+        private readonly ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>> _reorderPreviewResult;
+        private readonly ServiceResult<DeleteProductVersionPreviewImageResponseDto> _deletePreviewResult;
 
         public FakeProductVersionService(
             ServiceResult<ProductVersionDto>? createResult = null,
             ServiceResult<ProductVersionDto>? updateResult = null,
             ServiceResult<SetDefaultProductVersionDto>? setDefaultResult = null,
             ServiceResult<ProductVersionDetailDto>? getByIdResult = null,
-            ServiceResult<CatalogFileUploadResponseDto>? uploadFileResult = null)
+            ServiceResult<CatalogFileUploadResponseDto>? uploadFileResult = null,
+            ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>>? reorderPreviewResult = null,
+            ServiceResult<DeleteProductVersionPreviewImageResponseDto>? deletePreviewResult = null)
         {
             _createResult = createResult ?? ServiceResult<ProductVersionDto>.Created(
                 new ProductVersionDto(),
@@ -182,14 +187,22 @@ public sealed class ProductVersionsControllerTests
             _uploadFileResult = uploadFileResult ?? ServiceResult<CatalogFileUploadResponseDto>.Created(
                 new CatalogFileUploadResponseDto(),
                 "Product version file uploaded successfully.");
+            _reorderPreviewResult = reorderPreviewResult ?? ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>>.Success(
+                [],
+                "Product version preview images reordered successfully.");
+            _deletePreviewResult = deletePreviewResult ?? ServiceResult<DeleteProductVersionPreviewImageResponseDto>.Success(
+                new DeleteProductVersionPreviewImageResponseDto(),
+                "Product version preview image deleted successfully.");
         }
 
         public Guid ProductId { get; private set; }
         public Guid ProductVersionId { get; private set; }
         public Guid CurrentUserId { get; private set; }
+        public Guid FileId { get; private set; }
         public CreateProductVersionRequestDto? CreateRequest { get; private set; }
         public UpdateProductVersionRequestDto? UpdateRequest { get; private set; }
         public UploadCatalogFileRequestDto? UploadFileRequest { get; private set; }
+        public ReorderProductVersionPreviewFilesRequestDto? ReorderPreviewRequest { get; private set; }
 
         public Task<ServiceResult<ProductVersionDto>> CreateAsync(
             Guid productId,
@@ -237,6 +250,26 @@ public sealed class ProductVersionsControllerTests
             CurrentUserId = currentUserId;
             UploadFileRequest = request;
             return Task.FromResult(_uploadFileResult);
+        }
+
+        public Task<ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>>> ReorderPreviewFilesAsync(
+            Guid productVersionId,
+            ReorderProductVersionPreviewFilesRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ProductVersionId = productVersionId;
+            ReorderPreviewRequest = request;
+            return Task.FromResult(_reorderPreviewResult);
+        }
+
+        public Task<ServiceResult<DeleteProductVersionPreviewImageResponseDto>> DeletePreviewFileAsync(
+            Guid productVersionId,
+            Guid fileId,
+            CancellationToken cancellationToken = default)
+        {
+            ProductVersionId = productVersionId;
+            FileId = fileId;
+            return Task.FromResult(_deletePreviewResult);
         }
     }
 }

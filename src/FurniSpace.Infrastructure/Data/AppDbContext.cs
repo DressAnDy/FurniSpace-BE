@@ -319,6 +319,8 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.ReferenceType, e.ReferenceId }).HasDatabaseName("idx_file_links_reference");
             entity.HasIndex(e => e.FileId).HasDatabaseName("idx_file_links_file_id");
             entity.HasIndex(e => new { e.FileId, e.ReferenceType, e.ReferenceId, e.FileType }).IsUnique().HasDatabaseName("uq_file_links_unique_reference");
+            entity.HasIndex(e => new { e.ReferenceType, e.ReferenceId, e.FileType, e.DisplayOrder })
+                .HasDatabaseName("idx_file_links_reference_type_order");
             entity.HasOne<StoredFile>().WithMany().HasForeignKey(e => e.FileId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
         });

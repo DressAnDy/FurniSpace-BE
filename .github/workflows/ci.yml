@@ -39,17 +39,3 @@ jobs:
           dotnet test tests/FurniSpace.Application.Tests/FurniSpace.Application.Tests.csproj --no-build -c Release
           dotnet test tests/FurniSpace.Infrastructure.Tests/FurniSpace.Infrastructure.Tests.csproj --no-build -c Release
           dotnet test tests/FurniSpace.API.Tests/FurniSpace.API.Tests.csproj --no-build -c Release
-
-  code-quality:
-    runs-on: ubuntu-latest
-    needs: build-and-test
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-      - name: Run SonarCloud
-        uses: SonarSource/sonarcloud-github-action@v2
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

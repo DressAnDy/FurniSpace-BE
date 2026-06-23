@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers;
+using FurniSpace.API.DTOs.Products;
 using FurniSpace.API.Tests.TestDoubles;
 using FurniSpace.Application.Common;
 using System.IO;
@@ -81,7 +82,7 @@ public sealed class ProductsControllerTests
             getByCategoryResult: ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty),
             getByIdResult: ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty),
             createResult: ServiceResult<ProductDto>.Created(response, "Product master created successfully."));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
         var request = new CreateProductRequestDto
         {
             CategoryId = response.CategoryId!.Value,
@@ -119,7 +120,7 @@ public sealed class ProductsControllerTests
             getByCategoryResult: ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty),
             getByIdResult: ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty),
             updateResult: ServiceResult<ProductDto>.Success(response, "Product master updated successfully."));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
         var request = new UpdateProductRequestDto
         {
             CategoryId = response.CategoryId!.Value,
@@ -165,7 +166,7 @@ public sealed class ProductsControllerTests
             ]
         };
         var service = new FakeProductService(ServiceResult<ProductListResponseDto>.Success(response, string.Empty));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
 
         var actionResult = await controller.GetAll(page: 1, limit: 20);
 
@@ -201,7 +202,7 @@ public sealed class ProductsControllerTests
             getAllResult: ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty),
             getByCategoryResult: ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty),
             getByIdResult: ServiceResult<ProductDetailDto>.Success(response, string.Empty));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
 
         var actionResult = await controller.GetById(productId);
 
@@ -239,7 +240,7 @@ public sealed class ProductsControllerTests
         var service = new FakeProductService(
             getAllResult: ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty),
             getByCategoryResult: ServiceResult<ProductByCategoryResponseDto>.Success(response, string.Empty));
-        var controller = new ProductsController(service);
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
 
         var actionResult = await controller.GetByCategory(
             categoryId,
@@ -312,9 +313,113 @@ public sealed class ProductsControllerTests
         Assert.Equal("Preview image", service.UploadFileRequest.Description);
     }
 
+    [Fact]
+    public void GetPreviewFiles_DoesNotRequireAuthorization()
+    {
+        var method = typeof(ProductsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.GetPreviewFiles));
+
+        var authorize = method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault();
+
+        Assert.Null(authorize);
+    }
+
+    [Fact]
+    public void UploadPreviewFile_RequiresAdminRole()
+    {
+        var method = typeof(ProductsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.UploadPreviewFile));
+
+        var authorize = method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(authorize);
+        Assert.Equal("ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task GetPreviewFiles_PassesProductIdToPreviewService()
+    {
+        var productId = Guid.NewGuid();
+        var response = new ProductPreviewImageListResponseDto
+        {
+            ProductId = productId,
+            Items = []
+        };
+        var previewService = new FakeProductPreviewImageService
+        {
+            GetListResult = ServiceResult<ProductPreviewImageListResponseDto>.Success(
+                response,
+                "Product preview images retrieved successfully.")
+        };
+        var controller = new ProductsController(CreateDefaultProductService(), previewService);
+
+        var actionResult = await controller.GetPreviewFiles(productId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(productId, previewService.ProductId);
+    }
+
+    [Fact]
+    public async Task UploadPreviewFile_PassesRequestToPreviewService()
+    {
+        var userId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var response = new ProductPreviewImageUploadResponseDto
+        {
+            FileId = Guid.NewGuid(),
+            Url = "https://storage.example.com/preview.jpg",
+            DisplayOrder = 1,
+            FileType = FileType.PRODUCT_PREVIEW
+        };
+        var previewService = new FakeProductPreviewImageService
+        {
+            UploadResult = ServiceResult<ProductPreviewImageUploadResponseDto>.Created(
+                response,
+                "Product preview image uploaded successfully.")
+        };
+        var controller = CreateController(CreateDefaultProductService(), previewService, userId);
+        var request = new UploadProductPreviewImageFormRequest
+        {
+            File = CreateFormFile("preview.jpg", "image/jpeg", "file-content"),
+            Description = "Cover image",
+            DisplayOrder = 1
+        };
+
+        var actionResult = await controller.UploadPreviewFile(productId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(productId, previewService.ProductId);
+        Assert.Equal(userId, previewService.CurrentUserId);
+        Assert.NotNull(previewService.UploadRequest);
+        Assert.Equal("preview.jpg", previewService.UploadRequest.OriginalFileName);
+        Assert.Equal("Cover image", previewService.UploadRequest.Description);
+        Assert.Equal(1, previewService.UploadRequest.DisplayOrder);
+    }
+
+    private static FakeProductService CreateDefaultProductService()
+    {
+        return new FakeProductService(ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty));
+    }
+
     private static ProductsController CreateController(FakeProductService service, Guid userId)
     {
-        var controller = new ProductsController(service);
+        return CreateController(service, new FakeProductPreviewImageService(), userId);
+    }
+
+    private static ProductsController CreateController(
+        FakeProductService service,
+        FakeProductPreviewImageService previewService,
+        Guid userId)
+    {
+        var controller = new ProductsController(service, previewService);
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext

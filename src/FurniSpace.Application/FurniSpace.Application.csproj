@@ -16,4 +16,7 @@
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.0.0" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="FurniSpace.Application.Tests" />
+  </ItemGroup>
 </Project>

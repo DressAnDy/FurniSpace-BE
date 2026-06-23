@@ -2,8 +2,8 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.API.DTOs.Products;
 using FurniSpace.Application.DTOs.ProductVersions;
-using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -79,16 +79,7 @@ public sealed class ProductVersionsController : BaseApiController
         var result = await _productVersions.UploadFileAsync(
             productVersionId,
             currentUserId,
-            new UploadCatalogFileRequestDto
-            {
-                Content = request.File?.OpenReadStream() ?? Stream.Null,
-                OriginalFileName = request.File?.FileName ?? string.Empty,
-                ContentType = request.File?.ContentType ?? "application/octet-stream",
-                FileSizeBytes = request.File?.Length ?? 0,
-                FileType = request.FileType,
-                Visibility = request.Visibility,
-                Description = request.Description
-            },
+            request.ToRequestDto(),
             cancellationToken);
 
         return ToActionResult(result);

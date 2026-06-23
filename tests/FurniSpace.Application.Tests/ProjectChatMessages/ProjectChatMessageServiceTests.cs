@@ -2,25 +2,37 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
+using FurniSpace.Application.Common.Storage;
+using FurniSpace.Application.Mappings;
 using FurniSpace.Application.Services.ProjectChatMessages;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.DTOs.ProjectChatMessages;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Storage;
+using Mapster;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.ProjectChatMessages;
 
 public sealed class ProjectChatMessageServiceTests
 {
+    static ProjectChatMessageServiceTests()
+    {
+        TypeAdapterConfig.GlobalSettings.Scan(typeof(ProjectChatMessageMappingConfig).Assembly);
+    }
     [Fact]
     public async Task SendTextMessageAsync_WithOpenChat_SavesBeforeRealtimeEvent()
     {
@@ -232,6 +244,112 @@ public sealed class ProjectChatMessageServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal("Message content must not exceed 4000 characters.", result.Message);
+    }
+
+    [Fact]
+    public async Task SendFileMessageAsync_WithOpenChat_StoresFileAndCreatesFileMessage()
+    {
+        var chatId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.SALES);
+        access = CopyAccess(access, projectId: projectId, currentUserName: "Nguyen Van A");
+        var repository = new FakeProjectChatMessageRepository(access);
+        var projectFiles = new FakeProjectFileRepository();
+        var storage = new FakeFileStorageService();
+        var saveChangesCallCount = 0;
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ =>
+            {
+                saveChangesCallCount++;
+                return Task.FromResult(1);
+            },
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var realtime = new FakeProjectChatRealtimeService();
+        var service = CreateService(repository, realtime, unitOfWork, projectFiles, storage);
+
+        await using var stream = new MemoryStream("floor-plan"u8.ToArray());
+        var result = await service.SendFileMessageAsync(
+            chatId,
+            salesId,
+            new SendFileChatMessageRequestDto
+            {
+                FileContent = stream,
+                OriginalFileName = "floor-plan.pdf",
+                ContentType = "application/pdf",
+                FileSizeBytes = stream.Length,
+                FileType = FileType.FLOOR_PLAN,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                Content = "  Em gửi file mặt bằng.  "
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal("File message sent successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectChatMessageType.FILE.ToString(), result.Data.MessageType);
+        Assert.Equal("Em gửi file mặt bằng.", result.Data.Content);
+        Assert.NotNull(result.Data.Attachment);
+        Assert.Equal("floor-plan.pdf", result.Data.Attachment.OriginalFileName);
+        Assert.Equal("application/pdf", result.Data.Attachment.MimeType);
+        Assert.Equal(1, repository.AddCallCount);
+        Assert.Single(projectFiles.StoredFiles);
+        Assert.Single(projectFiles.FileLinks);
+        Assert.Equal(projectId, projectFiles.FileLinks[0].ReferenceId);
+        Assert.Equal("PROJECT", projectFiles.FileLinks[0].ReferenceType);
+        Assert.Equal(FileType.FLOOR_PLAN, projectFiles.FileLinks[0].FileType);
+        Assert.Equal(FileVisibility.CUSTOMER_VISIBLE, projectFiles.FileLinks[0].Visibility);
+        Assert.Equal(repository.AddedMessage!.AttachmentFileId, projectFiles.StoredFiles[0].FileId);
+        Assert.Equal(1, saveChangesCallCount);
+        Assert.Equal(1, realtime.CallCount);
+        Assert.NotNull(storage.UploadRequest);
+    }
+
+    [Fact]
+    public async Task SendFileMessageAsync_WithInvalidMimeType_ReturnsUnsupportedMediaType()
+    {
+        var service = CreateService(new FakeProjectChatMessageRepository());
+
+        await using var stream = new MemoryStream([1, 2, 3]);
+        var result = await service.SendFileMessageAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new SendFileChatMessageRequestDto
+            {
+                FileContent = stream,
+                OriginalFileName = "malware.exe",
+                ContentType = "application/x-msdownload",
+                FileSizeBytes = stream.Length,
+                FileType = FileType.OTHER
+            });
+
+        Assert.Equal(415, result.Status);
+        Assert.Equal("File extension is not allowed.", result.Message);
+    }
+
+    [Fact]
+    public async Task SendFileMessageAsync_WithFileTooLarge_ReturnsPayloadTooLarge()
+    {
+        var service = CreateService(
+            new FakeProjectChatMessageRepository(),
+            uploadSettings: new FileUploadSettings { MaxFileSizeBytes = 1024 });
+
+        await using var stream = new MemoryStream(new byte[2048]);
+        var result = await service.SendFileMessageAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new SendFileChatMessageRequestDto
+            {
+                FileContent = stream,
+                OriginalFileName = "large.pdf",
+                ContentType = "application/pdf",
+                FileSizeBytes = stream.Length,
+                FileType = FileType.FLOOR_PLAN
+            });
+
+        Assert.Equal(413, result.Status);
+        Assert.Contains("File size must not exceed 1024 bytes.", result.Message);
     }
 
     [Fact]
@@ -519,12 +637,22 @@ public sealed class ProjectChatMessageServiceTests
     private static ProjectChatMessageService CreateService(
         IProjectChatMessageRepository repository,
         IProjectChatRealtimeService? realtime = null,
-        IUnitOfWork? unitOfWork = null)
+        IUnitOfWork? unitOfWork = null,
+        IProjectFileRepository? projectFiles = null,
+        IFileStorageService? storage = null,
+        FileUploadSettings? uploadSettings = null)
     {
         return new ProjectChatMessageService(
             repository,
+            projectFiles ?? new FakeProjectFileRepository(),
             realtime ?? new FakeProjectChatRealtimeService(),
             unitOfWork ?? TestUnitOfWork.Instance,
+            new ProjectChatFileUploadDependencies(
+                storage ?? new FakeFileStorageService(),
+                new FileUploadValidator(
+                    Options.Create(uploadSettings ?? new FileUploadSettings()),
+                    Options.Create(new FirebaseStorageSettings())),
+                new FirebaseStorageSettings()),
             NullLogger<ProjectChatMessageService>.Instance);
     }
 
@@ -701,5 +829,89 @@ public sealed class ProjectChatMessageServiceTests
             CallCount++;
             return _send?.Invoke(projectId, chatId, message) ?? Task.CompletedTask;
         }
+    }
+
+    private sealed class FakeProjectFileRepository : IProjectFileRepository
+    {
+        public List<StoredFile> StoredFiles { get; } = [];
+        public List<FileLink> FileLinks { get; } = [];
+
+        public Task AddAsync(StoredFile entity, CancellationToken cancellationToken = default)
+        {
+            StoredFiles.Add(entity);
+            return Task.CompletedTask;
+        }
+
+        public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
+        {
+            FileLinks.Add(fileLink);
+            return Task.CompletedTask;
+        }
+
+        public IQueryable<StoredFile> Query() => StoredFiles.AsQueryable();
+        public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<StoredFile?>(null);
+        public Task<IReadOnlyList<StoredFile>> ListAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<StoredFile>>(StoredFiles);
+        public Task AddRangeAsync(IEnumerable<StoredFile> entities, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+        public void Update(StoredFile entity) { }
+        public void Remove(StoredFile entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?> GetProjectAccessAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?>(null);
+        public Task<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?> GetReferenceProjectAccessAsync(
+            string referenceType,
+            Guid referenceId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?>(null);
+        public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<string?>(null);
+        public Task<Infrastructure.DTOs.ProjectFiles.FileMetadataReadModel?> GetFileMetadataAsync(
+            Guid fileId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<Infrastructure.DTOs.ProjectFiles.FileMetadataReadModel?>(null);
+        public Task<Infrastructure.DTOs.ProjectFiles.FileReferencePageReadModel> GetFilesByReferenceAsync(
+            Infrastructure.DTOs.ProjectFiles.FileReferenceQueryReadModel query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new Infrastructure.DTOs.ProjectFiles.FileReferencePageReadModel());
+        public Task<Infrastructure.DTOs.ProjectFiles.FileLinkReadModel?> GetFileLinkAsync(
+            Guid fileLinkId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<Infrastructure.DTOs.ProjectFiles.FileLinkReadModel?>(null);
+        public Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByFileIdAsync(
+            Guid fileId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<FileLink>>([]);
+        public void RemoveFileLinks(IEnumerable<FileLink> fileLinks) { }
+        public Task<IReadOnlyList<Infrastructure.DTOs.Products.CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
+            string referenceType,
+            IReadOnlyList<Guid> referenceIds,
+            bool customerVisibleOnly,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Infrastructure.DTOs.Products.CatalogFileReadModel>>([]);
+    }
+
+    private sealed class FakeFileStorageService : IFileStorageService
+    {
+        public StorageUploadRequest? UploadRequest { get; private set; }
+
+        public Task<StorageUploadResult> UploadAsync(
+            StorageUploadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            UploadRequest = request;
+            return Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+                Bucket = "test-bucket"
+            });
+        }
+
+        public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 }

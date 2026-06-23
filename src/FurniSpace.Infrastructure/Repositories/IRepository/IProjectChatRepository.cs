@@ -12,6 +12,11 @@ public interface IProjectChatRepository : IGenericRepository<ProjectChat>
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
+    Task<ProjectChatStatusAccessReadModel?> GetStatusAccessAsync(
+        Guid chatId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
     Task<(IReadOnlyList<ProjectChatListItemReadModel> Items, int Total)> GetListAsync(
         Guid projectId,
         ProjectChatListQueryReadModel query,

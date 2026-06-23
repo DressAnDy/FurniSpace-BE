@@ -9,6 +9,7 @@ using FurniSpace.API.Controllers;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
+using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -133,6 +134,59 @@ public sealed class ProjectChatMessagesControllerTests
     }
 
     [Fact]
+    public void SendFileMessage_UsesFilesPostEndpoint()
+    {
+        var httpPost = typeof(ProjectChatMessagesController)
+            .GetMethod(nameof(ProjectChatMessagesController.SendFileMessage))!
+            .GetCustomAttributes(typeof(HttpPostAttribute), inherit: false)
+            .Cast<HttpPostAttribute>()
+            .Single();
+        var consumes = typeof(ProjectChatMessagesController)
+            .GetMethod(nameof(ProjectChatMessagesController.SendFileMessage))!
+            .GetCustomAttributes(typeof(ConsumesAttribute), inherit: false)
+            .Cast<ConsumesAttribute>()
+            .Single();
+
+        Assert.Equal("files", httpPost.Template);
+        Assert.Equal("multipart/form-data", consumes.ContentTypes.Single());
+    }
+
+    [Fact]
+    public async Task SendFileMessage_ReturnsCreatedAndPassesAuthenticatedUser()
+    {
+        var chatId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var response = new ProjectChatMessageDto
+        {
+            MessageId = Guid.NewGuid(),
+            ChatId = chatId,
+            SenderId = currentUserId,
+            MessageType = "FILE",
+            Content = "Em gửi file mặt bằng."
+        };
+        var service = new FakeProjectChatMessageService(
+            ServiceResult<ProjectChatMessageDto>.Created(response, "File message sent successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.SendFileMessage(
+            chatId,
+            new SendFileChatMessageFormRequest
+            {
+                Content = response.Content,
+                FileType = FileType.FLOOR_PLAN,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE
+            });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectChatMessageDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(chatId, service.ChatId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Equal(1, service.SendFileCallCount);
+    }
+
+    [Fact]
     public async Task SendTextMessage_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectChatMessageService(
@@ -171,6 +225,7 @@ public sealed class ProjectChatMessagesControllerTests
     {
         private readonly ServiceResult<ProjectChatMessageListResponseDto>? _getResult;
         private readonly ServiceResult<ProjectChatMessageDto>? _sendResult;
+        private readonly ServiceResult<ProjectChatMessageDto>? _sendFileResult;
 
         public FakeProjectChatMessageService(ServiceResult<ProjectChatMessageListResponseDto> result)
         {
@@ -180,10 +235,12 @@ public sealed class ProjectChatMessagesControllerTests
         public FakeProjectChatMessageService(ServiceResult<ProjectChatMessageDto> result)
         {
             _sendResult = result;
+            _sendFileResult = result;
         }
 
         public int CallCount { get; private set; }
         public int SendCallCount { get; private set; }
+        public int SendFileCallCount { get; private set; }
         public Guid ChatId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public ProjectChatMessageQueryDto? Query { get; private set; }
@@ -221,6 +278,18 @@ public sealed class ProjectChatMessagesControllerTests
             CurrentUserId = currentUserId;
             SendRequest = request;
             return Task.FromResult(_sendResult!);
+        }
+
+        public Task<ServiceResult<ProjectChatMessageDto>> SendFileMessageAsync(
+            Guid chatId,
+            Guid currentUserId,
+            SendFileChatMessageRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            SendFileCallCount++;
+            ChatId = chatId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_sendFileResult!);
         }
     }
 }

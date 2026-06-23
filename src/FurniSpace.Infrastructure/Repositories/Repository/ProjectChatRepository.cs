@@ -39,6 +39,40 @@ public sealed class ProjectChatRepository : GenericRepository<ProjectChat>, IPro
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public Task<ProjectChatStatusAccessReadModel?> GetStatusAccessAsync(
+        Guid chatId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProjectChatSet
+            .Where(chat => chat.ChatId == chatId)
+            .Join(
+                DbContext.ProjectSet,
+                chat => chat.ProjectId,
+                project => project.ProjectId,
+                (chat, project) => new ProjectChatStatusAccessReadModel
+                {
+                    ChatId = chat.ChatId,
+                    ProjectId = project.ProjectId,
+                    ChatType = chat.ChatType,
+                    ChatStatus = chat.Status,
+                    CustomerId = project.CustomerId,
+                    AssignedSalesId = project.AssignedSalesId,
+                    AssignedDesignerId = project.AssignedDesignerId,
+                    RoleName = DbContext.AccountSet
+                        .Where(account =>
+                            account.AccountId == currentUserId &&
+                            account.DeletedAt == null)
+                        .Join(
+                            DbContext.RoleSet,
+                            account => account.RoleId,
+                            role => role.RoleId,
+                            (_, role) => role.RoleName)
+                        .FirstOrDefault()
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<(IReadOnlyList<ProjectChatListItemReadModel> Items, int Total)> GetListAsync(
         Guid projectId,
         ProjectChatListQueryReadModel query,

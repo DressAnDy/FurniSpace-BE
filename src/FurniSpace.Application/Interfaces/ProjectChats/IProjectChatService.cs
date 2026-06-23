@@ -29,4 +29,10 @@ public interface IProjectChatService
         Guid staffId,
         string title,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectChatSummaryDto>> UpdateStatusAsync(
+        Guid chatId,
+        Guid currentUserId,
+        UpdateProjectChatStatusRequestDto request,
+        CancellationToken cancellationToken = default);
 }

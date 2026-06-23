@@ -8,4 +8,5 @@ public sealed class ProjectChatSummaryDto
     public Guid? StaffId { get; set; }
     public string? Title { get; set; }
     public string Status { get; set; } = string.Empty;
+    public DateTime? ClosedAt { get; set; }
 }

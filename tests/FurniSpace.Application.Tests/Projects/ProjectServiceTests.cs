@@ -2650,35 +2650,73 @@ public sealed class ProjectServiceTests
         };
     }
 
+    private sealed record FakeProjectRepositoryState
+    {
+        public IReadOnlyList<ProjectListItemReadModel>? ListItems { get; init; }
+        public ProjectDetailReadModel? Detail { get; init; }
+        public IReadOnlyList<Project>? Entities { get; init; }
+        public DesignerAccountReadModel? Designer { get; init; }
+        public IReadOnlyList<Guid>? ReceiverIds { get; init; }
+        public string? AccountFullName { get; init; }
+    }
+
     private sealed class FakeProjectRepository : IProjectRepository
     {
         private readonly string? _roleName;
         private readonly int _submittedCount;
-        private readonly IReadOnlyList<ProjectListItemReadModel> _listItems;
-        private readonly ProjectDetailReadModel? _detail;
-        private readonly DesignerAccountReadModel? _designer;
-        private readonly IReadOnlyList<Guid> _receiverIds;
-        private readonly string? _accountFullName;
+        private readonly FakeProjectRepositoryState _state;
         private readonly List<Project> _projects = [];
 
         public FakeProjectRepository(
             string? roleName,
             int submittedCount = 0,
-            IReadOnlyList<ProjectListItemReadModel>? listItems = null,
-            ProjectDetailReadModel? detail = null,
-            IReadOnlyList<Project>? entities = null,
-            DesignerAccountReadModel? designer = null,
-            IReadOnlyList<Guid>? receiverIds = null,
-            string? accountFullName = null)
+            FakeProjectRepositoryState? state = null)
         {
             _roleName = roleName;
             _submittedCount = submittedCount;
-            _listItems = listItems ?? [];
-            _detail = detail;
-            _projects = entities?.ToList() ?? [];
-            _designer = designer;
-            _receiverIds = receiverIds ?? [];
-            _accountFullName = accountFullName;
+            _state = state ?? new FakeProjectRepositoryState();
+            _projects = _state.Entities?.ToList() ?? [];
+        }
+
+        public FakeProjectRepository(string? roleName, IReadOnlyList<Project>? entities)
+            : this(roleName, 0, new FakeProjectRepositoryState { Entities = entities })
+        {
+        }
+
+        public FakeProjectRepository(
+            string? roleName,
+            IReadOnlyList<Project>? entities,
+            DesignerAccountReadModel? designer)
+            : this(roleName, 0, new FakeProjectRepositoryState
+            {
+                Entities = entities,
+                Designer = designer
+            })
+        {
+        }
+
+        public FakeProjectRepository(string? roleName, ProjectDetailReadModel? detail)
+            : this(roleName, 0, new FakeProjectRepositoryState { Detail = detail })
+        {
+        }
+
+        public FakeProjectRepository(
+            string? roleName,
+            IReadOnlyList<ProjectListItemReadModel>? listItems)
+            : this(roleName, 0, new FakeProjectRepositoryState { ListItems = listItems })
+        {
+        }
+
+        public FakeProjectRepository(
+            string? roleName,
+            IReadOnlyList<Guid>? receiverIds,
+            string? accountFullName)
+            : this(roleName, 0, new FakeProjectRepositoryState
+            {
+                ReceiverIds = receiverIds,
+                AccountFullName = accountFullName
+            })
+        {
         }
 
         public IReadOnlyList<Project> Projects => _projects;
@@ -2704,7 +2742,7 @@ public sealed class ProjectServiceTests
         public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default)
         {
             GetAccountFullNameCallCount++;
-            return Task.FromResult(_accountFullName);
+            return Task.FromResult(_state.AccountFullName);
         }
 
         public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(
@@ -2712,7 +2750,7 @@ public sealed class ProjectServiceTests
             CancellationToken cancellationToken = default)
         {
             GetActiveAccountIdsByRoleNamesCallCount++;
-            return Task.FromResult(_receiverIds);
+            return Task.FromResult(_state.ReceiverIds ?? []);
         }
 
         public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default)
@@ -2726,7 +2764,7 @@ public sealed class ProjectServiceTests
             CancellationToken cancellationToken = default)
         {
             GetDetailCallCount++;
-            return Task.FromResult(_detail?.ProjectId == projectId ? _detail : null);
+            return Task.FromResult(_state.Detail?.ProjectId == projectId ? _state.Detail : null);
         }
 
         public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(
@@ -2734,7 +2772,7 @@ public sealed class ProjectServiceTests
             CancellationToken cancellationToken = default)
         {
             GetActiveDesignerCallCount++;
-            return Task.FromResult(_designer?.AccountId == designerId ? _designer : null);
+            return Task.FromResult(_state.Designer?.AccountId == designerId ? _state.Designer : null);
         }
 
         public Task<IReadOnlyList<ProjectListItemReadModel>> GetListAsync(
@@ -2743,7 +2781,7 @@ public sealed class ProjectServiceTests
         {
             GetListCallCount++;
             LastListQuery = query;
-            return Task.FromResult(_listItems);
+            return Task.FromResult(_state.ListItems ?? []);
         }
 
         public Task<int> CountAsync(
@@ -2752,7 +2790,7 @@ public sealed class ProjectServiceTests
         {
             CountCallCount++;
             LastListQuery = query;
-            return Task.FromResult(_listItems.Count);
+            return Task.FromResult((_state.ListItems ?? []).Count);
         }
 
         public IQueryable<Project> Query() => _projects.AsQueryable();
@@ -2859,6 +2897,13 @@ public sealed class ProjectServiceTests
                     new InvalidOperationException("Project chat upsert failed."))
                 : Task.FromResult(Summary);
         }
+
+        public Task<ServiceResult<ProjectChatSummaryDto>> UpdateStatusAsync(
+            Guid chatId,
+            Guid currentUserId,
+            UpdateProjectChatStatusRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectChatSummaryDto>.Success(Summary));
     }
 
     private sealed class FakeNotificationDispatcher : INotificationDispatcher

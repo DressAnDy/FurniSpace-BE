@@ -205,6 +205,13 @@ public sealed class ProjectChatHubTests
             string title,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(new ProjectChatSummaryDto());
+
+        public Task<ServiceResult<ProjectChatSummaryDto>> UpdateStatusAsync(
+            Guid chatId,
+            Guid currentUserId,
+            UpdateProjectChatStatusRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectChatSummaryDto>.Success(new ProjectChatSummaryDto()));
     }
 
     private sealed class FakeProjectChatMessageService : IProjectChatMessageService
@@ -237,6 +244,13 @@ public sealed class ProjectChatHubTests
             SendTextChatMessageRequestDto request,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()));
+
+        public Task<ServiceResult<ProjectChatMessageDto>> SendFileMessageAsync(
+            Guid chatId,
+            Guid currentUserId,
+            SendFileChatMessageRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()));
     }
 
     private sealed class FakeGroupManager : IGroupManager
@@ -265,8 +279,6 @@ public sealed class ProjectChatHubTests
 
     private sealed class FakeHubCallerContext : HubCallerContext
     {
-        private readonly CancellationTokenSource _abort = new();
-
         public FakeHubCallerContext(string connectionId, ClaimsPrincipal user)
         {
             ConnectionId = connectionId;
@@ -279,7 +291,9 @@ public sealed class ProjectChatHubTests
         public override IDictionary<object, object?> Items { get; } =
             new Dictionary<object, object?>();
         public override IFeatureCollection Features { get; } = new FeatureCollection();
-        public override CancellationToken ConnectionAborted => _abort.Token;
-        public override void Abort() => _abort.Cancel();
+        public override CancellationToken ConnectionAborted => CancellationToken.None;
+        public override void Abort()
+        {
+        }
     }
 }

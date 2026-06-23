@@ -183,6 +183,64 @@ public sealed class ProjectChatService : IProjectChatService
         return ToSummaryDto(chat);
     }
 
+    public async Task<ServiceResult<ProjectChatSummaryDto>> UpdateStatusAsync(
+        Guid chatId,
+        Guid currentUserId,
+        UpdateProjectChatStatusRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var validationError = ValidateUpdateStatusRequest(chatId, currentUserId, request);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        var access = await _chats.GetStatusAccessAsync(chatId, currentUserId, cancellationToken);
+        if (access is null)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.NotFound("Project chat not found.");
+        }
+
+        if (IsRole(access.RoleName, CustomerRole))
+        {
+            return ServiceResult<ProjectChatSummaryDto>.Forbidden(
+                "Customers cannot close project chats.");
+        }
+
+        if (!CanCloseChat(access, currentUserId))
+        {
+            return ServiceResult<ProjectChatSummaryDto>.Forbidden(
+                "You do not have permission to close this project chat.");
+        }
+
+        var currentStatus = access.ChatStatus ?? ProjectChatStatus.OPEN;
+        if (currentStatus == ProjectChatStatus.CLOSED)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.Conflict("Project chat is already closed.");
+        }
+
+        if (currentStatus != ProjectChatStatus.OPEN)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.Conflict(
+                "Only open project chats can be closed.");
+        }
+
+        var chat = await _chats.GetByIdAsync(chatId, cancellationToken);
+        if (chat is null)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.NotFound("Project chat not found.");
+        }
+
+        chat.Status = ProjectChatStatus.CLOSED;
+        chat.ClosedAt = DateTime.UtcNow;
+        _chats.Update(chat);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<ProjectChatSummaryDto>.Success(
+            ToSummaryDto(chat),
+            "Project chat closed successfully.");
+    }
+
     private static void Validate(
         Guid projectId,
         ProjectChatType chatType,
@@ -295,6 +353,37 @@ public sealed class ProjectChatService : IProjectChatService
         return null;
     }
 
+    private static ServiceResult<ProjectChatSummaryDto>? ValidateUpdateStatusRequest(
+        Guid chatId,
+        Guid currentUserId,
+        UpdateProjectChatStatusRequestDto request)
+    {
+        if (chatId == Guid.Empty)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.BadRequest("Chat id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        if (!request.Status.HasValue)
+        {
+            return ServiceResult<ProjectChatSummaryDto>.BadRequest("Project chat status is required.");
+        }
+
+        if (!Enum.IsDefined(typeof(ProjectChatStatus), request.Status.Value))
+        {
+            return ServiceResult<ProjectChatSummaryDto>.BadRequest("Project chat status is invalid.");
+        }
+
+        return request.Status.Value != ProjectChatStatus.CLOSED
+            ? ServiceResult<ProjectChatSummaryDto>.BadRequest(
+                "Only closing a project chat is supported.")
+            : null;
+    }
+
     private static bool CanAccessProject(ProjectChatAccessReadModel access, Guid currentUserId)
     {
         if (IsRole(access.RoleName, AdminRole))
@@ -314,6 +403,24 @@ public sealed class ProjectChatService : IProjectChatService
 
         return IsRole(access.RoleName, DesignerRole) &&
             access.AssignedDesignerId == currentUserId;
+    }
+
+    private static bool CanCloseChat(ProjectChatStatusAccessReadModel access, Guid currentUserId)
+    {
+        if (IsRole(access.RoleName, AdminRole))
+        {
+            return true;
+        }
+
+        return access.ChatType switch
+        {
+            ProjectChatType.SALES =>
+                IsRole(access.RoleName, SalesRole) && access.AssignedSalesId == currentUserId,
+            ProjectChatType.DESIGNER =>
+                (IsRole(access.RoleName, DesignerRole) && access.AssignedDesignerId == currentUserId) ||
+                (IsRole(access.RoleName, SalesRole) && access.AssignedSalesId == currentUserId),
+            _ => false
+        };
     }
 
     private static IReadOnlyCollection<ProjectChatType>? GetVisibleChatTypes(string? roleName)

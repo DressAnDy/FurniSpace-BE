@@ -1,5 +1,6 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.Categories;
 using FurniSpace.Application.Interfaces.Identity;
@@ -28,6 +29,9 @@ using Mapster;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Infrastructure.Interfaces;
 
 namespace FurniSpace.Application;
 
@@ -51,6 +55,15 @@ public static class DependencyInjection
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductVersionService, ProductVersionService>();
+        services.AddScoped<IFileUploadValidator, FileUploadValidator>();
+        services.AddScoped<ProjectChatFileUploadDependencies>(sp =>
+        {
+            var firebaseSettings = sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value;
+            return new ProjectChatFileUploadDependencies(
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IFileUploadValidator>(),
+                firebaseSettings);
+        });
         services.AddScoped<IProjectFileService, ProjectFileService>();
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();

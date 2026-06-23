@@ -21,4 +21,10 @@ public interface IProjectChatMessageService
         Guid currentUserId,
         SendTextChatMessageRequestDto request,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectChatMessageDto>> SendFileMessageAsync(
+        Guid chatId,
+        Guid currentUserId,
+        SendFileChatMessageRequestDto request,
+        CancellationToken cancellationToken = default);
 }

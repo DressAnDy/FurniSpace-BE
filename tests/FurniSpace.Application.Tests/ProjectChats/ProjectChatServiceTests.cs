@@ -841,6 +841,197 @@ public sealed class ProjectChatServiceTests
         Assert.Equal("title", exception.ParamName);
     }
 
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedSales_ClosesOpenSalesChat()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var chat = CreateChat(Guid.NewGuid(), salesId, ProjectChatStatus.OPEN, ProjectChatType.SALES, chatId);
+        var repository = new FakeProjectChatRepository(
+            chats: [chat],
+            statusAccess: CreateStatusAccess(chatId, salesId, "SALES", ProjectChatType.SALES, ProjectChatStatus.OPEN));
+        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            salesId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("CLOSED", result.Data?.Status);
+        Assert.NotNull(result.Data?.ClosedAt);
+        Assert.Equal(ProjectChatStatus.CLOSED, chat.Status);
+        Assert.NotNull(chat.ClosedAt);
+        Assert.Equal(1, repository.UpdateCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesigner_ClosesOpenDesignerChat()
+    {
+        var chatId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var chat = CreateChat(Guid.NewGuid(), designerId, ProjectChatStatus.OPEN, ProjectChatType.DESIGNER, chatId);
+        var repository = new FakeProjectChatRepository(
+            chats: [chat],
+            statusAccess: CreateStatusAccess(
+                chatId,
+                designerId,
+                "DESIGNER",
+                ProjectChatType.DESIGNER,
+                ProjectChatStatus.OPEN));
+        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            designerId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("CLOSED", result.Data?.Status);
+        Assert.NotNull(result.Data?.ClosedAt);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedSales_ClosesOpenDesignerChat()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var chat = CreateChat(Guid.NewGuid(), salesId, ProjectChatStatus.OPEN, ProjectChatType.DESIGNER, chatId);
+        var repository = new FakeProjectChatRepository(
+            chats: [chat],
+            statusAccess: CreateStatusAccess(
+                chatId,
+                salesId,
+                "SALES",
+                ProjectChatType.DESIGNER,
+                ProjectChatStatus.OPEN));
+        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            salesId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(200, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithCustomer_ReturnsForbidden()
+    {
+        var chatId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var repository = new FakeProjectChatRepository(
+            statusAccess: CreateStatusAccess(
+                chatId,
+                customerId,
+                "CUSTOMER",
+                ProjectChatType.SALES,
+                ProjectChatStatus.OPEN));
+        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            customerId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(0, repository.UpdateCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithDesignerOnSalesChat_ReturnsForbidden()
+    {
+        var chatId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var repository = new FakeProjectChatRepository(
+            statusAccess: CreateStatusAccess(
+                chatId,
+                designerId,
+                "DESIGNER",
+                ProjectChatType.SALES,
+                ProjectChatStatus.OPEN));
+        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            designerId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WhenAlreadyClosed_ReturnsConflict()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var repository = new FakeProjectChatRepository(
+            statusAccess: CreateStatusAccess(
+                chatId,
+                salesId,
+                "SALES",
+                ProjectChatType.SALES,
+                ProjectChatStatus.CLOSED));
+        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            salesId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(409, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WhenStatusIsNotClosed_ReturnsBadRequest()
+    {
+        var service = new ProjectChatService(new FakeProjectChatRepository(), TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.OPEN });
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WhenChatNotFound_ReturnsNotFound()
+    {
+        var service = new ProjectChatService(new FakeProjectChatRepository(), TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(404, result.Status);
+    }
+
+    private static ProjectChatStatusAccessReadModel CreateStatusAccess(
+        Guid chatId,
+        Guid currentUserId,
+        string roleName,
+        ProjectChatType chatType,
+        ProjectChatStatus chatStatus)
+    {
+        return new ProjectChatStatusAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ChatType = chatType,
+            ChatStatus = chatStatus,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = string.Equals(roleName, "SALES", StringComparison.OrdinalIgnoreCase)
+                ? currentUserId
+                : Guid.NewGuid(),
+            AssignedDesignerId = string.Equals(roleName, "DESIGNER", StringComparison.OrdinalIgnoreCase)
+                ? currentUserId
+                : Guid.NewGuid(),
+            RoleName = roleName
+        };
+    }
+
     private static ProjectChatAccessReadModel CreateAccess(
         Guid projectId,
         Guid currentUserId,
@@ -893,13 +1084,15 @@ public sealed class ProjectChatServiceTests
     private static ProjectChat CreateChat(
         Guid projectId,
         Guid staffId,
-        ProjectChatStatus status)
+        ProjectChatStatus status,
+        ProjectChatType chatType = ProjectChatType.SALES,
+        Guid? chatId = null)
     {
         return new ProjectChat
         {
-            ChatId = Guid.NewGuid(),
+            ChatId = chatId ?? Guid.NewGuid(),
             ProjectId = projectId,
-            ChatType = ProjectChatType.SALES,
+            ChatType = chatType,
             StaffId = staffId,
             Title = "Original title",
             Status = status,
@@ -911,17 +1104,20 @@ public sealed class ProjectChatServiceTests
     {
         private readonly List<ProjectChat> _chats;
         private readonly ProjectChatAccessReadModel? _access;
+        private readonly ProjectChatStatusAccessReadModel? _statusAccess;
         private readonly IReadOnlyList<ProjectChatListItemReadModel> _listItems;
 
         public FakeProjectChatRepository(
             IReadOnlyList<ProjectChat>? chats = null,
             IReadOnlyList<ProjectChatMessage>? messages = null,
             ProjectChatAccessReadModel? access = null,
+            ProjectChatStatusAccessReadModel? statusAccess = null,
             IReadOnlyList<ProjectChatListItemReadModel>? listItems = null)
         {
             _chats = chats?.ToList() ?? [];
             Messages = messages?.ToList() ?? [];
             _access = access;
+            _statusAccess = statusAccess;
             _listItems = listItems ?? [];
         }
 
@@ -929,6 +1125,7 @@ public sealed class ProjectChatServiceTests
         public IReadOnlyList<ProjectChatMessage> Messages { get; }
         public int GetActiveCallCount { get; private set; }
         public int GetAccessCallCount { get; private set; }
+        public int GetStatusAccessCallCount { get; private set; }
         public int GetListCallCount { get; private set; }
         public int AddCallCount { get; private set; }
         public int UpdateCallCount { get; private set; }
@@ -943,6 +1140,15 @@ public sealed class ProjectChatServiceTests
         {
             GetAccessCallCount++;
             return Task.FromResult(_access?.ProjectId == projectId ? _access : null);
+        }
+
+        public Task<ProjectChatStatusAccessReadModel?> GetStatusAccessAsync(
+            Guid chatId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            GetStatusAccessCallCount++;
+            return Task.FromResult(_statusAccess?.ChatId == chatId ? _statusAccess : null);
         }
 
         public Task<(IReadOnlyList<ProjectChatListItemReadModel> Items, int Total)> GetListAsync(

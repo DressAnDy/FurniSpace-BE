@@ -250,5 +250,12 @@ public sealed class ProjectChatsControllerTests
         {
             return Task.FromResult(new ProjectChatSummaryDto());
         }
+
+        public Task<ServiceResult<ProjectChatSummaryDto>> UpdateStatusAsync(
+            Guid chatId,
+            Guid currentUserId,
+            UpdateProjectChatStatusRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

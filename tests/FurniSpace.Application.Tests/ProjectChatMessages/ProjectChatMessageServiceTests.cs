@@ -255,7 +255,7 @@ public sealed class ProjectChatMessageServiceTests
         var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.SALES);
         access = CopyAccess(access, projectId: projectId, currentUserName: "Nguyen Van A");
         var repository = new FakeProjectChatMessageRepository(access);
-        var projectFiles = new FakeProjectFileRepository();
+        var projectFiles = new FakeCatalogProjectFileRepository();
         var storage = new FakeFileStorageService();
         var saveChangesCallCount = 0;
         var unitOfWork = TestUnitOfWork.ForTransaction(
@@ -644,7 +644,7 @@ public sealed class ProjectChatMessageServiceTests
     {
         return new ProjectChatMessageService(
             repository,
-            projectFiles ?? new FakeProjectFileRepository(),
+            projectFiles ?? new FakeCatalogProjectFileRepository(),
             realtime ?? new FakeProjectChatRealtimeService(),
             unitOfWork ?? TestUnitOfWork.Instance,
             new ProjectChatFileUploadDependencies(
@@ -829,69 +829,6 @@ public sealed class ProjectChatMessageServiceTests
             CallCount++;
             return _send?.Invoke(projectId, chatId, message) ?? Task.CompletedTask;
         }
-    }
-
-    private sealed class FakeProjectFileRepository : IProjectFileRepository
-    {
-        public List<StoredFile> StoredFiles { get; } = [];
-        public List<FileLink> FileLinks { get; } = [];
-
-        public Task AddAsync(StoredFile entity, CancellationToken cancellationToken = default)
-        {
-            StoredFiles.Add(entity);
-            return Task.CompletedTask;
-        }
-
-        public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
-        {
-            FileLinks.Add(fileLink);
-            return Task.CompletedTask;
-        }
-
-        public IQueryable<StoredFile> Query() => StoredFiles.AsQueryable();
-        public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
-            Task.FromResult<StoredFile?>(null);
-        public Task<IReadOnlyList<StoredFile>> ListAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<StoredFile>>(StoredFiles);
-        public Task AddRangeAsync(IEnumerable<StoredFile> entities, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
-        public void Update(StoredFile entity) { }
-        public void Remove(StoredFile entity) { }
-        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
-        public Task<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?> GetProjectAccessAsync(
-            Guid projectId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?>(null);
-        public Task<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?> GetReferenceProjectAccessAsync(
-            string referenceType,
-            Guid referenceId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?>(null);
-        public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<string?>(null);
-        public Task<Infrastructure.DTOs.ProjectFiles.FileMetadataReadModel?> GetFileMetadataAsync(
-            Guid fileId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<Infrastructure.DTOs.ProjectFiles.FileMetadataReadModel?>(null);
-        public Task<Infrastructure.DTOs.ProjectFiles.FileReferencePageReadModel> GetFilesByReferenceAsync(
-            Infrastructure.DTOs.ProjectFiles.FileReferenceQueryReadModel query,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(new Infrastructure.DTOs.ProjectFiles.FileReferencePageReadModel());
-        public Task<Infrastructure.DTOs.ProjectFiles.FileLinkReadModel?> GetFileLinkAsync(
-            Guid fileLinkId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<Infrastructure.DTOs.ProjectFiles.FileLinkReadModel?>(null);
-        public Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByFileIdAsync(
-            Guid fileId,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<FileLink>>([]);
-        public void RemoveFileLinks(IEnumerable<FileLink> fileLinks) { }
-        public Task<IReadOnlyList<Infrastructure.DTOs.Products.CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
-            string referenceType,
-            IReadOnlyList<Guid> referenceIds,
-            bool customerVisibleOnly,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<Infrastructure.DTOs.Products.CatalogFileReadModel>>([]);
     }
 
     private sealed class FakeFileStorageService : IFileStorageService

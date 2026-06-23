@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.Configure<ElasticsearchSettings>(configuration.GetSection(ElasticsearchSettings.SectionName));
         services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
         services.Configure<FileUploadSettings>(configuration.GetSection(FileUploadSettings.SectionName));
+        services.Configure<ProductPreviewImageSettings>(configuration.GetSection(ProductPreviewImageSettings.SectionName));
         services.Configure<FirebaseStorageSettings>(settings =>
         {
             var section = configuration.GetSection(FirebaseStorageSettings.SectionName);

@@ -76,4 +76,9 @@ internal sealed class TestUnitOfWork : IUnitOfWork
     {
         return _rollbackTransaction(cancellationToken);
     }
+
+    public static IUnitOfWork ForFailingSaveChanges()
+    {
+        return new TestUnitOfWork(_ => throw new InvalidOperationException("Save failed."));
+    }
 }

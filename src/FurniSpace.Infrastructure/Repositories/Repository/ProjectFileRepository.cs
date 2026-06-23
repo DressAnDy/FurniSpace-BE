@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
@@ -11,6 +12,9 @@ namespace FurniSpace.Infrastructure.Repositories.Repository;
 
 public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProjectFileRepository
 {
+    private const string ProductReferenceType = "PRODUCT";
+    private const string ProductVersionReferenceType = "PRODUCT_VERSION";
+
     private readonly Dictionary<string, Func<Guid, CancellationToken, Task<ProjectFileAccessReadModel?>>> _projectAccessResolvers;
 
     public ProjectFileRepository(AppDbContext dbContext) : base(dbContext)
@@ -119,7 +123,13 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
 
         var total = await files.CountAsync(cancellationToken);
         var items = await files
-            .OrderByDescending(file => file.UploadedAt)
+            .OrderByDescending(file => file.FileType == FileType.PRODUCT_PREVIEW)
+            .ThenBy(file => file.FileType != FileType.PRODUCT_PREVIEW
+                || file.DisplayOrder == null
+                || file.DisplayOrder <= 0
+                    ? int.MaxValue
+                    : file.DisplayOrder)
+            .ThenByDescending(file => file.UploadedAt)
             .Skip((page - 1) * limit)
             .Take(limit)
             .ToListAsync(cancellationToken);
@@ -227,6 +237,11 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
 
         return await query
             .OrderByDescending(joined => joined.link.FileType == FileType.PRODUCT_PREVIEW)
+            .ThenBy(joined => joined.link.FileType != FileType.PRODUCT_PREVIEW
+                || joined.link.DisplayOrder == null
+                || joined.link.DisplayOrder <= 0
+                    ? int.MaxValue
+                    : joined.link.DisplayOrder)
             .ThenByDescending(joined => joined.file.UploadedAt)
             .Select(joined => new CatalogFileReadModel
             {
@@ -241,9 +256,131 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 FileSizeBytes = joined.file.FileSizeBytes,
                 Visibility = joined.link.Visibility,
                 Status = joined.file.Status,
+                DisplayOrder = joined.link.DisplayOrder,
+                IsPrimary = joined.link.IsPrimary,
+                Description = joined.link.Description,
                 UploadedAt = joined.file.UploadedAt
             })
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<int> CountProductPreviewFilesAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+    {
+        return await CountReferencePreviewFilesAsync(ProductReferenceType, productId, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ProductPreviewImageReadModel>> GetProductPreviewFilesAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+    {
+        return await QueryActivePreviewFiles(ProductReferenceType, productId, customerVisibleOnly: true)
+            .OrderBy(joined => joined.Link.DisplayOrder ?? int.MaxValue)
+            .ThenBy(joined => joined.File.UploadedAt)
+            .Select(ProductPreviewImageSelector)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<ProductPreviewImageReadModel?> GetProductPreviewFileAsync(
+        Guid productId,
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+    {
+        return QueryActivePreviewFiles(ProductReferenceType, productId, customerVisibleOnly: true)
+            .Where(joined => joined.File.FileId == fileId)
+            .Select(ProductPreviewImageSelector)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<FileLink>> GetProductPreviewFileLinkEntitiesAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+    {
+        return await GetReferencePreviewFileLinkEntitiesAsync(ProductReferenceType, productId, cancellationToken);
+    }
+
+    public Task<int> CountProductVersionPreviewFilesAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        return CountReferencePreviewFilesAsync(ProductVersionReferenceType, productVersionId, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<FileLink>> GetProductVersionPreviewFileLinkEntitiesAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        return await GetReferencePreviewFileLinkEntitiesAsync(ProductVersionReferenceType, productVersionId, cancellationToken);
+    }
+
+    private async Task<int> CountReferencePreviewFilesAsync(
+        string referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken = default)
+    {
+        return await QueryActivePreviewFiles(referenceType, referenceId, customerVisibleOnly: false)
+            .CountAsync(cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<FileLink>> GetReferencePreviewFileLinkEntitiesAsync(
+        string referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken = default)
+    {
+        return await QueryActivePreviewFiles(referenceType, referenceId, customerVisibleOnly: false)
+            .OrderBy(joined => joined.Link.DisplayOrder ?? int.MaxValue)
+            .ThenBy(joined => joined.File.UploadedAt)
+            .Select(joined => joined.Link)
+            .ToListAsync(cancellationToken);
+    }
+
+    private IQueryable<ProductPreviewJoin> QueryActivePreviewFiles(
+        string referenceType,
+        Guid referenceId,
+        bool customerVisibleOnly)
+    {
+        var query = DbContext.StoredFileSet
+            .Join(
+                DbContext.FileLinkSet,
+                file => file.FileId,
+                link => link.FileId,
+                (file, link) => new ProductPreviewJoin { File = file, Link = link })
+            .Where(joined =>
+                joined.Link.ReferenceType == referenceType &&
+                joined.Link.ReferenceId == referenceId &&
+                joined.Link.FileType == FileType.PRODUCT_PREVIEW &&
+                joined.File.Status != FileStatus.ARCHIVED);
+
+        if (customerVisibleOnly)
+        {
+            query = query.Where(joined => joined.Link.Visibility == FileVisibility.CUSTOMER_VISIBLE);
+        }
+
+        return query;
+    }
+
+    private static readonly Expression<Func<ProductPreviewJoin, ProductPreviewImageReadModel>> ProductPreviewImageSelector =
+        joined => new ProductPreviewImageReadModel
+        {
+            FileId = joined.File.FileId,
+            FileLinkId = joined.Link.FileLinkId,
+            ProductId = joined.Link.ReferenceId,
+            FileType = joined.Link.FileType ?? FileType.PRODUCT_PREVIEW,
+            FileUrl = joined.File.FileUrl,
+            MimeType = joined.File.MimeType,
+            FileSizeBytes = joined.File.FileSizeBytes,
+            DisplayOrder = joined.Link.DisplayOrder ?? 0,
+            Description = joined.Link.Description,
+            CreatedAt = joined.Link.CreatedAt ?? joined.File.UploadedAt,
+            StoragePath = joined.File.StoragePath
+        };
+
+    private sealed class ProductPreviewJoin
+    {
+        public required StoredFile File { get; init; }
+
+        public required FileLink Link { get; init; }
     }
 
     private IQueryable<FileMetadataReadModel> BuildFileMetadataQuery()
@@ -292,6 +429,8 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                     UploadedBy = joined.file.UploadedBy,
                     UploadedAt = joined.file.UploadedAt,
                     Status = joined.file.Status,
+                    DisplayOrder = joined.link.DisplayOrder,
+                    IsPrimary = joined.link.IsPrimary,
                     ProjectAccess = project == null
                         ? null
                         : new ProjectFileAccessReadModel

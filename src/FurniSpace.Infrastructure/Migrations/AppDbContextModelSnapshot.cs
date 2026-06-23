@@ -358,6 +358,9 @@ namespace FurniSpace.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("uq_file_links_unique_reference");
 
+                    b.HasIndex("ReferenceType", "ReferenceId", "FileType", "DisplayOrder")
+                        .HasDatabaseName("idx_file_links_reference_type_order");
+
                     b.ToTable("file_links", (string)null);
                 });
 

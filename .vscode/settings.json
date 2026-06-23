@@ -1,0 +1,6 @@
+{
+    "sonarlint.connectedMode.project": {
+        "connectionId": "dressandy",
+        "projectKey": "DressAnDy_FurniSpace-BE"
+    }
+}

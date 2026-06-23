@@ -19,5 +19,7 @@ public sealed class FileMetadataReadModel
     public Guid UploadedBy { get; init; }
     public DateTime UploadedAt { get; init; }
     public FileStatus? Status { get; init; }
+    public int? DisplayOrder { get; init; }
+    public bool? IsPrimary { get; init; }
     public ProjectFileAccessReadModel? ProjectAccess { get; init; }
 }

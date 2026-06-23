@@ -11,4 +11,6 @@ public sealed class CatalogFileDto
     public string FileUrl { get; set; } = string.Empty;
     public string MimeType { get; set; } = string.Empty;
     public long? FileSizeBytes { get; set; }
+    public int? DisplayOrder { get; set; }
+    public bool? IsPrimary { get; set; }
 }

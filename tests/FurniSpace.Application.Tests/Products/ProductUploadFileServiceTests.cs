@@ -71,10 +71,11 @@ public sealed class ProductUploadFileServiceTests
     }
 
     [Fact]
-    public async Task UploadFileAsync_WithProductPreviewType_ReturnsUsePreviewFilesEndpoint()
+    public async Task UploadFileAsync_WithPreviewImage_AppendsToEndAndSetsPrimary()
     {
         var productId = Guid.NewGuid();
         var repository = new CatalogFileTestRepository();
+        repository.SeedPreview(productId, 1);
         var service = CatalogServiceTestHelper.CreateProductService(
             new StubProductRepository(productId),
             repository);
@@ -82,11 +83,97 @@ public sealed class ProductUploadFileServiceTests
         var result = await service.UploadFileAsync(
             productId,
             Guid.NewGuid(),
-            CreateUploadRequest("preview.jpg", FileType.PRODUCT_PREVIEW));
+            CreateUploadRequest("brown.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(2, result.Data!.DisplayOrder);
+        Assert.False(result.Data.IsPrimary);
+        Assert.Equal(FileType.PRODUCT_PREVIEW, result.Data.FileType);
+        Assert.True(repository.FileLinks.Single(link => link.DisplayOrder == 1).IsPrimary == true);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithPreviewDisplayOrderOne_BecomesCoverAndNormalizes()
+    {
+        var productId = Guid.NewGuid();
+        var firstId = Guid.NewGuid();
+        var repository = new CatalogFileTestRepository();
+        repository.SeedPreview(productId, 1, firstId);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 1));
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, result.Data!.DisplayOrder);
+        Assert.True(result.Data.IsPrimary);
+        Assert.Equal(2, repository.FileLinks.Single(link => link.FileId == firstId).DisplayOrder);
+        Assert.False(repository.FileLinks.Single(link => link.FileId == firstId).IsPrimary);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WhenPreviewMaxCountReached_ReturnsMaxFilesExceeded()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new CatalogFileTestRepository();
+        for (var index = 0; index < 5; index++)
+        {
+            repository.SeedPreview(productId, index + 1);
+        }
+
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("extra.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.MaxFilesExceeded, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithInvalidPreviewDisplayOrder_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            new CatalogFileTestRepository());
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 0));
 
         Assert.Equal(400, result.Status);
-        Assert.Equal(ProductPreviewImageErrorCodes.UsePreviewFilesEndpoint, result.ErrorCode);
-        Assert.Empty(repository.StoredFiles);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidDisplayOrder, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithPreviewDisplayOrderBeyondCount_NormalizesToEnd()
+    {
+        var productId = Guid.NewGuid();
+        var firstId = Guid.NewGuid();
+        var repository = new CatalogFileTestRepository();
+        repository.SeedPreview(productId, 1, firstId);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("tail.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 99));
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(2, result.Data!.DisplayOrder);
+        Assert.False(result.Data.IsPrimary);
     }
 
     [Fact]
@@ -103,7 +190,7 @@ public sealed class ProductUploadFileServiceTests
             CreateUploadRequest("catalog.jpg", FileType.OTHER));
 
         Assert.Equal(404, result.Status);
-        Assert.Equal("Product not found.", result.Message);
+        Assert.Equal(ProductPreviewImageErrorCodes.ProductNotFound, result.ErrorCode);
     }
 
     [Fact]
@@ -174,20 +261,85 @@ public sealed class ProductUploadFileServiceTests
         Assert.Contains("File extension is not allowed.", result.Errors!);
     }
 
+    [Fact]
+    public async Task UploadFileAsync_WithPreviewPdfMimeType_ReturnsInvalidFileType()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new CatalogFileTestRepository();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("catalog.pdf", FileType.PRODUCT_PREVIEW, "application/pdf"));
+
+        Assert.Equal(415, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.InvalidFileType, result.ErrorCode);
+        Assert.Empty(repository.StoredFiles);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithOversizedPreview_ReturnsFileTooLarge()
+    {
+        var productId = Guid.NewGuid();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            new CatalogFileTestRepository(),
+            previewSettings: new ProductPreviewImageSettings
+            {
+                MaxCount = 5,
+                MaxFileSizeBytes = 8,
+                AllowedExtensions = [".webp"],
+                AllowedMimeTypes = ["image/webp"]
+            });
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", fileSizeBytes: 100));
+
+        Assert.Equal(413, result.Status);
+        Assert.Equal(ProductPreviewImageErrorCodes.FileTooLarge, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithValidWebpPreview_AcceptsFile()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new CatalogFileTestRepository();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productId,
+            Guid.NewGuid(),
+            CreateUploadRequest("hero.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal("image/webp", result.Data!.MimeType);
+        Assert.Single(repository.StoredFiles);
+    }
+
     private static UploadCatalogFileRequestDto CreateUploadRequest(
         string fileName,
         FileType fileType,
         string contentType = "image/jpeg",
-        string? description = null)
+        string? description = null,
+        int? displayOrder = null,
+        long fileSizeBytes = 12)
     {
         return new UploadCatalogFileRequestDto
         {
             Content = new MemoryStream(Encoding.UTF8.GetBytes("file-content")),
             OriginalFileName = fileName,
             ContentType = contentType,
-            FileSizeBytes = 12,
+            FileSizeBytes = fileSizeBytes,
             FileType = fileType,
-            Description = description
+            Description = description,
+            DisplayOrder = displayOrder
         };
     }
 
@@ -245,6 +397,55 @@ public sealed class ProductUploadFileServiceTests
         public List<StoredFile> StoredFiles { get; } = [];
         public List<FileLink> FileLinks { get; } = [];
 
+        public void SeedPreview(Guid productId, int displayOrder, Guid? fileId = null)
+        {
+            var id = fileId ?? Guid.NewGuid();
+            var now = DateTime.UtcNow;
+            StoredFiles.Add(new StoredFile
+            {
+                FileId = id,
+                OriginalFileName = "preview.webp",
+                StoredFileName = $"{id:N}.webp",
+                FileUrl = $"https://storage.example.com/{id:N}.webp",
+                StoragePath = $"products/{productId:D}/{id:N}.webp",
+                MimeType = "image/webp",
+                FileSizeBytes = 100,
+                Status = FileStatus.ACTIVE,
+                UploadedAt = now
+            });
+            FileLinks.Add(new FileLink
+            {
+                FileLinkId = Guid.NewGuid(),
+                FileId = id,
+                ReferenceType = CatalogFileReferenceTypes.Product,
+                ReferenceId = productId,
+                FileType = FileType.PRODUCT_PREVIEW,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                DisplayOrder = displayOrder,
+                IsPrimary = displayOrder == 1,
+                CreatedAt = now
+            });
+        }
+
+        private List<FileLink> GetPreviewLinks(Guid productId) => FileLinks
+            .Where(link =>
+                link.ReferenceId == productId &&
+                link.ReferenceType == CatalogFileReferenceTypes.Product &&
+                link.FileType == FileType.PRODUCT_PREVIEW &&
+                StoredFiles.Any(file => file.FileId == link.FileId && file.Status != FileStatus.ARCHIVED))
+            .ToList();
+
+        public Task<int> CountProductPreviewFilesAsync(Guid productId, CancellationToken cancellationToken = default)
+            => Task.FromResult(GetPreviewLinks(productId).Count);
+
+        public Task<IReadOnlyList<FileLink>> GetProductPreviewFileLinkEntitiesAsync(
+            Guid productId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<FileLink>>(
+                GetPreviewLinks(productId)
+                    .OrderBy(link => link.DisplayOrder ?? int.MaxValue)
+                    .ToList());
+
         public Task AddAsync(StoredFile entity, CancellationToken cancellationToken = default)
         {
             StoredFiles.Add(entity);
@@ -290,9 +491,6 @@ public sealed class ProductUploadFileServiceTests
 
         public void RemoveFileLinks(IEnumerable<FileLink> fileLinks) { }
 
-        public Task<int> CountProductPreviewFilesAsync(Guid productId, CancellationToken cancellationToken = default)
-            => Task.FromResult(0);
-
         public Task<IReadOnlyList<ProductPreviewImageReadModel>> GetProductPreviewFilesAsync(
             Guid productId,
             CancellationToken cancellationToken = default)
@@ -304,8 +502,11 @@ public sealed class ProductUploadFileServiceTests
             CancellationToken cancellationToken = default)
             => Task.FromResult<ProductPreviewImageReadModel?>(null);
 
-        public Task<IReadOnlyList<FileLink>> GetProductPreviewFileLinkEntitiesAsync(
-            Guid productId,
+        public Task<int> CountProductVersionPreviewFilesAsync(Guid productVersionId, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<IReadOnlyList<FileLink>> GetProductVersionPreviewFileLinkEntitiesAsync(
+            Guid productVersionId,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<FileLink>>([]);
 

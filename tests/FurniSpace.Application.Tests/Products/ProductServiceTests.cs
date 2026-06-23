@@ -970,6 +970,116 @@ public sealed class ProductServiceTests
         Assert.NotNull(Assert.Single(result.Data!.Items).Thumbnail);
     }
 
+    [Fact]
+    public async Task GetByIdAsync_WithOrderedPreviewFiles_ReturnsFilesInDisplayOrder()
+    {
+        var productId = Guid.NewGuid();
+        var fileId1 = Guid.NewGuid();
+        var fileId2 = Guid.NewGuid();
+        var fileId3 = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            details:
+            [
+                new ProductDetailReadModel
+                {
+                    ProductId = productId,
+                    ProductName = "Modern Floor Lamp",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]);
+        var baseTime = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+        var files = new FakeCatalogProjectFileRepository
+        {
+            CatalogFiles =
+            [
+                CreateCatalogFile(productId, "PRODUCT", fileId3, Guid.NewGuid(), FileType.PRODUCT_PREVIEW, "third.jpg", displayOrder: 3, uploadedAt: baseTime),
+                CreateCatalogFile(productId, "PRODUCT", fileId1, Guid.NewGuid(), FileType.PRODUCT_PREVIEW, "first.jpg", displayOrder: 1, uploadedAt: baseTime.AddMinutes(-10)),
+                CreateCatalogFile(productId, "PRODUCT", fileId2, Guid.NewGuid(), FileType.PRODUCT_PREVIEW, "second.jpg", displayOrder: 2, uploadedAt: baseTime.AddMinutes(-5))
+            ]
+        };
+        var service = CatalogServiceTestHelper.CreateProductService(repository, files);
+
+        var result = await service.GetByIdAsync(productId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(3, result.Data!.Files.Count);
+        Assert.Equal(fileId1, result.Data.Files[0].FileId);
+        Assert.Equal(1, result.Data.Files[0].DisplayOrder);
+        Assert.Equal(fileId2, result.Data.Files[1].FileId);
+        Assert.Equal(fileId3, result.Data.Files[2].FileId);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_WithPrimaryPreview_UsesPrimaryAsThumbnail()
+    {
+        var productId = Guid.NewGuid();
+        var primaryFileId = Guid.NewGuid();
+        var firstOrderFileId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+        [
+            new ProductListItemReadModel
+            {
+                ProductId = productId,
+                ProductName = "Modern Floor Lamp",
+                Status = ProductStatus.ACTIVE
+            }
+        ]);
+        var baseTime = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+        var files = new FakeCatalogProjectFileRepository
+        {
+            CatalogFiles =
+            [
+                CreateCatalogFile(productId, "PRODUCT", firstOrderFileId, Guid.NewGuid(), FileType.PRODUCT_PREVIEW, "first.jpg", displayOrder: 1, uploadedAt: baseTime),
+                CreateCatalogFile(productId, "PRODUCT", primaryFileId, Guid.NewGuid(), FileType.PRODUCT_PREVIEW, "primary.jpg", displayOrder: 2, isPrimary: true, uploadedAt: baseTime.AddMinutes(-5))
+            ]
+        };
+        var service = CatalogServiceTestHelper.CreateProductService(repository, files);
+
+        var result = await service.GetAllAsync(page: 1, limit: 20);
+
+        Assert.Equal(200, result.Status);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.NotNull(item.Thumbnail);
+        Assert.Equal(primaryFileId, item.Thumbnail.FileId);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WithNoDisplayOrder_FallsBackToUploadedAtDesc()
+    {
+        var productId = Guid.NewGuid();
+        var newerFileId = Guid.NewGuid();
+        var olderFileId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            details:
+            [
+                new ProductDetailReadModel
+                {
+                    ProductId = productId,
+                    ProductName = "Modern Floor Lamp",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]);
+        var baseTime = new DateTime(2025, 6, 1, 12, 0, 0, DateTimeKind.Utc);
+        var files = new FakeCatalogProjectFileRepository
+        {
+            CatalogFiles =
+            [
+                CreateCatalogFile(productId, "PRODUCT", olderFileId, Guid.NewGuid(), FileType.PRODUCT_PREVIEW, "older.jpg", uploadedAt: baseTime.AddHours(-1)),
+                CreateCatalogFile(productId, "PRODUCT", newerFileId, Guid.NewGuid(), FileType.PRODUCT_PREVIEW, "newer.jpg", uploadedAt: baseTime)
+            ]
+        };
+        var service = CatalogServiceTestHelper.CreateProductService(repository, files);
+
+        var result = await service.GetByIdAsync(productId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, result.Data!.Files.Count);
+        Assert.Equal(newerFileId, result.Data.Files[0].FileId);
+        Assert.Equal(olderFileId, result.Data.Files[1].FileId);
+    }
+
     private static CatalogFileReadModel CreateCatalogFile(
         Guid referenceId,
         string referenceType,
@@ -977,7 +1087,10 @@ public sealed class ProductServiceTests
         Guid fileLinkId,
         FileType fileType,
         string fileName,
-        string mimeType = "image/jpeg")
+        string mimeType = "image/jpeg",
+        int? displayOrder = null,
+        bool? isPrimary = null,
+        DateTime? uploadedAt = null)
     {
         return new CatalogFileReadModel
         {
@@ -992,7 +1105,9 @@ public sealed class ProductServiceTests
             FileSizeBytes = 1024,
             Visibility = FileVisibility.CUSTOMER_VISIBLE,
             Status = FileStatus.ACTIVE,
-            UploadedAt = DateTime.UtcNow
+            DisplayOrder = displayOrder,
+            IsPrimary = isPrimary,
+            UploadedAt = uploadedAt ?? DateTime.UtcNow
         };
     }
 

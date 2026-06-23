@@ -112,4 +112,12 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
         Guid productId,
         CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<FileLink>>([]);
+
+    public Task<int> CountProductVersionPreviewFilesAsync(Guid productVersionId, CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
+
+    public Task<IReadOnlyList<FileLink>> GetProductVersionPreviewFileLinkEntitiesAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<FileLink>>([]);
 }

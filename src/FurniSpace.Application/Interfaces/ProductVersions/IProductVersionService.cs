@@ -29,4 +29,14 @@ public interface IProductVersionService
         Guid currentUserId,
         UploadCatalogFileRequestDto request,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>>> ReorderPreviewFilesAsync(
+        Guid productVersionId,
+        ReorderProductVersionPreviewFilesRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<DeleteProductVersionPreviewImageResponseDto>> DeletePreviewFileAsync(
+        Guid productVersionId,
+        Guid fileId,
+        CancellationToken cancellationToken = default);
 }

@@ -403,50 +403,6 @@ public sealed class ProductsControllerTests
         Assert.Equal(1, previewService.UploadRequest.DisplayOrder);
     }
 
-    [Fact]
-    public async Task ReorderPreviewFiles_PassesRequestToPreviewService()
-    {
-        var productId = Guid.NewGuid();
-        var fileId = Guid.NewGuid();
-        var previewService = new FakeProductPreviewImageService
-        {
-            ReorderResult = ServiceResult<ProductPreviewImageListResponseDto>.Success(
-                new ProductPreviewImageListResponseDto { ProductId = productId, Items = [] },
-                "Product preview images reordered successfully.")
-        };
-        var controller = CreateController(CreateDefaultProductService(), previewService, Guid.NewGuid());
-        var request = new ReorderProductPreviewImagesRequestDto { FileIds = [fileId] };
-
-        var actionResult = await controller.ReorderPreviewFiles(productId, request);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(productId, previewService.ProductId);
-        Assert.NotNull(previewService.ReorderRequest);
-        Assert.Equal(fileId, Assert.Single(previewService.ReorderRequest.FileIds!));
-    }
-
-    [Fact]
-    public async Task DeletePreviewFile_PassesIdsToPreviewService()
-    {
-        var productId = Guid.NewGuid();
-        var fileId = Guid.NewGuid();
-        var previewService = new FakeProductPreviewImageService
-        {
-            DeleteResult = ServiceResult<DeleteProductPreviewImageResponseDto>.Success(
-                new DeleteProductPreviewImageResponseDto { ProductId = productId, FileId = fileId },
-                "Product preview image deleted successfully.")
-        };
-        var controller = CreateController(CreateDefaultProductService(), previewService, Guid.NewGuid());
-
-        var actionResult = await controller.DeletePreviewFile(productId, fileId);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(productId, previewService.ProductId);
-        Assert.Equal(fileId, previewService.FileId);
-    }
-
     private static FakeProductService CreateDefaultProductService()
     {
         return new FakeProductService(ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty));

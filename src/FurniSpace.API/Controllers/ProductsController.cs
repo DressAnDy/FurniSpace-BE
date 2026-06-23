@@ -108,7 +108,8 @@ public sealed class ProductsController : BaseApiController
                 FileSizeBytes = request.File?.Length ?? 0,
                 FileType = request.FileType,
                 Visibility = request.Visibility,
-                Description = request.Description
+                Description = request.Description,
+                DisplayOrder = request.DisplayOrder
             },
             cancellationToken);
 
@@ -154,28 +155,6 @@ public sealed class ProductsController : BaseApiController
 
         return ToActionResult(result);
     }
-
-    [Authorize(Roles = "ADMIN")]
-    [HttpPatch("{productId:guid}/preview-files/reorder")]
-    public async Task<IActionResult> ReorderPreviewFiles(
-        Guid productId,
-        [FromBody] ReorderProductPreviewImagesRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var result = await _previewImages.ReorderAsync(productId, request, cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "ADMIN")]
-    [HttpDelete("{productId:guid}/preview-files/{fileId:guid}")]
-    public async Task<IActionResult> DeletePreviewFile(
-        Guid productId,
-        Guid fileId,
-        CancellationToken cancellationToken = default)
-    {
-        var result = await _previewImages.DeleteAsync(productId, fileId, cancellationToken);
-        return ToActionResult(result);
-    }
 }
 
 public sealed class UploadCatalogFileFormRequest
@@ -184,6 +163,7 @@ public sealed class UploadCatalogFileFormRequest
     public FileType FileType { get; set; } = FileType.OTHER;
     public FileVisibility? Visibility { get; set; }
     public string? Description { get; set; }
+    public int? DisplayOrder { get; set; }
 }
 
 public sealed class UploadProductPreviewImageFormRequest

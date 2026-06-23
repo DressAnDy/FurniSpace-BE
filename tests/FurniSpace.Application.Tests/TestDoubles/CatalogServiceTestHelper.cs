@@ -25,13 +25,15 @@ public static class CatalogServiceTestHelper
     public static ProductService CreateProductService(
         IProductRepository products,
         IProjectFileRepository files,
-        IFileStorageService? storage = null)
+        IFileStorageService? storage = null,
+        ProductPreviewImageSettings? previewSettings = null)
     {
         return new ProductService(
             products,
             files,
             storage ?? new NoOpFileStorageService(),
             Options.Create(DefaultUploadSettings()),
+            Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
             Options.Create(DefaultFirebaseSettings()),
             TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
     }
@@ -55,13 +57,15 @@ public static class CatalogServiceTestHelper
     public static ProductVersionService CreateProductVersionService(
         IProductVersionRepository productVersions,
         IProjectFileRepository files,
-        IFileStorageService? storage = null)
+        IFileStorageService? storage = null,
+        ProductPreviewImageSettings? previewSettings = null)
     {
         return new ProductVersionService(
             productVersions,
             files,
             storage ?? new NoOpFileStorageService(),
             Options.Create(DefaultUploadSettings()),
+            Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
             Options.Create(DefaultFirebaseSettings()),
             TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync));
     }
@@ -80,10 +84,7 @@ public static class CatalogServiceTestHelper
     {
         return new ProductPreviewImageSettings
         {
-            MaxCount = 5,
-            MaxFileSizeBytes = 1024 * 1024,
-            AllowedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"],
-            AllowedMimeTypes = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"]
+            MaxFileSizeBytes = 1024 * 1024
         };
     }
 

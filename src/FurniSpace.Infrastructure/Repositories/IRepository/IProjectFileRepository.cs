@@ -64,4 +64,12 @@ public interface IProjectFileRepository : IGenericRepository<StoredFile>
     Task<IReadOnlyList<FileLink>> GetProductPreviewFileLinkEntitiesAsync(
         Guid productId,
         CancellationToken cancellationToken = default);
+
+    Task<int> CountProductVersionPreviewFilesAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<FileLink>> GetProductVersionPreviewFileLinkEntitiesAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default);
 }

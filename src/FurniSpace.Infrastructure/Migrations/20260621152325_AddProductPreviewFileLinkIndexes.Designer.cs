@@ -357,17 +357,12 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasIndex("ReferenceType", "ReferenceId")
                         .HasDatabaseName("idx_file_links_reference");
 
-                    b.HasIndex("ReferenceType", "ReferenceId", "DisplayOrder")
-                        .IsUnique()
-                        .HasDatabaseName("uq_file_links_product_preview_display_order")
-                        .HasFilter("reference_type = 'PRODUCT' AND file_type = 'PRODUCT_PREVIEW'::file_type AND display_order > 0");
-
                     b.HasIndex("FileId", "ReferenceType", "ReferenceId", "FileType")
                         .IsUnique()
                         .HasDatabaseName("uq_file_links_unique_reference");
 
                     b.HasIndex("ReferenceType", "ReferenceId", "FileType", "DisplayOrder")
-                        .HasDatabaseName("idx_file_links_reference_type_display_order");
+                        .HasDatabaseName("idx_file_links_reference_type_order");
 
                     b.ToTable("file_links", (string)null);
                 });

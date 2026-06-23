@@ -87,7 +87,8 @@ public sealed class ProductVersionsController : BaseApiController
                 FileSizeBytes = request.File?.Length ?? 0,
                 FileType = request.FileType,
                 Visibility = request.Visibility,
-                Description = request.Description
+                Description = request.Description,
+                DisplayOrder = request.DisplayOrder
             },
             cancellationToken);
 

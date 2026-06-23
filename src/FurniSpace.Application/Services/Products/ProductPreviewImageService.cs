@@ -90,7 +90,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             {
                 Content = request.Content,
                 ObjectName = objectName,
-                ContentType = NormalizeContentType(request.ContentType)
+                ContentType = CatalogPreviewFileValidation.NormalizeContentType(request.ContentType)
             },
             cancellationToken);
 
@@ -102,7 +102,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             StoredFileName = generatedFileName,
             FileUrl = uploadResult.PublicUrl,
             StoragePath = uploadResult.ObjectName,
-            MimeType = NormalizeContentType(request.ContentType),
+            MimeType = CatalogPreviewFileValidation.NormalizeContentType(request.ContentType),
             FileExtension = NormalizeExtension(originalFileName),
             FileSizeBytes = request.FileSizeBytes,
             Status = FileStatus.ACTIVE,
@@ -132,6 +132,9 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
                     {
                         ShiftDisplayOrdersForInsert(existingLinks, displayOrder);
                     }
+
+                    var pendingLinks = existingLinks.Append(fileLink).ToList();
+                    PreviewImageFileLinkOrdering.EnsureUniquePositiveDisplayOrders(pendingLinks);
 
                     await _files.AddAsync(storedFile, ct);
                     await _files.AddFileLinkAsync(fileLink, ct);
@@ -173,46 +176,101 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             cancellationToken);
     }
 
-    public async Task<ServiceResult<ProductPreviewImageListResponseDto>> ReorderAsync(
+    public async Task<ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>> ReorderAsync(
         Guid productId,
         ReorderProductPreviewImagesRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (await ResolveProductErrorAsync<ProductPreviewImageListResponseDto>(productId, cancellationToken) is { } productError)
+        if (await ResolveProductErrorAsync<IReadOnlyList<ProductPreviewReorderItemDto>>(productId, cancellationToken) is { } productError)
         {
             return productError;
         }
 
         var fileLinks = (await _files.GetProductPreviewFileLinkEntitiesAsync(productId, cancellationToken)).ToList();
-        if (fileLinks.Count == 0)
+        var expectedIds = fileLinks.Select(link => link.FileId).ToHashSet();
+        var fileIds = request.FileIds ?? [];
+
+        if (fileLinks.Count == 0 && fileIds.Count == 0)
         {
-            return ServiceResult<ProductPreviewImageListResponseDto>.Success(
-                new ProductPreviewImageListResponseDto { ProductId = productId, Items = [] },
+            return ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>.Success(
+                Array.Empty<ProductPreviewReorderItemDto>(),
                 "Product preview images reordered successfully.");
         }
 
-        var reorderError = TryBuildReorderMap(request, fileLinks, out var orderByFileId);
-        if (reorderError is not null)
+        if (fileIds.Count != fileIds.Distinct().Count())
         {
-            return ServiceResult<ProductPreviewImageListResponseDto>.Failure(reorderError);
+            return ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>.Failure(
+                Error.BadRequest(
+                    ProductPreviewImageErrorCodes.DuplicateFileId,
+                    "fileIds must not contain duplicates."));
+        }
+
+        var foreignFileError = await ValidateForeignProductPreviewFileIdsAsync(
+            productId,
+            fileIds,
+            expectedIds,
+            cancellationToken);
+        if (foreignFileError is not null)
+        {
+            return ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>.Failure(foreignFileError);
+        }
+
+        if (!PreviewImageFileLinkOrdering.TryBuildExactReorderMap(
+                fileIds,
+                expectedIds,
+                out _,
+                out var validationMessage))
+        {
+            return ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>.Failure(
+                Error.BadRequest(
+                    ProductPreviewImageErrorCodes.InvalidReorderPayload,
+                    validationMessage!));
         }
 
         await ExecuteInTransactionAsync(
             async ct =>
             {
-                foreach (var link in fileLinks)
-                {
-                    link.DisplayOrder = orderByFileId![link.FileId];
-                }
-
+                PreviewImageFileLinkOrdering.ApplyReorderFromFileIds(fileIds, fileLinks);
+                PreviewImageFileLinkOrdering.EnsureUniquePositiveDisplayOrders(fileLinks);
                 await _unitOfWork.SaveChangesAsync(ct);
             },
             cancellationToken);
 
-        return await BuildListSuccessAsync(
-            productId,
-            "Product preview images reordered successfully.",
-            cancellationToken);
+        return ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>.Success(
+            PreviewImageFileLinkOrdering.MapProductPreviewReorderItems(fileLinks),
+            "Product preview images reordered successfully.");
+    }
+
+    private async Task<Error?> ValidateForeignProductPreviewFileIdsAsync(
+        Guid productId,
+        IReadOnlyList<Guid> fileIds,
+        IReadOnlySet<Guid> expectedIds,
+        CancellationToken cancellationToken)
+    {
+        foreach (var fileId in fileIds.Where(id => !expectedIds.Contains(id)))
+        {
+            var links = await _files.GetFileLinkEntitiesByFileIdAsync(fileId, cancellationToken);
+            var belongsToOtherProduct = links.Any(link =>
+                link.FileType == FileType.PRODUCT_PREVIEW &&
+                link.ReferenceType == CatalogFileReferenceTypes.Product &&
+                link.ReferenceId != productId);
+
+            if (belongsToOtherProduct)
+            {
+                return Error.BadRequest(
+                    ProductPreviewImageErrorCodes.FileNotBelongToProduct,
+                    "One or more file IDs do not belong to the specified product.");
+            }
+
+            if (links.Count == 0 && await _files.GetByIdAsync(fileId, cancellationToken) is null)
+            {
+                return Error.NotFound(
+                    ProductPreviewImageErrorCodes.FileNotFound,
+                    "One or more file IDs were not found.");
+            }
+        }
+
+        return null;
     }
 
     public async Task<ServiceResult<DeleteProductPreviewImageResponseDto>> DeleteAsync(
@@ -235,44 +293,100 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             return productError;
         }
 
-        if (await _files.GetProductPreviewFileAsync(productId, fileId, cancellationToken) is null)
+        var deleteValidationError = await ValidateProductPreviewDeleteAsync(productId, fileId, cancellationToken);
+        if (deleteValidationError is not null)
         {
-            return PreviewFileNotFound();
+            return ServiceResult<DeleteProductPreviewImageResponseDto>.Failure(deleteValidationError);
         }
 
         var file = await _files.GetByIdAsync(fileId, cancellationToken);
         if (file is null)
         {
-            return PreviewFileNotFound();
+            return ServiceResult<DeleteProductPreviewImageResponseDto>.Failure(
+                Error.NotFound(
+                    ProductPreviewImageErrorCodes.FileNotFound,
+                    PreviewFileNotFoundMessage));
         }
-
-        await _storage.DeleteAsync(file.StoragePath, cancellationToken);
 
         var fileLinks = await _files.GetFileLinkEntitiesByFileIdAsync(fileId, cancellationToken);
         var remainingLinks = (await _files.GetProductPreviewFileLinkEntitiesAsync(productId, cancellationToken))
             .Where(link => link.FileId != fileId)
             .OrderBy(link => link.DisplayOrder ?? int.MaxValue)
-            .ThenBy(link => link.CreatedAt)
+            .ThenBy(link => link.CreatedAt ?? DateTime.MinValue)
             .ToList();
+        var remainingCount = remainingLinks.Count;
+        var reindexed = remainingCount > 0;
+        var storagePath = file.StoragePath;
 
         await ExecuteInTransactionAsync(
             async ct =>
             {
                 _files.RemoveFileLinks(fileLinks);
                 _files.Remove(file);
-                ReindexDisplayOrders(remainingLinks);
+
+                if (reindexed)
+                {
+                    PreviewImageFileLinkOrdering.NormalizeDisplayOrdersAndPrimary(remainingLinks);
+                    PreviewImageFileLinkOrdering.EnsureUniquePositiveDisplayOrders(remainingLinks);
+                }
+
                 await _unitOfWork.SaveChangesAsync(ct);
             },
             cancellationToken);
 
+        await _storage.DeleteAsync(storagePath, cancellationToken);
+
         return ServiceResult<DeleteProductPreviewImageResponseDto>.Success(
             new DeleteProductPreviewImageResponseDto
             {
-                FileId = fileId,
-                ProductId = productId,
-                DeletedAt = DateTime.UtcNow
+                DeletedFileId = fileId,
+                RemainingCount = remainingCount,
+                Reindexed = reindexed
             },
             "Product preview image deleted successfully.");
+    }
+
+    private async Task<Error?> ValidateProductPreviewDeleteAsync(
+        Guid productId,
+        Guid fileId,
+        CancellationToken cancellationToken)
+    {
+        if (await _files.GetProductPreviewFileAsync(productId, fileId, cancellationToken) is not null)
+        {
+            return null;
+        }
+
+        var fileLinks = await _files.GetFileLinkEntitiesByFileIdAsync(fileId, cancellationToken);
+        if (fileLinks.Any(link =>
+                link.FileType == FileType.PRODUCT_PREVIEW &&
+                link.ReferenceType == CatalogFileReferenceTypes.Product &&
+                link.ReferenceId != productId))
+        {
+            return Error.BadRequest(
+                ProductPreviewImageErrorCodes.FileNotBelongToProduct,
+                "The file does not belong to the specified product.");
+        }
+
+        if (fileLinks.Any(link =>
+                link.ReferenceType == CatalogFileReferenceTypes.Product &&
+                link.ReferenceId == productId &&
+                link.FileType != FileType.PRODUCT_PREVIEW))
+        {
+            return Error.BadRequest(
+                ProductPreviewImageErrorCodes.InvalidFileType,
+                "Only product preview images can be deleted via this endpoint.");
+        }
+
+        if (await _files.GetByIdAsync(fileId, cancellationToken) is null)
+        {
+            return Error.NotFound(
+                ProductPreviewImageErrorCodes.FileNotFound,
+                PreviewFileNotFoundMessage);
+        }
+
+        return Error.NotFound(
+            ProductPreviewImageErrorCodes.PreviewFileNotFound,
+            PreviewFileNotFoundMessage);
     }
 
     private async Task<ServiceResult<T>?> ResolveProductErrorAsync<T>(
@@ -286,7 +400,10 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
 
         if (await _products.GetByIdAsync(productId, cancellationToken) is null)
         {
-            return ServiceResult<T>.NotFound(ProductValidationMessages.ProductNotFound);
+            return ServiceResult<T>.Failure(
+                Error.NotFound(
+                    ProductPreviewImageErrorCodes.ProductNotFound,
+                    ProductValidationMessages.ProductNotFound));
         }
 
         return null;
@@ -307,53 +424,19 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             message);
     }
 
-    private static ServiceResult<DeleteProductPreviewImageResponseDto> PreviewFileNotFound()
-    {
-        return ServiceResult<DeleteProductPreviewImageResponseDto>.Failure(
-            Error.NotFound(
-                ProductPreviewImageErrorCodes.PreviewFileNotFound,
-                PreviewFileNotFoundMessage));
-    }
-
     private Error? ValidateUploadRequest(UploadProductPreviewImageRequestDto request)
     {
-        if (request.Content == Stream.Null || !request.Content.CanRead)
+        var validationError = CatalogPreviewFileValidation.ValidateFileContent(
+            request.Content,
+            request.OriginalFileName,
+            request.ContentType,
+            request.FileSizeBytes,
+            _settings,
+            ProductPreviewImageErrorCodes.InvalidFileType,
+            ProductPreviewImageErrorCodes.FileTooLarge);
+        if (validationError is not null)
         {
-            return Error.BadRequest(ProductPreviewImageErrorCodes.InvalidFileType, "File is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.OriginalFileName))
-        {
-            return Error.BadRequest(ProductPreviewImageErrorCodes.InvalidFileType, "Original file name is required.");
-        }
-
-        if (request.FileSizeBytes <= 0)
-        {
-            return Error.BadRequest(ProductPreviewImageErrorCodes.InvalidFileType, "File size must be greater than zero.");
-        }
-
-        if (request.FileSizeBytes > _settings.MaxFileSizeBytes)
-        {
-            return Error.PayloadTooLarge(
-                ProductPreviewImageErrorCodes.FileTooLarge,
-                $"File size must not exceed {_settings.MaxFileSizeBytes} bytes.");
-        }
-
-        var extension = Path.GetExtension(request.OriginalFileName);
-        if (string.IsNullOrWhiteSpace(extension) ||
-            !AllowedExtensions().Contains(extension, StringComparer.OrdinalIgnoreCase))
-        {
-            return Error.UnsupportedMediaType(
-                ProductPreviewImageErrorCodes.InvalidFileType,
-                "File extension is not allowed for product preview images.");
-        }
-
-        var contentType = NormalizeContentType(request.ContentType);
-        if (!AllowedMimeTypes().Contains(contentType, StringComparer.OrdinalIgnoreCase))
-        {
-            return Error.UnsupportedMediaType(
-                ProductPreviewImageErrorCodes.InvalidFileType,
-                "File MIME type is not allowed for product preview images.");
+            return validationError;
         }
 
         if (request.DisplayOrder is <= 0 || request.DisplayOrder > _settings.MaxCount)
@@ -393,64 +476,6 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
         }
     }
 
-    private static Error? TryBuildReorderMap(
-        ReorderProductPreviewImagesRequestDto request,
-        IReadOnlyList<FileLink> fileLinks,
-        out Dictionary<Guid, int>? orderByFileId)
-    {
-        orderByFileId = null;
-        var hasFileIds = request.FileIds is { Count: > 0 };
-        var hasItems = request.Items is { Count: > 0 };
-
-        if (hasFileIds == hasItems)
-        {
-            return Error.BadRequest(
-                ProductPreviewImageErrorCodes.InvalidReorderPayload,
-                "Provide either fileIds or items, but not both.");
-        }
-
-        var expectedIds = fileLinks.Select(link => link.FileId).ToHashSet();
-
-        if (hasFileIds)
-        {
-            var fileIds = request.FileIds!;
-            if (fileIds.Count != expectedIds.Count || fileIds.Any(id => !expectedIds.Contains(id)))
-            {
-                return Error.BadRequest(
-                    ProductPreviewImageErrorCodes.InvalidReorderPayload,
-                    "fileIds must include every preview image exactly once.");
-            }
-
-            orderByFileId = fileIds
-                .Select((fileId, index) => new { fileId, Order = index + 1 })
-                .ToDictionary(item => item.fileId, item => item.Order);
-            return null;
-        }
-
-        var items = request.Items!;
-        if (items.Count != expectedIds.Count || items.Any(item => !expectedIds.Contains(item.FileId)))
-        {
-            return Error.BadRequest(
-                ProductPreviewImageErrorCodes.InvalidReorderPayload,
-                "items must include every preview image exactly once.");
-        }
-
-        orderByFileId = items
-            .OrderBy(item => item.DisplayOrder)
-            .ThenBy(item => item.FileId)
-            .Select((item, index) => new { item.FileId, Order = index + 1 })
-            .ToDictionary(item => item.FileId, item => item.Order);
-        return null;
-    }
-
-    private static void ReindexDisplayOrders(List<FileLink> fileLinks)
-    {
-        for (var index = 0; index < fileLinks.Count; index++)
-        {
-            fileLinks[index].DisplayOrder = index + 1;
-        }
-    }
-
     private static List<ProductPreviewImageDto> MapPreviewItems(
         IReadOnlyList<Infrastructure.DTOs.Products.ProductPreviewImageReadModel> previews)
     {
@@ -475,21 +500,6 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             .ToList();
     }
 
-    private string[] AllowedExtensions()
-    {
-        return ResolveConfiguredOrDefault(_settings.AllowedExtensions, new ProductPreviewImageSettings().AllowedExtensions);
-    }
-
-    private string[] AllowedMimeTypes()
-    {
-        return ResolveConfiguredOrDefault(_settings.AllowedMimeTypes, new ProductPreviewImageSettings().AllowedMimeTypes);
-    }
-
-    private static string[] ResolveConfiguredOrDefault(string[] configured, string[] defaults)
-    {
-        return configured.Length == 0 ? defaults : configured;
-    }
-
     private string BuildStorageObjectName(Guid productId, string generatedFileName)
     {
         var prefix = string.IsNullOrWhiteSpace(_firebaseSettings.ProductFilesPrefix)
@@ -509,13 +519,6 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
     {
         var extension = Path.GetExtension(originalFileName);
         return string.IsNullOrWhiteSpace(extension) ? null : extension.TrimStart('.').ToLowerInvariant();
-    }
-
-    private static string NormalizeContentType(string? contentType)
-    {
-        return string.IsNullOrWhiteSpace(contentType)
-            ? "application/octet-stream"
-            : contentType.Trim();
     }
 
     private static string? NormalizeOptional(string? value)

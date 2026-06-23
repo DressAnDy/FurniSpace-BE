@@ -1,6 +1,6 @@
-namespace FurniSpace.Application.DTOs.Products;
+namespace FurniSpace.Application.DTOs.ProductVersions;
 
-public sealed class DeleteProductPreviewImageResponseDto
+public sealed class DeleteProductVersionPreviewImageResponseDto
 {
     public Guid DeletedFileId { get; init; }
     public int RemainingCount { get; init; }

@@ -15,7 +15,7 @@ public interface IProductPreviewImageService
         Guid productId,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<ProductPreviewImageListResponseDto>> ReorderAsync(
+    Task<ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>> ReorderAsync(
         Guid productId,
         ReorderProductPreviewImagesRequestDto request,
         CancellationToken cancellationToken = default);

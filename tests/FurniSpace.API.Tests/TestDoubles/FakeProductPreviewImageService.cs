@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common;
@@ -13,7 +14,7 @@ public sealed class FakeProductPreviewImageService : IProductPreviewImageService
 {
     public ServiceResult<ProductPreviewImageUploadResponseDto>? UploadResult { get; init; }
     public ServiceResult<ProductPreviewImageListResponseDto>? GetListResult { get; init; }
-    public ServiceResult<ProductPreviewImageListResponseDto>? ReorderResult { get; init; }
+    public ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>? ReorderResult { get; init; }
     public ServiceResult<DeleteProductPreviewImageResponseDto>? DeleteResult { get; init; }
 
     public Guid? ProductId { get; private set; }
@@ -42,14 +43,14 @@ public sealed class FakeProductPreviewImageService : IProductPreviewImageService
         return Task.FromResult(GetListResult ?? ServiceResult<ProductPreviewImageListResponseDto>.BadRequest("Get list not configured."));
     }
 
-    public Task<ServiceResult<ProductPreviewImageListResponseDto>> ReorderAsync(
+    public Task<ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>> ReorderAsync(
         Guid productId,
         ReorderProductPreviewImagesRequestDto request,
         CancellationToken cancellationToken = default)
     {
         ProductId = productId;
         ReorderRequest = request;
-        return Task.FromResult(ReorderResult ?? ServiceResult<ProductPreviewImageListResponseDto>.BadRequest("Reorder not configured."));
+        return Task.FromResult(ReorderResult ?? ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>.BadRequest("Reorder not configured."));
     }
 
     public Task<ServiceResult<DeleteProductPreviewImageResponseDto>> DeleteAsync(

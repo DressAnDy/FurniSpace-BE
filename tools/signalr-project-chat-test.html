@@ -134,7 +134,7 @@
       color: #e5edf7;
       font: 13px/1.5 Consolas, monospace;
       white-space: pre-wrap;
-      word-break: break-word;
+      overflow-wrap: anywhere;
     }
 
     @media (max-width: 720px) {
@@ -231,7 +231,10 @@
     </section>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.7/dist/browser/signalr.min.js"
+    integrity="sha384-mU1xC5yC2LldSW74Rj1Ax8wPiLw/28V5eh51uKJMlBbRVsOtUYd4xyzNsgIAJARB"
+    crossorigin="anonymous"></script>
   <script>
     let connection = null;
     const joinedProjects = new Set();

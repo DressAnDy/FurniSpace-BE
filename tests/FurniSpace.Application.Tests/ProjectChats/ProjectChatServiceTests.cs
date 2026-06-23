@@ -18,6 +18,8 @@ namespace FurniSpace.Application.Tests.ProjectChats;
 
 public sealed class ProjectChatServiceTests
 {
+    private static readonly string[] SalesAndDesignerChatTypes = ["SALES", "DESIGNER"];
+
     [Fact]
     public async Task CanAccessProjectAsync_WithAdmin_ReturnsTrue()
     {
@@ -429,7 +431,7 @@ public sealed class ProjectChatServiceTests
         Assert.NotNull(result.Data);
         Assert.Equal(2, result.Data.Total);
         Assert.All(result.Data.Items, item =>
-            Assert.Contains(item.ChatType, new[] { "SALES", "DESIGNER" }));
+            Assert.Contains(item.ChatType, SalesAndDesignerChatTypes));
     }
 
     [Fact]
@@ -1121,7 +1123,7 @@ public sealed class ProjectChatServiceTests
             _listItems = listItems ?? [];
         }
 
-        public IReadOnlyList<ProjectChat> Chats => _chats;
+        public List<ProjectChat> Chats => _chats;
         public IReadOnlyList<ProjectChatMessage> Messages { get; }
         public int GetActiveCallCount { get; private set; }
         public int GetAccessCallCount { get; private set; }

@@ -423,7 +423,7 @@ public sealed class ProjectChatService : IProjectChatService
         };
     }
 
-    private static IReadOnlyCollection<ProjectChatType>? GetVisibleChatTypes(string? roleName)
+    private static ProjectChatType[]? GetVisibleChatTypes(string? roleName)
     {
         if (IsRole(roleName, AdminRole))
         {

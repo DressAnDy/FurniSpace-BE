@@ -271,6 +271,30 @@ static void AddApiSwagger(IServiceCollection services)
     });
 }
 
+static Task ReadJwtBearerTokenAsync(MessageReceivedContext context)
+{
+    if (string.IsNullOrWhiteSpace(context.Token) &&
+        context.Request.Cookies.TryGetValue("access_token", out var accessToken))
+    {
+        context.Token = accessToken;
+    }
+
+    if (string.IsNullOrWhiteSpace(context.Token) && IsRealtimeHubPath(context.HttpContext.Request.Path))
+    {
+        var queryAccessToken = context.Request.Query["access_token"];
+        if (!string.IsNullOrWhiteSpace(queryAccessToken))
+        {
+            context.Token = queryAccessToken;
+        }
+    }
+
+    return Task.CompletedTask;
+}
+
+static bool IsRealtimeHubPath(PathString path) =>
+    path.StartsWithSegments(RealtimeGroupNames.HubPath) ||
+    path.StartsWithSegments(ProjectChatRealtimeConstants.HubPath);
+
 static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSettings, IWebHostEnvironment environment)
 {
     services
@@ -292,27 +316,7 @@ static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSet
             };
             options.Events = new JwtBearerEvents
             {
-                OnMessageReceived = context =>
-                {
-                    if (string.IsNullOrWhiteSpace(context.Token) &&
-                        context.Request.Cookies.TryGetValue("access_token", out var accessToken))
-                    {
-                        context.Token = accessToken;
-                    }
-
-                    if (string.IsNullOrWhiteSpace(context.Token) &&
-                        (context.HttpContext.Request.Path.StartsWithSegments(RealtimeGroupNames.HubPath) ||
-                         context.HttpContext.Request.Path.StartsWithSegments(ProjectChatRealtimeConstants.HubPath)))
-                    {
-                        var queryAccessToken = context.Request.Query["access_token"];
-                        if (!string.IsNullOrWhiteSpace(queryAccessToken))
-                        {
-                            context.Token = queryAccessToken;
-                        }
-                    }
-
-                    return Task.CompletedTask;
-                },
+                OnMessageReceived = ReadJwtBearerTokenAsync,
                 OnTokenValidated = ValidateAccessTokenAsync
             };
         });

@@ -201,6 +201,21 @@ public sealed class ProjectChatMessagesControllerTests
         Assert.Equal(0, service.SendCallCount);
     }
 
+    [Fact]
+    public async Task SendFileMessage_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectChatMessageService(
+            ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()));
+        var controller = BuildController(service);
+
+        var actionResult = await controller.SendFileMessage(
+            Guid.NewGuid(),
+            new SendFileChatMessageFormRequest());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(0, service.SendFileCallCount);
+    }
+
     private static ProjectChatMessagesController BuildController(
         IProjectChatMessageService service,
         Guid? currentUserId = null)

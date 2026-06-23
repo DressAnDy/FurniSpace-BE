@@ -61,4 +61,48 @@ public sealed class ServiceResultTests
         Assert.Equal(429, result.Status);
         Assert.Equal("Slow down.", result.Message);
     }
+
+    [Fact]
+    public void PayloadTooLarge_Uses413Status()
+    {
+        var result = ServiceResult<string>.PayloadTooLarge("Too big.");
+
+        Assert.Equal(413, result.Status);
+        Assert.Equal("Too big.", result.Message);
+    }
+
+    [Fact]
+    public void UnsupportedMediaType_Uses415Status()
+    {
+        var result = ServiceResult.UnsupportedMediaType("Bad media.");
+
+        Assert.Equal(415, result.Status);
+        Assert.Equal("Bad media.", result.Message);
+    }
+
+    [Fact]
+    public void Created_WithTypedData_Uses201Status()
+    {
+        var result = ServiceResult<int>.Created(10);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(10, result.Data);
+    }
+
+    [Fact]
+    public void Conflict_WithTypedData_Uses409Status()
+    {
+        var result = ServiceResult<string>.Conflict("Already exists.");
+
+        Assert.Equal(409, result.Status);
+    }
+
+    [Fact]
+    public void DefaultConstructor_UsesFailureDefaults()
+    {
+        var result = new ServiceResult<string>();
+
+        Assert.Equal(-1, result.Status);
+        Assert.Equal("Action failed", result.Message);
+    }
 }

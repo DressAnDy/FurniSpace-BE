@@ -72,6 +72,30 @@ public sealed class ProjectChatsStatusControllerTests
         Assert.Same(request, service.LastStatusRequest);
     }
 
+    [Fact]
+    public async Task UpdateStatus_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectChatService(
+            ServiceResult<ProjectChatSummaryDto>.Success(new ProjectChatSummaryDto()));
+        var controller = new ProjectChatsStatusController(service)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity())
+                }
+            }
+        };
+
+        var actionResult = await controller.UpdateStatus(
+            Guid.NewGuid(),
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.LastCurrentUserId);
+    }
+
     private static ProjectChatsStatusController BuildController(
         IProjectChatService service,
         Guid currentUserId)

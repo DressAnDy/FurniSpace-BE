@@ -353,6 +353,56 @@ public sealed class ProjectChatMessageServiceTests
     }
 
     [Fact]
+    public async Task SendFileMessageAsync_WhenTransactionFails_DeletesUploadedObject()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.SALES);
+        var repository = new FakeProjectChatMessageRepository(access);
+        var storage = new FakeFileStorageService();
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ => Task.FromException<int>(new InvalidOperationException("Save failed.")),
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateService(repository, unitOfWork: unitOfWork, storage: storage);
+
+        await using var stream = new MemoryStream("floor-plan"u8.ToArray());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SendFileMessageAsync(
+                chatId,
+                salesId,
+                new SendFileChatMessageRequestDto
+                {
+                    FileContent = stream,
+                    OriginalFileName = "floor-plan.pdf",
+                    ContentType = "application/pdf",
+                    FileSizeBytes = stream.Length,
+                    FileType = FileType.FLOOR_PLAN
+                }));
+
+        Assert.NotNull(storage.UploadRequest);
+        Assert.Equal(1, storage.DeleteCallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WhenRealtimePublishFails_StillReturnsCreated()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.SALES);
+        var repository = new FakeProjectChatMessageRepository(access);
+        var realtime = new FakeProjectChatRealtimeService((_, _, _) =>
+            throw new InvalidOperationException("SignalR unavailable."));
+        var service = CreateService(repository, realtime);
+
+        var result = await service.SendTextMessageAsync(chatId, salesId, ValidSendRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, repository.AddCallCount);
+    }
+
+    [Fact]
     public async Task CanAccessChatAsync_WithValidParticipant_ReturnsTrue()
     {
         var chatId = Guid.NewGuid();
@@ -834,6 +884,7 @@ public sealed class ProjectChatMessageServiceTests
     private sealed class FakeFileStorageService : IFileStorageService
     {
         public StorageUploadRequest? UploadRequest { get; private set; }
+        public int DeleteCallCount { get; private set; }
 
         public Task<StorageUploadResult> UploadAsync(
             StorageUploadRequest request,
@@ -848,7 +899,10 @@ public sealed class ProjectChatMessageServiceTests
             });
         }
 
-        public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default) =>
-            Task.CompletedTask;
+        public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default)
+        {
+            DeleteCallCount++;
+            return Task.CompletedTask;
+        }
     }
 }

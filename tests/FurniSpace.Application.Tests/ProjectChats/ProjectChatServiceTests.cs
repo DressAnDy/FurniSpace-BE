@@ -1010,6 +1010,66 @@ public sealed class ProjectChatServiceTests
         Assert.Equal(404, result.Status);
     }
 
+    [Fact]
+    public async Task UpdateStatusAsync_WithAdmin_ClosesOpenSalesChat()
+    {
+        var chatId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var chat = CreateChat(Guid.NewGuid(), adminId, ProjectChatStatus.OPEN, ProjectChatType.SALES, chatId);
+        var repository = new FakeProjectChatRepository(
+            chats: [chat],
+            statusAccess: CreateStatusAccess(
+                chatId,
+                adminId,
+                "ADMIN",
+                ProjectChatType.SALES,
+                ProjectChatStatus.OPEN));
+        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            adminId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectChatStatus.CLOSED, chat.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WhenChatIsArchived_ReturnsConflict()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var repository = new FakeProjectChatRepository(
+            statusAccess: CreateStatusAccess(
+                chatId,
+                salesId,
+                "SALES",
+                ProjectChatType.SALES,
+                ProjectChatStatus.ARCHIVED));
+        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            salesId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(409, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithEmptyChatId_ReturnsBadRequest()
+    {
+        var service = new ProjectChatService(new FakeProjectChatRepository(), TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(
+            Guid.Empty,
+            Guid.NewGuid(),
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(400, result.Status);
+    }
+
     private static ProjectChatStatusAccessReadModel CreateStatusAccess(
         Guid chatId,
         Guid currentUserId,

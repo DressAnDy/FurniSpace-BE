@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers;
+using FurniSpace.API.DTOs.ProjectFiles;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;

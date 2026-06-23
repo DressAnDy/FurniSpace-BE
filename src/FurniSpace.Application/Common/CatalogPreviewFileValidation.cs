@@ -64,7 +64,7 @@ internal static class CatalogPreviewFileValidation
                 "File extension is not allowed for product preview images.");
         }
 
-        var normalizedContentType = NormalizeContentType(contentType);
+        var normalizedContentType = CatalogFileStorageHelpers.NormalizeContentType(contentType);
         if (!effectiveSettings.AllowedMimeTypes.Contains(normalizedContentType, StringComparer.OrdinalIgnoreCase))
         {
             return Error.UnsupportedMediaType(
@@ -73,12 +73,5 @@ internal static class CatalogPreviewFileValidation
         }
 
         return null;
-    }
-
-    public static string NormalizeContentType(string? contentType)
-    {
-        return string.IsNullOrWhiteSpace(contentType)
-            ? "application/octet-stream"
-            : contentType.Trim();
     }
 }

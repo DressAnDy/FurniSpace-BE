@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers;
+using FurniSpace.API.DTOs.Products;
 using FurniSpace.API.Tests.TestDoubles;
 using FurniSpace.Application.Common;
 using System.IO;

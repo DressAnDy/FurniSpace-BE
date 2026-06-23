@@ -89,8 +89,8 @@ public sealed class ProductVersionService : IProductVersionService
             VersionCode = versionCode,
             VersionName = request.VersionName.Trim(),
             VersionType = request.VersionType ?? ProductVersionType.STANDARD,
-            Material = NormalizeOptional(request.Material),
-            Color = NormalizeOptional(request.Color),
+            Material = CatalogFileStorageHelpers.NormalizeOptional(request.Material),
+            Color = CatalogFileStorageHelpers.NormalizeOptional(request.Color),
             Width = request.Width,
             Height = request.Height,
             Depth = request.Depth,
@@ -241,7 +241,11 @@ public sealed class ProductVersionService : IProductVersionService
             return await UploadPreviewFileAsync(productVersionId, currentUserId, request, cancellationToken);
         }
 
-        var validationErrors = ValidateUpload(request);
+        var validationErrors = CatalogFileUploadValidation.ValidateGeneralUpload(
+            request,
+            _uploadSettings,
+            _firebaseSettings,
+            AllowedProductVersionFileTypes);
         if (validationErrors.Count > 0)
         {
             return ServiceResult<CatalogFileUploadResponseDto>.BadRequest(validationErrors);
@@ -315,7 +319,8 @@ public sealed class ProductVersionService : IProductVersionService
                     validationMessage!));
         }
 
-        await ExecuteInTransactionAsync(
+        await UnitOfWorkTransactions.ExecuteAsync(
+            _unitOfWork,
             async ct =>
             {
                 PreviewImageFileLinkOrdering.ApplyReorderFromFileIds(fileIds, fileLinks);
@@ -382,7 +387,8 @@ public sealed class ProductVersionService : IProductVersionService
         var reindexed = remainingCount > 0;
         var storagePath = file.StoragePath;
 
-        await ExecuteInTransactionAsync(
+        await UnitOfWorkTransactions.ExecuteAsync(
+            _unitOfWork,
             async ct =>
             {
                 _files.RemoveFileLinks(fileLinks);
@@ -458,7 +464,7 @@ public sealed class ProductVersionService : IProductVersionService
     private async Task<Error?> ValidateForeignPreviewFileIdsAsync(
         Guid productVersionId,
         IReadOnlyList<Guid> fileIds,
-        IReadOnlySet<Guid> expectedIds,
+        HashSet<Guid> expectedIds,
         CancellationToken cancellationToken)
     {
         foreach (var fileId in fileIds.Where(id => !expectedIds.Contains(id)))
@@ -519,9 +525,9 @@ public sealed class ProductVersionService : IProductVersionService
         var now = DateTime.UtcNow;
         var fileId = Guid.NewGuid();
         var fileLinkId = Guid.NewGuid();
-        var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
-        var generatedFileName = BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = BuildStorageObjectName(
+        var originalFileName = CatalogFileStorageHelpers.NormalizeOriginalFileName(request.OriginalFileName);
+        var generatedFileName = CatalogFileStorageHelpers.BuildGeneratedFileName(fileId, originalFileName);
+        var objectName = CatalogFileStorageHelpers.BuildStorageObjectName(
             "product-versions",
             _firebaseSettings.ProductVersionFilesPrefix,
             productVersionId,
@@ -533,13 +539,14 @@ public sealed class ProductVersionService : IProductVersionService
             {
                 Content = request.Content,
                 ObjectName = objectName,
-                ContentType = NormalizeContentType(request.ContentType)
+                ContentType = CatalogFileStorageHelpers.NormalizeContentType(request.ContentType)
             },
             cancellationToken);
 
         try
         {
-            return await ExecuteInTransactionAsync(
+            return await UnitOfWorkTransactions.ExecuteAsync(
+                _unitOfWork,
                 async ct =>
                 {
                     if (request.DisplayOrder.HasValue)
@@ -547,34 +554,26 @@ public sealed class ProductVersionService : IProductVersionService
                         PreviewImageFileLinkOrdering.ShiftDisplayOrdersForInsert(existingLinks, displayOrder);
                     }
 
-                    var storedFile = new StoredFile
-                    {
-                        FileId = fileId,
-                        UploadedBy = currentUserId,
-                        OriginalFileName = originalFileName,
-                        StoredFileName = generatedFileName,
-                        FileUrl = uploadResult.PublicUrl,
-                        StoragePath = uploadResult.ObjectName,
-                        MimeType = NormalizeContentType(request.ContentType),
-                        FileExtension = NormalizeExtension(originalFileName),
-                        FileSizeBytes = request.FileSizeBytes,
-                        Status = FileStatus.ACTIVE,
-                        UploadedAt = now
-                    };
+                    var storedFile = CatalogFileEntityFactory.CreateStoredFile(
+                        fileId,
+                        currentUserId,
+                        originalFileName,
+                        generatedFileName,
+                        uploadResult,
+                        request,
+                        now);
 
-                    var fileLink = new FileLink
-                    {
-                        FileLinkId = fileLinkId,
-                        FileId = fileId,
-                        ReferenceType = CatalogFileReferenceTypes.ProductVersion,
-                        ReferenceId = productVersionId,
-                        FileType = FileType.PRODUCT_PREVIEW,
-                        Visibility = visibility,
-                        Description = NormalizeOptional(request.Description),
-                        DisplayOrder = displayOrder,
-                        CreatedBy = currentUserId,
-                        CreatedAt = now
-                    };
+                    var fileLink = CatalogFileEntityFactory.CreateFileLink(
+                        fileLinkId,
+                        fileId,
+                        CatalogFileReferenceTypes.ProductVersion,
+                        productVersionId,
+                        FileType.PRODUCT_PREVIEW,
+                        visibility,
+                        currentUserId,
+                        now,
+                        request.Description,
+                        displayOrder);
 
                     await _files.AddAsync(storedFile, ct);
                     await _files.AddFileLinkAsync(fileLink, ct);
@@ -587,18 +586,21 @@ public sealed class ProductVersionService : IProductVersionService
 
                     var uploadedLink = allPreviewLinks.Single(link => link.FileId == fileId);
                     return ServiceResult<CatalogFileUploadResponseDto>.Created(
-                        BuildUploadResponse(
-                            fileId,
-                            fileLinkId,
-                            productVersionId,
-                            originalFileName,
-                            request,
-                            uploadResult,
-                            storedFile,
-                            uploadedLink,
-                            visibility,
-                            currentUserId,
-                            now),
+                        CatalogFileUploadResponseMapper.FromUpload(new CatalogFileUploadResponseContext
+                        {
+                            FileId = fileId,
+                            FileLinkId = fileLinkId,
+                            ReferenceType = CatalogFileReferenceTypes.ProductVersion,
+                            ReferenceId = productVersionId,
+                            OriginalFileName = originalFileName,
+                            Request = request,
+                            UploadResult = uploadResult,
+                            StoredFile = storedFile,
+                            FileLink = uploadedLink,
+                            Visibility = visibility,
+                            CurrentUserId = currentUserId,
+                            UploadedAt = now
+                        }),
                         "Product version file uploaded successfully.");
                 },
                 cancellationToken);
@@ -619,9 +621,9 @@ public sealed class ProductVersionService : IProductVersionService
         var now = DateTime.UtcNow;
         var fileId = Guid.NewGuid();
         var fileLinkId = Guid.NewGuid();
-        var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
-        var generatedFileName = BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = BuildStorageObjectName(
+        var originalFileName = CatalogFileStorageHelpers.NormalizeOriginalFileName(request.OriginalFileName);
+        var generatedFileName = CatalogFileStorageHelpers.BuildGeneratedFileName(fileId, originalFileName);
+        var objectName = CatalogFileStorageHelpers.BuildStorageObjectName(
             "product-versions",
             _firebaseSettings.ProductVersionFilesPrefix,
             productVersionId,
@@ -633,99 +635,57 @@ public sealed class ProductVersionService : IProductVersionService
             {
                 Content = request.Content,
                 ObjectName = objectName,
-                ContentType = NormalizeContentType(request.ContentType)
+                ContentType = CatalogFileStorageHelpers.NormalizeContentType(request.ContentType)
             },
             cancellationToken);
 
-        var storedFile = new StoredFile
-        {
-            FileId = fileId,
-            UploadedBy = currentUserId,
-            OriginalFileName = originalFileName,
-            StoredFileName = generatedFileName,
-            FileUrl = uploadResult.PublicUrl,
-            StoragePath = uploadResult.ObjectName,
-            MimeType = NormalizeContentType(request.ContentType),
-            FileExtension = NormalizeExtension(originalFileName),
-            FileSizeBytes = request.FileSizeBytes,
-            Status = FileStatus.ACTIVE,
-            UploadedAt = now
-        };
+        var storedFile = CatalogFileEntityFactory.CreateStoredFile(
+            fileId,
+            currentUserId,
+            originalFileName,
+            generatedFileName,
+            uploadResult,
+            request,
+            now);
 
-        var fileLink = new FileLink
-        {
-            FileLinkId = fileLinkId,
-            FileId = fileId,
-            ReferenceType = CatalogFileReferenceTypes.ProductVersion,
-            ReferenceId = productVersionId,
-            FileType = request.FileType,
-            Visibility = visibility,
-            Description = NormalizeOptional(request.Description),
-            CreatedBy = currentUserId,
-            CreatedAt = now
-        };
+        var fileLink = CatalogFileEntityFactory.CreateFileLink(
+            fileLinkId,
+            fileId,
+            CatalogFileReferenceTypes.ProductVersion,
+            productVersionId,
+            request.FileType,
+            visibility,
+            currentUserId,
+            now,
+            request.Description);
 
         await _files.AddAsync(storedFile, cancellationToken);
         await _files.AddFileLinkAsync(fileLink, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<CatalogFileUploadResponseDto>.Created(
-            BuildUploadResponse(
-                fileId,
-                fileLinkId,
-                productVersionId,
-                originalFileName,
-                request,
-                uploadResult,
-                storedFile,
-                fileLink,
-                visibility,
-                currentUserId,
-                now),
+            CatalogFileUploadResponseMapper.FromUpload(new CatalogFileUploadResponseContext
+            {
+                FileId = fileId,
+                FileLinkId = fileLinkId,
+                ReferenceType = CatalogFileReferenceTypes.ProductVersion,
+                ReferenceId = productVersionId,
+                OriginalFileName = originalFileName,
+                Request = request,
+                UploadResult = uploadResult,
+                StoredFile = storedFile,
+                FileLink = fileLink,
+                Visibility = visibility,
+                CurrentUserId = currentUserId,
+                UploadedAt = now
+            }),
             "Product version file uploaded successfully.");
-    }
-
-    private static CatalogFileUploadResponseDto BuildUploadResponse(
-        Guid fileId,
-        Guid fileLinkId,
-        Guid productVersionId,
-        string originalFileName,
-        UploadCatalogFileRequestDto request,
-        StorageUploadResult uploadResult,
-        StoredFile storedFile,
-        FileLink fileLink,
-        FileVisibility visibility,
-        Guid currentUserId,
-        DateTime uploadedAt)
-    {
-        return new CatalogFileUploadResponseDto
-        {
-            FileId = fileId,
-            FileLinkId = fileLinkId,
-            ReferenceType = CatalogFileReferenceTypes.ProductVersion,
-            ReferenceId = productVersionId,
-            OriginalFileName = originalFileName,
-            FileType = request.FileType,
-            FileUrl = uploadResult.PublicUrl,
-            MimeType = storedFile.MimeType,
-            FileSizeBytes = request.FileSizeBytes,
-            Visibility = visibility,
-            UploadedBy = currentUserId,
-            UploadedAt = uploadedAt,
-            Description = fileLink.Description,
-            DisplayOrder = fileLink.DisplayOrder,
-            IsPrimary = fileLink.IsPrimary,
-            CreatedAt = uploadedAt
-        };
     }
 
     private Error? ValidatePreviewUploadRequest(UploadCatalogFileRequestDto request)
     {
-        var validationError = CatalogPreviewFileValidation.ValidateFileContent(
-            request.Content,
-            request.OriginalFileName,
-            request.ContentType,
-            request.FileSizeBytes,
+        var validationError = CatalogPreviewUploadValidation.ValidateFileContent(
+            request,
             _previewSettings,
             ProductVersionPreviewErrorCodes.InvalidFileType,
             ProductVersionPreviewErrorCodes.FileTooLarge);
@@ -734,32 +694,10 @@ public sealed class ProductVersionService : IProductVersionService
             return validationError;
         }
 
-        if (request.DisplayOrder is <= 0 || request.DisplayOrder > _previewSettings.MaxCount)
-        {
-            return Error.BadRequest(
-                ProductVersionPreviewErrorCodes.InvalidDisplayOrder,
-                $"Display order must be between 1 and {_previewSettings.MaxCount}.");
-        }
-
-        return null;
-    }
-
-    private async Task<T> ExecuteInTransactionAsync<T>(
-        Func<CancellationToken, Task<T>> action,
-        CancellationToken cancellationToken)
-    {
-        await _unitOfWork.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            var result = await action(cancellationToken);
-            await _unitOfWork.CommitTransactionAsync(cancellationToken);
-            return result;
-        }
-        catch
-        {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw;
-        }
+        return CatalogPreviewUploadValidation.ValidateDisplayOrderInRange(
+            request.DisplayOrder,
+            _previewSettings.MaxCount,
+            ProductVersionPreviewErrorCodes.InvalidDisplayOrder);
     }
 
     private static ProductVersionDto ToVersionDto(ProductVersion productVersion)
@@ -807,128 +745,14 @@ public sealed class ProductVersionService : IProductVersionService
     }
 
     private static string? NormalizeOptional(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    }
-
-    private List<string> ValidateUpload(UploadCatalogFileRequestDto request)
-    {
-        var errors = new List<string>();
-        if (request.Content == Stream.Null || !request.Content.CanRead)
-        {
-            errors.Add("File is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.OriginalFileName))
-        {
-            errors.Add("Original file name is required.");
-        }
-
-        if (request.FileSizeBytes <= 0)
-        {
-            errors.Add("File size must be greater than zero.");
-        }
-
-        var maxFileSize = ResolveMaxFileSize();
-        if (request.FileSizeBytes > maxFileSize)
-        {
-            errors.Add($"File size must not exceed {maxFileSize} bytes.");
-        }
-
-        if (!AllowedProductVersionFileTypes.Contains(request.FileType))
-        {
-            errors.Add("File type is not allowed for this upload.");
-        }
-
-        var extension = Path.GetExtension(request.OriginalFileName);
-        if (string.IsNullOrWhiteSpace(extension) ||
-            !AllowedExtensions().Contains(extension, StringComparer.OrdinalIgnoreCase))
-        {
-            errors.Add("File extension is not allowed.");
-        }
-
-        var contentType = CatalogPreviewFileValidation.NormalizeContentType(request.ContentType);
-        if (!AllowedMimeTypes().Contains(contentType, StringComparer.OrdinalIgnoreCase))
-        {
-            errors.Add("File MIME type is not allowed.");
-        }
-
-        return errors;
-    }
-
-    private long ResolveMaxFileSize()
-    {
-        return _uploadSettings.MaxFileSizeBytes > 0
-            ? _uploadSettings.MaxFileSizeBytes
-            : _firebaseSettings.MaxFileSizeBytes;
-    }
-
-    private string[] AllowedExtensions()
-    {
-        return _uploadSettings.AllowedExtensions.Length == 0
-            ? new FileUploadSettings().AllowedExtensions
-            : _uploadSettings.AllowedExtensions;
-    }
-
-    private string[] AllowedMimeTypes()
-    {
-        return _uploadSettings.AllowedMimeTypes.Length == 0
-            ? new FileUploadSettings().AllowedMimeTypes
-            : _uploadSettings.AllowedMimeTypes;
-    }
-
-    private static string BuildStorageObjectName(
-        string defaultPrefix,
-        string? configuredPrefix,
-        Guid referenceId,
-        string generatedFileName)
-    {
-        var prefix = string.IsNullOrWhiteSpace(configuredPrefix)
-            ? defaultPrefix
-            : configuredPrefix.Trim().Trim('/');
-
-        return $"{prefix}/{referenceId:D}/{generatedFileName}";
-    }
-
-    private static string BuildGeneratedFileName(Guid fileId, string originalFileName)
-    {
-        var extension = Path.GetExtension(originalFileName).ToLowerInvariant();
-        return $"{fileId:N}{extension}";
-    }
-
-    private static string? NormalizeExtension(string originalFileName)
-    {
-        var extension = Path.GetExtension(originalFileName);
-        if (string.IsNullOrWhiteSpace(extension))
-        {
-            return null;
-        }
-
-        return extension.TrimStart('.').ToLowerInvariant();
-    }
-
-    private static string NormalizeContentType(string? contentType)
-    {
-        return string.IsNullOrWhiteSpace(contentType)
-            ? "application/octet-stream"
-            : contentType.Trim();
-    }
+        => CatalogFileStorageHelpers.NormalizeOptional(value);
 
     private static List<CatalogFileDto> ToCatalogFileList(
         IEnumerable<CatalogFileReadModel> files,
         bool customerVisibleOnly)
     {
         return CatalogFileOrdering
-            .SortCatalogFiles(FilterVisible(files, customerVisibleOnly))
+            .SortCatalogFiles(CatalogFileOrdering.FilterVisible(files, customerVisibleOnly))
             .Adapt<List<CatalogFileDto>>();
-    }
-
-    private static IEnumerable<CatalogFileReadModel> FilterVisible(
-        IEnumerable<CatalogFileReadModel> files,
-        bool customerVisibleOnly)
-    {
-        return files.Where(file =>
-            file.Status == FileStatus.ACTIVE &&
-            (!customerVisibleOnly || file.Visibility == FileVisibility.CUSTOMER_VISIBLE));
     }
 }

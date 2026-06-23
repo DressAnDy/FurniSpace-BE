@@ -5,6 +5,15 @@ namespace FurniSpace.Application.Common;
 
 internal static class CatalogFileOrdering
 {
+    public static IEnumerable<CatalogFileReadModel> FilterVisible(
+        IEnumerable<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
+    {
+        return files.Where(file =>
+            file.Status == FileStatus.ACTIVE &&
+            (!customerVisibleOnly || file.Visibility == FileVisibility.CUSTOMER_VISIBLE));
+    }
+
     public static int PreviewDisplayOrderSortKey(int? displayOrder)
     {
         if (displayOrder is null or <= 0)

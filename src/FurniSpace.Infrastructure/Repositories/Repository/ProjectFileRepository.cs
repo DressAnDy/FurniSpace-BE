@@ -124,11 +124,11 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         var total = await files.CountAsync(cancellationToken);
         var items = await files
             .OrderByDescending(file => file.FileType == FileType.PRODUCT_PREVIEW)
-            .ThenBy(file => file.FileType == FileType.PRODUCT_PREVIEW
-                ? file.DisplayOrder == null || file.DisplayOrder <= 0
+            .ThenBy(file => file.FileType != FileType.PRODUCT_PREVIEW
+                || file.DisplayOrder == null
+                || file.DisplayOrder <= 0
                     ? int.MaxValue
-                    : file.DisplayOrder
-                : int.MaxValue)
+                    : file.DisplayOrder)
             .ThenByDescending(file => file.UploadedAt)
             .Skip((page - 1) * limit)
             .Take(limit)
@@ -237,11 +237,11 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
 
         return await query
             .OrderByDescending(joined => joined.link.FileType == FileType.PRODUCT_PREVIEW)
-            .ThenBy(joined => joined.link.FileType == FileType.PRODUCT_PREVIEW
-                ? joined.link.DisplayOrder == null || joined.link.DisplayOrder <= 0
+            .ThenBy(joined => joined.link.FileType != FileType.PRODUCT_PREVIEW
+                || joined.link.DisplayOrder == null
+                || joined.link.DisplayOrder <= 0
                     ? int.MaxValue
-                    : joined.link.DisplayOrder
-                : int.MaxValue)
+                    : joined.link.DisplayOrder)
             .ThenByDescending(joined => joined.file.UploadedAt)
             .Select(joined => new CatalogFileReadModel
             {

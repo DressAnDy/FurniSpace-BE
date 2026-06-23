@@ -2,11 +2,10 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.API.DTOs.Products;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
-using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FurniSpace.API.Controllers;
@@ -100,17 +99,7 @@ public sealed class ProductsController : BaseApiController
         var result = await _products.UploadFileAsync(
             productId,
             currentUserId,
-            new UploadCatalogFileRequestDto
-            {
-                Content = request.File?.OpenReadStream() ?? Stream.Null,
-                OriginalFileName = request.File?.FileName ?? string.Empty,
-                ContentType = request.File?.ContentType ?? "application/octet-stream",
-                FileSizeBytes = request.File?.Length ?? 0,
-                FileType = request.FileType,
-                Visibility = request.Visibility,
-                Description = request.Description,
-                DisplayOrder = request.DisplayOrder
-            },
+            request.ToRequestDto(),
             cancellationToken);
 
         return ToActionResult(result);
@@ -142,33 +131,9 @@ public sealed class ProductsController : BaseApiController
         var result = await _previewImages.UploadAsync(
             productId,
             currentUserId,
-            new UploadProductPreviewImageRequestDto
-            {
-                Content = request.File?.OpenReadStream() ?? Stream.Null,
-                OriginalFileName = request.File?.FileName ?? string.Empty,
-                ContentType = request.File?.ContentType ?? "application/octet-stream",
-                FileSizeBytes = request.File?.Length ?? 0,
-                Description = request.Description,
-                DisplayOrder = request.DisplayOrder
-            },
+            request.ToRequestDto(),
             cancellationToken);
 
         return ToActionResult(result);
     }
-}
-
-public sealed class UploadCatalogFileFormRequest
-{
-    public IFormFile? File { get; set; }
-    public FileType FileType { get; set; } = FileType.OTHER;
-    public FileVisibility? Visibility { get; set; }
-    public string? Description { get; set; }
-    public int? DisplayOrder { get; set; }
-}
-
-public sealed class UploadProductPreviewImageFormRequest
-{
-    public IFormFile? File { get; set; }
-    public string? Description { get; set; }
-    public int? DisplayOrder { get; set; }
 }

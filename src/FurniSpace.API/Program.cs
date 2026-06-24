@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FurniSpace.API.Constants;
+using FurniSpace.API.Filters;
 using FurniSpace.API.Hubs;
 using FurniSpace.API.Realtime;
 using FurniSpace.Application;
@@ -40,7 +41,8 @@ Log.Logger = SerilogConfiguration.CreateLogger(
 builder.Host.UseSerilog();
 
 builder.Services
-    .AddControllers()
+    .AddControllers(options => options.Filters.Add<ValidationFilter>())
+    .ConfigureApiBehaviorOptions(options => options.SuppressModelStateInvalidFilter = true)
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 ConfigureForwardedHeaders(builder.Services, builder.Configuration);
 ConfigureAuthCookies(builder.Services);

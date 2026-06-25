@@ -141,6 +141,34 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         return BuildQuery(search, status, includeDeleted).CountAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByStatusAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildQuery(search: null, status: null, includeDeleted)
+            .GroupBy(account => account.Status)
+            .Select(group => new AccountFacetCountReadModel
+            {
+                Key = group.Key == null ? "UNKNOWN" : group.Key.ToString()!,
+                Count = group.Count()
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByRoleIdAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildQuery(search: null, status: null, includeDeleted)
+            .GroupBy(account => account.RoleId)
+            .Select(group => new AccountFacetCountReadModel
+            {
+                Key = group.Key.ToString(),
+                Count = group.Count()
+            })
+            .ToListAsync(cancellationToken);
+    }
+
     private IQueryable<Account> BuildQuery(string? search, string? status, bool includeDeleted)
     {
         var query = Query();

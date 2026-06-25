@@ -284,6 +284,28 @@ public sealed class AccountsControllerTests
                 PagedResult<AccountDto>.Create([], page, pageSize, totalItems: 0)));
         }
 
+        public Task<ServiceResult<AccountSearchStatsDto>> GetSearchStatsAsync(
+            bool includeDeleted,
+            CancellationToken cancellationToken = default)
+        {
+            _ = includeDeleted;
+            return Task.FromResult(ServiceResult<AccountSearchStatsDto>.Success(
+                new AccountSearchStatsDto(),
+                "Account search stats retrieved successfully."));
+        }
+
+        public Task<ServiceResult<AccountSuggestResponseDto>> SuggestAsync(
+            string query,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            _ = query;
+            _ = limit;
+            return Task.FromResult(ServiceResult<AccountSuggestResponseDto>.Success(
+                new AccountSuggestResponseDto(),
+                string.Empty));
+        }
+
         public Task<ServiceResult<AccountDto>> UpdateAsync(
             Guid accountId,
             UpdateAccountRequestDto request,

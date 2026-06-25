@@ -76,6 +76,30 @@ public sealed class ProjectFilesController : BaseApiController
         return ToActionResult(result);
     }
 
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchProjectFiles(
+        Guid projectId,
+        [FromQuery] string q,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projectFiles.SearchProjectFilesAsync(
+            projectId,
+            currentUserId,
+            q,
+            page,
+            limit,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

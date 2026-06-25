@@ -160,6 +160,53 @@ public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepo
         return BuildProjectQueueQuery(query).CountAsync(cancellationToken);
     }
 
+    public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildSearchIndexQuery()
+            .Where(item => item.ProjectId == projectId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildSearchIndexQuery()
+            .OrderByDescending(item => item.SubmittedAt)
+            .ThenByDescending(item => item.ProjectId)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    private IQueryable<ProjectSearchIndexItemReadModel> BuildSearchIndexQuery()
+    {
+        return DbContext.ProjectSet
+            .Join(
+                DbContext.AccountSet,
+                project => project.CustomerId,
+                account => account.AccountId,
+                (project, account) => new { project, account })
+            .Select(entry => new ProjectSearchIndexItemReadModel
+            {
+                ProjectId = entry.project.ProjectId,
+                ProjectCode = entry.project.ProjectCode,
+                ProjectName = entry.project.ProjectName,
+                BusinessType = entry.project.BusinessType,
+                Status = entry.project.Status,
+                CustomerId = entry.project.CustomerId,
+                CustomerName = entry.account.FullName,
+                CustomerEmail = entry.account.Email,
+                CustomerPhone = entry.account.Phone,
+                AssignedSalesId = entry.project.AssignedSalesId,
+                AssignedDesignerId = entry.project.AssignedDesignerId,
+                SubmittedAt = entry.project.SubmittedAt
+            });
+    }
+
     private IQueryable<Project> BuildProjectQueueQuery(ProjectListQueryReadModel query)
     {
         var projects = DbContext.ProjectSet.AsQueryable();

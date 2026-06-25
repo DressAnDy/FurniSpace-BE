@@ -25,6 +25,25 @@ public sealed class ProductsController : BaseApiController
         _previewImages = previewImages;
     }
 
+    [HttpGet("suggest")]
+    public async Task<IActionResult> Suggest(
+        [FromQuery] string q,
+        [FromQuery] int limit = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _products.SuggestAsync(q, limit, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpGet("search")]
+    public async Task<IActionResult> Search(
+        [FromQuery] ProductSearchRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _products.SearchAsync(request, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetAll(
         [FromQuery] int page = 1,
@@ -53,6 +72,16 @@ public sealed class ProductsController : BaseApiController
         CancellationToken cancellationToken = default)
     {
         var result = await _products.UpdateAsync(productId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpGet("{productId:guid}/similar")]
+    public async Task<IActionResult> GetSimilar(
+        Guid productId,
+        [FromQuery] int limit = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _products.GetSimilarAsync(productId, limit, cancellationToken);
         return ToActionResult(result);
     }
 

@@ -166,6 +166,8 @@ public static class DependencyInjection
 
         services.AddSingleton(new ElasticsearchClient(settings));
         services.AddScoped<ISearchIndexService, ElasticsearchIndexService>();
+        services.AddScoped<IIndexManager, ElasticsearchIndexManager>();
+        services.AddHostedService<ElasticsearchIndexInitializer>();
     }
 
     private static string AppendRedisPasswordIfNeeded(string connectionString)

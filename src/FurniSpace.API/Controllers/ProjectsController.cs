@@ -3,6 +3,7 @@
 using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -15,10 +16,14 @@ namespace FurniSpace.API.Controllers;
 public sealed class ProjectsController : BaseApiController
 {
     private readonly IProjectService _projects;
+    private readonly IProjectChatMessageService _chatMessages;
 
-    public ProjectsController(IProjectService projects)
+    public ProjectsController(
+        IProjectService projects,
+        IProjectChatMessageService chatMessages)
     {
         _projects = projects;
+        _chatMessages = chatMessages;
     }
 
     [Authorize(Roles = "CUSTOMER")]
@@ -175,6 +180,31 @@ public sealed class ProjectsController : BaseApiController
         }
 
         var result = await _projects.AssignDesignerAsync(projectId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN,CUSTOMER,DESIGNER")]
+    [HttpGet("{projectId:guid}/chat-messages/search")]
+    public async Task<IActionResult> SearchChatMessages(
+        Guid projectId,
+        [FromQuery] string q,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _chatMessages.SearchProjectMessagesAsync(
+            projectId,
+            currentUserId,
+            q,
+            page,
+            limit,
+            cancellationToken);
+
         return ToActionResult(result);
     }
 

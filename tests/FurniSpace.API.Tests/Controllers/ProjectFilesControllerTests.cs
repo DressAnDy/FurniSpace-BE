@@ -236,6 +236,24 @@ public sealed class ProjectFilesControllerTests
             return Task.FromResult(_projectFilesResult);
         }
 
+        public Task<ServiceResult<ProjectFileSearchResponseDto>> SearchProjectFilesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            string query,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            _ = query;
+            _ = page;
+            _ = limit;
+            return Task.FromResult(ServiceResult<ProjectFileSearchResponseDto>.Success(
+                new ProjectFileSearchResponseDto(),
+                string.Empty));
+        }
+
         public Task<ServiceResult<FilesByReferenceResponseDto>> GetFilesByReferenceAsync(
             Guid currentUserId,
             FilesByReferenceQueryDto query,

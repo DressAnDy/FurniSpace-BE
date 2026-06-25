@@ -306,5 +306,23 @@ public sealed class ProjectChatMessagesControllerTests
             CurrentUserId = currentUserId;
             return Task.FromResult(_sendFileResult!);
         }
+
+        public Task<ServiceResult<ProjectChatMessageSearchResponseDto>> SearchProjectMessagesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            string query,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            _ = projectId;
+            _ = currentUserId;
+            _ = query;
+            _ = page;
+            _ = limit;
+            return Task.FromResult(ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
+                new ProjectChatMessageSearchResponseDto(),
+                string.Empty));
+        }
     }
 }

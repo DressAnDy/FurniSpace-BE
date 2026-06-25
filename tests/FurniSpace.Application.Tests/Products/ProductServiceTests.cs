@@ -10,7 +10,9 @@ using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 
@@ -1111,6 +1113,129 @@ public sealed class ProductServiceTests
         };
     }
 
+    [Fact]
+    public async Task SearchAsync_WithInvalidSort_ReturnsBadRequest()
+    {
+        var repository = new FakeProductRepository([]);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
+
+        var result = await service.SearchAsync(new ProductSearchRequestDto
+        {
+            Sort = "invalid",
+            Page = 1,
+            Limit = 20
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("Sort must be one of", result.Message);
+    }
+
+    [Fact]
+    public async Task SearchAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+        [
+            new ProductListItemReadModel
+            {
+                ProductId = productId,
+                ProductName = "Oak Desk",
+                Status = ProductStatus.ACTIVE,
+                DefaultVersion = new ProductVersionReadModel
+                {
+                    ProductVersionId = Guid.NewGuid(),
+                    VersionCode = "V1",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE,
+                    IsPublic = true
+                }
+            }
+        ]);
+
+        var search = new ThrowingSearchIndexService();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            search: search);
+
+        var result = await service.SearchAsync(new ProductSearchRequestDto
+        {
+            Query = "Oak",
+            Page = 1,
+            Limit = 20
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(productId, result.Data.Items[0].ProductId);
+    }
+
+    [Fact]
+    public async Task SuggestAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+        [
+            new ProductListItemReadModel
+            {
+                ProductId = productId,
+                ProductName = "Oak Desk",
+                Status = ProductStatus.ACTIVE,
+                DefaultVersion = new ProductVersionReadModel
+                {
+                    ProductVersionId = Guid.NewGuid(),
+                    VersionCode = "V1",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE,
+                    IsPublic = true
+                }
+            }
+        ]);
+
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            search: new ThrowingSearchIndexService());
+
+        var result = await service.SuggestAsync("Oak", limit: 10);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(productId, result.Data.Items[0].ProductId);
+        Assert.Equal("Oak Desk", result.Data.Items[0].ProductName);
+    }
+
+    private sealed class ThrowingSearchIndexService : ISearchIndexService
+    {
+        public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(string indexName, SearchRequest request, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+
+        public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(string indexName, string query, int size = 100, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+
+        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new SuggestResult());
+
+        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
+            string indexName,
+            string documentId,
+            MoreLikeThisRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+
+        public Task<SearchAggregationResult> AggregateAsync(
+            string indexName,
+            SearchAggregationRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+    }
+
     private sealed class FakeProductRepository : IProductRepository
     {
         private readonly IReadOnlyList<ProductListItemReadModel> _products;
@@ -1224,6 +1349,76 @@ public sealed class ProductServiceTests
         {
             CountByCategoryCallCount++;
             return Task.FromResult(_products.Count(product => product.CategoryId == categoryId));
+        }
+
+        public Task<ProductListItemReadModel?> GetSearchIndexItemAsync(
+            Guid productId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_products.FirstOrDefault(product => product.ProductId == productId));
+        }
+
+        public Task<IReadOnlyList<ProductListItemReadModel>> GetSearchIndexPageAsync(
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<ProductListItemReadModel>>(
+                _products
+                    .Skip((page - 1) * limit)
+                    .Take(limit)
+                    .ToList());
+        }
+
+        public Task<ProductSearchResultReadModel> SearchPublicAsync(
+            ProductSearchQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            var items = _products
+                .Where(product => !query.CategoryId.HasValue || product.CategoryId == query.CategoryId)
+                .Where(product => string.IsNullOrWhiteSpace(query.Query) ||
+                    product.ProductName.Contains(query.Query, StringComparison.OrdinalIgnoreCase))
+                .Skip((query.Page - 1) * query.Limit)
+                .Take(query.Limit)
+                .ToList();
+
+            return Task.FromResult(new ProductSearchResultReadModel
+            {
+                Items = items,
+                Total = items.Count
+            });
+        }
+
+        public Task<IReadOnlyList<ProductListItemReadModel>> SuggestPublicAsync(
+            string query,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            var items = _products
+                .Where(product => product.ProductName.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .Take(limit)
+                .ToList();
+
+            return Task.FromResult<IReadOnlyList<ProductListItemReadModel>>(items);
+        }
+
+        public Task<IReadOnlyList<ProductListItemReadModel>> GetSimilarPublicAsync(
+            Guid productId,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            var source = _products.FirstOrDefault(product => product.ProductId == productId);
+            if (source is null)
+            {
+                return Task.FromResult<IReadOnlyList<ProductListItemReadModel>>([]);
+            }
+
+            var items = _products
+                .Where(product => product.ProductId != productId && product.CategoryId == source.CategoryId)
+                .Take(limit)
+                .ToList();
+
+            return Task.FromResult<IReadOnlyList<ProductListItemReadModel>>(items);
         }
 
         public IQueryable<Product> Query() => Enumerable.Empty<Product>().AsQueryable();

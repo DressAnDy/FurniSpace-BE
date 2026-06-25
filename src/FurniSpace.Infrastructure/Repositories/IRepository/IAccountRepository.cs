@@ -24,4 +24,12 @@ public interface IAccountRepository : IGenericRepository<Account>
         CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Account>> GetPagedAsync(int page, int pageSize, string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default);
     Task<int> CountAsync(string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByStatusAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByRoleIdAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken = default);
 }

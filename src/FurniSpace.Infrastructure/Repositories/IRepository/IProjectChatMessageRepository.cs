@@ -15,4 +15,25 @@ public interface IProjectChatMessageRepository : IGenericRepository<ProjectChatM
         Guid chatId,
         ProjectChatMessageQueryReadModel query,
         CancellationToken cancellationToken = default);
+
+    Task<ChatMessageSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+        Guid messageId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ChatMessageSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ChatMessageSearchIndexItemReadModel>> SearchByProjectAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountSearchByProjectAsync(
+        Guid projectId,
+        string query,
+        CancellationToken cancellationToken = default);
 }

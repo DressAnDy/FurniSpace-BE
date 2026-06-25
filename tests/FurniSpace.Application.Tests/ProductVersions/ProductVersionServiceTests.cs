@@ -1185,6 +1185,47 @@ public sealed class ProductVersionServiceTests
             Guid productId,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<FileLink>>([]);
+
+        public Task<ProjectFileSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+            Guid fileId,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.GetSearchIndexItemAsync(fileId, cancellationToken);
+
+        public Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.GetSearchIndexPageAsync(page, limit, cancellationToken);
+
+        public Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> SearchByProjectAsync(
+            Guid projectId,
+            string query,
+            int page,
+            int limit,
+            bool customerVisibleOnly,
+            Guid? customerAccountId,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.SearchByProjectAsync(
+                projectId,
+                query,
+                page,
+                limit,
+                customerVisibleOnly,
+                customerAccountId,
+                cancellationToken);
+
+        public Task<int> CountSearchByProjectAsync(
+            Guid projectId,
+            string query,
+            bool customerVisibleOnly,
+            Guid? customerAccountId,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.CountSearchByProjectAsync(
+                projectId,
+                query,
+                customerVisibleOnly,
+                customerAccountId,
+                cancellationToken);
     }
 
     private sealed class FakeProductVersionRepository : IProductVersionRepository

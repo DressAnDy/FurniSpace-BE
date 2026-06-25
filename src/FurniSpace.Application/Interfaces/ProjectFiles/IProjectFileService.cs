@@ -22,6 +22,14 @@ public interface IProjectFileService
         ProjectFilesQueryDto query,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectFileSearchResponseDto>> SearchProjectFilesAsync(
+        Guid projectId,
+        Guid currentUserId,
+        string query,
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<FilesByReferenceResponseDto>> GetFilesByReferenceAsync(
         Guid currentUserId,
         FilesByReferenceQueryDto query,

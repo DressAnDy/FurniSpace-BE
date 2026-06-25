@@ -39,6 +39,27 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/accounts/suggest")]
+    public async Task<IActionResult> Suggest(
+        [FromQuery] string q,
+        [FromQuery] int limit = 10,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.SuggestAsync(q, limit, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/accounts/search-stats")]
+    public async Task<IActionResult> GetSearchStats(
+        [FromQuery] bool includeDeleted = false,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetSearchStatsAsync(includeDeleted, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "SALES,ADMIN")]
     [HttpGet("/accounts/designers/available")]
     public async Task<IActionResult> GetAvailableDesigners(

@@ -856,6 +856,36 @@ public sealed class ProjectChatMessageServiceTests
         public void Update(ProjectChatMessage entity) { }
         public void Remove(ProjectChatMessage entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+        public Task<ChatMessageSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+            Guid messageId,
+            CancellationToken cancellationToken = default)
+            => ProjectChatMessageRepositorySearchStubs.GetSearchIndexItemAsync(messageId, cancellationToken);
+
+        public Task<IReadOnlyList<ChatMessageSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => ProjectChatMessageRepositorySearchStubs.GetSearchIndexPageAsync(page, limit, cancellationToken);
+
+        public Task<IReadOnlyList<ChatMessageSearchIndexItemReadModel>> SearchByProjectAsync(
+            Guid projectId,
+            string query,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => ProjectChatMessageRepositorySearchStubs.SearchByProjectAsync(
+                projectId,
+                query,
+                page,
+                limit,
+                cancellationToken);
+
+        public Task<int> CountSearchByProjectAsync(
+            Guid projectId,
+            string query,
+            CancellationToken cancellationToken = default)
+            => ProjectChatMessageRepositorySearchStubs.CountSearchByProjectAsync(projectId, query, cancellationToken);
     }
 
     private sealed class FakeProjectChatRealtimeService : IProjectChatRealtimeService

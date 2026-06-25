@@ -23,6 +23,20 @@ public interface IProductService
         int limit,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProductListResponseDto>> SearchAsync(
+        ProductSearchRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductSuggestResponseDto>> SuggestAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductListResponseDto>> GetSimilarAsync(
+        Guid productId,
+        int limit,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProductByCategoryResponseDto>> GetByCategoryAsync(
         Guid categoryId,
         int page,

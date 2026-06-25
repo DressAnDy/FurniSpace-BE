@@ -4,6 +4,7 @@ using System.Net;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using FurniSpace.API.Cli;
 using FurniSpace.API.Constants;
 using FurniSpace.API.Filters;
 using FurniSpace.API.Hubs;
@@ -15,6 +16,7 @@ using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Common.Realtime;
 using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.API.Middleware;
+using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Logging;
 using FurniSpace.Shared.Helpers;
@@ -26,6 +28,12 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 
 EnvLoader.LoadEnv(required: false);
+
+if (TryGetReindexModule(args, out var reindexModule))
+{
+    await RunReindexCommandAsync(reindexModule);
+    return;
+}
 
 const string AllowAllCorsPolicy = "AllowAllCors";
 const string WildcardCorsOrigin = "*";
@@ -345,4 +353,66 @@ static void UseProductionHttps(WebApplication app)
     {
         app.UseHsts();
     }
+}
+
+static bool TryGetReindexModule(string[] args, out string module)
+{
+    module = string.Empty;
+    if (args.Length >= 2 &&
+        args[0].Equals("reindex", StringComparison.OrdinalIgnoreCase) &&
+        !string.IsNullOrWhiteSpace(args[1]))
+    {
+        module = args[1].Trim().ToLowerInvariant();
+        return true;
+    }
+
+    return false;
+}
+
+static async Task RunReindexCommandAsync(string module)
+{
+    var builder = WebApplication.CreateBuilder(Array.Empty<string>());
+
+    Log.Logger = SerilogConfiguration.CreateLogger(
+        builder.Configuration,
+        useJsonFormatting: false);
+    builder.Host.UseSerilog();
+
+    builder.Services.AddApplication(builder.Configuration);
+    builder.Services.AddScoped<IRealtimeNotificationService, NoOpRealtimeNotificationService>();
+    builder.Services.AddScoped<IProjectChatRealtimeService, NoOpProjectChatRealtimeService>();
+
+    var app = builder.Build();
+
+    using var scope = app.Services.CreateScope();
+    var reindexService = scope.ServiceProvider.GetRequiredService<ISearchReindexService>();
+
+    switch (module)
+    {
+        case "accounts":
+            await reindexService.ReindexAccountsAsync();
+            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            break;
+        case "products":
+            await reindexService.ReindexProductsAsync();
+            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            break;
+        case "projects":
+            await reindexService.ReindexProjectsAsync();
+            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            break;
+        case "chat-messages":
+            await reindexService.ReindexChatMessagesAsync();
+            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            break;
+        case "project-files":
+            await reindexService.ReindexProjectFilesAsync();
+            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            break;
+        default:
+            throw new InvalidOperationException(
+                $"Unsupported reindex module '{module}'. Supported modules: accounts, products, projects, chat-messages, project-files.");
+    }
+
+    await Log.CloseAndFlushAsync();
 }

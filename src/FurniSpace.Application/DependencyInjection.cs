@@ -12,7 +12,9 @@ using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Accounts;
+using FurniSpace.Application.Services.Search;
 using FurniSpace.Application.Services.Categories;
 using FurniSpace.Application.Services.Identity;
 using FurniSpace.Application.Services.Notifications;
@@ -79,6 +81,11 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
+        services.AddScoped<ISearchReindexService, SearchReindexService>();
+        services.AddScoped<IProductSearchIndexer, ProductSearchIndexer>();
+        services.AddScoped<IProjectSearchIndexer, ProjectSearchIndexer>();
+        services.AddScoped<IChatMessageSearchIndexer, ChatMessageSearchIndexer>();
+        services.AddScoped<IProjectFileSearchIndexer, ProjectFileSearchIndexer>();
 
         return services;
     }

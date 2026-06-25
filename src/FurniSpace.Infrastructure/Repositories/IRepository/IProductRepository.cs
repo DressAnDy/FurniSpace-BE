@@ -35,4 +35,27 @@ public interface IProductRepository : IGenericRepository<Product>
     Task<int> CountByCategoryAsync(
         Guid categoryId,
         CancellationToken cancellationToken = default);
+
+    Task<ProductListItemReadModel?> GetSearchIndexItemAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProductListItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<ProductSearchResultReadModel> SearchPublicAsync(
+        ProductSearchQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProductListItemReadModel>> SuggestPublicAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProductListItemReadModel>> GetSimilarPublicAsync(
+        Guid productId,
+        int limit,
+        CancellationToken cancellationToken = default);
 }

@@ -2,10 +2,14 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
+using FurniSpace.Application.Interfaces.Search;
+using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.DTOs.ProjectChatMessages;
+using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.Common.Search.Documents;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -17,6 +21,7 @@ namespace FurniSpace.Application.Services.ProjectChatMessages;
 
 public sealed class ProjectChatMessageService : IProjectChatMessageService
 {
+    private const string ChatMessageIndexName = "chat-messages";
     private const string AdminRole = "ADMIN";
     private const string CustomerRole = "CUSTOMER";
     private const string DesignerRole = "DESIGNER";
@@ -30,6 +35,8 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ProjectChatFileUploadDependencies _fileUpload;
     private readonly ILogger<ProjectChatMessageService> _logger;
+    private readonly ISearchIndexService? _search;
+    private readonly IChatMessageSearchIndexer? _chatMessageSearchIndexer;
 
     public ProjectChatMessageService(
         IProjectChatMessageRepository messages,
@@ -37,7 +44,9 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         IProjectChatRealtimeService realtime,
         IUnitOfWork unitOfWork,
         ProjectChatFileUploadDependencies fileUpload,
-        ILogger<ProjectChatMessageService> logger)
+        ILogger<ProjectChatMessageService> logger,
+        ISearchIndexService? search = null,
+        IChatMessageSearchIndexer? chatMessageSearchIndexer = null)
     {
         _messages = messages;
         _projectFiles = projectFiles;
@@ -45,6 +54,8 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         _unitOfWork = unitOfWork;
         _fileUpload = fileUpload;
         _logger = logger;
+        _search = search;
+        _chatMessageSearchIndexer = chatMessageSearchIndexer;
     }
 
     public async Task<bool> CanAccessChatAsync(
@@ -120,6 +131,75 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             "Chat messages retrieved successfully.");
     }
 
+    public async Task<ServiceResult<ProjectChatMessageSearchResponseDto>> SearchProjectMessagesAsync(
+        Guid projectId,
+        Guid currentUserId,
+        string query,
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty || currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectChatMessageSearchResponseDto>.BadRequest("Project id and authenticated user id are required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return ServiceResult<ProjectChatMessageSearchResponseDto>.BadRequest("Search query is required.");
+        }
+
+        if (page < 1 || limit is < 1 or > 50)
+        {
+            return ServiceResult<ProjectChatMessageSearchResponseDto>.BadRequest("Page must be >= 1 and limit must be between 1 and 50.");
+        }
+
+        var project = await _projectFiles.GetProjectAccessAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectChatMessageSearchResponseDto>.NotFound("Project not found.");
+        }
+
+        var roleName = await _projectFiles.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanAccessProject(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectChatMessageSearchResponseDto>.Forbidden(
+                "You do not have access to search messages for this project.");
+        }
+
+        ProjectChatMessageSearchResponseDto response;
+        if (_search is not null)
+        {
+            try
+            {
+                var searchResult = await _search.SearchAsync<ChatMessageSearchDocument>(
+                    ChatMessageIndexName,
+                    ChatMessageElasticsearchQueryFactory.BuildProjectSearch(projectId, query, page, limit),
+                    cancellationToken);
+
+                response = new ProjectChatMessageSearchResponseDto
+                {
+                    Items = searchResult.Documents.Select(ChatMessageSearchResponseMapper.ToItem).ToList(),
+                    Page = page,
+                    Limit = limit,
+                    Total = (int)Math.Min(searchResult.Total, int.MaxValue)
+                };
+            }
+            catch
+            {
+                response = await GetProjectMessagesFromRepositoryAsync(projectId, query, page, limit, cancellationToken);
+            }
+        }
+        else
+        {
+            response = await GetProjectMessagesFromRepositoryAsync(projectId, query, page, limit, cancellationToken);
+        }
+
+        return ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
+            response,
+            "Project chat messages search completed successfully.");
+    }
+
     public async Task<ServiceResult<ProjectChatMessageDto>> SendTextMessageAsync(
         Guid chatId,
         Guid currentUserId,
@@ -162,6 +242,7 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
 
         await _messages.AddAsync(message, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncChatMessageIndexAsync(message.MessageId, cancellationToken);
 
         var response = MapCreatedMessage(message, access);
 
@@ -291,6 +372,8 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             await _fileUpload.Storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
             throw;
         }
+
+        await SyncChatMessageIndexAsync(message.MessageId, cancellationToken);
 
         var response = MapCreatedMessage(message, access, storedFile);
 
@@ -504,5 +587,70 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
             throw;
         }
+    }
+
+    private async Task<ProjectChatMessageSearchResponseDto> GetProjectMessagesFromRepositoryAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var items = await _messages.SearchByProjectAsync(projectId, query, page, limit, cancellationToken);
+        var total = await _messages.CountSearchByProjectAsync(projectId, query, cancellationToken);
+
+        return new ProjectChatMessageSearchResponseDto
+        {
+            Items = items
+                .Where(item => item.Content is not null)
+                .Select(item => new ProjectChatMessageSearchItemDto
+                {
+                    MessageId = item.MessageId,
+                    ChatId = item.ChatId,
+                    ProjectId = item.ProjectId,
+                    SenderId = item.SenderId,
+                    SenderName = item.SenderName,
+                    MessageType = item.MessageType?.ToString(),
+                    Content = item.Content!,
+                    CreatedAt = item.CreatedAt
+                })
+                .ToList(),
+            Page = page,
+            Limit = limit,
+            Total = total
+        };
+    }
+
+    private Task SyncChatMessageIndexAsync(Guid messageId, CancellationToken cancellationToken)
+    {
+        return _chatMessageSearchIndexer?.SyncMessageAsync(messageId, cancellationToken) ?? Task.CompletedTask;
+    }
+
+    private static bool CanAccessProject(
+        ProjectFileAccessReadModel project,
+        Guid currentUserId,
+        string? roleName)
+    {
+        if (IsRole(roleName, AdminRole))
+        {
+            return true;
+        }
+
+        if (IsRole(roleName, CustomerRole))
+        {
+            return project.CustomerId == currentUserId;
+        }
+
+        if (IsRole(roleName, SalesRole))
+        {
+            return project.AssignedSalesId == currentUserId;
+        }
+
+        if (IsRole(roleName, DesignerRole))
+        {
+            return project.AssignedDesignerId == currentUserId;
+        }
+
+        return false;
     }
 }

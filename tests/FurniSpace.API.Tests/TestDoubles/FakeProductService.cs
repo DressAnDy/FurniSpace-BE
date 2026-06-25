@@ -99,6 +99,37 @@ internal sealed class FakeProductService : IProductService
         return Task.FromResult(_getByCategoryResult);
     }
 
+    public Task<ServiceResult<ProductListResponseDto>> SearchAsync(
+        ProductSearchRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        _ = request;
+        return Task.FromResult(ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty));
+    }
+
+    public Task<ServiceResult<ProductSuggestResponseDto>> SuggestAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        _ = query;
+        _ = limit;
+        return Task.FromResult(ServiceResult<ProductSuggestResponseDto>.Success(new ProductSuggestResponseDto(), string.Empty));
+    }
+
+    public Task<ServiceResult<ProductListResponseDto>> GetSimilarAsync(
+        Guid productId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        _ = productId;
+        _ = limit;
+        return Task.FromResult(ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty));
+    }
+
     public Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
         Guid productId,
         Guid currentUserId,

@@ -1,0 +1,24 @@
+{
+  "mappings": {
+    "properties": {
+      "messageId": { "type": "keyword" },
+      "chatId": { "type": "keyword" },
+      "projectId": { "type": "keyword" },
+      "senderId": { "type": "keyword" },
+      "senderName": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "messageType": { "type": "keyword" },
+      "content": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "createdAt": { "type": "date" }
+    }
+  }
+}

@@ -14,6 +14,7 @@ using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.DTOs.Accounts;
+using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
@@ -442,6 +443,42 @@ public sealed class AccountServiceTests
         Assert.Equal(0, repository.CountAvailableDesignersCallCount);
     }
 
+    [Fact]
+    public async Task GetSearchStatsAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    {
+        var roleId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            StatusCounts =
+            [
+                new AccountFacetCountReadModel { Key = "ACTIVE", Count = 3 }
+            ],
+            RoleCounts =
+            [
+                new AccountFacetCountReadModel { Key = roleId.ToString(), Count = 3 }
+            ],
+            RoleNames = { [roleId] = "ADMIN" }
+        };
+        var service = new AccountService(
+            repository,
+            new FakeAuthService(),
+            new InMemoryCacheService(),
+            new ThrowingSearchIndexService(),
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+
+        var result = await service.GetSearchStatsAsync(includeDeleted: false);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal("ACTIVE", Assert.Single(result.Data!.StatusCounts).Key);
+        Assert.Equal(3, result.Data.StatusCounts[0].Count);
+        var roleCount = Assert.Single(result.Data.RoleCounts);
+        Assert.Equal(roleId.ToString(), roleCount.Key);
+        Assert.Equal("ADMIN", roleCount.Label);
+        Assert.Equal(1, repository.CountGroupedByStatusCallCount);
+        Assert.Equal(1, repository.CountGroupedByRoleIdCallCount);
+    }
+
     private static AccountService CreateService(FakeAccountRepository repository)
     {
         return new AccountService(
@@ -457,8 +494,12 @@ public sealed class AccountServiceTests
         public AccountDetailReadModel? Detail { get; set; }
         public IReadOnlyList<Account> Accounts { get; set; } = [];
         public IReadOnlyList<AvailableDesignerReadModel> AvailableDesigners { get; set; } = [];
+        public IReadOnlyList<AccountFacetCountReadModel> StatusCounts { get; set; } = [];
+        public IReadOnlyList<AccountFacetCountReadModel> RoleCounts { get; set; } = [];
         public Dictionary<Guid, string> RoleNames { get; } = [];
         public int GetDetailCallCount { get; private set; }
+        public int CountGroupedByStatusCallCount { get; private set; }
+        public int CountGroupedByRoleIdCallCount { get; private set; }
         public Guid DetailAccountId { get; private set; }
         public int GetByIdCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
@@ -537,6 +578,24 @@ public sealed class AccountServiceTests
 
         public Task<IReadOnlyList<Account>> GetPagedAsync(int page, int pageSize, string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Account>>([]);
         public Task<int> CountAsync(string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+        public Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByStatusAsync(
+            bool includeDeleted,
+            CancellationToken cancellationToken = default)
+        {
+            CountGroupedByStatusCallCount++;
+            _ = includeDeleted;
+            return Task.FromResult(StatusCounts);
+        }
+
+        public Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByRoleIdAsync(
+            bool includeDeleted,
+            CancellationToken cancellationToken = default)
+        {
+            CountGroupedByRoleIdCallCount++;
+            _ = includeDeleted;
+            return Task.FromResult(RoleCounts);
+        }
     }
 
     private sealed class FakeAuthService : IAuthService
@@ -558,10 +617,80 @@ public sealed class AccountServiceTests
     private sealed class FakeSearchIndexService : ISearchIndexService
     {
         public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
         public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(string indexName, SearchRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new SearchResult<TDocument>
+            {
+                Documents = [],
+                Total = 0,
+                Page = request.Page,
+                PageSize = request.PageSize
+            });
+        }
+
         public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(string indexName, string query, int size = 100, CancellationToken cancellationToken = default)
         {
             return Task.FromResult<IReadOnlyList<TDocument>>([]);
         }
+
+        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new SuggestResult());
+        }
+
+        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
+            string indexName,
+            string documentId,
+            MoreLikeThisRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new SearchResult<TDocument>
+            {
+                Documents = [],
+                Total = 0,
+                Page = 1,
+                PageSize = request.Size
+            });
+        }
+
+        public Task<SearchAggregationResult> AggregateAsync(
+            string indexName,
+            SearchAggregationRequest request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new SearchAggregationResult());
+    }
+
+    private sealed class ThrowingSearchIndexService : ISearchIndexService
+    {
+        public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(string indexName, SearchRequest request, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+
+        public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(string indexName, string query, int size = 100, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+
+        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new SuggestResult());
+
+        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
+            string indexName,
+            string documentId,
+            MoreLikeThisRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+
+        public Task<SearchAggregationResult> AggregateAsync(
+            string indexName,
+            SearchAggregationRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
     }
 }

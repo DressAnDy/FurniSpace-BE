@@ -6,6 +6,7 @@ using FurniSpace.Application.Mappings;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -26,7 +27,9 @@ public static class CatalogServiceTestHelper
         IProductRepository products,
         IProjectFileRepository files,
         IFileStorageService? storage = null,
-        ProductPreviewImageSettings? previewSettings = null)
+        ProductPreviewImageSettings? previewSettings = null,
+        ISearchIndexService? search = null,
+        IProductSearchIndexer? productSearchIndexer = null)
     {
         return new ProductService(
             products,
@@ -35,6 +38,8 @@ public static class CatalogServiceTestHelper
             Options.Create(DefaultUploadSettings()),
             Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
             Options.Create(DefaultFirebaseSettings()),
+            search ?? new NoOpSearchIndexService(),
+            productSearchIndexer ?? new NoOpProductSearchIndexer(),
             TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
     }
 
@@ -58,7 +63,8 @@ public static class CatalogServiceTestHelper
         IProductVersionRepository productVersions,
         IProjectFileRepository files,
         IFileStorageService? storage = null,
-        ProductPreviewImageSettings? previewSettings = null)
+        ProductPreviewImageSettings? previewSettings = null,
+        IProductSearchIndexer? productSearchIndexer = null)
     {
         return new ProductVersionService(
             productVersions,
@@ -67,6 +73,7 @@ public static class CatalogServiceTestHelper
             Options.Create(DefaultUploadSettings()),
             Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
             Options.Create(DefaultFirebaseSettings()),
+            productSearchIndexer ?? new NoOpProductSearchIndexer(),
             TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync));
     }
 

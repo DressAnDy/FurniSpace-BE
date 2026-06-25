@@ -3,6 +3,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.Repositories.Base;
+using FurniSpace.Infrastructure.Search;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
@@ -180,5 +181,197 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
         return Query()
             .Where(product => product.CategoryId == categoryId)
             .CountAsync(cancellationToken);
+    }
+
+    public Task<ProductListItemReadModel?> GetSearchIndexItemAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildProductListQuery(categoryId: null, includeDefaultVersion: true)
+            .Where(product => product.ProductId == productId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ProductListItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildProductListQuery(categoryId: null, includeDefaultVersion: true)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<ProductSearchResultReadModel> SearchPublicAsync(
+        ProductSearchQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = await BuildProductListQuery(query.CategoryId, includeDefaultVersion: true)
+            .ToListAsync(cancellationToken);
+
+        var filtered = candidates
+            .Where(ProductSearchDocumentMapper.IsIndexable)
+            .Where(item => MatchesSearchQuery(item, query))
+            .ToList();
+
+        var sorted = ApplySearchSort(filtered, query.Sort);
+        var total = sorted.Count;
+        var items = sorted
+            .Skip((query.Page - 1) * query.Limit)
+            .Take(query.Limit)
+            .ToList();
+
+        return new ProductSearchResultReadModel
+        {
+            Items = items,
+            Total = total
+        };
+    }
+
+    public async Task<IReadOnlyList<ProductListItemReadModel>> SuggestPublicAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var candidates = await BuildProductListQuery(categoryId: null, includeDefaultVersion: true)
+            .ToListAsync(cancellationToken);
+
+        var normalizedQuery = query.Trim();
+        return candidates
+            .Where(ProductSearchDocumentMapper.IsIndexable)
+            .Where(item => item.ProductName.StartsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase) ||
+                ContainsIgnoreCase(item.ProductName, normalizedQuery))
+            .OrderBy(item => item.ProductName, StringComparer.OrdinalIgnoreCase)
+            .Take(limit)
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<ProductListItemReadModel>> GetSimilarPublicAsync(
+        Guid productId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var source = await GetSearchIndexItemAsync(productId, cancellationToken);
+        if (source is null)
+        {
+            return [];
+        }
+
+        var candidates = await BuildProductListQuery(categoryId: null, includeDefaultVersion: true)
+            .ToListAsync(cancellationToken);
+
+        return candidates
+            .Where(ProductSearchDocumentMapper.IsIndexable)
+            .Where(item => item.ProductId != productId)
+            .Select(item => new { Item = item, Score = CalculateSimilarityScore(source, item) })
+            .Where(entry => entry.Score > 0)
+            .OrderByDescending(entry => entry.Score)
+            .ThenBy(entry => entry.Item.ProductName, StringComparer.OrdinalIgnoreCase)
+            .Take(limit)
+            .Select(entry => entry.Item)
+            .ToList();
+    }
+
+    private static int CalculateSimilarityScore(
+        ProductListItemReadModel source,
+        ProductListItemReadModel candidate)
+    {
+        var score = 0;
+
+        if (source.CategoryId.HasValue && source.CategoryId == candidate.CategoryId)
+        {
+            score += 3;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.DefaultVersion?.Material) &&
+            string.Equals(
+                source.DefaultVersion.Material,
+                candidate.DefaultVersion?.Material,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            score += 2;
+        }
+
+        if (!string.IsNullOrWhiteSpace(source.DefaultVersion?.Color) &&
+            string.Equals(
+                source.DefaultVersion.Color,
+                candidate.DefaultVersion?.Color,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            score += 1;
+        }
+
+        return score;
+    }
+
+    private static bool MatchesSearchQuery(ProductListItemReadModel item, ProductSearchQueryReadModel query)
+    {
+        if (!string.IsNullOrWhiteSpace(query.Material) &&
+            !string.Equals(item.DefaultVersion?.Material, query.Material.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Color) &&
+            !string.Equals(item.DefaultVersion?.Color, query.Color.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var price = item.DefaultVersion?.EstimatedPrice;
+        if (query.MinPrice.HasValue && (price is null || price < query.MinPrice.Value))
+        {
+            return false;
+        }
+
+        if (query.MaxPrice.HasValue && (price is null || price > query.MaxPrice.Value))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(query.Query))
+        {
+            return true;
+        }
+
+        var term = query.Query.Trim();
+        return ContainsIgnoreCase(item.ProductName, term) ||
+            ContainsIgnoreCase(item.Description, term) ||
+            ContainsIgnoreCase(item.ProductCode, term) ||
+            ContainsIgnoreCase(item.CategoryName, term) ||
+            ContainsIgnoreCase(item.DefaultVersion?.Material, term) ||
+            ContainsIgnoreCase(item.DefaultVersion?.Color, term);
+    }
+
+    private static bool ContainsIgnoreCase(string? value, string term)
+    {
+        return value is not null &&
+            value.Contains(term, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static List<ProductListItemReadModel> ApplySearchSort(
+        IReadOnlyList<ProductListItemReadModel> items,
+        string? sort)
+    {
+        return sort?.Trim().ToLowerInvariant() switch
+        {
+            "price_asc" => items
+                .OrderBy(item => item.DefaultVersion?.EstimatedPrice ?? decimal.MaxValue)
+                .ThenBy(item => item.ProductName, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            "price_desc" => items
+                .OrderByDescending(item => item.DefaultVersion?.EstimatedPrice ?? decimal.MinValue)
+                .ThenBy(item => item.ProductName, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            "created_asc" => items
+                .OrderBy(item => item.DefaultVersion?.CreatedAt ?? DateTime.MinValue)
+                .ThenBy(item => item.ProductName, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            _ => items
+                .OrderByDescending(item => item.DefaultVersion?.CreatedAt ?? DateTime.MinValue)
+                .ThenBy(item => item.ProductName, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+        };
     }
 }

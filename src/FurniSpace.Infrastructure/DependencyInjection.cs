@@ -2,11 +2,13 @@ using Elastic.Clients.Elasticsearch;
 using FurniSpace.Infrastructure.Caching;
 using FurniSpace.Infrastructure.Common.Caching;
 using FurniSpace.Infrastructure.Common.Email;
+using FurniSpace.Infrastructure.Common.Mongo;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Email;
 using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Mongo;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Repositories.Repository;
@@ -29,6 +31,19 @@ public static class DependencyInjection
         services.Configure<RedisSettings>(configuration.GetSection(RedisSettings.SectionName));
         services.Configure<ElasticsearchSettings>(configuration.GetSection(ElasticsearchSettings.SectionName));
         services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
+        services.Configure<MongoDbSettings>(settings =>
+        {
+            var section = configuration.GetSection(MongoDbSettings.SectionName);
+            settings.ConnectionString = configuration["MONGODB_CONNECTION_STRING"]
+                ?? section["ConnectionString"]
+                ?? settings.ConnectionString;
+            settings.DatabaseName = configuration["MONGODB_DATABASE_NAME"]
+                ?? section["DatabaseName"]
+                ?? settings.DatabaseName;
+            settings.RoomPlannerScenesCollectionName = configuration["MONGODB_ROOM_PLANNER_SCENES_COLLECTION"]
+                ?? section["RoomPlannerScenesCollectionName"]
+                ?? settings.RoomPlannerScenesCollectionName;
+        });
         services.Configure<FileUploadSettings>(configuration.GetSection(FileUploadSettings.SectionName));
         services.Configure<ProductPreviewImageSettings>(configuration.GetSection(ProductPreviewImageSettings.SectionName));
         services.Configure<FirebaseStorageSettings>(settings =>
@@ -51,6 +66,7 @@ public static class DependencyInjection
         services.AddPostgres(configuration);
         services.AddRedis(configuration);
         services.AddElasticsearch(configuration);
+        services.AddMongoRoomPlanner();
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IProductRepository, ProductRepository>();
@@ -61,11 +77,19 @@ public static class DependencyInjection
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IProjectScheduleRepository, ProjectScheduleRepository>();
+        services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepository>();
+        services.AddScoped<IRoomPlannerProposalSceneRepository, RoomPlannerProposalSceneRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IEmailService, SmtpEmailService>();
         services.AddScoped<IFileStorageService, FirebaseStorageService>();
 
         return services;
+    }
+
+    private static void AddMongoRoomPlanner(this IServiceCollection services)
+    {
+        services.AddSingleton<IMongoDatabaseProvider, MongoDatabaseProvider>();
+        services.AddScoped<IRoomPlannerSceneCollection, MongoRoomPlannerSceneCollection>();
     }
 
     private static void AddPostgres(this IServiceCollection services, IConfiguration configuration)

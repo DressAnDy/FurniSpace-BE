@@ -12,6 +12,7 @@ using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Application.Services.Accounts;
 using FurniSpace.Application.Services.Categories;
 using FurniSpace.Application.Services.Identity;
@@ -23,6 +24,7 @@ using FurniSpace.Application.Services.ProjectChats;
 using FurniSpace.Application.Services.ProjectChatMessages;
 using FurniSpace.Application.Services.ProjectSchedules;
 using FurniSpace.Application.Services.Projects;
+using FurniSpace.Application.Services.RoomPlanner;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure;
 using Mapster;
@@ -79,6 +81,8 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
+        services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepositoryAdapter>();
+        services.AddScoped<IRoomPlannerSceneService, RoomPlannerSceneService>();
 
         return services;
     }

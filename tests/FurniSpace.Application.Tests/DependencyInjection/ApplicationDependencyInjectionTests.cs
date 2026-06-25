@@ -2,6 +2,7 @@
 
 using System.Collections.Generic;
 using FurniSpace.Application;
+using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using Microsoft.Extensions.Configuration;
@@ -32,5 +33,6 @@ public sealed class ApplicationDependencyInjectionTests
 
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IProjectChatService));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IProjectChatMessageService));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IProposalService));
     }
 }

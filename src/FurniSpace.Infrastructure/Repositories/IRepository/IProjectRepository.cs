@@ -37,4 +37,12 @@ public interface IProjectRepository : IGenericRepository<Project>
     Task<int> CountAsync(
         ProjectListQueryReadModel query,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(
+        ProjectByUserQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountByUserAsync(
+        ProjectByUserQueryReadModel query,
+        CancellationToken cancellationToken = default);
 }

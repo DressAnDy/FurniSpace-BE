@@ -59,6 +59,15 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public void GetByUser_AllowsAllProjectRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.GetByUser));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("ADMIN,SALES,DESIGNER,CUSTOMER", authorize.Roles);
+    }
+
+    [Fact]
     public void AssignSales_AllowsSalesAndAdminRoles()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.AssignSales));
@@ -255,6 +264,67 @@ public sealed class ProjectsControllerTests
         Assert.IsType<UnauthorizedResult>(actionResult);
         Assert.Equal(Guid.Empty, service.CurrentUserId);
         Assert.Null(service.Query);
+    }
+
+    [Fact]
+    public async Task GetByUser_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var response = new ProjectsByUserResponseDto
+        {
+            Page = 2,
+            PageSize = 10,
+            TotalItems = 1,
+            TotalPages = 1
+        };
+        var service = new FakeProjectService(
+            createResult: ServiceResult<ProjectDto>.Created(new ProjectDto()),
+            projectsByUserResult: ServiceResult<ProjectsByUserResponseDto>.Success(
+                response,
+                "Projects retrieved successfully."));
+        var controller = CreateControllerWithUser(service, currentUserId);
+
+        var actionResult = await controller.GetByUser(
+            userId,
+            page: 2,
+            pageSize: 10,
+            status: ProjectStatus.IN_CONSULTATION,
+            roleScope: "DESIGNER",
+            keyword: "cafe");
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectsByUserResponseDto>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Same(response, result.Data);
+        Assert.Equal(userId, service.UserId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.NotNull(service.ProjectsByUserQuery);
+        Assert.Equal(2, service.ProjectsByUserQuery.Page);
+        Assert.Equal(10, service.ProjectsByUserQuery.PageSize);
+        Assert.Equal(ProjectStatus.IN_CONSULTATION, service.ProjectsByUserQuery.Status);
+        Assert.Equal("DESIGNER", service.ProjectsByUserQuery.RoleScope);
+        Assert.Equal("cafe", service.ProjectsByUserQuery.Keyword);
+    }
+
+    [Fact]
+    public async Task GetByUser_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
+        var controller = new ProjectsController(service)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.GetByUser(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.UserId);
+        Assert.Null(service.ProjectsByUserQuery);
     }
 
     [Fact]
@@ -693,6 +763,7 @@ public sealed class ProjectsControllerTests
         private readonly ServiceResult<ProjectStatusUpdateDto> _updateStatusResult;
         private readonly ServiceResult<ProjectRejectionDto> _rejectResult;
         private readonly ServiceResult<ProjectDesignerAssignmentDto> _assignDesignerResult;
+        private readonly ServiceResult<ProjectsByUserResponseDto> _projectsByUserResult;
 
         public FakeProjectService(
             ServiceResult<ProjectDto> createResult,
@@ -703,7 +774,8 @@ public sealed class ProjectsControllerTests
             ServiceResult<ProjectBasicInformationDto>? updateBasicInformationResult = null,
             ServiceResult<ProjectStatusUpdateDto>? updateStatusResult = null,
             ServiceResult<ProjectRejectionDto>? rejectResult = null,
-            ServiceResult<ProjectDesignerAssignmentDto>? assignDesignerResult = null)
+            ServiceResult<ProjectDesignerAssignmentDto>? assignDesignerResult = null,
+            ServiceResult<ProjectsByUserResponseDto>? projectsByUserResult = null)
         {
             _createResult = createResult;
             _listResult = listResult ?? ServiceResult<ProjectListResponseDto>.Success(new ProjectListResponseDto());
@@ -719,10 +791,13 @@ public sealed class ProjectsControllerTests
                 ServiceResult<ProjectRejectionDto>.Success(new ProjectRejectionDto());
             _assignDesignerResult = assignDesignerResult ??
                 ServiceResult<ProjectDesignerAssignmentDto>.Success(new ProjectDesignerAssignmentDto());
+            _projectsByUserResult = projectsByUserResult ??
+                ServiceResult<ProjectsByUserResponseDto>.Success(new ProjectsByUserResponseDto());
         }
 
         public Guid CurrentUserId { get; private set; }
         public Guid ProjectId { get; private set; }
+        public Guid UserId { get; private set; }
         public CreateProjectRequestDto? Request { get; private set; }
         public AssignProjectSalesRequestDto? AssignSalesRequest { get; private set; }
         public RequestProjectInformationRequestDto? RequestInformationRequest { get; private set; }
@@ -731,6 +806,7 @@ public sealed class ProjectsControllerTests
         public RejectProjectRequestDto? RejectRequest { get; private set; }
         public AssignProjectDesignerRequestDto? AssignDesignerRequest { get; private set; }
         public ProjectListQueryDto? Query { get; private set; }
+        public GetProjectsByUserQueryDto? ProjectsByUserQuery { get; private set; }
 
         public Task<ServiceResult<ProjectDto>> CreateAsync(
             Guid currentUserId,
@@ -832,6 +908,18 @@ public sealed class ProjectsControllerTests
             CurrentUserId = currentUserId;
             Query = query;
             return Task.FromResult(_listResult);
+        }
+
+        public Task<ServiceResult<ProjectsByUserResponseDto>> GetByUserAsync(
+            Guid userId,
+            Guid currentUserId,
+            GetProjectsByUserQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            CurrentUserId = currentUserId;
+            UserId = userId;
+            ProjectsByUserQuery = query;
+            return Task.FromResult(_projectsByUserResult);
         }
     }
 }

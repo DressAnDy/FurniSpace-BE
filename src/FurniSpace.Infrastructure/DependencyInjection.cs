@@ -77,6 +77,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IProjectScheduleRepository, ProjectScheduleRepository>();
+        services.AddScoped<IProposalRepository, ProposalRepository>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepository>();
         services.AddScoped<IRoomPlannerProposalSceneRepository, RoomPlannerProposalSceneRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();

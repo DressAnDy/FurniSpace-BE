@@ -1255,6 +1255,35 @@ public sealed class ProductVersionServiceTests
                 .FirstOrDefault());
         }
 
+        public Task<IReadOnlyList<ProductVersionDetailReadModel>> GetValidDetailsAsync(
+            IReadOnlyCollection<Guid> productVersionIds,
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<ProductVersionDetailReadModel>>(
+                _versions
+                    .Where(version => productVersionIds.Contains(version.ProductVersionId))
+                    .Select(version => new ProductVersionDetailReadModel
+                    {
+                        ProductVersionId = version.ProductVersionId,
+                        ProductId = version.ProductId,
+                        VersionCode = version.VersionCode,
+                        VersionName = version.VersionName,
+                        VersionType = version.VersionType,
+                        Material = version.Material,
+                        Color = version.Color,
+                        Width = version.Width,
+                        Height = version.Height,
+                        Depth = version.Depth,
+                        EstimatedPrice = version.EstimatedPrice,
+                        IsDefault = version.IsDefault,
+                        IsPublic = version.IsPublic,
+                        IsProjectSpecific = version.IsProjectSpecific,
+                        Status = version.Status
+                    })
+                    .ToList());
+        }
+
         public Task SetDefaultAsync(
             ProductVersion productVersion,
             CancellationToken cancellationToken = default)

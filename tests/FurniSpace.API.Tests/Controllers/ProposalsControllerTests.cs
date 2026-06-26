@@ -35,6 +35,8 @@ public sealed class ProposalsControllerTests
     [InlineData(nameof(ProposalsController.GetListByProject), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.CreateScene), "DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.GetDetail), "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(ProposalsController.SyncItemsFromScene), "DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(ProposalsController.SelectFinal), "CUSTOMER")]
     public void Actions_UseExpectedRoles(string actionName, string expectedRoles)
     {
         var method = typeof(ProposalsController)
@@ -151,6 +153,54 @@ public sealed class ProposalsControllerTests
     }
 
     [Fact]
+    public async Task SyncItemsFromScene_ReturnsServiceResultAndPassesRequest()
+    {
+        var proposalId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var request = new SyncProposalItemsFromSceneRequestDto { SceneId = Guid.NewGuid() };
+        var response = new SyncProposalItemsFromSceneResponseDto { ProposalId = proposalId, SceneId = request.SceneId };
+        var service = new FakeProposalService(
+            syncResult: ServiceResult<SyncProposalItemsFromSceneResponseDto>.Success(
+                response,
+                "Proposal items synced from scene successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.SyncItemsFromScene(proposalId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<SyncProposalItemsFromSceneResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(proposalId, service.ProposalId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.SyncRequest);
+    }
+
+    [Fact]
+    public async Task SelectFinal_ReturnsServiceResultAndPassesRequest()
+    {
+        var proposalId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var request = new SelectFinalProposalRequestDto { Note = "Confirmed" };
+        var response = new SelectFinalProposalResponseDto { ProposalId = proposalId };
+        var service = new FakeProposalService(
+            selectFinalResult: ServiceResult<SelectFinalProposalResponseDto>.Success(
+                response,
+                "Final proposal selected successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.SelectFinal(proposalId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<SelectFinalProposalResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(proposalId, service.ProposalId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.SelectFinalRequest);
+    }
+
+    [Fact]
     public async Task Actions_WithoutUserClaim_ReturnUnauthorized()
     {
         var service = new FakeProposalService();
@@ -160,6 +210,8 @@ public sealed class ProposalsControllerTests
         Assert.IsType<UnauthorizedResult>(await controller.GetListByProject(Guid.NewGuid()));
         Assert.IsType<UnauthorizedResult>(await controller.CreateScene(Guid.NewGuid(), new CreateProposalSceneRequestDto()));
         Assert.IsType<UnauthorizedResult>(await controller.GetDetail(Guid.NewGuid()));
+        Assert.IsType<UnauthorizedResult>(await controller.SyncItemsFromScene(Guid.NewGuid(), new SyncProposalItemsFromSceneRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.SelectFinal(Guid.NewGuid(), new SelectFinalProposalRequestDto()));
         Assert.Equal(0, service.CallCount);
     }
 
@@ -189,17 +241,23 @@ public sealed class ProposalsControllerTests
         private readonly ServiceResult<ProposalListResponseDto> _listResult;
         private readonly ServiceResult<ProposalSceneDto> _sceneResult;
         private readonly ServiceResult<ProposalDetailDto> _detailResult;
+        private readonly ServiceResult<SyncProposalItemsFromSceneResponseDto> _syncResult;
+        private readonly ServiceResult<SelectFinalProposalResponseDto> _selectFinalResult;
 
         public FakeProposalService(
             ServiceResult<ProposalDto>? createResult = null,
             ServiceResult<ProposalListResponseDto>? listResult = null,
             ServiceResult<ProposalSceneDto>? sceneResult = null,
-            ServiceResult<ProposalDetailDto>? detailResult = null)
+            ServiceResult<ProposalDetailDto>? detailResult = null,
+            ServiceResult<SyncProposalItemsFromSceneResponseDto>? syncResult = null,
+            ServiceResult<SelectFinalProposalResponseDto>? selectFinalResult = null)
         {
             _createResult = createResult ?? ServiceResult<ProposalDto>.Created(new ProposalDto());
             _listResult = listResult ?? ServiceResult<ProposalListResponseDto>.Success(new ProposalListResponseDto());
             _sceneResult = sceneResult ?? ServiceResult<ProposalSceneDto>.Created(new ProposalSceneDto());
             _detailResult = detailResult ?? ServiceResult<ProposalDetailDto>.Success(new ProposalDetailDto());
+            _syncResult = syncResult ?? ServiceResult<SyncProposalItemsFromSceneResponseDto>.Success(new SyncProposalItemsFromSceneResponseDto());
+            _selectFinalResult = selectFinalResult ?? ServiceResult<SelectFinalProposalResponseDto>.Success(new SelectFinalProposalResponseDto());
         }
 
         public int CallCount { get; private set; }
@@ -209,6 +267,8 @@ public sealed class ProposalsControllerTests
         public CreateProposalRequestDto? CreateRequest { get; private set; }
         public ProposalListQueryDto? ListQuery { get; private set; }
         public CreateProposalSceneRequestDto? SceneRequest { get; private set; }
+        public SyncProposalItemsFromSceneRequestDto? SyncRequest { get; private set; }
+        public SelectFinalProposalRequestDto? SelectFinalRequest { get; private set; }
 
         public Task<ServiceResult<ProposalDto>> CreateAsync(
             Guid projectId,
@@ -258,6 +318,32 @@ public sealed class ProposalsControllerTests
             ProposalId = proposalId;
             CurrentUserId = currentUserId;
             return Task.FromResult(_detailResult);
+        }
+
+        public Task<ServiceResult<SyncProposalItemsFromSceneResponseDto>> SyncItemsFromSceneAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            SyncProposalItemsFromSceneRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProposalId = proposalId;
+            CurrentUserId = currentUserId;
+            SyncRequest = request;
+            return Task.FromResult(_syncResult);
+        }
+
+        public Task<ServiceResult<SelectFinalProposalResponseDto>> SelectFinalAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            SelectFinalProposalRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProposalId = proposalId;
+            CurrentUserId = currentUserId;
+            SelectFinalRequest = request;
+            return Task.FromResult(_selectFinalResult);
         }
     }
 }

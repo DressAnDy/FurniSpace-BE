@@ -161,6 +161,83 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         return proposal;
     }
 
+    public Task<ProposalSceneContextReadModel?> GetSceneContextAsync(
+        Guid proposalId,
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalSceneSet
+            .Where(scene => scene.ProposalId == proposalId && scene.SceneId == sceneId)
+            .Join(
+                DbContext.ProposalSet,
+                scene => scene.ProposalId,
+                proposal => proposal.ProposalId,
+                (scene, proposal) => new { scene, proposal })
+            .Join(
+                DbContext.ProjectSet,
+                joined => joined.proposal.ProjectId,
+                project => project.ProjectId,
+                (joined, project) => new ProposalSceneContextReadModel
+                {
+                    SceneId = joined.scene.SceneId,
+                    ProposalId = joined.proposal.ProposalId,
+                    ProjectId = project.ProjectId,
+                    ProjectAreaId = joined.scene.ProjectAreaId,
+                    ProposalStatus = joined.proposal.Status,
+                    CustomerId = project.CustomerId,
+                    AssignedSalesId = project.AssignedSalesId,
+                    AssignedDesignerId = project.AssignedDesignerId
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ProposalItem>> GetItemsBySceneAsync(
+        Guid proposalId,
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.ProposalItemSet
+            .Where(item => item.ProposalId == proposalId && item.SceneId == sceneId)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task AddItemAsync(
+        ProposalItem item,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalItemSet.AddAsync(item, cancellationToken).AsTask();
+    }
+
+    public Task<Proposal?> GetProposalEntityAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalSet
+            .FirstOrDefaultAsync(proposal => proposal.ProposalId == proposalId, cancellationToken);
+    }
+
+    public async Task RejectOtherActiveProposalsAsync(
+        Guid projectId,
+        Guid selectedProposalId,
+        DateTime rejectedAt,
+        CancellationToken cancellationToken = default)
+    {
+        var proposals = await DbContext.ProposalSet
+            .Where(proposal =>
+                proposal.ProjectId == projectId &&
+                proposal.ProposalId != selectedProposalId &&
+                proposal.Status != ProposalStatus.ARCHIVED &&
+                proposal.Status != ProposalStatus.REJECTED)
+            .ToListAsync(cancellationToken);
+
+        foreach (var proposal in proposals)
+        {
+            proposal.Status = ProposalStatus.REJECTED;
+            proposal.RejectedAt = rejectedAt;
+            proposal.UpdatedAt = rejectedAt;
+        }
+    }
+
     private IQueryable<Proposal> BuildListQuery(ProposalListQueryReadModel query)
     {
         var proposals = DbContext.ProposalSet.Where(proposal => proposal.ProjectId == query.ProjectId);

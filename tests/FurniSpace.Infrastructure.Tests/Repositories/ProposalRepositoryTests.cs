@@ -127,6 +127,67 @@ public sealed class ProposalRepositoryTests
     }
 
     [Fact]
+    public async Task GetSceneContextAndItemsAsync_ReturnSceneAndExistingItems()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var scene = await repository.GetSceneContextAsync(data.PublishedProposalId, data.ActiveSceneId);
+        var items = await repository.GetItemsBySceneAsync(data.PublishedProposalId, data.ActiveSceneId);
+
+        Assert.NotNull(scene);
+        Assert.Equal(data.ProjectId, scene.ProjectId);
+        Assert.Equal(data.SalesId, scene.AssignedSalesId);
+        Assert.Single(items);
+        Assert.Equal("Cafe Chair", items[0].ItemName);
+    }
+
+    [Fact]
+    public async Task AddItemAsync_AddsProposalItem()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+        var item = new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = data.DraftProposalId,
+            SceneId = data.ActiveSceneId,
+            ItemName = "Cafe Table",
+            Quantity = 2
+        };
+
+        await repository.AddItemAsync(item);
+        await context.SaveChangesAsync();
+
+        Assert.Contains(context.ProposalItemSet, entity => entity.ProposalItemId == item.ProposalItemId);
+    }
+
+    [Fact]
+    public async Task GetProposalEntityAndRejectOtherActiveProposalsAsync_UpdateProposalStatuses()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var proposal = await repository.GetProposalEntityAsync(data.PublishedProposalId);
+        await repository.RejectOtherActiveProposalsAsync(
+            data.ProjectId,
+            data.PublishedProposalId,
+            DateTime.UtcNow);
+        await context.SaveChangesAsync();
+
+        Assert.NotNull(proposal);
+        Assert.Equal(ProposalStatus.PUBLISHED, proposal.Status);
+        var draft = await context.ProposalSet.SingleAsync(item => item.ProposalId == data.DraftProposalId);
+        var selected = await context.ProposalSet.SingleAsync(item => item.ProposalId == data.SelectedProposalId);
+        Assert.Equal(ProposalStatus.REJECTED, draft.Status);
+        Assert.Equal(ProposalStatus.REJECTED, selected.Status);
+        Assert.NotNull(draft.RejectedAt);
+    }
+
+    [Fact]
     public async Task GetDetailAsync_WithMissingProposal_ReturnsNull()
     {
         await using var context = CreateContext();
@@ -228,6 +289,7 @@ public sealed class ProposalRepositoryTests
             projectId,
             draftProposalId,
             publishedProposalId,
+            selectedProposalId,
             activeSceneId);
     }
 
@@ -258,5 +320,6 @@ public sealed class ProposalRepositoryTests
         Guid ProjectId,
         Guid DraftProposalId,
         Guid PublishedProposalId,
+        Guid SelectedProposalId,
         Guid ActiveSceneId);
 }

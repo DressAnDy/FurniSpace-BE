@@ -64,7 +64,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
         if (context.ProposalStatus != ProposalStatus.DRAFT)
         {
-            return ServiceResult<RoomPlannerSceneSaveResponseDto>.BadRequest("INVALID_PROPOSAL_STATUS");
+            return ServiceResult<RoomPlannerSceneSaveResponseDto>.Failure(Error.BadRequest(
+                "INVALID_PROPOSAL_STATUS",
+                "Room Planner scene can only be saved for draft proposal."));
         }
 
         var now = DateTime.UtcNow;
@@ -127,7 +129,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         {
             return ServiceResult<RoomPlannerSceneResponseDto>.Success(
                 CreateEmptySceneResponse(context),
-                "Room planner scene retrieved successfully.");
+                "Empty Room Planner scene template returned successfully.");
         }
 
         var document = await _sceneDocuments.GetByIdAsync(context.MongoSceneId, cancellationToken);
@@ -180,7 +182,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         {
             SceneId = context.SceneId,
             MongoSceneId = null,
-            SchemaVersion = 1,
+            SchemaVersion = 2,
             Unit = "meter",
             Layout = new RoomPlannerLayoutDocument(),
             Objects = [],

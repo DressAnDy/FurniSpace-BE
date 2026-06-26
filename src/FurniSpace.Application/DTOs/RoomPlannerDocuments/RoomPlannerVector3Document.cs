@@ -1,0 +1,8 @@
+namespace FurniSpace.Application.DTOs.RoomPlannerDocuments;
+
+public sealed class RoomPlannerVector3Document
+{
+    public decimal X { get; set; }
+    public decimal Y { get; set; }
+    public decimal Z { get; set; }
+}

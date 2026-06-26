@@ -55,4 +55,10 @@ public interface IProjectService
         Guid currentUserId,
         ProjectListQueryDto query,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectsByUserResponseDto>> GetByUserAsync(
+        Guid userId,
+        Guid currentUserId,
+        GetProjectsByUserQueryDto query,
+        CancellationToken cancellationToken = default);
 }

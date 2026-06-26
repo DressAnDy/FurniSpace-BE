@@ -27,6 +27,7 @@ public sealed class ProjectService : IProjectService
     private const string AuthenticatedAccountIdRequiredMessage = "Authenticated account id is required.";
     private const string ProjectIdRequiredMessage = "Project id is required.";
     private const string ProjectNotFoundMessage = "Project not found.";
+    private const int MaxProjectsByUserPageSize = 100;
     private static readonly string[] ProjectSubmittedReceiverRoles = [SalesRole, AdminRole];
     private static readonly Dictionary<ProjectStatus, int> ProjectStatusRanks = new()
     {
@@ -382,6 +383,91 @@ public sealed class ProjectService : IProjectService
         return ServiceResult<ProjectListResponseDto>.Success(
             response,
             "Project request queue retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectsByUserResponseDto>> GetByUserAsync(
+        Guid userId,
+        Guid currentUserId,
+        GetProjectsByUserQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.BadRequest("User id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var paginationError = ValidateProjectsByUserPagination(query.Page, query.PageSize);
+        if (paginationError is not null)
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.BadRequest(paginationError);
+        }
+
+        var requesterRole = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        var targetRole = await _projects.GetAccountRoleNameAsync(userId, cancellationToken);
+        if (targetRole is null)
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.Failure(Error.NotFound(
+                "USER_NOT_FOUND",
+                "User not found."));
+        }
+
+        if (!CanRequesterViewProjectsByUser(currentUserId, userId, requesterRole))
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.Forbidden(
+                "You do not have access to view projects for this user.");
+        }
+
+        var roleScope = NormalizeRoleScope(query.RoleScope) ?? NormalizeRoleScope(targetRole);
+        if (!IsSupportedProjectsByUserRoleScope(roleScope))
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.BadRequest(
+                "Role scope must be CUSTOMER, SALES, DESIGNER, or ADMIN.");
+        }
+
+        if (!string.Equals(roleScope, NormalizeRoleScope(targetRole), StringComparison.Ordinal) &&
+            !IsAdmin(requesterRole))
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.Forbidden(
+                "You do not have access to view projects for this role scope.");
+        }
+
+        if (!string.Equals(roleScope, NormalizeRoleScope(targetRole), StringComparison.Ordinal) &&
+            IsAdmin(requesterRole))
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.BadRequest(
+                "Role scope does not match the requested user's role.");
+        }
+
+        var repositoryQuery = new ProjectByUserQueryReadModel
+        {
+            UserId = userId,
+            RoleScope = roleScope!,
+            Status = query.Status,
+            Keyword = NormalizeOptional(query.Keyword),
+            Page = query.Page,
+            PageSize = query.PageSize
+        };
+        var projects = await _projects.GetByUserAsync(repositoryQuery, cancellationToken);
+        var totalItems = await _projects.CountByUserAsync(repositoryQuery, cancellationToken);
+        var totalPages = totalItems == 0
+            ? 0
+            : (int)Math.Ceiling(totalItems / (double)query.PageSize);
+
+        return ServiceResult<ProjectsByUserResponseDto>.Success(
+            new ProjectsByUserResponseDto
+            {
+                Items = projects.Adapt<List<ProjectByUserItemDto>>(),
+                Page = query.Page,
+                PageSize = query.PageSize,
+                TotalItems = totalItems,
+                TotalPages = totalPages
+            },
+            "Projects retrieved successfully.");
     }
 
     public async Task<ServiceResult<ProjectDto>> GetByIdAsync(
@@ -906,6 +992,56 @@ public sealed class ProjectService : IProjectService
         }
 
         return null;
+    }
+
+    private static string? ValidateProjectsByUserPagination(int page, int pageSize)
+    {
+        if (page < 1)
+        {
+            return "Page must be greater than zero.";
+        }
+
+        if (pageSize is < 1 or > MaxProjectsByUserPageSize)
+        {
+            return "Page size must be between 1 and 100.";
+        }
+
+        return null;
+    }
+
+    private static bool CanRequesterViewProjectsByUser(
+        Guid currentUserId,
+        Guid userId,
+        string? requesterRole)
+    {
+        if (IsAdmin(requesterRole))
+        {
+            return true;
+        }
+
+        if (currentUserId != userId)
+        {
+            return false;
+        }
+
+        return IsCustomer(requesterRole) ||
+            IsDesigner(requesterRole) ||
+            string.Equals(requesterRole, SalesRole, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSupportedProjectsByUserRoleScope(string? roleScope)
+    {
+        return string.Equals(roleScope, CustomerRole, StringComparison.Ordinal) ||
+            string.Equals(roleScope, SalesRole, StringComparison.Ordinal) ||
+            string.Equals(roleScope, DesignerRole, StringComparison.Ordinal) ||
+            string.Equals(roleScope, AdminRole, StringComparison.Ordinal);
+    }
+
+    private static string? NormalizeRoleScope(string? roleScope)
+    {
+        return string.IsNullOrWhiteSpace(roleScope)
+            ? null
+            : roleScope.Trim().ToUpperInvariant();
     }
 
     private static bool CanViewProjects(string? roleName)

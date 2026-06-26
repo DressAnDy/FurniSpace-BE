@@ -4,7 +4,6 @@ using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Common.Search.Documents;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Search;
 using Mapster;
 
 namespace FurniSpace.Application.Services.Search;

@@ -1,5 +1,5 @@
 using FurniSpace.Domain.Entities;
-using FurniSpace.Infrastructure.DTOs.ProjectChatMessages;
+using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using FurniSpace.Infrastructure.Repositories.Base;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;

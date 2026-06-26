@@ -2,7 +2,7 @@
 
 using System.Collections.Generic;
 using FurniSpace.Infrastructure;
-using FurniSpace.Infrastructure.Mongo;
+using FurniSpace.Infrastructure.Data.Mongo;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

@@ -4,7 +4,7 @@ using System;
 using System.Linq;
 using FurniSpace.Application.Common;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.ReadModels.Products;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.Common;

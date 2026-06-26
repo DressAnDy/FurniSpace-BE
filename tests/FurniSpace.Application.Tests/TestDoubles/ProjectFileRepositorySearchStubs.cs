@@ -4,8 +4,8 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.Infrastructure.DTOs.ProjectChatMessages;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 
 namespace FurniSpace.Application.Tests.TestDoubles;
 

@@ -1,6 +1,6 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.ProjectChats;
+using FurniSpace.Infrastructure.ReadModels.ProjectChats;
 using FurniSpace.Infrastructure.Repositories.Base;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;

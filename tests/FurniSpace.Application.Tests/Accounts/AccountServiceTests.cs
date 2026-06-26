@@ -13,7 +13,7 @@ using FurniSpace.Application.Services.Accounts;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Accounts;
+using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;

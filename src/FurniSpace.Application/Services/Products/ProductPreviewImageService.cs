@@ -7,7 +7,6 @@ using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Storage;
 using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Services.Products;
@@ -441,7 +440,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
     }
 
     private static List<ProductPreviewImageDto> MapPreviewItems(
-        IReadOnlyList<Infrastructure.DTOs.Products.ProductPreviewImageReadModel> previews)
+        IReadOnlyList<Infrastructure.ReadModels.Products.ProductPreviewImageReadModel> previews)
     {
         var ordered = previews
             .OrderBy(preview => preview.DisplayOrder <= 0 ? int.MaxValue : preview.DisplayOrder)

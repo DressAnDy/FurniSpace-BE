@@ -9,7 +9,7 @@ using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Application.Services.RoomPlanner;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.RoomPlanner;
+using FurniSpace.Infrastructure.ReadModels.RoomPlanner;
 using RoomPlannerSqlSceneRepository = FurniSpace.Infrastructure.Repositories.IRepository.IRoomPlannerProposalSceneRepository;
 using Xunit;
 

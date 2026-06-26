@@ -10,7 +10,7 @@ using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 

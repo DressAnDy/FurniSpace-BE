@@ -11,7 +11,7 @@ using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Search;
-using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;

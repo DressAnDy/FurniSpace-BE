@@ -2,7 +2,6 @@
 
 using System;
 using FurniSpace.Infrastructure.Common.Search;
-using FurniSpace.Infrastructure.Search;
 using Xunit;
 
 namespace FurniSpace.Infrastructure.Tests.Search;

@@ -1,6 +1,6 @@
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Search;
-using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 
 namespace FurniSpace.Application.Services.Search;
 

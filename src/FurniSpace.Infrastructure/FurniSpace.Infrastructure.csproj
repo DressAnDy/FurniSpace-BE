@@ -27,7 +27,7 @@
     <PackageReference Include="StackExchange.Redis" Version="2.7.33" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="Search\Mappings\*.json" />
+    <EmbeddedResource Include="Common\Search\Mappings\*.json" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FurniSpace.Domain\FurniSpace.Domain.csproj" />

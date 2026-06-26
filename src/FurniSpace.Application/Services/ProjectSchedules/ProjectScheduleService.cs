@@ -5,7 +5,7 @@ using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
@@ -342,7 +342,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
     private static bool CanViewProjectSchedules(
         string? role,
-        FurniSpace.Infrastructure.DTOs.Projects.ProjectDetailReadModel project,
+        FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
         Guid currentUserId)
     {
         return role switch
@@ -569,7 +569,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
     private async Task DispatchScheduleCreatedAsync(
         ProjectSchedule schedule,
-        FurniSpace.Infrastructure.DTOs.Projects.ProjectDetailReadModel project,
+        FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
         CancellationToken cancellationToken)
     {
         var receivers = BuildReceivers(project.CustomerId, schedule.AssignedStaffId);

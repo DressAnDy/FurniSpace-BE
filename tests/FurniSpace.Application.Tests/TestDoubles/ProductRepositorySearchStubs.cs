@@ -4,7 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.ReadModels.Products;
 
 namespace FurniSpace.Application.Tests.TestDoubles;
 

@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
-using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using Microsoft.EntityFrameworkCore;
 using Xunit;

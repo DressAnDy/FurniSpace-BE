@@ -1,5 +1,5 @@
 using FurniSpace.Infrastructure.Data;
-using FurniSpace.Infrastructure.DTOs.RoomPlanner;
+using FurniSpace.Infrastructure.ReadModels.RoomPlanner;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
 

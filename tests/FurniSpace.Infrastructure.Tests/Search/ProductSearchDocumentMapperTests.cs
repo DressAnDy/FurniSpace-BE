@@ -2,8 +2,8 @@
 
 using System;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.Search;
+using FurniSpace.Infrastructure.ReadModels.Products;
+using FurniSpace.Infrastructure.Common.Search;
 using Xunit;
 
 namespace FurniSpace.Infrastructure.Tests.Search;

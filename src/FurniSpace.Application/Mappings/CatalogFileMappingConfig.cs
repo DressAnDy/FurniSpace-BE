@@ -1,5 +1,5 @@
 using FurniSpace.Application.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.ReadModels.Products;
 using Mapster;
 
 namespace FurniSpace.Application.Mappings;

@@ -1,7 +1,7 @@
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Search;
+using FurniSpace.Infrastructure.Common.Search;
 
 namespace FurniSpace.Application.Services.Search;
 

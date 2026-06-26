@@ -11,8 +11,8 @@ using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.ProjectSchedules;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
-using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 

@@ -3,7 +3,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.Infrastructure.Mongo;
+using FurniSpace.Infrastructure.Data.Mongo;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using MongoDB.Bson;
 using MongoDB.Driver;

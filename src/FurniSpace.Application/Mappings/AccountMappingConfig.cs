@@ -1,6 +1,6 @@
 using FurniSpace.Application.DTOs.Accounts;
 using FurniSpace.Domain.Entities;
-using FurniSpace.Infrastructure.DTOs.Accounts;
+using FurniSpace.Infrastructure.ReadModels.Accounts;
 using Mapster;
 
 namespace FurniSpace.Application.Mappings;

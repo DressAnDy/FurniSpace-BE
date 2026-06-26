@@ -582,7 +582,7 @@ flowchart TD
 | Loại | Path |
 |------|------|
 | Mới | `Infrastructure/Common/Search/Documents/ProjectSearchDocument.cs` |
-| Mới | `Infrastructure/DTOs/Projects/ProjectSearchIndexItemReadModel.cs` |
+| Mới | `Infrastructure/ReadModels/Projects/ProjectSearchIndexItemReadModel.cs` |
 | Mới | `Infrastructure/Search/Mappings/projects-index.json` |
 | Mới | `Infrastructure/Search/ProjectSearchDocumentMapper.cs` |
 | Mới | `Application/Interfaces/Search/IProjectSearchIndexer.cs` |

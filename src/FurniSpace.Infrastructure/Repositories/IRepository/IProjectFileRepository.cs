@@ -1,6 +1,6 @@
 using FurniSpace.Domain.Entities;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.Products;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.Base;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;

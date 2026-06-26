@@ -144,7 +144,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     }
 
     private static RoomPlannerSceneDocument BuildDocument(
-        Infrastructure.DTOs.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
         SaveRoomPlannerSceneRequestDto request,
         Guid currentUserId,
         DateTime now)
@@ -177,7 +177,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     }
 
     private static RoomPlannerSceneResponseDto CreateEmptySceneResponse(
-        Infrastructure.DTOs.RoomPlanner.RoomPlannerSceneContextReadModel context) =>
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context) =>
         new()
         {
             SceneId = context.SceneId,
@@ -212,7 +212,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         };
 
     private static bool CanSaveScene(
-        Infrastructure.DTOs.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
         Guid currentUserId,
         string role)
     {
@@ -230,7 +230,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     }
 
     private static bool CanViewScene(
-        Infrastructure.DTOs.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
         Guid currentUserId,
         string role)
     {
@@ -245,7 +245,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     }
 
     private static bool IsAssignedStaff(
-        Infrastructure.DTOs.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
         Guid currentUserId,
         string role)
     {

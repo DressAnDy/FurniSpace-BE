@@ -1,4 +1,4 @@
-using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 
 namespace FurniSpace.Application.DTOs.ProjectSchedules;
 

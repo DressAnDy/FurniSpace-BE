@@ -1,7 +1,7 @@
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.ProjectChatMessages;
+using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using Mapster;
 
 namespace FurniSpace.Application.Mappings;

@@ -1,7 +1,7 @@
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Search;
-using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.ReadModels.Products;
 
 namespace FurniSpace.Application.Services.Search;
 

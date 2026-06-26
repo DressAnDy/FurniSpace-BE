@@ -4,7 +4,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.ProjectChatMessages;
+using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using Xunit;
 
 namespace FurniSpace.Infrastructure.Tests.ProjectChats;

@@ -10,7 +10,6 @@ using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Storage;
 using Mapster;
 using Microsoft.Extensions.Options;
 

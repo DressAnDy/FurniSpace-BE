@@ -1,4 +1,4 @@
-using FurniSpace.Infrastructure.Mongo;
+using FurniSpace.Infrastructure.Data.Mongo;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;
 

@@ -1,4 +1,4 @@
-using FurniSpace.Infrastructure.Storage;
+using FurniSpace.Infrastructure.Common.Storage;
 
 namespace FurniSpace.Infrastructure.Interfaces;
 

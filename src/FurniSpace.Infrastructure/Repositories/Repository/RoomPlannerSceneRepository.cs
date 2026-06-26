@@ -1,4 +1,4 @@
-using FurniSpace.Infrastructure.Mongo;
+using FurniSpace.Infrastructure.Data.Mongo;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using MongoDB.Bson;
 using MongoDB.Driver;

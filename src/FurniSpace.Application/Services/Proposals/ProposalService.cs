@@ -5,7 +5,7 @@ using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Proposals;
+using FurniSpace.Infrastructure.ReadModels.Proposals;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
@@ -649,7 +649,7 @@ public sealed class ProposalService : IProposalService
         return IsDesigner(roleName) && proposal.AssignedDesignerId == currentUserId;
     }
 
-    private async Task<Dictionary<Guid, Infrastructure.DTOs.Products.ProductVersionDetailReadModel>> GetProductVersionsForSyncAsync(
+    private async Task<Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel>> GetProductVersionsForSyncAsync(
         IEnumerable<SyncProposalItemFromSceneDto> items,
         Guid projectId,
         CancellationToken cancellationToken)
@@ -670,7 +670,7 @@ public sealed class ProposalService : IProposalService
     private async Task<List<SyncedProposalItemDto>> UpsertProposalItemsAsync(
         SyncProposalItemsFromSceneRequestDto request,
         ProposalSceneContextReadModel scene,
-        Dictionary<Guid, Infrastructure.DTOs.Products.ProductVersionDetailReadModel> productVersions,
+        Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel> productVersions,
         IReadOnlyList<ProposalItem> existingItems,
         DateTime now,
         CancellationToken cancellationToken)
@@ -717,7 +717,7 @@ public sealed class ProposalService : IProposalService
 
     private static void ApplyProposalItemSnapshot(
         ProposalItem proposalItem,
-        Infrastructure.DTOs.Products.ProductVersionDetailReadModel productVersion,
+        Infrastructure.ReadModels.Products.ProductVersionDetailReadModel productVersion,
         SyncProposalItemFromSceneDto requestItem,
         DateTime now)
     {
@@ -740,7 +740,7 @@ public sealed class ProposalService : IProposalService
     private static SyncedProposalItemDto ToSyncedItemDto(
         ProposalItem proposalItem,
         string? sceneObjectId,
-        Infrastructure.DTOs.Products.ProductVersionDetailReadModel productVersion)
+        Infrastructure.ReadModels.Products.ProductVersionDetailReadModel productVersion)
     {
         return new SyncedProposalItemDto
         {

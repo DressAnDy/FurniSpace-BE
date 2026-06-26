@@ -1,6 +1,6 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure.Data;
-using FurniSpace.Infrastructure.DTOs.ProjectChatMessages;
+using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;

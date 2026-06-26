@@ -7,8 +7,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.Products;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 
 namespace FurniSpace.Application.Tests.TestDoubles;

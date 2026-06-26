@@ -1,6 +1,6 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure.Data;
-using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;

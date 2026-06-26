@@ -1,5 +1,5 @@
 using FurniSpace.Infrastructure.Common.Mongo;
-using FurniSpace.Infrastructure.Mongo;
+using FurniSpace.Infrastructure.Data.Mongo;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using Xunit;

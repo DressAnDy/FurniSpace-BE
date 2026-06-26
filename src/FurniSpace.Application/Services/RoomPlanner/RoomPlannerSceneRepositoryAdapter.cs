@@ -49,14 +49,14 @@ public sealed class RoomPlannerSceneRepositoryAdapter : IRoomPlannerSceneReposit
         _inner.DeleteBySqlSceneIdAsync(sqlSceneId, cancellationToken);
 
     private static RoomPlannerSceneDocument MapToApplicationDocument(
-        FurniSpace.Infrastructure.Mongo.RoomPlannerSceneDocument document) =>
+        FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneDocument document) =>
         JsonSerializer.Deserialize<RoomPlannerSceneDocument>(
             JsonSerializer.Serialize(document, JsonOptions),
             JsonOptions) ?? new RoomPlannerSceneDocument();
 
-    private static FurniSpace.Infrastructure.Mongo.RoomPlannerSceneDocument MapToInfrastructureDocument(
+    private static FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneDocument MapToInfrastructureDocument(
         RoomPlannerSceneDocument document) =>
-        JsonSerializer.Deserialize<FurniSpace.Infrastructure.Mongo.RoomPlannerSceneDocument>(
+        JsonSerializer.Deserialize<FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneDocument>(
             JsonSerializer.Serialize(document, JsonOptions),
-            JsonOptions) ?? new FurniSpace.Infrastructure.Mongo.RoomPlannerSceneDocument();
+            JsonOptions) ?? new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneDocument();
 }

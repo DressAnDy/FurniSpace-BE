@@ -539,7 +539,7 @@ public sealed class ProposalService : IProposalService
         return errors;
     }
 
-    private static void ValidateSyncItem(SyncProposalItemFromSceneDto item, ICollection<string> errors)
+    private static void ValidateSyncItem(SyncProposalItemFromSceneDto item, List<string> errors)
     {
         if (item.ProductVersionId == Guid.Empty)
         {
@@ -670,7 +670,7 @@ public sealed class ProposalService : IProposalService
     private async Task<List<SyncedProposalItemDto>> UpsertProposalItemsAsync(
         SyncProposalItemsFromSceneRequestDto request,
         ProposalSceneContextReadModel scene,
-        IReadOnlyDictionary<Guid, Infrastructure.DTOs.Products.ProductVersionDetailReadModel> productVersions,
+        Dictionary<Guid, Infrastructure.DTOs.Products.ProductVersionDetailReadModel> productVersions,
         IReadOnlyList<ProposalItem> existingItems,
         DateTime now,
         CancellationToken cancellationToken)

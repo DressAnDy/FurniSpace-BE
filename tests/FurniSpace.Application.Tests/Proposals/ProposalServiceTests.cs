@@ -779,6 +779,10 @@ public sealed class ProposalServiceTests
             Task.FromResult<IReadOnlyList<ProjectByUserItemReadModel>>([]);
         public Task<int> CountByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
+        public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
+        public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
         public IQueryable<Project> Query() => Array.Empty<Project>().AsQueryable();
         public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
             Task.FromResult(_project?.ProjectId == id ? _project : null);

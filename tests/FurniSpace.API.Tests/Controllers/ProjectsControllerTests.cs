@@ -314,7 +314,7 @@ public sealed class ProjectsControllerTests
     public async Task GetByUser_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {

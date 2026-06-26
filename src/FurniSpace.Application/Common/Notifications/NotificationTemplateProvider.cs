@@ -47,6 +47,12 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "project.designer.assigned"),
 
+            NotificationType.ProposalFinalSelected => new NotificationTemplate(
+                "Final proposal selected",
+                "Customer selected proposal \"{ProposalName}\" as the final design proposal.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "proposal.final.selected"),
+
             NotificationType.ProjectFileUploaded => new NotificationTemplate(
                 "Project file uploaded",
                 "A new file has been uploaded to project \"{ProjectName}\".",

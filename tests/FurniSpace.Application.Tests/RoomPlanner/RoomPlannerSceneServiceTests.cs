@@ -88,7 +88,8 @@ public sealed class RoomPlannerSceneServiceTests
         var result = await service.SaveSceneAsync(SceneId, CreateSaveRequest(), DesignerId, "DESIGNER");
 
         Assert.Equal(400, result.Status);
-        Assert.Equal("INVALID_PROPOSAL_STATUS", result.Message);
+        Assert.Equal("INVALID_PROPOSAL_STATUS", result.ErrorCode);
+        Assert.Equal("Room Planner scene can only be saved for draft proposal.", result.Message);
         Assert.Null(documents.UpsertedDocument);
     }
 

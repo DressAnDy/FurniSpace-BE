@@ -62,6 +62,45 @@ public sealed class ProductVersionRepository : GenericRepository<ProductVersion>
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ProductVersionDetailReadModel>> GetValidDetailsAsync(
+        IReadOnlyCollection<Guid> productVersionIds,
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (productVersionIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await (
+            from version in DbContext.ProductVersionSet
+            join product in DbContext.ProductSet on version.ProductId equals product.ProductId
+            where productVersionIds.Contains(version.ProductVersionId) &&
+                  version.Status == ProductStatus.ACTIVE &&
+                  (version.IsPublic == true ||
+                   version.IsProjectSpecific == true && version.ProjectId == projectId)
+            select new ProductVersionDetailReadModel
+            {
+                ProductVersionId = version.ProductVersionId,
+                ProductId = version.ProductId,
+                ProductName = product.ProductName,
+                VersionCode = version.VersionCode,
+                VersionName = version.VersionName,
+                VersionType = version.VersionType,
+                Material = version.Material,
+                Color = version.Color,
+                Width = version.Width,
+                Height = version.Height,
+                Depth = version.Depth,
+                EstimatedPrice = version.EstimatedPrice,
+                IsDefault = version.IsDefault,
+                IsPublic = version.IsPublic,
+                IsProjectSpecific = version.IsProjectSpecific,
+                Status = version.Status
+            })
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task SetDefaultAsync(
         ProductVersion productVersion,
         CancellationToken cancellationToken = default)

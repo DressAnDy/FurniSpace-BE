@@ -28,4 +28,16 @@ public interface IProposalService
         Guid proposalId,
         Guid currentUserId,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<SyncProposalItemsFromSceneResponseDto>> SyncItemsFromSceneAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        SyncProposalItemsFromSceneRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<SelectFinalProposalResponseDto>> SelectFinalAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        SelectFinalProposalRequestDto request,
+        CancellationToken cancellationToken = default);
 }

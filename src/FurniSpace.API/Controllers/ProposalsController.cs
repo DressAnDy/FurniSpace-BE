@@ -95,6 +95,46 @@ public sealed class ProposalsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [HttpPost("proposals/{proposalId:guid}/items/sync-from-scene")]
+    public async Task<IActionResult> SyncItemsFromScene(
+        Guid proposalId,
+        [FromBody] SyncProposalItemsFromSceneRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.SyncItemsFromSceneAsync(
+            proposalId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPatch("proposals/{proposalId:guid}/select-final")]
+    public async Task<IActionResult> SelectFinal(
+        Guid proposalId,
+        [FromBody] SelectFinalProposalRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.SelectFinalAsync(
+            proposalId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

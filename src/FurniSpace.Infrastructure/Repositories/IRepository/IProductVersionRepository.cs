@@ -18,6 +18,11 @@ public interface IProductVersionRepository : IGenericRepository<ProductVersion>
         Guid productVersionId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<ProductVersionDetailReadModel>> GetValidDetailsAsync(
+        IReadOnlyCollection<Guid> productVersionIds,
+        Guid projectId,
+        CancellationToken cancellationToken = default);
+
     Task SetDefaultAsync(
         ProductVersion productVersion,
         CancellationToken cancellationToken = default);

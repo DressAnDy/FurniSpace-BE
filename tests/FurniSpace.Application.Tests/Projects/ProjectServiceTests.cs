@@ -2873,6 +2873,19 @@ public sealed class ProjectServiceTests
             int limit,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
+        public Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(
+            ProjectByUserQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<ProjectByUserItemReadModel>>([]);
+        }
+
+        public Task<int> CountByUserAsync(
+            ProjectByUserQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(0);
+        }
 
         public IQueryable<Project> Query() => _projects.AsQueryable();
         public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

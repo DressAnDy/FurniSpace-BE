@@ -9,6 +9,7 @@ public enum NotificationType
     ProjectStatusChanged,
     ProjectRequestRejected,
     ProjectDesignerAssigned,
+    ProposalFinalSelected,
     ProjectFileUploaded,
     ProjectScheduleCreated,
     ProjectScheduleUpdated,

@@ -794,6 +794,7 @@ public sealed class ProjectFileServiceTests
         public Task<bool> VersionCodeExistsAsync(string versionCode, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<bool> ProductExistsAsync(Guid productId, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<ProductVersionDetailReadModel?> GetPublicDetailAsync(Guid productVersionId, CancellationToken cancellationToken = default) => Task.FromResult<ProductVersionDetailReadModel?>(null);
+        public Task<IReadOnlyList<ProductVersionDetailReadModel>> GetValidDetailsAsync(IReadOnlyCollection<Guid> productVersionIds, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductVersionDetailReadModel>>([]);
         public Task SetDefaultAsync(ProductVersion productVersion, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

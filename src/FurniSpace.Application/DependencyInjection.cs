@@ -7,11 +7,13 @@ using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
+using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Application.Interfaces.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Accounts;
 using FurniSpace.Application.Services.Search;
@@ -20,11 +22,13 @@ using FurniSpace.Application.Services.Identity;
 using FurniSpace.Application.Services.Notifications;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Services.ProductVersions;
+using FurniSpace.Application.Services.Proposals;
 using FurniSpace.Application.Services.ProjectFiles;
 using FurniSpace.Application.Services.ProjectChats;
 using FurniSpace.Application.Services.ProjectChatMessages;
 using FurniSpace.Application.Services.ProjectSchedules;
 using FurniSpace.Application.Services.Projects;
+using FurniSpace.Application.Services.RoomPlanner;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure;
 using Mapster;
@@ -58,6 +62,7 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductPreviewImageService, ProductPreviewImageService>();
         services.AddScoped<IProductVersionService, ProductVersionService>();
+        services.AddScoped<IProposalService, ProposalService>();
         services.AddScoped<IFileUploadValidator, FileUploadValidator>();
         services.AddScoped<ProjectChatFileUploadDependencies>(sp =>
         {
@@ -81,6 +86,8 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
+        services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepositoryAdapter>();
+        services.AddScoped<IRoomPlannerSceneService, RoomPlannerSceneService>();
         services.AddScoped<ISearchReindexService, SearchReindexService>();
         services.AddScoped<IProductSearchIndexer, ProductSearchIndexer>();
         services.AddScoped<IProjectSearchIndexer, ProjectSearchIndexer>();

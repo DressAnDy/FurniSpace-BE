@@ -640,6 +640,12 @@ public sealed class ProjectScheduleServiceTests
 
         public Task<int> CountAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
+        public Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(
+            ProjectByUserQueryReadModel query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProjectByUserItemReadModel>>([]);
+        public Task<int> CountByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
 
         public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(
             Guid projectId,

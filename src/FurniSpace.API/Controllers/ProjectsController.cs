@@ -72,6 +72,37 @@ public sealed class ProjectsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "ADMIN,SALES,DESIGNER,CUSTOMER")]
+    [HttpGet("by-user/{userId:guid}")]
+    public async Task<IActionResult> GetByUser(
+        Guid userId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] ProjectStatus? status = null,
+        [FromQuery] string? roleScope = null,
+        [FromQuery] string? keyword = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.GetByUserAsync(
+            userId,
+            currentUserId,
+            new GetProjectsByUserQueryDto
+            {
+                Page = page,
+                PageSize = pageSize,
+                Status = status,
+                RoleScope = roleScope,
+                Keyword = keyword
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "SALES,ADMIN,CUSTOMER,DESIGNER")]
     [HttpGet("{projectId:guid}")]
     public async Task<IActionResult> GetById(

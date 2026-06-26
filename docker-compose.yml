@@ -15,12 +15,17 @@ services:
       Redis__ConnectionString: ${DOCKER_REDIS_CONNECTION}
       ELASTICSEARCH_URL: ${DOCKER_ELASTICSEARCH_URL}
       ELASTICSEARCH_INDEX_PREFIX: ${ELASTICSEARCH_INDEX_PREFIX}
+      MONGODB_CONNECTION_STRING: ${DOCKER_MONGODB_CONNECTION_STRING}
+      MONGODB_DATABASE_NAME: ${MONGODB_DATABASE_NAME}
+      MONGODB_ROOM_PLANNER_SCENES_COLLECTION: ${MONGODB_ROOM_PLANNER_SCENES_COLLECTION}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       elasticsearch:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -83,6 +88,21 @@ services:
     networks:
       - furnispace-network
 
+  mongodb:
+    image: mongo:8.0
+    container_name: furnispace-mongodb
+    ports:
+      - "${MONGODB_HOST_PORT}:${MONGODB_CONTAINER_PORT}"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - furnispace-network
+
   kibana:
     image: docker.elastic.co/kibana/kibana:8.19.15
     container_name: furnispace-kibana
@@ -100,6 +120,7 @@ volumes:
   postgres_data:
   redis_data:
   elasticsearch_data:
+  mongodb_data:
 
 networks:
   furnispace-network:

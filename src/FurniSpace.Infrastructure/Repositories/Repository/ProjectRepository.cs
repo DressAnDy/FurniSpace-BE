@@ -160,6 +160,72 @@ public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepo
         return BuildProjectQueueQuery(query).CountAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(
+        ProjectByUserQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildProjectsByUserQuery(query)
+            .OrderByDescending(project => project.SubmittedAt ?? project.CreatedAt)
+            .ThenByDescending(project => project.ProjectId)
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .Select(project => new ProjectByUserItemReadModel
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                BusinessType = project.BusinessType,
+                ProjectAddress = project.ProjectAddress,
+                TotalAreaSqm = project.TotalAreaSqm,
+                NumberOfFloors = project.NumberOfFloors,
+                BudgetMin = project.BudgetMin,
+                BudgetMax = project.BudgetMax,
+                TargetCompletionDate = project.TargetCompletionDate,
+                Status = project.Status,
+                Customer = DbContext.AccountSet
+                    .Where(account => account.AccountId == project.CustomerId)
+                    .Select(account => new ProjectCustomerSummaryReadModel
+                    {
+                        AccountId = account.AccountId,
+                        FullName = account.FullName,
+                        Email = account.Email,
+                        Phone = account.Phone
+                    })
+                    .FirstOrDefault()!,
+                AssignedSales = project.AssignedSalesId.HasValue
+                    ? DbContext.AccountSet
+                        .Where(account => account.AccountId == project.AssignedSalesId)
+                        .Select(account => new ProjectAccountSummaryReadModel
+                        {
+                            AccountId = account.AccountId,
+                            FullName = account.FullName
+                        })
+                        .FirstOrDefault()
+                    : null,
+                AssignedDesigner = project.AssignedDesignerId.HasValue
+                    ? DbContext.AccountSet
+                        .Where(account => account.AccountId == project.AssignedDesignerId)
+                        .Select(account => new ProjectAccountSummaryReadModel
+                        {
+                            AccountId = account.AccountId,
+                            FullName = account.FullName
+                        })
+                        .FirstOrDefault()
+                    : null,
+                SubmittedAt = project.SubmittedAt,
+                CreatedAt = project.CreatedAt,
+                UpdatedAt = project.UpdatedAt
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountByUserAsync(
+        ProjectByUserQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildProjectsByUserQuery(query).CountAsync(cancellationToken);
+    }
+
     public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(
         Guid projectId,
         CancellationToken cancellationToken = default)
@@ -237,6 +303,43 @@ public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepo
             projects = projects.Where(project =>
                 EF.Functions.ILike(project.ProjectCode ?? string.Empty, pattern) ||
                 EF.Functions.ILike(project.ProjectName, pattern) ||
+                DbContext.AccountSet.Any(account =>
+                    account.AccountId == project.CustomerId &&
+                    (
+                        EF.Functions.ILike(account.FullName, pattern) ||
+                        EF.Functions.ILike(account.Email, pattern) ||
+                        EF.Functions.ILike(account.Phone ?? string.Empty, pattern)
+                    )));
+        }
+
+        return projects;
+    }
+
+    private IQueryable<Project> BuildProjectsByUserQuery(ProjectByUserQueryReadModel query)
+    {
+        var projects = DbContext.ProjectSet.AsQueryable();
+
+        projects = query.RoleScope.ToUpperInvariant() switch
+        {
+            "CUSTOMER" => projects.Where(project => project.CustomerId == query.UserId),
+            "SALES" => projects.Where(project => project.AssignedSalesId == query.UserId),
+            "DESIGNER" => projects.Where(project => project.AssignedDesignerId == query.UserId),
+            "ADMIN" => projects,
+            _ => projects.Where(project => false)
+        };
+
+        if (query.Status.HasValue)
+        {
+            projects = projects.Where(project => project.Status == query.Status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Keyword))
+        {
+            var pattern = $"%{query.Keyword.Trim()}%";
+            projects = projects.Where(project =>
+                EF.Functions.ILike(project.ProjectCode ?? string.Empty, pattern) ||
+                EF.Functions.ILike(project.ProjectName, pattern) ||
+                EF.Functions.ILike(project.BusinessType ?? string.Empty, pattern) ||
                 DbContext.AccountSet.Any(account =>
                     account.AccountId == project.CustomerId &&
                     (

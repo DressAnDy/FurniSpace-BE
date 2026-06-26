@@ -38,6 +38,14 @@ public interface IProjectRepository : IGenericRepository<Project>
         ProjectListQueryReadModel query,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(
+        ProjectByUserQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountByUserAsync(
+        ProjectByUserQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
     Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(
         Guid projectId,
         CancellationToken cancellationToken = default);

@@ -7,6 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\FurniSpace.Domain\FurniSpace.Domain.csproj" />
     <ProjectReference Include="..\FurniSpace.Infrastructure\FurniSpace.Infrastructure.csproj" />
+    <ProjectReference Include="..\FurniSpace.Shared\FurniSpace.Shared.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Mapster" Version="7.4.0" />

@@ -194,7 +194,7 @@ public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepo
                     .FirstOrDefault()!,
                 AssignedSales = project.AssignedSalesId.HasValue
                     ? DbContext.AccountSet
-                        .Where(account => account.AccountId == project.AssignedSalesId.Value)
+                        .Where(account => account.AccountId == project.AssignedSalesId)
                         .Select(account => new ProjectAccountSummaryReadModel
                         {
                             AccountId = account.AccountId,
@@ -204,7 +204,7 @@ public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepo
                     : null,
                 AssignedDesigner = project.AssignedDesignerId.HasValue
                     ? DbContext.AccountSet
-                        .Where(account => account.AccountId == project.AssignedDesignerId.Value)
+                        .Where(account => account.AccountId == project.AssignedDesignerId)
                         .Select(account => new ProjectAccountSummaryReadModel
                         {
                             AccountId = account.AccountId,

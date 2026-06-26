@@ -1,16 +1,18 @@
+using FurniSpace.Shared.DTOs.RoomPlanner;
+
 namespace FurniSpace.Infrastructure.Mongo;
 
 public sealed class RoomPlannerLayoutDocument
+    : RoomPlannerLayoutBase<
+        RoomPlannerPoint2Document,
+        RoomPlannerWallDocument,
+        RoomPlannerOpeningDocument,
+        RoomPlannerFloorDocument>
 {
-    public string Type { get; set; } = "WALL_BOUNDARY";
-    public bool IsClosed { get; set; }
-    public decimal? AreaSqm { get; set; }
-    public decimal? DefaultWallHeight { get; set; }
-    public decimal? DefaultWallThickness { get; set; }
-    public List<RoomPlannerPoint2Document> Boundary { get; set; } = [];
-    public List<RoomPlannerWallDocument> Walls { get; set; } = [];
-    public List<RoomPlannerOpeningDocument> Openings { get; set; } = [];
-    public RoomPlannerFloorDocument Floor { get; set; } = new();
+    public RoomPlannerLayoutDocument()
+    {
+        Floor = new RoomPlannerFloorDocument();
+    }
 }
 
 public sealed class RoomPlannerPoint2Document
@@ -20,28 +22,18 @@ public sealed class RoomPlannerPoint2Document
 }
 
 public sealed class RoomPlannerWallDocument
+    : RoomPlannerWallBase<RoomPlannerPoint2Document, RoomPlannerStyleDocument>
 {
-    public string WallId { get; set; } = string.Empty;
-    public RoomPlannerPoint2Document Start { get; set; } = new();
-    public RoomPlannerPoint2Document End { get; set; } = new();
-    public decimal? Height { get; set; }
-    public decimal? Thickness { get; set; }
-    public bool Visible { get; set; } = true;
-    public bool Locked { get; set; }
-    public RoomPlannerStyleDocument Style { get; set; } = new();
+    public RoomPlannerWallDocument()
+    {
+        Start = new RoomPlannerPoint2Document();
+        End = new RoomPlannerPoint2Document();
+        Style = new RoomPlannerStyleDocument();
+    }
 }
 
-public sealed class RoomPlannerOpeningDocument
+public sealed class RoomPlannerOpeningDocument : RoomPlannerOpeningBase
 {
-    public string OpeningId { get; set; } = string.Empty;
-    public string Type { get; set; } = string.Empty;
-    public string WallId { get; set; } = string.Empty;
-    public decimal? OffsetFromWallStart { get; set; }
-    public decimal? Width { get; set; }
-    public decimal? Height { get; set; }
-    public string? SwingDirection { get; set; }
-    public string? Orientation { get; set; }
-    public decimal? SillHeight { get; set; }
 }
 
 public sealed class RoomPlannerFloorDocument
@@ -63,19 +55,17 @@ public sealed class RoomPlannerStyleDocument
 }
 
 public sealed class RoomPlannerObjectDocument
+    : RoomPlannerObjectBase<
+        RoomPlannerTransformDocument,
+        RoomPlannerDimensionsSnapshotDocument,
+        RoomPlannerVisualSnapshotDocument,
+        RoomPlannerModelSnapshotDocument>
 {
-    public string ObjectId { get; set; } = string.Empty;
-    public Guid? ProposalItemId { get; set; }
-    public Guid ProductVersionId { get; set; }
-    public string ObjectType { get; set; } = "FURNITURE";
-    public string? Name { get; set; }
-    public RoomPlannerTransformDocument Transform { get; set; } = new();
-    public RoomPlannerDimensionsSnapshotDocument DimensionsSnapshot { get; set; } = new();
-    public RoomPlannerVisualSnapshotDocument? VisualSnapshot { get; set; }
-    public RoomPlannerModelSnapshotDocument? ModelSnapshot { get; set; }
-    public Dictionary<string, object?> MaterialOverrides { get; set; } = [];
-    public bool Visible { get; set; } = true;
-    public bool Locked { get; set; }
+    public RoomPlannerObjectDocument()
+    {
+        Transform = new RoomPlannerTransformDocument();
+        DimensionsSnapshot = new RoomPlannerDimensionsSnapshotDocument();
+    }
 }
 
 public sealed class RoomPlannerTransformDocument

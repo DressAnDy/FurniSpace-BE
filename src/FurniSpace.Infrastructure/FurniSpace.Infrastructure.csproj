@@ -25,5 +25,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\FurniSpace.Domain\FurniSpace.Domain.csproj" />
+    <ProjectReference Include="..\FurniSpace.Shared\FurniSpace.Shared.csproj" />
   </ItemGroup>
 </Project>

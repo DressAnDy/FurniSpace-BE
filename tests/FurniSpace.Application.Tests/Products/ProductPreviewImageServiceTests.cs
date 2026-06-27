@@ -921,6 +921,11 @@ public sealed class ProductPreviewImageServiceTests
                 customerVisibleOnly,
                 customerAccountId,
                 cancellationToken);
+        public Task<bool> HasProjectFileWithTypesAsync(
+            Guid projectId,
+            IReadOnlyCollection<FileType> fileTypes,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
     }
 
     private sealed class TrackingPreviewStorage : IFileStorageService

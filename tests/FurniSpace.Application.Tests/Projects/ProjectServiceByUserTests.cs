@@ -23,7 +23,7 @@ public sealed class ProjectServiceByUserTests
     {
         var customerId = Guid.NewGuid();
         var item = CreateProjectByUserItem(customerId);
-        var repository = new FakeProjectRepository(
+        var repository = new ByUserFakeProjectRepository(
             roles: new Dictionary<Guid, string?> { [customerId] = "CUSTOMER" },
             byUserItems: [item],
             byUserCount: 21);
@@ -62,7 +62,7 @@ public sealed class ProjectServiceByUserTests
     {
         var adminId = Guid.NewGuid();
         var designerId = Guid.NewGuid();
-        var repository = new FakeProjectRepository(
+        var repository = new ByUserFakeProjectRepository(
             roles: new Dictionary<Guid, string?>
             {
                 [adminId] = "ADMIN",
@@ -86,7 +86,7 @@ public sealed class ProjectServiceByUserTests
     public async Task GetByUserAsync_WithMissingTargetUser_ReturnsUserNotFound()
     {
         var adminId = Guid.NewGuid();
-        var repository = new FakeProjectRepository(
+        var repository = new ByUserFakeProjectRepository(
             roles: new Dictionary<Guid, string?> { [adminId] = "ADMIN" });
         var service = CreateService(repository);
 
@@ -105,7 +105,7 @@ public sealed class ProjectServiceByUserTests
     {
         var requesterId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
-        var repository = new FakeProjectRepository(
+        var repository = new ByUserFakeProjectRepository(
             roles: new Dictionary<Guid, string?>
             {
                 [requesterId] = "CUSTOMER",
@@ -133,7 +133,7 @@ public sealed class ProjectServiceByUserTests
         string expectedMessage)
     {
         var userId = Guid.NewGuid();
-        var repository = new FakeProjectRepository(
+        var repository = new ByUserFakeProjectRepository(
             roles: new Dictionary<Guid, string?> { [userId] = "SALES" });
         var service = CreateService(repository);
 
@@ -152,7 +152,7 @@ public sealed class ProjectServiceByUserTests
     {
         var adminId = Guid.NewGuid();
         var salesId = Guid.NewGuid();
-        var repository = new FakeProjectRepository(
+        var repository = new ByUserFakeProjectRepository(
             roles: new Dictionary<Guid, string?>
             {
                 [adminId] = "ADMIN",
@@ -174,7 +174,7 @@ public sealed class ProjectServiceByUserTests
     public async Task GetByUserAsync_WithUnsupportedRoleScope_ReturnsBadRequest()
     {
         var userId = Guid.NewGuid();
-        var repository = new FakeProjectRepository(
+        var repository = new ByUserFakeProjectRepository(
             roles: new Dictionary<Guid, string?> { [userId] = "SALES" });
         var service = CreateService(repository);
 
@@ -188,9 +188,9 @@ public sealed class ProjectServiceByUserTests
         Assert.Null(repository.LastByUserQuery);
     }
 
-    private static ProjectService CreateService(FakeProjectRepository repository)
+    private static ProjectService CreateService(ByUserFakeProjectRepository repository)
     {
-        return new ProjectService(repository, TestUnitOfWork.Instance);
+        return ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
     }
 
     private static ProjectByUserItemReadModel CreateProjectByUserItem(
@@ -237,8 +237,18 @@ public sealed class ProjectServiceByUserTests
             UpdatedAt = DateTime.UtcNow
         };
     }
+}
 
-    private sealed class FakeProjectRepository : IProjectRepository
+internal sealed class ByUserFakeProjectRepository : IProjectRepository
+{
+    private readonly IReadOnlyDictionary<Guid, string?> _roles;
+    private readonly IReadOnlyList<ProjectByUserItemReadModel> _byUserItems;
+    private readonly int _byUserCount;
+
+    public ByUserFakeProjectRepository(
+        IReadOnlyDictionary<Guid, string?> roles,
+        IReadOnlyList<ProjectByUserItemReadModel>? byUserItems = null,
+        int byUserCount = 0)
     {
         private readonly IReadOnlyDictionary<Guid, string?> _roles;
         private readonly IReadOnlyList<ProjectByUserItemReadModel> _byUserItems;
@@ -306,6 +316,59 @@ public sealed class ProjectServiceByUserTests
         public void Remove(Project entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
+        _roles = roles;
+        _byUserItems = byUserItems ?? [];
+        _byUserCount = byUserCount;
     }
 
+    public ProjectByUserQueryReadModel? LastByUserQuery { get; private set; }
+
+    public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(_roles.TryGetValue(accountId, out var roleName) ? roleName : null);
+    }
+
+    public Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(
+        ProjectByUserQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        LastByUserQuery = query;
+        return Task.FromResult(_byUserItems);
+    }
+
+    public Task<int> CountByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        LastByUserQuery = query;
+        return Task.FromResult(_byUserCount);
+    }
+
+    public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<string?>(null);
+    public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(IReadOnlyCollection<string> roleNames, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Guid>>([]);
+    public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default) =>
+        Task.FromResult(0);
+    public Task<ProjectDetailReadModel?> GetDetailAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<ProjectDetailReadModel?>(null);
+    public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<DesignerAccountReadModel?>(null);
+    public Task<IReadOnlyList<ProjectListItemReadModel>> GetListAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<ProjectListItemReadModel>>([]);
+    public Task<int> CountAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) =>
+        Task.FromResult(0);
+    public IQueryable<Project> Query() => Array.Empty<Project>().AsQueryable();
+    public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+        Task.FromResult<Project?>(null);
+    public Task<IReadOnlyList<Project>> ListAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<Project>>([]);
+    public Task AddAsync(Project entity, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+    public Task AddRangeAsync(IEnumerable<Project> entities, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+    public void Update(Project entity) { }
+    public void Remove(Project entity) { }
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(0);
 }

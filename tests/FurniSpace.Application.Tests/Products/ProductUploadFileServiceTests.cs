@@ -579,5 +579,10 @@ public sealed class ProductUploadFileServiceTests
                 customerVisibleOnly,
                 customerAccountId,
                 cancellationToken);
+        public Task<bool> HasProjectFileWithTypesAsync(
+            Guid projectId,
+            IReadOnlyCollection<FileType> fileTypes,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
     }
 }

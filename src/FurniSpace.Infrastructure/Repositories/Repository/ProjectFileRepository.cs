@@ -22,7 +22,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
     {
         _projectAccessResolvers = new Dictionary<string, Func<Guid, CancellationToken, Task<ProjectFileAccessReadModel?>>>(StringComparer.OrdinalIgnoreCase)
         {
-            ["PROJECT"] = GetProjectAccessAsync,
+            [ProjectReferenceType] = GetProjectAccessAsync,
             ["PROJECT_SCHEDULE"] = GetProjectScheduleAccessAsync,
             ["PROPOSAL"] = GetProposalAccessAsync,
             ["QUOTATION"] = GetQuotationAccessAsync,
@@ -162,7 +162,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 },
                 project => new
                 {
-                    ReferenceType = "PROJECT",
+                    ReferenceType = ProjectReferenceType,
                     ReferenceId = project.ProjectId
                 },
                 (joined, projects) => new { joined.link, joined.file, projects })
@@ -407,7 +407,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 },
                 project => new
                 {
-                    ReferenceType = "PROJECT",
+                    ReferenceType = ProjectReferenceType,
                     ReferenceId = project.ProjectId
                 },
                 (joined, projects) => new { joined.file, joined.link, projects })

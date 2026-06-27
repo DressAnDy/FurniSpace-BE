@@ -722,6 +722,16 @@ public sealed class ProposalServiceTests
             return Task.CompletedTask;
         }
 
+        public Task<bool> HasProposalWithActiveSceneAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task<bool> HasSelectedFinalProposalAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
         public IQueryable<Proposal> Query() => Proposals.AsQueryable();
         public Task<Proposal?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
             Task.FromResult(Proposals.FirstOrDefault(proposal => proposal.ProposalId == id));

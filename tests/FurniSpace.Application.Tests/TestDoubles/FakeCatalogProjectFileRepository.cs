@@ -10,6 +10,8 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
+using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.DTOs.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 
 namespace FurniSpace.Application.Tests.TestDoubles;
@@ -210,6 +212,7 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
             projectId,
             fileTypes,
             cancellationToken);
+        ProjectFileRepositoryStubResponses.FalseHasProjectFileWithTypes(projectId, fileTypes, cancellationToken);
 }
 
 [SuppressMessage(

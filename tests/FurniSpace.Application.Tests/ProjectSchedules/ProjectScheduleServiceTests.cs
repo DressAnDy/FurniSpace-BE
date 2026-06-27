@@ -5,7 +5,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Tests.Projects;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.ProjectSchedules;
@@ -14,6 +16,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
 using FurniSpace.Infrastructure.DTOs.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.ProjectSchedules;
@@ -25,7 +28,7 @@ public sealed class ProjectScheduleServiceTests
     [Fact]
     public async Task CreateAsync_ReturnsUnauthorized_WhenUserIdIsEmpty()
     {
-        var service = BuildService(role: "SALES");
+        var service = BuildService(new() { Role = "SALES" });
 
         var result = await service.CreateAsync(Guid.NewGuid(), Guid.Empty, ValidCreateRequest());
 
@@ -35,7 +38,7 @@ public sealed class ProjectScheduleServiceTests
     [Fact]
     public async Task CreateAsync_ReturnsBadRequest_WhenProjectIdIsEmpty()
     {
-        var service = BuildService(role: "SALES");
+        var service = BuildService(new() { Role = "SALES" });
 
         var result = await service.CreateAsync(Guid.Empty, Guid.NewGuid(), ValidCreateRequest());
 
@@ -45,7 +48,7 @@ public sealed class ProjectScheduleServiceTests
     [Fact]
     public async Task CreateAsync_ReturnsForbidden_WhenRoleIsNotSalesOrAdmin()
     {
-        var service = BuildService(role: "CUSTOMER");
+        var service = BuildService(new() { Role = "CUSTOMER" });
 
         var result = await service.CreateAsync(Guid.NewGuid(), Guid.NewGuid(), ValidCreateRequest());
 
@@ -55,7 +58,7 @@ public sealed class ProjectScheduleServiceTests
     [Fact]
     public async Task CreateAsync_ReturnsNotFound_WhenProjectDoesNotExist()
     {
-        var service = BuildService(role: "SALES", projectDetail: null);
+        var service = BuildService(new() { Role = "SALES" });
 
         var result = await service.CreateAsync(Guid.NewGuid(), Guid.NewGuid(), ValidCreateRequest());
 
@@ -67,7 +70,7 @@ public sealed class ProjectScheduleServiceTests
     {
         var salesId = Guid.NewGuid();
         var project = CreateProject(assignedSalesId: Guid.NewGuid());
-        var service = BuildService(role: "SALES", projectDetail: project);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
 
         var result = await service.CreateAsync(project.ProjectId, salesId, ValidCreateRequest());
 
@@ -79,7 +82,7 @@ public sealed class ProjectScheduleServiceTests
     {
         var salesId = Guid.NewGuid();
         var project = CreateProject(assignedSalesId: salesId);
-        var service = BuildService(role: "SALES", projectDetail: project);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
         var request = ValidCreateRequest();
         request.ScheduledStart = DateTime.UtcNow.AddHours(-1);
 
@@ -93,7 +96,7 @@ public sealed class ProjectScheduleServiceTests
     {
         var salesId = Guid.NewGuid();
         var project = CreateProject(assignedSalesId: salesId);
-        var service = BuildService(role: "SALES", projectDetail: project);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
         var request = ValidCreateRequest();
         request.ScheduledStart = DateTime.UtcNow.AddDays(1);
         request.ScheduledEnd = DateTime.UtcNow.AddHours(1);
@@ -109,7 +112,7 @@ public sealed class ProjectScheduleServiceTests
         var salesId = Guid.NewGuid();
         var project = CreateProject(assignedSalesId: salesId);
         var scheduleRepo = new FakeProjectScheduleRepository();
-        var service = BuildService(role: "SALES", projectDetail: project, scheduleRepo: scheduleRepo);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, ScheduleRepo = scheduleRepo });
 
         var result = await service.CreateAsync(project.ProjectId, salesId, ValidCreateRequest());
 
@@ -125,7 +128,7 @@ public sealed class ProjectScheduleServiceTests
     {
         var project = CreateProject(assignedSalesId: Guid.NewGuid());
         var scheduleRepo = new FakeProjectScheduleRepository();
-        var service = BuildService(role: "ADMIN", projectDetail: project, scheduleRepo: scheduleRepo);
+        var service = BuildService(new() { Role = "ADMIN", ProjectDetail = project, ScheduleRepo = scheduleRepo });
 
         var result = await service.CreateAsync(project.ProjectId, Guid.NewGuid(), ValidCreateRequest());
 
@@ -139,7 +142,7 @@ public sealed class ProjectScheduleServiceTests
         var salesId = Guid.NewGuid();
         var project = CreateProject(assignedSalesId: salesId);
         var dispatcher = new FakeNotificationDispatcher();
-        var service = BuildService(role: "SALES", projectDetail: project, dispatcher: dispatcher);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, Dispatcher = dispatcher });
 
         await service.CreateAsync(project.ProjectId, salesId, ValidCreateRequest());
 
@@ -152,7 +155,7 @@ public sealed class ProjectScheduleServiceTests
     [Fact]
     public async Task GetListByProjectAsync_ReturnsUnauthorized_WhenUserIdIsEmpty()
     {
-        var service = BuildService(role: "SALES");
+        var service = BuildService(new() { Role = "SALES" });
 
         var result = await service.GetListByProjectAsync(Guid.NewGuid(), Guid.Empty, new ProjectScheduleListQueryDto());
 
@@ -162,7 +165,7 @@ public sealed class ProjectScheduleServiceTests
     [Fact]
     public async Task GetListByProjectAsync_ReturnsNotFound_WhenProjectDoesNotExist()
     {
-        var service = BuildService(role: "ADMIN", projectDetail: null);
+        var service = BuildService(new() { Role = "ADMIN" });
 
         var result = await service.GetListByProjectAsync(Guid.NewGuid(), Guid.NewGuid(), new ProjectScheduleListQueryDto());
 
@@ -173,7 +176,7 @@ public sealed class ProjectScheduleServiceTests
     public async Task GetListByProjectAsync_ReturnsForbidden_WhenCustomerDoesNotOwnProject()
     {
         var project = CreateProject();
-        var service = BuildService(role: "CUSTOMER", projectDetail: project);
+        var service = BuildService(new() { Role = "CUSTOMER", ProjectDetail = project });
 
         var result = await service.GetListByProjectAsync(project.ProjectId, Guid.NewGuid(), new ProjectScheduleListQueryDto());
 
@@ -185,7 +188,7 @@ public sealed class ProjectScheduleServiceTests
     {
         var customerId = Guid.NewGuid();
         var project = CreateProject(customerId: customerId);
-        var service = BuildService(role: "CUSTOMER", projectDetail: project);
+        var service = BuildService(new() { Role = "CUSTOMER", ProjectDetail = project });
 
         var result = await service.GetListByProjectAsync(project.ProjectId, customerId, new ProjectScheduleListQueryDto());
 
@@ -197,7 +200,7 @@ public sealed class ProjectScheduleServiceTests
     public async Task GetListByProjectAsync_ReturnsSuccess_ForAdmin()
     {
         var project = CreateProject();
-        var service = BuildService(role: "ADMIN", projectDetail: project);
+        var service = BuildService(new() { Role = "ADMIN", ProjectDetail = project });
 
         var result = await service.GetListByProjectAsync(project.ProjectId, Guid.NewGuid(), new ProjectScheduleListQueryDto());
 
@@ -209,7 +212,7 @@ public sealed class ProjectScheduleServiceTests
     [Fact]
     public async Task GetDetailAsync_ReturnsNotFound_WhenScheduleDoesNotExist()
     {
-        var service = BuildService(role: "ADMIN", scheduleDetail: null);
+        var service = BuildService(new() { Role = "ADMIN" });
 
         var result = await service.GetDetailAsync(Guid.NewGuid(), Guid.NewGuid());
 
@@ -220,7 +223,7 @@ public sealed class ProjectScheduleServiceTests
     public async Task GetDetailAsync_ReturnsForbidden_WhenUserHasNoAccess()
     {
         var detail = CreateScheduleDetail();
-        var service = BuildService(role: "CUSTOMER", scheduleDetail: detail);
+        var service = BuildService(new() { Role = "CUSTOMER", ScheduleDetail = detail });
 
         var result = await service.GetDetailAsync(detail.ScheduleId, Guid.NewGuid());
 
@@ -231,7 +234,7 @@ public sealed class ProjectScheduleServiceTests
     public async Task GetDetailAsync_ReturnsSuccess_WhenAdminAccesses()
     {
         var detail = CreateScheduleDetail();
-        var service = BuildService(role: "ADMIN", scheduleDetail: detail);
+        var service = BuildService(new() { Role = "ADMIN", ScheduleDetail = detail });
 
         var result = await service.GetDetailAsync(detail.ScheduleId, Guid.NewGuid());
 
@@ -245,7 +248,7 @@ public sealed class ProjectScheduleServiceTests
     {
         var staffId = Guid.NewGuid();
         var detail = CreateScheduleDetail(assignedStaffId: staffId);
-        var service = BuildService(role: "DESIGNER", scheduleDetail: detail);
+        var service = BuildService(new() { Role = "DESIGNER", ScheduleDetail = detail });
 
         var result = await service.GetDetailAsync(detail.ScheduleId, staffId);
 
@@ -257,7 +260,7 @@ public sealed class ProjectScheduleServiceTests
     [Fact]
     public async Task UpdateAsync_ReturnsNotFound_WhenScheduleDoesNotExist()
     {
-        var service = BuildService(role: "ADMIN", scheduleDetail: null);
+        var service = BuildService(new() { Role = "ADMIN" });
 
         var result = await service.UpdateAsync(Guid.NewGuid(), Guid.NewGuid(), new UpdateProjectScheduleRequestDto());
 
@@ -268,7 +271,7 @@ public sealed class ProjectScheduleServiceTests
     public async Task UpdateAsync_ReturnsForbidden_WhenSalesIsNotAssigned()
     {
         var detail = CreateScheduleDetail(assignedSalesId: Guid.NewGuid(), status: ProjectScheduleStatus.PENDING_CONFIRMATION);
-        var service = BuildService(role: "SALES", scheduleDetail: detail);
+        var service = BuildService(new() { Role = "SALES", ScheduleDetail = detail });
 
         var result = await service.UpdateAsync(detail.ScheduleId, Guid.NewGuid(), new UpdateProjectScheduleRequestDto());
 
@@ -280,7 +283,7 @@ public sealed class ProjectScheduleServiceTests
     {
         var salesId = Guid.NewGuid();
         var detail = CreateScheduleDetail(assignedSalesId: salesId, status: ProjectScheduleStatus.COMPLETED);
-        var service = BuildService(role: "SALES", scheduleDetail: detail);
+        var service = BuildService(new() { Role = "SALES", ScheduleDetail = detail });
 
         var result = await service.UpdateAsync(detail.ScheduleId, salesId, new UpdateProjectScheduleRequestDto());
 
@@ -294,7 +297,7 @@ public sealed class ProjectScheduleServiceTests
         var schedule = CreateScheduleEntity(status: ProjectScheduleStatus.CONFIRMED, scheduledStart: DateTime.UtcNow.AddDays(2));
         var detail = CreateScheduleDetail(assignedSalesId: salesId, status: ProjectScheduleStatus.CONFIRMED, scheduleId: schedule.ScheduleId);
         var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
-        var service = BuildService(role: "SALES", scheduleDetail: detail, scheduleRepo: scheduleRepo);
+        var service = BuildService(new() { Role = "SALES", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
 
         var request = new UpdateProjectScheduleRequestDto
         {
@@ -313,7 +316,7 @@ public sealed class ProjectScheduleServiceTests
     public async Task UpdateStatusAsync_ReturnsBadRequest_WhenStatusIsAlreadyTerminal()
     {
         var detail = CreateScheduleDetail(status: ProjectScheduleStatus.CANCELLED);
-        var service = BuildService(role: "ADMIN", scheduleDetail: detail);
+        var service = BuildService(new() { Role = "ADMIN", ScheduleDetail = detail });
 
         var result = await service.UpdateStatusAsync(detail.ScheduleId, Guid.NewGuid(),
             new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.CONFIRMED });
@@ -326,7 +329,7 @@ public sealed class ProjectScheduleServiceTests
     {
         var salesId = Guid.NewGuid();
         var detail = CreateScheduleDetail(assignedSalesId: salesId, status: ProjectScheduleStatus.PENDING_CONFIRMATION);
-        var service = BuildService(role: "SALES", scheduleDetail: detail);
+        var service = BuildService(new() { Role = "SALES", ScheduleDetail = detail });
 
         var result = await service.UpdateStatusAsync(detail.ScheduleId, salesId,
             new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.CONFIRMED });
@@ -341,7 +344,7 @@ public sealed class ProjectScheduleServiceTests
         var schedule = CreateScheduleEntity(status: ProjectScheduleStatus.PENDING_CONFIRMATION);
         var detail = CreateScheduleDetail(customerId: customerId, status: ProjectScheduleStatus.PENDING_CONFIRMATION, scheduleId: schedule.ScheduleId);
         var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
-        var service = BuildService(role: "CUSTOMER", scheduleDetail: detail, scheduleRepo: scheduleRepo);
+        var service = BuildService(new() { Role = "CUSTOMER", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
 
         var result = await service.UpdateStatusAsync(schedule.ScheduleId, customerId,
             new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.CONFIRMED });
@@ -357,7 +360,7 @@ public sealed class ProjectScheduleServiceTests
         var schedule = CreateScheduleEntity(status: ProjectScheduleStatus.PENDING_CONFIRMATION);
         var detail = CreateScheduleDetail(customerId: customerId, status: ProjectScheduleStatus.PENDING_CONFIRMATION, scheduleId: schedule.ScheduleId);
         var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
-        var service = BuildService(role: "CUSTOMER", scheduleDetail: detail, scheduleRepo: scheduleRepo);
+        var service = BuildService(new() { Role = "CUSTOMER", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
 
         var result = await service.UpdateStatusAsync(schedule.ScheduleId, customerId,
             new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.CANCELLED });
@@ -371,7 +374,7 @@ public sealed class ProjectScheduleServiceTests
     public async Task UpdateStatusAsync_ReturnsBadRequest_WhenCompletingNonConfirmed()
     {
         var detail = CreateScheduleDetail(status: ProjectScheduleStatus.PENDING_CONFIRMATION);
-        var service = BuildService(role: "ADMIN", scheduleDetail: detail);
+        var service = BuildService(new() { Role = "ADMIN", ScheduleDetail = detail });
 
         var result = await service.UpdateStatusAsync(detail.ScheduleId, Guid.NewGuid(),
             new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.COMPLETED });
@@ -384,7 +387,7 @@ public sealed class ProjectScheduleServiceTests
     [Fact]
     public async Task GetMyAssignedAsync_ReturnsUnauthorized_WhenUserIdIsEmpty()
     {
-        var service = BuildService(role: "SALES");
+        var service = BuildService(new() { Role = "SALES" });
 
         var result = await service.GetMyAssignedAsync(Guid.Empty, new ProjectScheduleListQueryDto());
 
@@ -398,7 +401,7 @@ public sealed class ProjectScheduleServiceTests
         var scheduleRepo = new FakeProjectScheduleRepository(
             myAssignedItems: [CreateListItem()],
             myAssignedTotal: 1);
-        var service = BuildService(role: "SALES", scheduleRepo: scheduleRepo);
+        var service = BuildService(new() { Role = "SALES", ScheduleRepo = scheduleRepo });
 
         var result = await service.GetMyAssignedAsync(staffId, new ProjectScheduleListQueryDto());
 
@@ -413,36 +416,134 @@ public sealed class ProjectScheduleServiceTests
     public async Task GetMyAssignedAsync_PassesNullStaffId_WhenAdmin()
     {
         var scheduleRepo = new FakeProjectScheduleRepository();
-        var service = BuildService(role: "ADMIN", scheduleRepo: scheduleRepo);
+        var service = BuildService(new() { Role = "ADMIN", ScheduleRepo = scheduleRepo });
 
         await service.GetMyAssignedAsync(Guid.NewGuid(), new ProjectScheduleListQueryDto());
 
         Assert.Null(scheduleRepo.LastMyAssignedStaffId);
     }
 
+    // ── Measurement rules (SCRUM-165 / SCRUM-164) ─────────────────────────────
+
+    [Fact]
+    public async Task CreateAsync_Measurement_ReturnsDesignerNotAssigned_WhenProjectHasNoDesigner()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId, status: ProjectStatus.MEASUREMENT_REQUIRED);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+
+        var result = await service.CreateAsync(
+            project.ProjectId,
+            salesId,
+            ValidMeasurementCreateRequest(Guid.NewGuid()));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.DesignerNotAssigned, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_Measurement_ReturnsInvalidProjectStatus_WhenNotMeasurementRequired()
+    {
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var project = CreateProject(
+            assignedSalesId: salesId,
+            assignedDesignerId: designerId,
+            status: ProjectStatus.SPACE_VERIFIED);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+
+        var result = await service.CreateAsync(
+            project.ProjectId,
+            salesId,
+            ValidMeasurementCreateRequest(designerId));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.InvalidProjectStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_CompleteMeasurement_ReturnsCanMoveToProposalDrafting_WhenGatePasses()
+    {
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(
+            scheduleId,
+            assignedSalesId: salesId,
+            assignedDesignerId: designerId,
+            assignedStaffId: designerId,
+            status: ProjectScheduleStatus.CONFIRMED);
+        detail.ProjectId = projectId;
+        detail.ScheduleType = ProjectScheduleType.MEASUREMENT;
+        var schedule = new ProjectSchedule { ScheduleId = scheduleId, ProjectId = projectId };
+        var projectEntity = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = detail.CustomerId,
+            AssignedSalesId = salesId,
+            AssignedDesignerId = designerId,
+            Status = ProjectStatus.MEASUREMENT_REQUIRED,
+            ProjectName = "Test"
+        };
+        var scheduleRepo = new FakeProjectScheduleRepository(detail: detail, entityById: schedule)
+        {
+            HasCompletedMeasurement = true
+        };
+        var projectRepo = new FakeProjectRepository(role: "SALES", entity: projectEntity);
+        var service = BuildService(new() { ScheduleRepo = scheduleRepo, ProjectRepo = projectRepo });
+
+        var result = await service.UpdateStatusAsync(
+            scheduleId,
+            salesId,
+            new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.COMPLETED });
+
+        Assert.Equal(200, result.Status);
+        Assert.True(result.Data!.CanMoveToProposalDrafting);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
-    private static ProjectScheduleService BuildService(
-        string? role = null,
-        ProjectDetailReadModel? projectDetail = null,
-        ProjectScheduleDetailReadModel? scheduleDetail = null,
-        FakeProjectScheduleRepository? scheduleRepo = null,
-        FakeNotificationDispatcher? dispatcher = null)
+    private sealed class ScheduleServiceTestOptions
     {
-        scheduleRepo ??= new FakeProjectScheduleRepository(detail: scheduleDetail);
-        var projectRepo = new FakeProjectRepository(role: role, detail: projectDetail);
-        dispatcher ??= new FakeNotificationDispatcher();
+        public string? Role { get; init; }
+        public ProjectDetailReadModel? ProjectDetail { get; init; }
+        public ProjectScheduleDetailReadModel? ScheduleDetail { get; init; }
+        public FakeProjectScheduleRepository? ScheduleRepo { get; init; }
+        public FakeNotificationDispatcher? Dispatcher { get; init; }
+        public FakeProjectRepository? ProjectRepo { get; init; }
+    }
+
+    private static ProjectScheduleService BuildService(ScheduleServiceTestOptions? options = null)
+    {
+        options ??= new ScheduleServiceTestOptions();
+        var scheduleRepo = options.ScheduleRepo ?? new FakeProjectScheduleRepository(detail: options.ScheduleDetail);
+        var projectRepo = options.ProjectRepo ?? new FakeProjectRepository(role: options.Role, detail: options.ProjectDetail);
+        var fileRepo = new FakeProjectFileRepository();
+        var dispatcher = options.Dispatcher ?? new FakeNotificationDispatcher();
         return new ProjectScheduleService(
             scheduleRepo,
             projectRepo,
+            fileRepo,
             dispatcher,
-            global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(scheduleRepo.SaveChangesAsync));
+            global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(scheduleRepo.SaveChangesAsync),
+            Options.Create(new ProjectWorkflowSettings()));
     }
 
-    private static CreateProjectScheduleRequestDto ValidCreateRequest() => new()
+    private static CreateProjectScheduleRequestDto ValidMeasurementCreateRequest(Guid designerId) => new()
     {
         ScheduleType = ProjectScheduleType.MEASUREMENT,
         Title = "First measurement",
+        AssignedStaffId = designerId,
+        ScheduledStart = DateTime.UtcNow.AddDays(1),
+        ScheduledEnd = DateTime.UtcNow.AddDays(1).AddHours(2),
+        Location = "123 Test St"
+    };
+
+    private static CreateProjectScheduleRequestDto ValidCreateRequest() => new()
+    {
+        ScheduleType = ProjectScheduleType.CONSULTATION,
+        Title = "Consultation visit",
         AssignedStaffId = Guid.NewGuid(),
         ScheduledStart = DateTime.UtcNow.AddDays(1),
         ScheduledEnd = DateTime.UtcNow.AddDays(1).AddHours(2),
@@ -451,7 +552,9 @@ public sealed class ProjectScheduleServiceTests
 
     private static ProjectDetailReadModel CreateProject(
         Guid? customerId = null,
-        Guid? assignedSalesId = null)
+        Guid? assignedSalesId = null,
+        Guid? assignedDesignerId = null,
+        ProjectStatus? status = null)
     {
         var id = Guid.NewGuid();
         return new ProjectDetailReadModel
@@ -459,6 +562,8 @@ public sealed class ProjectScheduleServiceTests
             ProjectId = id,
             CustomerId = customerId ?? Guid.NewGuid(),
             AssignedSalesId = assignedSalesId,
+            AssignedDesignerId = assignedDesignerId,
+            Status = status,
             ProjectName = "Test Project"
         };
     }
@@ -548,6 +653,18 @@ public sealed class ProjectScheduleServiceTests
         public int AddCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
         public Guid? LastMyAssignedStaffId { get; private set; }
+        public bool HasCompletedMeasurement { get; set; }
+
+        public Task<bool> HasCompletedMeasurementScheduleAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(HasCompletedMeasurement);
+
+        public Task<bool> ExistsMeasurementScheduleAsync(
+            Guid projectId,
+            ProjectScheduleStatus? status,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(HasCompletedMeasurement && status == ProjectScheduleStatus.COMPLETED);
 
         public Task<ProjectScheduleDetailReadModel?> GetDetailAsync(
             Guid scheduleId, CancellationToken cancellationToken = default)
@@ -607,11 +724,16 @@ public sealed class ProjectScheduleServiceTests
     {
         private readonly string? _role;
         private readonly ProjectDetailReadModel? _detail;
+        private readonly Project? _entity;
 
-        public FakeProjectRepository(string? role = null, ProjectDetailReadModel? detail = null)
+        public FakeProjectRepository(
+            string? role = null,
+            ProjectDetailReadModel? detail = null,
+            Project? entity = null)
         {
             _role = role;
             _detail = detail;
+            _entity = entity;
         }
 
         public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
@@ -649,7 +771,7 @@ public sealed class ProjectScheduleServiceTests
 
         public IQueryable<Project> Query() => Enumerable.Empty<Project>().AsQueryable();
         public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-            => Task.FromResult<Project?>(null);
+            => Task.FromResult(_entity?.ProjectId == id ? _entity : null);
         public Task<IReadOnlyList<Project>> ListAsync(CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<Project>>([]);
         public Task AddAsync(Project entity, CancellationToken cancellationToken = default)

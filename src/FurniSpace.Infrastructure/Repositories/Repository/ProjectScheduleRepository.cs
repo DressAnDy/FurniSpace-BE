@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
 using FurniSpace.Infrastructure.Repositories.Base;
@@ -148,5 +149,34 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
         }
 
         return query;
+    }
+
+    public Task<bool> HasCompletedMeasurementScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return ExistsMeasurementScheduleAsync(
+            projectId,
+            ProjectScheduleStatus.COMPLETED,
+            cancellationToken);
+    }
+
+    public Task<bool> ExistsMeasurementScheduleAsync(
+        Guid projectId,
+        ProjectScheduleStatus? status,
+        CancellationToken cancellationToken = default)
+    {
+        var query = DbContext.ProjectScheduleSet
+            .Where(s =>
+                s.ProjectId == projectId &&
+                s.ScheduleType == ProjectScheduleType.MEASUREMENT &&
+                s.Status != ProjectScheduleStatus.CANCELLED);
+
+        if (status.HasValue)
+        {
+            query = query.Where(s => s.Status == status.Value);
+        }
+
+        return query.AnyAsync(cancellationToken);
     }
 }

@@ -14,6 +14,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
 {
     private const string ProductReferenceType = "PRODUCT";
     private const string ProductVersionReferenceType = "PRODUCT_VERSION";
+    private const string ProjectReferenceType = "PROJECT";
 
     private readonly Dictionary<string, Func<Guid, CancellationToken, Task<ProjectFileAccessReadModel?>>> _projectAccessResolvers;
 

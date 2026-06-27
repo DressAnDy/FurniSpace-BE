@@ -289,6 +289,10 @@ public sealed class ProjectServiceByUserTests
             Task.FromResult<IReadOnlyList<ProjectListItemReadModel>>([]);
         public Task<int> CountAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
+        public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
+        public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
         public IQueryable<Project> Query() => Array.Empty<Project>().AsQueryable();
         public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
             Task.FromResult<Project?>(null);
@@ -303,36 +307,4 @@ public sealed class ProjectServiceByUserTests
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
     }
-
-    public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default) =>
-        Task.FromResult<string?>(null);
-    public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(IReadOnlyCollection<string> roleNames, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<Guid>>([]);
-    public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default) =>
-        Task.FromResult(0);
-    public Task<ProjectDetailReadModel?> GetDetailAsync(Guid projectId, CancellationToken cancellationToken = default) =>
-        Task.FromResult<ProjectDetailReadModel?>(null);
-    public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) =>
-        Task.FromResult<DesignerAccountReadModel?>(null);
-    public Task<IReadOnlyList<ProjectListItemReadModel>> GetListAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<ProjectListItemReadModel>>([]);
-    public Task<int> CountAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) =>
-        Task.FromResult(0);
-    public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(Guid projectId, CancellationToken cancellationToken = default) =>
-        Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
-    public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
-    public IQueryable<Project> Query() => Array.Empty<Project>().AsQueryable();
-    public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
-        Task.FromResult<Project?>(null);
-    public Task<IReadOnlyList<Project>> ListAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<Project>>([]);
-    public Task AddAsync(Project entity, CancellationToken cancellationToken = default) =>
-        Task.CompletedTask;
-    public Task AddRangeAsync(IEnumerable<Project> entities, CancellationToken cancellationToken = default) =>
-        Task.CompletedTask;
-    public void Update(Project entity) { }
-    public void Remove(Project entity) { }
-    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult(0);
 }

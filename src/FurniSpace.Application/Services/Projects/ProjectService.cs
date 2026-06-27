@@ -63,7 +63,6 @@ public sealed class ProjectService : IProjectService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISearchIndexService? _search;
     private readonly IProjectSearchIndexer? _projectSearchIndexer;
-    private readonly ProjectStatusTransitionEvaluator _transitionEvaluator;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<ProjectService>? _logger;
     private readonly IProjectChatService? _projectChats;
@@ -81,7 +80,6 @@ public sealed class ProjectService : IProjectService
         _unitOfWork = unitOfWork;
         _search = search;
         _projectSearchIndexer = projectSearchIndexer;
-        _transitionEvaluator = transitionEvaluator;
         _notifications = notifications;
         _logger = logger;
         _projectChats = projectChats;
@@ -213,6 +211,39 @@ public sealed class ProjectService : IProjectService
             _logger?.LogWarning(
                 exception,
                 "Failed to dispatch project request accepted notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectRequestRejectedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectRequestRejected,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName,
+                    ["Reason"] = project.RejectionReason ?? string.Empty
+                },
+                [project.CustomerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project request rejected notification for project {ProjectId}",
                 project.ProjectId);
         }
     }

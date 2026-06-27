@@ -2129,7 +2129,7 @@ public sealed class ProjectServiceTests
                     SubmittedAt = DateTime.UtcNow
                 }
             ]);
-        var service = ProjectServiceTestFactory.Create(
+        var service = new ProjectService(
             repository,
             TestUnitOfWork.Instance,
             search: new ThrowingSearchIndexService());

@@ -10,8 +10,6 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 
 namespace FurniSpace.Application.Tests.TestDoubles;
@@ -271,4 +269,10 @@ internal static class ProjectFileRepositoryStubResponses
         Guid __,
         CancellationToken ___) =>
         Task.FromResult<ProductPreviewImageReadModel?>(null);
+
+    public static Task<bool> FalseHasProjectFileWithTypes(
+        Guid _,
+        IReadOnlyCollection<FileType> __,
+        CancellationToken ___) =>
+        Task.FromResult(false);
 }

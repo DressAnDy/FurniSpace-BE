@@ -8,7 +8,7 @@ using FurniSpace.Application.Interfaces.ProductVersions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FurniSpace.API.Controllers;
+namespace FurniSpace.API.Controllers.Catalog;
 
 public sealed class ProductVersionsController : BaseApiController
 {

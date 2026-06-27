@@ -7,7 +7,7 @@ using FurniSpace.Application.Interfaces.RoomPlanner;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FurniSpace.API.Controllers;
+namespace FurniSpace.API.Controllers.Projects;
 
 [Authorize]
 [Route("proposal-scenes")]

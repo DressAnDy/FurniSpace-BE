@@ -6,7 +6,7 @@ using FurniSpace.Application.Interfaces.Categories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FurniSpace.API.Controllers;
+namespace FurniSpace.API.Controllers.Catalog;
 
 [Route("categories")]
 public sealed class CategoriesController : BaseApiController

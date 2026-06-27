@@ -6,7 +6,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Projects;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.ProjectSchedules;

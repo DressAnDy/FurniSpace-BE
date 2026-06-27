@@ -2,28 +2,35 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.API.DTOs.ProjectFiles;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FurniSpace.API.Controllers;
+namespace FurniSpace.API.Controllers.Projects;
 
 [Authorize]
-[Route("files")]
-public sealed class FilesController : BaseApiController
+[Route("projects/{projectId:guid}/files")]
+public sealed class ProjectFilesController : BaseApiController
 {
+    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
+
     private readonly IProjectFileService _projectFiles;
 
-    public FilesController(IProjectFileService projectFiles)
+    public ProjectFilesController(IProjectFileService projectFiles)
     {
         _projectFiles = projectFiles;
     }
 
-    [HttpGet("{fileId:guid}")]
-    public async Task<IActionResult> GetFileDetail(
-        Guid fileId,
+    [HttpPost]
+    [Consumes("multipart/form-data")]
+    // Allows multipart overhead while ProjectFileService enforces configured file-size limits.
+    [RequestSizeLimit(MultipartRequestLimitBytes)]
+    public async Task<IActionResult> UploadProjectFile(
+        Guid projectId,
+        [FromForm] UploadProjectFileFormRequest request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -31,29 +38,34 @@ public sealed class FilesController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _projectFiles.GetFileDetailAsync(fileId, currentUserId, cancellationToken);
+        var result = await _projectFiles.UploadProjectFileAsync(
+            projectId,
+            currentUserId,
+            request.ToRequestDto(),
+            cancellationToken);
+
         return ToActionResult(result);
     }
 
-    [AllowAnonymous]
-    [HttpGet("by-reference")]
-    public async Task<IActionResult> GetFilesByReference(
-        [FromQuery] string referenceType,
-        [FromQuery] Guid referenceId,
+    [HttpGet]
+    public async Task<IActionResult> GetProjectFiles(
+        Guid projectId,
         [FromQuery] FileType? fileType = null,
         [FromQuery] FileVisibility? visibility = null,
         [FromQuery] int page = 1,
         [FromQuery] int limit = 20,
         CancellationToken cancellationToken = default)
     {
-        _ = TryGetCurrentUserId(out var currentUserId);
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
 
-        var result = await _projectFiles.GetFilesByReferenceAsync(
+        var result = await _projectFiles.GetProjectFilesAsync(
+            projectId,
             currentUserId,
-            new FilesByReferenceQueryDto
+            new ProjectFilesQueryDto
             {
-                ReferenceType = referenceType,
-                ReferenceId = referenceId,
                 FileType = fileType,
                 Visibility = visibility,
                 Page = page,
@@ -64,10 +76,12 @@ public sealed class FilesController : BaseApiController
         return ToActionResult(result);
     }
 
-    [HttpPatch("{fileId:guid}/archive")]
-    public async Task<IActionResult> ArchiveFile(
-        Guid fileId,
-        [FromBody] ArchiveFileRequestDto? request,
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchProjectFiles(
+        Guid projectId,
+        [FromQuery] string q,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -75,32 +89,19 @@ public sealed class FilesController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _projectFiles.ArchiveFileAsync(
-            fileId,
+        var result = await _projectFiles.SearchProjectFilesAsync(
+            projectId,
             currentUserId,
-            request ?? new ArchiveFileRequestDto(),
+            q,
+            page,
+            limit,
             cancellationToken);
 
         return ToActionResult(result);
     }
 
-    [HttpDelete("{fileId:guid}")]
-    public async Task<IActionResult> DeleteFile(
-        Guid fileId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _projectFiles.DeleteFileAsync(fileId, currentUserId, cancellationToken);
-        return ToActionResult(result);
-    }
-
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
-        currentUserId = Guid.Empty;
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);
     }
 }

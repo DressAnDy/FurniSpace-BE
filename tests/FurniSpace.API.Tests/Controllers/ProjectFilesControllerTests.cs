@@ -7,7 +7,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Projects;
 using FurniSpace.API.DTOs.ProjectFiles;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectFiles;

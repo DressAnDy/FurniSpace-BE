@@ -7,7 +7,7 @@ using FurniSpace.Application.Interfaces.ProjectChats;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FurniSpace.API.Controllers;
+namespace FurniSpace.API.Controllers.Chat;
 
 [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
 [Route("project-chats/{chatId:guid}/status")]

@@ -8,7 +8,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 
-namespace FurniSpace.API.Controllers;
+namespace FurniSpace.API.Controllers.Admin;
 
 public sealed class AccountsController : BaseApiController
 {

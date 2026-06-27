@@ -5,7 +5,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Chat;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;

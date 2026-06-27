@@ -4,7 +4,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Catalog;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Categories;
 using FurniSpace.Application.Interfaces.Categories;

@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Catalog;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;

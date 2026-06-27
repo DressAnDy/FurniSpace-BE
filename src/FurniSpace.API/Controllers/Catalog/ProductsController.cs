@@ -8,7 +8,7 @@ using FurniSpace.Application.Interfaces.Products;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FurniSpace.API.Controllers;
+namespace FurniSpace.API.Controllers.Catalog;
 
 [Route("products")]
 public sealed class ProductsController : BaseApiController

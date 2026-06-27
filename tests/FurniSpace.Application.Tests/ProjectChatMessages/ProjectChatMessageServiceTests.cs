@@ -9,8 +9,8 @@ using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Common.Storage;
-using FurniSpace.Application.Mappings;
 using FurniSpace.Application.Services.ProjectChatMessages;
+using FurniSpace.Application.Tests;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -19,7 +19,6 @@ using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using Mapster;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -30,7 +29,7 @@ public sealed class ProjectChatMessageServiceTests
 {
     static ProjectChatMessageServiceTests()
     {
-        TypeAdapterConfig.GlobalSettings.Scan(typeof(ProjectChatMessageMappingConfig).Assembly);
+        MapsterTestSetup.EnsureConfigured();
     }
     [Fact]
     public async Task SendTextMessageAsync_WithOpenChat_SavesBeforeRealtimeEvent()

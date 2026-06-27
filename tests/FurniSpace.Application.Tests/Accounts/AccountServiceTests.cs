@@ -8,8 +8,8 @@ using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Accounts;
 using FurniSpace.Application.DTOs.Auth;
 using FurniSpace.Application.Interfaces.Identity;
-using FurniSpace.Application.Mappings;
 using FurniSpace.Application.Services.Accounts;
+using FurniSpace.Application.Tests;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -17,7 +17,6 @@ using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using Mapster;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.Accounts;
@@ -26,7 +25,7 @@ public sealed class AccountServiceTests
 {
     static AccountServiceTests()
     {
-        new AccountMappingConfig().Register(TypeAdapterConfig.GlobalSettings);
+        MapsterTestSetup.EnsureConfigured();
     }
 
     [Fact]

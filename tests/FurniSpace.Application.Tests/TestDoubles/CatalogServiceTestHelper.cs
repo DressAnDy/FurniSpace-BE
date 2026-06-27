@@ -2,15 +2,14 @@
 
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.Application.Mappings;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Services.Products;
+using FurniSpace.Application.Tests;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using Mapster;
 using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Tests.TestDoubles;
@@ -19,7 +18,7 @@ public static class CatalogServiceTestHelper
 {
     static CatalogServiceTestHelper()
     {
-        TypeAdapterConfig.GlobalSettings.Scan(typeof(CatalogFileMappingConfig).Assembly);
+        MapsterTestSetup.EnsureConfigured();
     }
 
     public static ProductService CreateProductService(

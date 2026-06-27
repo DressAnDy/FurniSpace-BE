@@ -8,8 +8,8 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.ProjectFiles;
-using FurniSpace.Application.Mappings;
 using FurniSpace.Application.Services.ProjectFiles;
+using FurniSpace.Application.Tests;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -18,7 +18,6 @@ using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using Mapster;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -28,7 +27,7 @@ public sealed class ProjectFileServiceTests
 {
     public ProjectFileServiceTests()
     {
-        TypeAdapterConfig.GlobalSettings.Scan(typeof(ProjectFileMappingConfig).Assembly);
+        MapsterTestSetup.EnsureConfigured();
     }
 
     [Fact]

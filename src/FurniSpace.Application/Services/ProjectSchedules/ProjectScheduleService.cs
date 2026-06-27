@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
@@ -9,6 +10,7 @@ using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
+using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Services.ProjectSchedules;
 
@@ -23,19 +25,25 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectRepository _projects;
+    private readonly IProjectFileRepository _files;
     private readonly INotificationDispatcher _dispatcher;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ProjectWorkflowSettings _workflowSettings;
 
     public ProjectScheduleService(
         IProjectScheduleRepository schedules,
         IProjectRepository projects,
+        IProjectFileRepository files,
         INotificationDispatcher dispatcher,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IOptions<ProjectWorkflowSettings> workflowSettings)
     {
         _schedules = schedules;
         _projects = projects;
+        _files = files;
         _dispatcher = dispatcher;
         _unitOfWork = unitOfWork;
+        _workflowSettings = workflowSettings.Value;
     }
 
     public async Task<ServiceResult<ProjectScheduleDto>> CreateAsync(
@@ -80,6 +88,18 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (request.ScheduledEnd.HasValue && request.ScheduledEnd.Value <= request.ScheduledStart)
         {
             return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
+        }
+
+        if (request.ScheduleType == ProjectScheduleType.MEASUREMENT)
+        {
+            var measurementError = ValidateMeasurementScheduleCreate(
+                role,
+                project,
+                request.AssignedStaffId);
+            if (measurementError is not null)
+            {
+                return measurementError;
+            }
         }
 
         var schedule = new ProjectSchedule
@@ -280,6 +300,20 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return transitionError;
         }
 
+        if (newStatus == ProjectScheduleStatus.COMPLETED &&
+            detail.ScheduleType == ProjectScheduleType.MEASUREMENT &&
+            _workflowSettings.RequireMeasurementFileOnScheduleComplete)
+        {
+            var fileError = await ProjectMeasurementGate.ValidateMeasurementFilesAsync(
+                detail.ProjectId,
+                _files,
+                cancellationToken);
+            if (fileError is not null)
+            {
+                return ServiceResult<ProjectScheduleDto>.Failure(fileError);
+            }
+        }
+
         var schedule = await _schedules.GetByIdAsync(scheduleId, cancellationToken);
         if (schedule is null)
         {
@@ -305,8 +339,24 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         await DispatchStatusChangedAsync(schedule, detail, newStatus, cancellationToken);
 
+        var response = schedule.Adapt<ProjectScheduleDto>();
+        if (newStatus == ProjectScheduleStatus.COMPLETED &&
+            detail.ScheduleType == ProjectScheduleType.MEASUREMENT)
+        {
+            var project = await _projects.GetByIdAsync(detail.ProjectId, cancellationToken);
+            if (project is not null)
+            {
+                var hasCompletedMeasurement = await _schedules.HasCompletedMeasurementScheduleAsync(
+                    detail.ProjectId,
+                    cancellationToken);
+                response.CanMoveToProposalDrafting = ProjectMeasurementGate.CanMoveToProposalDrafting(
+                    project,
+                    hasCompletedMeasurement);
+            }
+        }
+
         return ServiceResult<ProjectScheduleDto>.Success(
-            schedule.Adapt<ProjectScheduleDto>(),
+            response,
             $"Schedule status updated to {newStatus}.");
     }
 
@@ -394,6 +444,41 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
     }
 
+    private static ServiceResult<ProjectScheduleDto>? ValidateMeasurementScheduleCreate(
+        string? role,
+        FurniSpace.Infrastructure.DTOs.Projects.ProjectDetailReadModel project,
+        Guid? assignedStaffId)
+    {
+        if (!project.AssignedDesignerId.HasValue)
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Validation(
+                    ProjectScheduleErrorCodes.DesignerNotAssigned,
+                    "Project must have an assigned designer before creating a measurement schedule."));
+        }
+
+        if (project.Status != ProjectStatus.MEASUREMENT_REQUIRED)
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Validation(
+                    ProjectScheduleErrorCodes.InvalidProjectStatus,
+                    "Project must be in MEASUREMENT_REQUIRED status to create a measurement schedule."));
+        }
+
+        if (!assignedStaffId.HasValue)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Assigned staff id is required.");
+        }
+
+        if (role != AdminRole && assignedStaffId.Value != project.AssignedDesignerId.Value)
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden(
+                "Measurement schedules must be assigned to the project's designer.");
+        }
+
+        return null;
+    }
+
     private static ServiceResult<ProjectScheduleDto>? ValidateUpdatePermission(
         string? role,
         ProjectScheduleDetailReadModel detail,
@@ -455,8 +540,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     {
         if (currentStatus is ProjectScheduleStatus.COMPLETED or ProjectScheduleStatus.CANCELLED)
         {
-            return ServiceResult<ProjectScheduleDto>.BadRequest(
-                $"Cannot transition from terminal status {currentStatus}.");
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Validation(
+                    ProjectScheduleErrorCodes.InvalidScheduleStatus,
+                    $"Cannot transition from terminal status {currentStatus}."));
         }
 
         return null;
@@ -470,8 +557,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     {
         if (currentStatus != ProjectScheduleStatus.PENDING_CONFIRMATION)
         {
-            return ServiceResult<ProjectScheduleDto>.BadRequest(
-                "Only PENDING_CONFIRMATION schedules can be confirmed.");
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Validation(
+                    ProjectScheduleErrorCodes.InvalidScheduleStatus,
+                    "Only PENDING_CONFIRMATION schedules can be confirmed."));
         }
 
         if (role != CustomerRole || detail.CustomerId != currentUserId)
@@ -491,8 +580,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     {
         if (currentStatus != ProjectScheduleStatus.CONFIRMED)
         {
-            return ServiceResult<ProjectScheduleDto>.BadRequest(
-                "Only CONFIRMED schedules can be completed.");
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Validation(
+                    ProjectScheduleErrorCodes.InvalidScheduleStatus,
+                    "Only CONFIRMED schedules can be completed."));
         }
 
         var canComplete = role == AdminRole
@@ -572,7 +663,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         FurniSpace.Infrastructure.DTOs.Projects.ProjectDetailReadModel project,
         CancellationToken cancellationToken)
     {
-        var receivers = BuildReceivers(project.CustomerId, schedule.AssignedStaffId);
+        var receivers = BuildScheduleCreatedReceivers(project, schedule);
         var parameters = BuildNotificationParameters(schedule, project.ProjectName);
 
         await _dispatcher.DispatchAsync(
@@ -583,6 +674,21 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             ProjectScheduleReferenceType,
             schedule.ScheduleId,
             cancellationToken);
+    }
+
+    private static List<Guid> BuildScheduleCreatedReceivers(
+        FurniSpace.Infrastructure.DTOs.Projects.ProjectDetailReadModel project,
+        ProjectSchedule schedule)
+    {
+        var receivers = BuildReceivers(project.CustomerId, schedule.AssignedStaffId);
+        if (schedule.ScheduleType == ProjectScheduleType.MEASUREMENT &&
+            project.AssignedDesignerId.HasValue &&
+            !receivers.Contains(project.AssignedDesignerId.Value))
+        {
+            receivers.Add(project.AssignedDesignerId.Value);
+        }
+
+        return receivers;
     }
 
     private async Task DispatchScheduleUpdatedAsync(

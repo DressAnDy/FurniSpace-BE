@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.DTOs.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -159,6 +160,12 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
         Guid productVersionId,
         CancellationToken cancellationToken = default) =>
         ProjectFileRepositoryStubResponses.EmptyFileLinks(productVersionId, cancellationToken);
+
+    public Task<bool> HasProjectFileWithTypesAsync(
+        Guid projectId,
+        IReadOnlyCollection<FileType> fileTypes,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.FalseHasProjectFileWithTypes(projectId, fileTypes, cancellationToken);
 }
 
 [SuppressMessage(
@@ -218,4 +225,10 @@ internal static class ProjectFileRepositoryStubResponses
         Guid __,
         CancellationToken ___) =>
         Task.FromResult<ProductPreviewImageReadModel?>(null);
+
+    public static Task<bool> FalseHasProjectFileWithTypes(
+        Guid _,
+        IReadOnlyCollection<FileType> __,
+        CancellationToken ___) =>
+        Task.FromResult(false);
 }

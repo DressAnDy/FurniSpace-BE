@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
 using FurniSpace.Infrastructure.Repositories.Base;
 
@@ -18,5 +19,14 @@ public interface IProjectScheduleRepository : IGenericRepository<ProjectSchedule
     Task<(IReadOnlyList<ProjectScheduleListItemReadModel> Items, int Total)> GetMyAssignedAsync(
         Guid? staffId,
         ProjectScheduleListQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> HasCompletedMeasurementScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> ExistsMeasurementScheduleAsync(
+        Guid projectId,
+        ProjectScheduleStatus? status,
         CancellationToken cancellationToken = default);
 }

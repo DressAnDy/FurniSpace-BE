@@ -1,5 +1,6 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.Categories;
@@ -45,6 +46,7 @@ public static class DependencyInjection
     {
         TypeAdapterConfig.GlobalSettings.Scan(Assembly.GetExecutingAssembly());
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
+        services.Configure<ProjectWorkflowSettings>(configuration.GetSection(ProjectWorkflowSettings.SectionName));
         services.PostConfigure<JwtSettings>(settings =>
         {
             if (string.IsNullOrWhiteSpace(settings.SecretKey))
@@ -74,6 +76,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
         services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<ProjectStatusTransitionEvaluator>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();

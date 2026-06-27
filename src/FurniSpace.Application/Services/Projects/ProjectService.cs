@@ -24,6 +24,7 @@ public sealed class ProjectService : IProjectService
     private const int MaxNoteLength = 1000;
     private const int MaxRejectionReasonLength = 1000;
     private const string ProjectReferenceType = "PROJECT";
+    private const string ProjectNameNotificationKey = "ProjectName";
     private const string AuthenticatedAccountIdRequiredMessage = "Authenticated account id is required.";
     private const string ProjectIdRequiredMessage = "Project id is required.";
     private const string ProjectNotFoundMessage = "Project not found.";
@@ -55,6 +56,7 @@ public sealed class ProjectService : IProjectService
 
     private readonly IProjectRepository _projects;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly ProjectStatusTransitionEvaluator _transitionEvaluator;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<ProjectService>? _logger;
     private readonly IProjectChatService? _projectChats;
@@ -62,12 +64,14 @@ public sealed class ProjectService : IProjectService
     public ProjectService(
         IProjectRepository projects,
         IUnitOfWork unitOfWork,
+        ProjectStatusTransitionEvaluator transitionEvaluator,
         INotificationDispatcher? notifications = null,
         ILogger<ProjectService>? logger = null,
         IProjectChatService? projectChats = null)
     {
         _projects = projects;
         _unitOfWork = unitOfWork;
+        _transitionEvaluator = transitionEvaluator;
         _notifications = notifications;
         _logger = logger;
         _projectChats = projectChats;
@@ -153,7 +157,7 @@ public sealed class ProjectService : IProjectService
                 new Dictionary<string, string>
                 {
                     ["CustomerName"] = customerName,
-                    ["ProjectName"] = project.ProjectName
+                    [ProjectNameNotificationKey] = project.ProjectName
                 },
                 receiverIds,
                 project.ProjectId,
@@ -185,7 +189,7 @@ public sealed class ProjectService : IProjectService
                 NotificationType.ProjectRequestAccepted,
                 new Dictionary<string, string>
                 {
-                    ["ProjectName"] = project.ProjectName
+                    [ProjectNameNotificationKey] = project.ProjectName
                 },
                 [project.CustomerId],
                 project.ProjectId,
@@ -217,7 +221,7 @@ public sealed class ProjectService : IProjectService
                 NotificationType.ProjectMoreInformationRequested,
                 new Dictionary<string, string>
                 {
-                    ["ProjectName"] = project.ProjectName
+                    [ProjectNameNotificationKey] = project.ProjectName
                 },
                 [project.CustomerId],
                 project.ProjectId,
@@ -249,7 +253,7 @@ public sealed class ProjectService : IProjectService
                 NotificationType.ProjectBasicInformationUpdated,
                 new Dictionary<string, string>
                 {
-                    ["ProjectName"] = project.ProjectName
+                    [ProjectNameNotificationKey] = project.ProjectName
                 },
                 [project.AssignedSalesId.Value],
                 project.ProjectId,
@@ -262,6 +266,39 @@ public sealed class ProjectService : IProjectService
             _logger?.LogWarning(
                 exception,
                 "Failed to dispatch project basic information updated notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectRequestRejectedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectRequestRejected,
+                new Dictionary<string, string>
+                {
+                    [ProjectNameNotificationKey] = project.ProjectName,
+                    ["Reason"] = project.RejectionReason ?? string.Empty
+                },
+                [project.CustomerId],
+                project.ProjectId,
+                ProjectReferenceType,
+                project.ProjectId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project request rejected notification for project {ProjectId}",
                 project.ProjectId);
         }
     }
@@ -287,7 +324,7 @@ public sealed class ProjectService : IProjectService
                 NotificationType.ProjectStatusChanged,
                 new Dictionary<string, string>
                 {
-                    ["ProjectName"] = project.ProjectName,
+                    [ProjectNameNotificationKey] = project.ProjectName,
                     ["Status"] = project.Status?.ToString() ?? string.Empty
                 },
                 receiverIds,
@@ -321,7 +358,7 @@ public sealed class ProjectService : IProjectService
                 NotificationType.ProjectDesignerAssigned,
                 new Dictionary<string, string>
                 {
-                    ["ProjectName"] = project.ProjectName
+                    [ProjectNameNotificationKey] = project.ProjectName
                 },
                 [designerId],
                 project.ProjectId,
@@ -704,7 +741,12 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectStatusUpdateDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
         }
 
-        var validationError = ValidateDesignerAssignmentStatusRequest(request);
+        if (request.Status is null)
+        {
+            return ServiceResult<ProjectStatusUpdateDto>.BadRequest("Project status is required.");
+        }
+
+        var validationError = ValidateStatusUpdateNote(request.Note);
         if (validationError is not null)
         {
             return ServiceResult<ProjectStatusUpdateDto>.BadRequest(validationError);
@@ -717,32 +759,53 @@ public sealed class ProjectService : IProjectService
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanUpdateProjectStatus(project, currentUserId, roleName))
+        if (IsCustomer(roleName))
         {
             return ServiceResult<ProjectStatusUpdateDto>.Forbidden("You do not have access to update this project status.");
         }
 
-        if (project.Status != ProjectStatus.IN_CONSULTATION)
+        if (project.Status == ProjectStatus.IN_CONSULTATION &&
+            request.Status == ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT)
         {
-            return ServiceResult<ProjectStatusUpdateDto>.BadRequest("Project must be in consultation before designer assignment.");
+            var missingInformation = GetMissingBasicInformation(project);
+            if (missingInformation.Count > 0)
+            {
+                return ServiceResult<ProjectStatusUpdateDto>.BadRequest(
+                    missingInformation,
+                    "Project basic information is incomplete.");
+            }
         }
 
-        var missingInformation = GetMissingBasicInformation(project);
-        if (missingInformation.Count > 0)
+        var transitionError = await _transitionEvaluator.EvaluateAsync(
+            project,
+            request.Status.Value,
+            request.Note,
+            currentUserId,
+            roleName,
+            cancellationToken);
+        if (transitionError is not null)
         {
-            return ServiceResult<ProjectStatusUpdateDto>.BadRequest(
-                missingInformation,
-                "Project basic information is incomplete.");
+            return ServiceResult<ProjectStatusUpdateDto>.Failure(transitionError);
         }
 
-        project.Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT;
+        var oldStatus = project.Status;
+        var newStatus = request.Status.Value;
+        project.Status = newStatus;
         project.UpdatedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectStatusUpdateDto>.Success(
-            project.Adapt<ProjectStatusUpdateDto>(),
+            new ProjectStatusUpdateDto
+            {
+                ProjectId = project.ProjectId,
+                Status = newStatus,
+                OldStatus = oldStatus,
+                NewStatus = newStatus,
+                Note = NormalizeOptional(request.Note),
+                UpdatedAt = project.UpdatedAt
+            },
             "Project status updated successfully.");
     }
 
@@ -792,6 +855,7 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = project.RejectedAt;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchProjectRequestRejectedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectRejectionDto>.Success(
             project.Adapt<ProjectRejectionDto>(),
@@ -1086,19 +1150,9 @@ public sealed class ProjectService : IProjectService
         return false;
     }
 
-    private static string? ValidateDesignerAssignmentStatusRequest(UpdateProjectStatusRequestDto request)
+    private static string? ValidateStatusUpdateNote(string? note)
     {
-        if (request.Status is null)
-        {
-            return "Project status is required.";
-        }
-
-        if (request.Status != ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT)
-        {
-            return "Only WAITING_FOR_DESIGNER_ASSIGNMENT transition is supported.";
-        }
-
-        if (NormalizeOptional(request.Note)?.Length > MaxNoteLength)
+        if (NormalizeOptional(note)?.Length > MaxNoteLength)
         {
             return "Status update note must not exceed 1000 characters.";
         }
@@ -1194,13 +1248,6 @@ public sealed class ProjectService : IProjectService
         }
 
         return false;
-    }
-
-    private static bool CanUpdateProjectStatus(Project project, Guid currentUserId, string? roleName)
-    {
-        return IsAdmin(roleName) ||
-            (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase) &&
-                project.AssignedSalesId == currentUserId);
     }
 
     private static bool CanRejectProject(Project project, Guid currentUserId, string? roleName)

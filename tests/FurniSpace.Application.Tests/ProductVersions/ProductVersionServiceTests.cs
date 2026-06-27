@@ -1185,6 +1185,12 @@ public sealed class ProductVersionServiceTests
             Guid productId,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<FileLink>>([]);
+
+        public Task<bool> HasProjectFileWithTypesAsync(
+            Guid projectId,
+            IReadOnlyCollection<FileType> fileTypes,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
     }
 
     private sealed class FakeProductVersionRepository : IProductVersionRepository

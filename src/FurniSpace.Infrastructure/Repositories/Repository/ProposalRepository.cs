@@ -312,4 +312,30 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
             .ThenBy(item => item.ProposalItemId)
             .ToListAsync(cancellationToken);
     }
+
+    public Task<bool> HasProposalWithActiveSceneAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalSet
+            .Where(proposal => proposal.ProjectId == projectId)
+            .Join(
+                DbContext.ProposalSceneSet.Where(scene => scene.IsActive == true),
+                proposal => proposal.ProposalId,
+                scene => scene.ProposalId,
+                (proposal, _) => proposal.ProposalId)
+            .AnyAsync(cancellationToken);
+    }
+
+    public Task<bool> HasSelectedFinalProposalAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalSet
+            .AnyAsync(
+                proposal =>
+                    proposal.ProjectId == projectId &&
+                    proposal.Status == ProposalStatus.SELECTED,
+                cancellationToken);
+    }
 }

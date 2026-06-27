@@ -528,6 +528,7 @@ public sealed class ProjectFileServiceTests
     private sealed class FakeProjectFileRepository : IProjectFileRepository
     {
         public ProjectFileAccessReadModel? ProjectAccess { get; init; }
+        public ProjectFileAccessReadModel? ReferenceProjectAccess { get; init; }
         public string? RoleName { get; init; }
         public FileReferencePageReadModel FileReferencePage { get; init; } = new();
         public Dictionary<Guid, StoredFile> Entities { get; } = [];
@@ -606,7 +607,7 @@ public sealed class ProjectFileServiceTests
             CancellationToken cancellationToken = default)
         {
             GetReferenceProjectAccessCallCount++;
-            return Task.FromResult(ProjectAccess);
+            return Task.FromResult(ReferenceProjectAccess ?? ProjectAccess);
         }
 
         public Task<string?> GetAccountRoleNameAsync(

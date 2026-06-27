@@ -61,12 +61,4 @@ public interface IProposalRepository : IGenericRepository<Proposal>
         Guid selectedProposalId,
         DateTime rejectedAt,
         CancellationToken cancellationToken = default);
-
-    Task<bool> HasProposalWithActiveSceneAsync(
-        Guid projectId,
-        CancellationToken cancellationToken = default);
-
-    Task<bool> HasSelectedFinalProposalAsync(
-        Guid projectId,
-        CancellationToken cancellationToken = default);
 }

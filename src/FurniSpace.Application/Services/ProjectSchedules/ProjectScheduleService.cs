@@ -1,6 +1,5 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
-using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
@@ -10,7 +9,6 @@ using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
-using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Services.ProjectSchedules;
 
@@ -25,25 +23,19 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectRepository _projects;
-    private readonly IProjectFileRepository _files;
     private readonly INotificationDispatcher _dispatcher;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ProjectWorkflowSettings _workflowSettings;
 
     public ProjectScheduleService(
         IProjectScheduleRepository schedules,
         IProjectRepository projects,
-        IProjectFileRepository files,
         INotificationDispatcher dispatcher,
-        IUnitOfWork unitOfWork,
-        IOptions<ProjectWorkflowSettings> workflowSettings)
+        IUnitOfWork unitOfWork)
     {
         _schedules = schedules;
         _projects = projects;
-        _files = files;
         _dispatcher = dispatcher;
         _unitOfWork = unitOfWork;
-        _workflowSettings = workflowSettings.Value;
     }
 
     public async Task<ServiceResult<ProjectScheduleDto>> CreateAsync(
@@ -88,18 +80,6 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (request.ScheduledEnd.HasValue && request.ScheduledEnd.Value <= request.ScheduledStart)
         {
             return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
-        }
-
-        if (request.ScheduleType == ProjectScheduleType.MEASUREMENT)
-        {
-            var measurementError = ValidateMeasurementScheduleCreate(
-                role,
-                project,
-                request.AssignedStaffId);
-            if (measurementError is not null)
-            {
-                return measurementError;
-            }
         }
 
         var schedule = new ProjectSchedule
@@ -300,20 +280,6 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return transitionError;
         }
 
-        if (newStatus == ProjectScheduleStatus.COMPLETED &&
-            detail.ScheduleType == ProjectScheduleType.MEASUREMENT &&
-            _workflowSettings.RequireMeasurementFileOnScheduleComplete)
-        {
-            var fileError = await ProjectMeasurementGate.ValidateMeasurementFilesAsync(
-                detail.ProjectId,
-                _files,
-                cancellationToken);
-            if (fileError is not null)
-            {
-                return ServiceResult<ProjectScheduleDto>.Failure(fileError);
-            }
-        }
-
         var schedule = await _schedules.GetByIdAsync(scheduleId, cancellationToken);
         if (schedule is null)
         {
@@ -339,24 +305,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         await DispatchStatusChangedAsync(schedule, detail, newStatus, cancellationToken);
 
-        var response = schedule.Adapt<ProjectScheduleDto>();
-        if (newStatus == ProjectScheduleStatus.COMPLETED &&
-            detail.ScheduleType == ProjectScheduleType.MEASUREMENT)
-        {
-            var project = await _projects.GetByIdAsync(detail.ProjectId, cancellationToken);
-            if (project is not null)
-            {
-                var hasCompletedMeasurement = await _schedules.HasCompletedMeasurementScheduleAsync(
-                    detail.ProjectId,
-                    cancellationToken);
-                response.CanMoveToProposalDrafting = ProjectMeasurementGate.CanMoveToProposalDrafting(
-                    project,
-                    hasCompletedMeasurement);
-            }
-        }
-
         return ServiceResult<ProjectScheduleDto>.Success(
-            response,
+            schedule.Adapt<ProjectScheduleDto>(),
             $"Schedule status updated to {newStatus}.");
     }
 
@@ -540,10 +490,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     {
         if (currentStatus is ProjectScheduleStatus.COMPLETED or ProjectScheduleStatus.CANCELLED)
         {
-            return ServiceResult<ProjectScheduleDto>.Failure(
-                Error.Validation(
-                    ProjectScheduleErrorCodes.InvalidScheduleStatus,
-                    $"Cannot transition from terminal status {currentStatus}."));
+            return ServiceResult<ProjectScheduleDto>.BadRequest(
+                $"Cannot transition from terminal status {currentStatus}.");
         }
 
         return null;
@@ -557,10 +505,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     {
         if (currentStatus != ProjectScheduleStatus.PENDING_CONFIRMATION)
         {
-            return ServiceResult<ProjectScheduleDto>.Failure(
-                Error.Validation(
-                    ProjectScheduleErrorCodes.InvalidScheduleStatus,
-                    "Only PENDING_CONFIRMATION schedules can be confirmed."));
+            return ServiceResult<ProjectScheduleDto>.BadRequest(
+                "Only PENDING_CONFIRMATION schedules can be confirmed.");
         }
 
         if (role != CustomerRole || detail.CustomerId != currentUserId)
@@ -580,10 +526,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     {
         if (currentStatus != ProjectScheduleStatus.CONFIRMED)
         {
-            return ServiceResult<ProjectScheduleDto>.Failure(
-                Error.Validation(
-                    ProjectScheduleErrorCodes.InvalidScheduleStatus,
-                    "Only CONFIRMED schedules can be completed."));
+            return ServiceResult<ProjectScheduleDto>.BadRequest(
+                "Only CONFIRMED schedules can be completed.");
         }
 
         var canComplete = role == AdminRole
@@ -663,7 +607,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
         CancellationToken cancellationToken)
     {
-        var receivers = BuildScheduleCreatedReceivers(project, schedule);
+        var receivers = BuildReceivers(project.CustomerId, schedule.AssignedStaffId);
         var parameters = BuildNotificationParameters(schedule, project.ProjectName);
 
         await _dispatcher.DispatchAsync(

@@ -21,5 +21,4 @@ public abstract class ProjectScheduleModelBase
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? CancelledAt { get; set; }
-    public bool? CanMoveToProposalDrafting { get; set; }
 }

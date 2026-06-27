@@ -81,12 +81,12 @@ public sealed class ProjectService : IProjectService
     {
         _projects = projects;
         _unitOfWork = unitOfWork;
-<<<<<<< HEAD
+        _transitionEvaluator = transitionEvaluator;
+        _notifications = notifications;
+        _logger = logger;
+        _projectChats = projectChats;
         _search = search;
         _projectSearchIndexer = projectSearchIndexer;
-        _transitionEvaluator = transitionEvaluator;
->>>>>>> develop
-        _logger = logger;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(
@@ -215,39 +215,6 @@ public sealed class ProjectService : IProjectService
             _logger?.LogWarning(
                 exception,
                 "Failed to dispatch project request accepted notification for project {ProjectId}",
-                project.ProjectId);
-        }
-    }
-
-    private async Task DispatchProjectRequestRejectedNotificationAsync(
-        Project project,
-        CancellationToken cancellationToken)
-    {
-        if (_notifications is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _notifications.DispatchAsync(
-                NotificationType.ProjectRequestRejected,
-                new Dictionary<string, string>
-                {
-                    ["ProjectName"] = project.ProjectName,
-                    ["Reason"] = project.RejectionReason ?? string.Empty
-                },
-                [project.CustomerId],
-                project.ProjectId,
-                ProjectReferenceType,
-                project.ProjectId,
-                cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger?.LogWarning(
-                exception,
-                "Failed to dispatch project request rejected notification for project {ProjectId}",
                 project.ProjectId);
         }
     }

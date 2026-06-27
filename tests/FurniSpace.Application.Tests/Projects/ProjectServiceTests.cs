@@ -2161,7 +2161,7 @@ public sealed class ProjectServiceTests
                     SubmittedAt = DateTime.UtcNow
                 }
             ]);
-        var service = new ProjectService(
+        var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.Instance,
             search: new ThrowingSearchIndexService());
@@ -2756,7 +2756,6 @@ public sealed class ProjectServiceTests
             => throw new InvalidOperationException("Elasticsearch unavailable.");
     }
 
-    private sealed class FakeProjectRepository : IProjectRepository
     internal sealed class FakeProjectRepository : IProjectRepository
     {
         private readonly string? _roleName;

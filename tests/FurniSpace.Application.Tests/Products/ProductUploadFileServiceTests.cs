@@ -524,11 +524,5 @@ public sealed class ProductUploadFileServiceTests
         public void Update(StoredFile entity) { }
 
         public void Remove(StoredFile entity) { }
-
-        public Task<bool> HasProjectFileWithTypesAsync(
-            Guid projectId,
-            IReadOnlyCollection<FileType> fileTypes,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(false);
     }
 }

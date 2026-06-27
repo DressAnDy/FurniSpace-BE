@@ -1,5 +1,4 @@
 using FurniSpace.Domain.Entities;
-using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.DTOs.Products;
 using FurniSpace.Infrastructure.DTOs.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.Base;
@@ -72,10 +71,5 @@ public interface IProjectFileRepository : IGenericRepository<StoredFile>
 
     Task<IReadOnlyList<FileLink>> GetProductVersionPreviewFileLinkEntitiesAsync(
         Guid productVersionId,
-        CancellationToken cancellationToken = default);
-
-    Task<bool> HasProjectFileWithTypesAsync(
-        Guid projectId,
-        IReadOnlyCollection<FileType> fileTypes,
         CancellationToken cancellationToken = default);
 }

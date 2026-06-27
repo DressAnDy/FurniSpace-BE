@@ -14,7 +14,6 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
 {
     private const string ProductReferenceType = "PRODUCT";
     private const string ProductVersionReferenceType = "PRODUCT_VERSION";
-    private const string ProjectReferenceType = "PROJECT";
 
     private readonly Dictionary<string, Func<Guid, CancellationToken, Task<ProjectFileAccessReadModel?>>> _projectAccessResolvers;
 
@@ -22,7 +21,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
     {
         _projectAccessResolvers = new Dictionary<string, Func<Guid, CancellationToken, Task<ProjectFileAccessReadModel?>>>(StringComparer.OrdinalIgnoreCase)
         {
-            [ProjectReferenceType] = GetProjectAccessAsync,
+            ["PROJECT"] = GetProjectAccessAsync,
             ["PROJECT_SCHEDULE"] = GetProjectScheduleAccessAsync,
             ["PROPOSAL"] = GetProposalAccessAsync,
             ["QUOTATION"] = GetQuotationAccessAsync,
@@ -162,7 +161,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 },
                 project => new
                 {
-                    ReferenceType = ProjectReferenceType,
+                    ReferenceType = "PROJECT",
                     ReferenceId = project.ProjectId
                 },
                 (joined, projects) => new { joined.link, joined.file, projects })
@@ -407,7 +406,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 },
                 project => new
                 {
-                    ReferenceType = ProjectReferenceType,
+                    ReferenceType = "PROJECT",
                     ReferenceId = project.ProjectId
                 },
                 (joined, projects) => new { joined.file, joined.link, projects })
@@ -523,19 +522,5 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 Status = project.Status
             })
             .FirstOrDefaultAsync(cancellationToken);
-    }
-
-    public Task<bool> HasProjectFileWithTypesAsync(
-        Guid projectId,
-        IReadOnlyCollection<FileType> fileTypes,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.FileLinkSet
-            .Where(link =>
-                link.ReferenceType == ProjectReferenceType &&
-                link.ReferenceId == projectId &&
-                link.FileType.HasValue &&
-                fileTypes.Contains(link.FileType.Value))
-            .AnyAsync(cancellationToken);
     }
 }

@@ -866,12 +866,6 @@ public sealed class ProductPreviewImageServiceTests
         public Task AddRangeAsync(IEnumerable<StoredFile> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public void Update(StoredFile entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
-
-        public Task<bool> HasProjectFileWithTypesAsync(
-            Guid projectId,
-            IReadOnlyCollection<FileType> fileTypes,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(false);
     }
 
     private sealed class TrackingPreviewStorage : IFileStorageService

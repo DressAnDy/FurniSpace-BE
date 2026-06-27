@@ -446,7 +446,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
     private static ServiceResult<ProjectScheduleDto>? ValidateMeasurementScheduleCreate(
         string? role,
-        FurniSpace.Infrastructure.DTOs.Projects.ProjectDetailReadModel project,
+        FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
         Guid? assignedStaffId)
     {
         if (!project.AssignedDesignerId.HasValue)
@@ -677,7 +677,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     }
 
     private static List<Guid> BuildScheduleCreatedReceivers(
-        FurniSpace.Infrastructure.DTOs.Projects.ProjectDetailReadModel project,
+        FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
         ProjectSchedule schedule)
     {
         var receivers = BuildReceivers(project.CustomerId, schedule.AssignedStaffId);

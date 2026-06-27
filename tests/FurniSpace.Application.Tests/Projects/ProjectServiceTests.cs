@@ -2161,7 +2161,7 @@ public sealed class ProjectServiceTests
                     SubmittedAt = DateTime.UtcNow
                 }
             ]);
-        var service = new ProjectService(
+        var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.Instance,
             search: new ThrowingSearchIndexService());
@@ -2757,7 +2757,6 @@ public sealed class ProjectServiceTests
     }
 
     private sealed class FakeProjectRepository : IProjectRepository
-    internal sealed class FakeProjectRepository : IProjectRepository
     {
         private readonly string? _roleName;
         private readonly int _submittedCount;

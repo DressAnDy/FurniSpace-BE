@@ -625,6 +625,8 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         return query.Where(item =>
             item.Visibility == FileVisibility.CUSTOMER_VISIBLE ||
             item.UploadedBy == accountId);
+    }
+
     public Task<bool> HasProjectFileWithTypesAsync(
         Guid projectId,
         IReadOnlyCollection<FileType> fileTypes,

@@ -300,6 +300,14 @@ internal sealed class FakeProposalRepository : IProposalRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?>(null);
 
+    public Task<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?> GetSceneContextBySceneIdAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?>(null);
+
+    public Task<ProposalScene?> GetSceneEntityAsync(Guid sceneId, CancellationToken cancellationToken = default)
+        => Task.FromResult<ProposalScene?>(null);
+
     public Task<IReadOnlyList<ProposalItem>> GetItemsBySceneAsync(
         Guid proposalId,
         Guid sceneId,
@@ -318,6 +326,18 @@ internal sealed class FakeProposalRepository : IProposalRepository
         DateTime rejectedAt,
         CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+
+    public Task<bool> HasActiveSceneAsync(Guid proposalId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> FileExistsAsync(Guid fileId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> ProjectAreaBelongsToProjectAsync(
+        Guid projectAreaId,
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
 
     public IQueryable<Proposal> Query() => Enumerable.Empty<Proposal>().AsQueryable();
     public Task<Proposal?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

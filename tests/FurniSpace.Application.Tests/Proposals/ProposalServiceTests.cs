@@ -493,6 +493,309 @@ public sealed class ProposalServiceTests
         Assert.Equal(403, result.Status);
     }
 
+    [Fact]
+    public async Task RequestRevisionAsync_WithPublishedOwner_UpdatesStatusAndNotifiesStaff()
+    {
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var detail = CreateDetail(proposalId, customerId: customerId, assignedSalesId: salesId, assignedDesignerId: designerId);
+        var repository = new FakeProposalRepository(detail: detail);
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = proposalId,
+            ProjectId = detail.ProjectId,
+            ProposalName = detail.ProposalName,
+            Status = ProposalStatus.PUBLISHED
+        });
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("CUSTOMER"),
+            notifications: dispatcher);
+
+        var result = await service.RequestRevisionAsync(
+            proposalId,
+            customerId,
+            new RequestProposalRevisionRequestDto { RevisionNote = " Please update layout. " });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProposalStatus.REVISION_REQUESTED, result.Data.ProposalStatus);
+        Assert.Equal("Please update layout.", result.Data.RevisionNote);
+        Assert.Equal(ProposalStatus.REVISION_REQUESTED, repository.Proposals[0].Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(NotificationType.ProposalRevisionRequested, dispatcher.LastType);
+        Assert.Contains(salesId, dispatcher.LastReceiverIds);
+        Assert.Contains(designerId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task RequestRevisionAsync_WithDraftProposal_ReturnsInvalidProposalStatus()
+    {
+        var customerId = Guid.NewGuid();
+        var detail = CreateDetail(Guid.NewGuid(), customerId: customerId);
+        detail.Status = ProposalStatus.DRAFT;
+        var service = CreateService(
+            new FakeProposalRepository(detail: detail),
+            new FakeProjectRepository("CUSTOMER"));
+
+        var result = await service.RequestRevisionAsync(
+            detail.ProposalId,
+            customerId,
+            new RequestProposalRevisionRequestDto { RevisionNote = "Update colors." });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_PROPOSAL_STATUS", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RequestRevisionAsync_WithDifferentCustomer_ReturnsForbidden()
+    {
+        var detail = CreateDetail(Guid.NewGuid(), customerId: Guid.NewGuid());
+        var service = CreateService(
+            new FakeProposalRepository(detail: detail),
+            new FakeProjectRepository("CUSTOMER"));
+
+        var result = await service.RequestRevisionAsync(
+            detail.ProposalId,
+            Guid.NewGuid(),
+            new RequestProposalRevisionRequestDto { RevisionNote = "Update colors." });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task PublishAsync_WithDraftProposalAndActiveScene_PublishesAndUpdatesProject()
+    {
+        var designerId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var detail = CreateDetail(proposalId, customerId: customerId, assignedDesignerId: designerId);
+        detail.Status = ProposalStatus.DRAFT;
+        var project = new Project
+        {
+            ProjectId = detail.ProjectId,
+            CustomerId = customerId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.PROPOSAL_DRAFTING
+        };
+        var repository = new FakeProposalRepository(detail: detail) { HasActiveScene = true };
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = proposalId,
+            ProjectId = detail.ProjectId,
+            ProposalName = detail.ProposalName,
+            Status = ProposalStatus.DRAFT
+        });
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER", project),
+            notifications: dispatcher);
+
+        var result = await service.PublishAsync(proposalId, designerId, new PublishProposalRequestDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProposalStatus.PUBLISHED, result.Data.ProposalStatus);
+        Assert.Equal(ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, result.Data.ProjectStatus);
+        Assert.Equal(ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, project.Status);
+        Assert.Equal(ProposalStatus.PUBLISHED, repository.Proposals[0].Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(NotificationType.ProposalPublished, dispatcher.LastType);
+        Assert.Contains(customerId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task PublishAsync_WithoutActiveScene_ReturnsProposalSceneRequired()
+    {
+        var designerId = Guid.NewGuid();
+        var detail = CreateDetail(Guid.NewGuid(), assignedDesignerId: designerId);
+        detail.Status = ProposalStatus.DRAFT;
+        var service = CreateService(
+            new FakeProposalRepository(detail: detail),
+            new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.PublishAsync(detail.ProposalId, designerId, new PublishProposalRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("PROPOSAL_SCENE_REQUIRED", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithDraftProposal_UpdatesMetadata()
+    {
+        var designerId = Guid.NewGuid();
+        var context = CreateProposalContext(Guid.NewGuid(), assignedDesignerId: designerId);
+        var repository = new FakeProposalRepository(context: context);
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = context.ProposalId,
+            ProjectId = context.ProjectId,
+            ProposalName = "Old",
+            Description = "Old description",
+            VersionNo = 3,
+            Status = ProposalStatus.DRAFT
+        });
+        var service = CreateService(repository, new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.UpdateAsync(
+            context.ProposalId,
+            designerId,
+            new UpdateProposalRequestDto { ProposalName = " Updated ", Description = " New description " });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal("Updated", result.Data.ProposalName);
+        Assert.Equal("New description", result.Data.Description);
+        Assert.Equal(3, result.Data.VersionNo);
+        Assert.Equal("Updated", repository.Proposals[0].ProposalName);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithPublishedProposal_ReturnsInvalidProposalStatus()
+    {
+        var designerId = Guid.NewGuid();
+        var context = CreateProposalContext(Guid.NewGuid(), assignedDesignerId: designerId);
+        context.ProposalStatus = ProposalStatus.PUBLISHED;
+        var service = CreateService(
+            new FakeProposalRepository(context: context),
+            new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.UpdateAsync(
+            context.ProposalId,
+            designerId,
+            new UpdateProposalRequestDto { ProposalName = "Updated" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_PROPOSAL_STATUS", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateSceneAsync_WithDraftProposal_UpdatesSqlMetadata()
+    {
+        var designerId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var previewFileId = Guid.NewGuid();
+        var repository = new FakeProposalRepository(sceneContext: new ProposalSceneContextReadModel
+        {
+            SceneId = sceneId,
+            ProposalId = proposalId,
+            ProjectId = projectId,
+            ProposalStatus = ProposalStatus.DRAFT,
+            AssignedDesignerId = designerId
+        });
+        repository.Scenes.Add(new ProposalScene
+        {
+            SceneId = sceneId,
+            ProposalId = proposalId,
+            SceneName = "Old scene",
+            SceneType = ProposalSceneType.THREE_D,
+            MongoSceneId = "mongo-scene-id",
+            IsActive = true
+        });
+        repository.ExistingFileIds.Add(previewFileId);
+        repository.ProjectAreaProjectIds[projectAreaId] = projectId;
+        var service = CreateService(repository, new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.UpdateSceneAsync(
+            sceneId,
+            designerId,
+            new UpdateProposalSceneRequestDto
+            {
+                SceneName = " Updated scene ",
+                ProjectAreaId = projectAreaId,
+                PreviewFileId = previewFileId,
+                IsActive = false
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal("Updated scene", result.Data.SceneName);
+        Assert.Equal(projectAreaId, result.Data.ProjectAreaId);
+        Assert.Equal(previewFileId, result.Data.PreviewFileId);
+        Assert.False(result.Data.IsActive);
+        Assert.Equal("mongo-scene-id", result.Data.MongoSceneId);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateSceneAsync_WithMissingFile_ReturnsFileNotFound()
+    {
+        var designerId = Guid.NewGuid();
+        var sceneContext = new ProposalSceneContextReadModel
+        {
+            SceneId = Guid.NewGuid(),
+            ProposalId = Guid.NewGuid(),
+            ProjectId = Guid.NewGuid(),
+            ProposalStatus = ProposalStatus.DRAFT,
+            AssignedDesignerId = designerId
+        };
+        var service = CreateService(
+            new FakeProposalRepository(sceneContext: sceneContext),
+            new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.UpdateSceneAsync(
+            sceneContext.SceneId,
+            designerId,
+            new UpdateProposalSceneRequestDto { PreviewFileId = Guid.NewGuid() });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("FILE_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateSceneAsync_WithInvalidArea_ReturnsInvalidProjectArea()
+    {
+        var designerId = Guid.NewGuid();
+        var previewFileId = Guid.NewGuid();
+        var sceneContext = new ProposalSceneContextReadModel
+        {
+            SceneId = Guid.NewGuid(),
+            ProposalId = Guid.NewGuid(),
+            ProjectId = Guid.NewGuid(),
+            ProposalStatus = ProposalStatus.DRAFT,
+            AssignedDesignerId = designerId
+        };
+        var repository = new FakeProposalRepository(sceneContext: sceneContext);
+        repository.ExistingFileIds.Add(previewFileId);
+        var service = CreateService(repository, new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.UpdateSceneAsync(
+            sceneContext.SceneId,
+            designerId,
+            new UpdateProposalSceneRequestDto
+            {
+                PreviewFileId = previewFileId,
+                ProjectAreaId = Guid.NewGuid()
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_PROJECT_AREA", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateSceneAsync_WithMissingScene_ReturnsSceneNotFound()
+    {
+        var service = CreateService(
+            new FakeProposalRepository(),
+            new FakeProjectRepository("ADMIN"));
+
+        var result = await service.UpdateSceneAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new UpdateProposalSceneRequestDto { SceneName = "Updated scene" });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("SCENE_NOT_FOUND", result.ErrorCode);
+    }
+
     private static ProposalService CreateService(
         FakeProposalRepository proposals,
         FakeProjectRepository? projects = null,
@@ -632,6 +935,9 @@ public sealed class ProposalServiceTests
         public List<Proposal> Proposals { get; } = [];
         public List<ProposalScene> Scenes { get; } = [];
         public List<ProposalItem> Items { get; } = [];
+        public HashSet<Guid> ExistingFileIds { get; } = [];
+        public Dictionary<Guid, Guid> ProjectAreaProjectIds { get; } = [];
+        public bool HasActiveScene { get; set; }
         public int RejectOtherActiveProposalsCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
         public ProposalListQueryReadModel? LastListQuery { get; private set; }
@@ -689,6 +995,18 @@ public sealed class ProposalServiceTests
                     : null);
         }
 
+        public Task<ProposalSceneContextReadModel?> GetSceneContextBySceneIdAsync(
+            Guid sceneId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_sceneContext?.SceneId == sceneId ? _sceneContext : null);
+        }
+
+        public Task<ProposalScene?> GetSceneEntityAsync(Guid sceneId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Scenes.FirstOrDefault(scene => scene.SceneId == sceneId));
+        }
+
         public Task<IReadOnlyList<ProposalItem>> GetItemsBySceneAsync(Guid proposalId, Guid sceneId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult<IReadOnlyList<ProposalItem>>(
@@ -731,6 +1049,26 @@ public sealed class ProposalServiceTests
             Guid projectId,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
+
+        public Task<bool> HasActiveSceneAsync(Guid proposalId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(HasActiveScene);
+        }
+
+        public Task<bool> FileExistsAsync(Guid fileId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ExistingFileIds.Contains(fileId));
+        }
+
+        public Task<bool> ProjectAreaBelongsToProjectAsync(
+            Guid projectAreaId,
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                ProjectAreaProjectIds.TryGetValue(projectAreaId, out var storedProjectId) &&
+                storedProjectId == projectId);
+        }
 
         public IQueryable<Proposal> Query() => Proposals.AsQueryable();
         public Task<Proposal?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>

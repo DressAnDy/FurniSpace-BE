@@ -166,8 +166,31 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         Guid sceneId,
         CancellationToken cancellationToken = default)
     {
-        return DbContext.ProposalSceneSet
+        return BuildSceneContextQuery()
             .Where(scene => scene.ProposalId == proposalId && scene.SceneId == sceneId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<ProposalSceneContextReadModel?> GetSceneContextBySceneIdAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildSceneContextQuery()
+            .Where(scene => scene.SceneId == sceneId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<ProposalScene?> GetSceneEntityAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalSceneSet
+            .FirstOrDefaultAsync(scene => scene.SceneId == sceneId, cancellationToken);
+    }
+
+    private IQueryable<ProposalSceneContextReadModel> BuildSceneContextQuery()
+    {
+        return DbContext.ProposalSceneSet
             .Join(
                 DbContext.ProposalSet,
                 scene => scene.ProposalId,
@@ -187,8 +210,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     CustomerId = project.CustomerId,
                     AssignedSalesId = project.AssignedSalesId,
                     AssignedDesignerId = project.AssignedDesignerId
-                })
-            .FirstOrDefaultAsync(cancellationToken);
+                });
     }
 
     public async Task<IReadOnlyList<ProposalItem>> GetItemsBySceneAsync(
@@ -337,5 +359,31 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     proposal.ProjectId == projectId &&
                     proposal.Status == ProposalStatus.SELECTED,
                 cancellationToken);
+    }
+
+    public Task<bool> HasActiveSceneAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalSceneSet.AnyAsync(
+            scene => scene.ProposalId == proposalId && scene.IsActive == true,
+            cancellationToken);
+    }
+
+    public Task<bool> FileExistsAsync(
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.StoredFileSet.AnyAsync(file => file.FileId == fileId, cancellationToken);
+    }
+
+    public Task<bool> ProjectAreaBelongsToProjectAsync(
+        Guid projectAreaId,
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProjectAreaSet.AnyAsync(
+            area => area.ProjectAreaId == projectAreaId && area.ProjectId == projectId,
+            cancellationToken);
     }
 }

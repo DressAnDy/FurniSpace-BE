@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Interfaces.RoomPlanner;
+using InfrastructureRoomPlannerSceneDocument = FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneDocument;
 using InfrastructureRoomPlannerSceneRepository = FurniSpace.Infrastructure.Repositories.IRepository.IRoomPlannerSceneRepository;
 
 namespace FurniSpace.Application.Services.RoomPlanner;
@@ -54,9 +55,63 @@ public sealed class RoomPlannerSceneRepositoryAdapter : IRoomPlannerSceneReposit
             JsonSerializer.Serialize(document, JsonOptions),
             JsonOptions) ?? new RoomPlannerSceneDocument();
 
-    private static FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneDocument MapToInfrastructureDocument(
-        RoomPlannerSceneDocument document) =>
-        JsonSerializer.Deserialize<FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneDocument>(
+    private static InfrastructureRoomPlannerSceneDocument MapToInfrastructureDocument(
+        RoomPlannerSceneDocument document)
+    {
+        var mappedDocument = JsonSerializer.Deserialize<InfrastructureRoomPlannerSceneDocument>(
             JsonSerializer.Serialize(document, JsonOptions),
-            JsonOptions) ?? new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneDocument();
+            JsonOptions) ?? new InfrastructureRoomPlannerSceneDocument();
+
+        NormalizeDynamicJsonValues(mappedDocument);
+        return mappedDocument;
+    }
+
+    private static void NormalizeDynamicJsonValues(InfrastructureRoomPlannerSceneDocument document)
+    {
+        foreach (var sceneObject in document.Objects)
+        {
+            sceneObject.MaterialOverrides = NormalizeDictionary(sceneObject.MaterialOverrides);
+        }
+
+        document.Lighting.CustomLights = document.Lighting.CustomLights
+            .Select(NormalizeDictionary)
+            .ToList();
+
+        if (document.EditorState is not null)
+        {
+            document.EditorState.SnapSettings = NormalizeDictionary(document.EditorState.SnapSettings);
+        }
+    }
+
+    private static Dictionary<string, object?> NormalizeDictionary(Dictionary<string, object?> values)
+    {
+        return values.ToDictionary(
+            pair => pair.Key,
+            pair => NormalizeDynamicValue(pair.Value));
+    }
+
+    private static object? NormalizeDynamicValue(object? value)
+    {
+        return value is JsonElement element ? NormalizeJsonElement(element) : value;
+    }
+
+    private static object? NormalizeJsonElement(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Object => element.EnumerateObject().ToDictionary(
+                property => property.Name,
+                property => NormalizeJsonElement(property.Value)),
+            JsonValueKind.Array => element.EnumerateArray()
+                .Select(NormalizeJsonElement)
+                .ToList(),
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => element.TryGetInt64(out var integerValue)
+                ? integerValue
+                : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null
+        };
+    }
 }

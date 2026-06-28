@@ -134,13 +134,37 @@ public sealed class ProposalRepositoryTests
         var repository = new ProposalRepository(context);
 
         var scene = await repository.GetSceneContextAsync(data.PublishedProposalId, data.ActiveSceneId);
+        var sceneById = await repository.GetSceneContextBySceneIdAsync(data.ActiveSceneId);
         var items = await repository.GetItemsBySceneAsync(data.PublishedProposalId, data.ActiveSceneId);
 
         Assert.NotNull(scene);
         Assert.Equal(data.ProjectId, scene.ProjectId);
         Assert.Equal(data.SalesId, scene.AssignedSalesId);
+        Assert.NotNull(sceneById);
+        Assert.Equal(data.PublishedProposalId, sceneById.ProposalId);
         Assert.Single(items);
         Assert.Equal("Cafe Chair", items[0].ItemName);
+    }
+
+    [Fact]
+    public async Task SceneMetadataHelpers_ReturnExpectedValues()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var scene = await repository.GetSceneEntityAsync(data.ActiveSceneId);
+        var hasActiveScene = await repository.HasActiveSceneAsync(data.PublishedProposalId);
+        var fileExists = await repository.FileExistsAsync(data.PreviewFileId);
+        var areaBelongsToProject = await repository.ProjectAreaBelongsToProjectAsync(data.ProjectAreaId, data.ProjectId);
+        var areaBelongsToOtherProject = await repository.ProjectAreaBelongsToProjectAsync(data.ProjectAreaId, Guid.NewGuid());
+
+        Assert.NotNull(scene);
+        Assert.Equal(data.ActiveSceneId, scene.SceneId);
+        Assert.True(hasActiveScene);
+        Assert.True(fileExists);
+        Assert.True(areaBelongsToProject);
+        Assert.False(areaBelongsToOtherProject);
     }
 
     [Fact]
@@ -218,6 +242,7 @@ public sealed class ProposalRepositoryTests
         var activeSceneId = Guid.NewGuid();
         var inactiveSceneId = Guid.NewGuid();
         var previewFileId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
 
         context.ProjectSet.Add(new Project
         {
@@ -243,6 +268,14 @@ public sealed class ProposalRepositoryTests
             Status = FileStatus.ACTIVE,
             UploadedAt = DateTime.UtcNow
         });
+        context.ProjectAreaSet.Add(new ProjectArea
+        {
+            ProjectAreaId = projectAreaId,
+            ProjectId = projectId,
+            AreaName = "Main cafe area",
+            Status = ProjectAreaStatus.VERIFIED,
+            CreatedAt = DateTime.UtcNow
+        });
         context.ProposalSet.AddRange(
             CreateProposal(draftProposalId, projectId, "Draft proposal", ProposalStatus.DRAFT, versionNo: 1),
             CreateProposal(publishedProposalId, projectId, "Published proposal", ProposalStatus.PUBLISHED, versionNo: 2),
@@ -255,6 +288,7 @@ public sealed class ProposalRepositoryTests
                 SceneName = "Main layout",
                 SceneType = ProposalSceneType.THREE_D,
                 MongoSceneId = "mongo-scene-id",
+                ProjectAreaId = projectAreaId,
                 PreviewFileId = previewFileId,
                 VersionNo = 1,
                 IsActive = true,
@@ -290,7 +324,9 @@ public sealed class ProposalRepositoryTests
             draftProposalId,
             publishedProposalId,
             selectedProposalId,
-            activeSceneId);
+            activeSceneId,
+            previewFileId,
+            projectAreaId);
     }
 
     private static Proposal CreateProposal(
@@ -321,5 +357,7 @@ public sealed class ProposalRepositoryTests
         Guid DraftProposalId,
         Guid PublishedProposalId,
         Guid SelectedProposalId,
-        Guid ActiveSceneId);
+        Guid ActiveSceneId,
+        Guid PreviewFileId,
+        Guid ProjectAreaId);
 }

@@ -40,4 +40,28 @@ public interface IProposalService
         Guid currentUserId,
         SelectFinalProposalRequestDto request,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<RequestProposalRevisionResponseDto>> RequestRevisionAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        RequestProposalRevisionRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<PublishProposalResponseDto>> PublishAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        PublishProposalRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<UpdateProposalResponseDto>> UpdateAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        UpdateProposalRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(
+        Guid sceneId,
+        Guid currentUserId,
+        UpdateProposalSceneRequestDto request,
+        CancellationToken cancellationToken = default);
 }

@@ -43,6 +43,14 @@ public interface IProposalRepository : IGenericRepository<Proposal>
         Guid sceneId,
         CancellationToken cancellationToken = default);
 
+    Task<ProposalSceneContextReadModel?> GetSceneContextBySceneIdAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken = default);
+
+    Task<ProposalScene?> GetSceneEntityAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ProposalItem>> GetItemsBySceneAsync(
         Guid proposalId,
         Guid sceneId,
@@ -67,6 +75,19 @@ public interface IProposalRepository : IGenericRepository<Proposal>
         CancellationToken cancellationToken = default);
 
     Task<bool> HasSelectedFinalProposalAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> HasActiveSceneAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> FileExistsAsync(
+        Guid fileId,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> ProjectAreaBelongsToProjectAsync(
+        Guid projectAreaId,
         Guid projectId,
         CancellationToken cancellationToken = default);
 }

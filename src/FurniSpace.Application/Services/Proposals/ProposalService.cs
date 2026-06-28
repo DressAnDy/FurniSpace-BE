@@ -471,6 +471,344 @@ public sealed class ProposalService : IProposalService
         }
     }
 
+    public async Task<ServiceResult<RequestProposalRevisionResponseDto>> RequestRevisionAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        RequestProposalRevisionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (proposalId == Guid.Empty)
+        {
+            return ServiceResult<RequestProposalRevisionResponseDto>.BadRequest(ProposalIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<RequestProposalRevisionResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var revisionNote = NormalizeOptional(request?.RevisionNote);
+        if (string.IsNullOrWhiteSpace(revisionNote))
+        {
+            return ServiceResult<RequestProposalRevisionResponseDto>.BadRequest("Revision note is required.");
+        }
+
+        if (revisionNote.Length > MaxCustomizationNoteLength)
+        {
+            return ServiceResult<RequestProposalRevisionResponseDto>.BadRequest("Revision note must not exceed 1000 characters.");
+        }
+
+        var proposal = await _proposals.GetDetailAsync(proposalId, cancellationToken);
+        if (proposal is null)
+        {
+            return ServiceResult<RequestProposalRevisionResponseDto>.Failure(Error.NotFound(
+                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundMessage));
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!IsCustomer(roleName) || proposal.CustomerId != currentUserId)
+        {
+            return ServiceResult<RequestProposalRevisionResponseDto>.Forbidden("You do not have access to request revision for this proposal.");
+        }
+
+        if (!CanRequestRevision(proposal.Status))
+        {
+            return ServiceResult<RequestProposalRevisionResponseDto>.Failure(Error.BadRequest(
+                "INVALID_PROPOSAL_STATUS",
+                "Only published proposals can be requested for revision."));
+        }
+
+        var proposalEntity = await _proposals.GetProposalEntityAsync(proposalId, cancellationToken);
+        if (proposalEntity is null)
+        {
+            return ServiceResult<RequestProposalRevisionResponseDto>.Failure(Error.NotFound(
+                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundMessage));
+        }
+
+        var now = DateTime.UtcNow;
+        proposalEntity.Status = ProposalStatus.REVISION_REQUESTED;
+        proposalEntity.UpdatedAt = now;
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchProposalRevisionRequestedNotificationAsync(proposal, cancellationToken);
+
+        return ServiceResult<RequestProposalRevisionResponseDto>.Success(
+            new RequestProposalRevisionResponseDto
+            {
+                ProposalId = proposalId,
+                ProjectId = proposal.ProjectId,
+                ProposalStatus = proposalEntity.Status,
+                RevisionNote = revisionNote,
+                RequestedAt = now
+            },
+            "Proposal revision requested successfully.");
+    }
+
+    public async Task<ServiceResult<PublishProposalResponseDto>> PublishAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        PublishProposalRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        _ = request;
+        if (proposalId == Guid.Empty)
+        {
+            return ServiceResult<PublishProposalResponseDto>.BadRequest(ProposalIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PublishProposalResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var proposal = await _proposals.GetDetailAsync(proposalId, cancellationToken);
+        if (proposal is null)
+        {
+            return ServiceResult<PublishProposalResponseDto>.Failure(Error.NotFound(
+                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundMessage));
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanStaffAccessProposal(proposal, currentUserId, roleName))
+        {
+            return ServiceResult<PublishProposalResponseDto>.Forbidden("You do not have access to publish this proposal.");
+        }
+
+        if (proposal.Status != ProposalStatus.DRAFT)
+        {
+            return ServiceResult<PublishProposalResponseDto>.Failure(Error.BadRequest(
+                "INVALID_PROPOSAL_STATUS",
+                "Only draft proposals can be published."));
+        }
+
+        if (!await _proposals.HasActiveSceneAsync(proposalId, cancellationToken))
+        {
+            return ServiceResult<PublishProposalResponseDto>.Failure(Error.BadRequest(
+                "PROPOSAL_SCENE_REQUIRED",
+                "Proposal must have at least one active scene before publishing."));
+        }
+
+        var proposalEntity = await _proposals.GetProposalEntityAsync(proposalId, cancellationToken);
+        var projectEntity = await _projects.GetByIdAsync(proposal.ProjectId, cancellationToken);
+        if (proposalEntity is null || projectEntity is null)
+        {
+            return ServiceResult<PublishProposalResponseDto>.Failure(Error.NotFound(
+                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundMessage));
+        }
+
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var now = DateTime.UtcNow;
+            proposalEntity.Status = ProposalStatus.PUBLISHED;
+            proposalEntity.PublishedAt = now;
+            proposalEntity.UpdatedAt = now;
+            projectEntity.Status = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW;
+            projectEntity.UpdatedAt = now;
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            await DispatchProposalPublishedNotificationAsync(proposal, cancellationToken);
+
+            return ServiceResult<PublishProposalResponseDto>.Success(
+                new PublishProposalResponseDto
+                {
+                    ProposalId = proposalId,
+                    ProjectId = proposal.ProjectId,
+                    ProposalStatus = proposalEntity.Status,
+                    ProjectStatus = projectEntity.Status,
+                    PublishedAt = now
+                },
+                "Proposal published for customer review successfully.");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task<ServiceResult<UpdateProposalResponseDto>> UpdateAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        UpdateProposalRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (proposalId == Guid.Empty)
+        {
+            return ServiceResult<UpdateProposalResponseDto>.BadRequest(ProposalIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<UpdateProposalResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var validationErrors = ValidateUpdateProposalRequest(request);
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<UpdateProposalResponseDto>.BadRequest(validationErrors);
+        }
+
+        var proposal = await _proposals.GetProposalContextAsync(proposalId, cancellationToken);
+        if (proposal is null)
+        {
+            return ServiceResult<UpdateProposalResponseDto>.Failure(Error.NotFound(
+                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundMessage));
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanStaffAccessProposal(proposal, currentUserId, roleName))
+        {
+            return ServiceResult<UpdateProposalResponseDto>.Forbidden("You do not have access to update this proposal.");
+        }
+
+        if (proposal.ProposalStatus != ProposalStatus.DRAFT)
+        {
+            return ServiceResult<UpdateProposalResponseDto>.Failure(Error.BadRequest(
+                "INVALID_PROPOSAL_STATUS",
+                "Only draft proposals can be updated."));
+        }
+
+        var proposalEntity = await _proposals.GetProposalEntityAsync(proposalId, cancellationToken);
+        if (proposalEntity is null)
+        {
+            return ServiceResult<UpdateProposalResponseDto>.Failure(Error.NotFound(
+                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundMessage));
+        }
+
+        var now = DateTime.UtcNow;
+        if (request.ProposalName is not null)
+        {
+            proposalEntity.ProposalName = request.ProposalName.Trim();
+        }
+
+        if (request.Description is not null)
+        {
+            proposalEntity.Description = NormalizeOptional(request.Description);
+        }
+
+        proposalEntity.UpdatedAt = now;
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<UpdateProposalResponseDto>.Success(
+            new UpdateProposalResponseDto
+            {
+                ProposalId = proposalId,
+                ProjectId = proposal.ProjectId,
+                ProposalName = proposalEntity.ProposalName,
+                Description = proposalEntity.Description,
+                VersionNo = proposalEntity.VersionNo,
+                Status = proposalEntity.Status,
+                UpdatedAt = now
+            },
+            "Proposal updated successfully.");
+    }
+
+    public async Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(
+        Guid sceneId,
+        Guid currentUserId,
+        UpdateProposalSceneRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (sceneId == Guid.Empty)
+        {
+            return ServiceResult<UpdateProposalSceneResponseDto>.BadRequest("Scene id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<UpdateProposalSceneResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var validationErrors = ValidateUpdateSceneRequest(request);
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<UpdateProposalSceneResponseDto>.BadRequest(validationErrors);
+        }
+
+        var sceneContext = await _proposals.GetSceneContextBySceneIdAsync(sceneId, cancellationToken);
+        if (sceneContext is null)
+        {
+            return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.NotFound(
+                "SCENE_NOT_FOUND",
+                "Proposal scene not found."));
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanStaffAccessProposalScene(sceneContext, currentUserId, roleName))
+        {
+            return ServiceResult<UpdateProposalSceneResponseDto>.Forbidden("You do not have access to update this proposal scene.");
+        }
+
+        if (sceneContext.ProposalStatus != ProposalStatus.DRAFT)
+        {
+            return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.BadRequest(
+                "INVALID_PROPOSAL_STATUS",
+                "Proposal scene metadata can only be updated for draft proposal."));
+        }
+
+        if (request.PreviewFileId.HasValue &&
+            !await _proposals.FileExistsAsync(request.PreviewFileId.Value, cancellationToken))
+        {
+            return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.NotFound(
+                "FILE_NOT_FOUND",
+                "Preview file not found."));
+        }
+
+        if (request.ProjectAreaId.HasValue &&
+            !await _proposals.ProjectAreaBelongsToProjectAsync(request.ProjectAreaId.Value, sceneContext.ProjectId, cancellationToken))
+        {
+            return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.BadRequest(
+                "INVALID_PROJECT_AREA",
+                "Project area does not belong to the same project."));
+        }
+
+        var scene = await _proposals.GetSceneEntityAsync(sceneId, cancellationToken);
+        if (scene is null)
+        {
+            return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.NotFound(
+                "SCENE_NOT_FOUND",
+                "Proposal scene not found."));
+        }
+
+        var now = DateTime.UtcNow;
+        if (request.SceneName is not null)
+        {
+            scene.SceneName = NormalizeOptional(request.SceneName);
+        }
+
+        scene.ProjectAreaId = request.ProjectAreaId;
+        scene.PreviewFileId = request.PreviewFileId;
+        if (request.IsActive.HasValue)
+        {
+            scene.IsActive = request.IsActive;
+        }
+
+        scene.UpdatedAt = now;
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<UpdateProposalSceneResponseDto>.Success(
+            new UpdateProposalSceneResponseDto
+            {
+                SceneId = scene.SceneId,
+                ProposalId = scene.ProposalId,
+                SceneName = scene.SceneName,
+                ProjectAreaId = scene.ProjectAreaId,
+                SceneType = scene.SceneType,
+                MongoSceneId = scene.MongoSceneId,
+                PreviewFileId = scene.PreviewFileId,
+                IsActive = scene.IsActive,
+                UpdatedAt = now
+            },
+            "Proposal scene updated successfully.");
+    }
+
     private static List<string> ValidateCreateRequest(CreateProposalRequestDto request)
     {
         var errors = new List<string>();
@@ -557,6 +895,59 @@ public sealed class ProposalService : IProposalService
         }
     }
 
+    private static List<string> ValidateUpdateProposalRequest(UpdateProposalRequestDto request)
+    {
+        var errors = new List<string>();
+        if (request is null)
+        {
+            errors.Add("Update request is required.");
+            return errors;
+        }
+
+        if (request.ProposalName is not null)
+        {
+            if (string.IsNullOrWhiteSpace(request.ProposalName))
+            {
+                errors.Add("Proposal name is required.");
+            }
+            else if (request.ProposalName.Trim().Length > MaxProposalNameLength)
+            {
+                errors.Add("Proposal name must not exceed 150 characters.");
+            }
+        }
+
+        if (NormalizeOptional(request.Description)?.Length > MaxDescriptionLength)
+        {
+            errors.Add("Proposal description must not exceed 1000 characters.");
+        }
+
+        return errors;
+    }
+
+    private static List<string> ValidateUpdateSceneRequest(UpdateProposalSceneRequestDto request)
+    {
+        var errors = new List<string>();
+        if (request is null)
+        {
+            errors.Add("Update scene request is required.");
+            return errors;
+        }
+
+        if (request.SceneName is not null)
+        {
+            if (string.IsNullOrWhiteSpace(request.SceneName))
+            {
+                errors.Add("Scene name is required.");
+            }
+            else if (request.SceneName.Trim().Length > MaxSceneNameLength)
+            {
+                errors.Add("Scene name must not exceed 150 characters.");
+            }
+        }
+
+        return errors;
+    }
+
     private static string? ValidatePagination(int page, int limit)
     {
         if (page < 1)
@@ -636,6 +1027,43 @@ public sealed class ProposalService : IProposalService
         Guid currentUserId,
         string? roleName)
     {
+        return CanAccessAssignedStaff(
+            proposal.AssignedSalesId,
+            proposal.AssignedDesignerId,
+            currentUserId,
+            roleName);
+    }
+
+    private static bool CanStaffAccessProposal(
+        ProposalDetailReadModel proposal,
+        Guid currentUserId,
+        string? roleName)
+    {
+        return CanAccessAssignedStaff(
+            proposal.AssignedSalesId,
+            proposal.AssignedDesignerId,
+            currentUserId,
+            roleName);
+    }
+
+    private static bool CanStaffAccessProposalScene(
+        ProposalSceneContextReadModel scene,
+        Guid currentUserId,
+        string? roleName)
+    {
+        return CanAccessAssignedStaff(
+            scene.AssignedSalesId,
+            scene.AssignedDesignerId,
+            currentUserId,
+            roleName);
+    }
+
+    private static bool CanAccessAssignedStaff(
+        Guid? assignedSalesId,
+        Guid? assignedDesignerId,
+        Guid currentUserId,
+        string? roleName)
+    {
         if (IsAdmin(roleName))
         {
             return true;
@@ -643,10 +1071,10 @@ public sealed class ProposalService : IProposalService
 
         if (IsSales(roleName))
         {
-            return proposal.AssignedSalesId == currentUserId;
+            return assignedSalesId == currentUserId;
         }
 
-        return IsDesigner(roleName) && proposal.AssignedDesignerId == currentUserId;
+        return IsDesigner(roleName) && assignedDesignerId == currentUserId;
     }
 
     private async Task<Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel>> GetProductVersionsForSyncAsync(
@@ -761,6 +1189,11 @@ public sealed class ProposalService : IProposalService
         return status is ProposalStatus.PUBLISHED or ProposalStatus.VIEWED;
     }
 
+    private static bool CanRequestRevision(ProposalStatus? status)
+    {
+        return status is ProposalStatus.PUBLISHED or ProposalStatus.VIEWED;
+    }
+
     private async Task DispatchProposalFinalSelectedNotificationAsync(
         ProposalDetailReadModel proposal,
         CancellationToken cancellationToken)
@@ -770,11 +1203,7 @@ public sealed class ProposalService : IProposalService
             return;
         }
 
-        var receiverIds = new[] { proposal.AssignedSalesId, proposal.AssignedDesignerId }
-            .Where(id => id.HasValue)
-            .Select(id => id!.Value)
-            .Distinct()
-            .ToList();
+        var receiverIds = GetAssignedStaffReceiverIds(proposal);
         if (receiverIds.Count == 0)
         {
             return;
@@ -801,6 +1230,85 @@ public sealed class ProposalService : IProposalService
                 "Failed to dispatch final proposal selected notification for proposal {ProposalId}",
                 proposal.ProposalId);
         }
+    }
+
+    private async Task DispatchProposalPublishedNotificationAsync(
+        ProposalDetailReadModel proposal,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProposalPublished,
+                new Dictionary<string, string>
+                {
+                    ["ProposalName"] = proposal.ProposalName
+                },
+                [proposal.CustomerId],
+                projectId: proposal.ProjectId,
+                referenceType: "PROPOSAL",
+                referenceId: proposal.ProposalId,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(
+                ex,
+                "Failed to dispatch proposal published notification for proposal {ProposalId}",
+                proposal.ProposalId);
+        }
+    }
+
+    private async Task DispatchProposalRevisionRequestedNotificationAsync(
+        ProposalDetailReadModel proposal,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var receiverIds = GetAssignedStaffReceiverIds(proposal);
+        if (receiverIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProposalRevisionRequested,
+                new Dictionary<string, string>
+                {
+                    ["ProposalName"] = proposal.ProposalName
+                },
+                receiverIds,
+                projectId: proposal.ProjectId,
+                referenceType: "PROPOSAL",
+                referenceId: proposal.ProposalId,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(
+                ex,
+                "Failed to dispatch proposal revision requested notification for proposal {ProposalId}",
+                proposal.ProposalId);
+        }
+    }
+
+    private static List<Guid> GetAssignedStaffReceiverIds(ProposalDetailReadModel proposal)
+    {
+        return new[] { proposal.AssignedSalesId, proposal.AssignedDesignerId }
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
     }
 
     private static bool IsProposalStaff(string? roleName)

@@ -37,6 +37,10 @@ public sealed class ProposalsControllerTests
     [InlineData(nameof(ProposalsController.GetDetail), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.SyncItemsFromScene), "DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.SelectFinal), "CUSTOMER")]
+    [InlineData(nameof(ProposalsController.RequestRevision), "CUSTOMER")]
+    [InlineData(nameof(ProposalsController.Publish), "DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(ProposalsController.Update), "DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(ProposalsController.UpdateScene), "DESIGNER,SALES,ADMIN")]
     public void Actions_UseExpectedRoles(string actionName, string expectedRoles)
     {
         var method = typeof(ProposalsController)
@@ -201,6 +205,102 @@ public sealed class ProposalsControllerTests
     }
 
     [Fact]
+    public async Task RequestRevision_ReturnsServiceResultAndPassesRequest()
+    {
+        var proposalId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var request = new RequestProposalRevisionRequestDto { RevisionNote = "Update layout." };
+        var response = new RequestProposalRevisionResponseDto { ProposalId = proposalId };
+        var service = new FakeProposalService(
+            requestRevisionResult: ServiceResult<RequestProposalRevisionResponseDto>.Success(
+                response,
+                "Proposal revision requested successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.RequestRevision(proposalId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<RequestProposalRevisionResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(proposalId, service.ProposalId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.RequestRevisionRequest);
+    }
+
+    [Fact]
+    public async Task Publish_ReturnsServiceResultAndPassesRequest()
+    {
+        var proposalId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var request = new PublishProposalRequestDto { Note = "Ready" };
+        var response = new PublishProposalResponseDto { ProposalId = proposalId };
+        var service = new FakeProposalService(
+            publishResult: ServiceResult<PublishProposalResponseDto>.Success(
+                response,
+                "Proposal published for customer review successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.Publish(proposalId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<PublishProposalResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(proposalId, service.ProposalId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.PublishRequest);
+    }
+
+    [Fact]
+    public async Task Update_ReturnsServiceResultAndPassesRequest()
+    {
+        var proposalId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var request = new UpdateProposalRequestDto { ProposalName = "Updated" };
+        var response = new UpdateProposalResponseDto { ProposalId = proposalId };
+        var service = new FakeProposalService(
+            updateResult: ServiceResult<UpdateProposalResponseDto>.Success(
+                response,
+                "Proposal updated successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.Update(proposalId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<UpdateProposalResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(proposalId, service.ProposalId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.UpdateRequest);
+    }
+
+    [Fact]
+    public async Task UpdateScene_ReturnsServiceResultAndPassesRequest()
+    {
+        var sceneId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var request = new UpdateProposalSceneRequestDto { SceneName = "Updated scene" };
+        var response = new UpdateProposalSceneResponseDto { SceneId = sceneId };
+        var service = new FakeProposalService(
+            updateSceneResult: ServiceResult<UpdateProposalSceneResponseDto>.Success(
+                response,
+                "Proposal scene updated successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.UpdateScene(sceneId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<UpdateProposalSceneResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(sceneId, service.SceneId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.UpdateSceneRequest);
+    }
+
+    [Fact]
     public async Task Actions_WithoutUserClaim_ReturnUnauthorized()
     {
         var service = new FakeProposalService();
@@ -212,6 +312,10 @@ public sealed class ProposalsControllerTests
         Assert.IsType<UnauthorizedResult>(await controller.GetDetail(Guid.NewGuid()));
         Assert.IsType<UnauthorizedResult>(await controller.SyncItemsFromScene(Guid.NewGuid(), new SyncProposalItemsFromSceneRequestDto()));
         Assert.IsType<UnauthorizedResult>(await controller.SelectFinal(Guid.NewGuid(), new SelectFinalProposalRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.RequestRevision(Guid.NewGuid(), new RequestProposalRevisionRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.Publish(Guid.NewGuid(), new PublishProposalRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.Update(Guid.NewGuid(), new UpdateProposalRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.UpdateScene(Guid.NewGuid(), new UpdateProposalSceneRequestDto()));
         Assert.Equal(0, service.CallCount);
     }
 
@@ -243,6 +347,10 @@ public sealed class ProposalsControllerTests
         private readonly ServiceResult<ProposalDetailDto> _detailResult;
         private readonly ServiceResult<SyncProposalItemsFromSceneResponseDto> _syncResult;
         private readonly ServiceResult<SelectFinalProposalResponseDto> _selectFinalResult;
+        private readonly ServiceResult<RequestProposalRevisionResponseDto> _requestRevisionResult;
+        private readonly ServiceResult<PublishProposalResponseDto> _publishResult;
+        private readonly ServiceResult<UpdateProposalResponseDto> _updateResult;
+        private readonly ServiceResult<UpdateProposalSceneResponseDto> _updateSceneResult;
 
         public FakeProposalService(
             ServiceResult<ProposalDto>? createResult = null,
@@ -250,7 +358,11 @@ public sealed class ProposalsControllerTests
             ServiceResult<ProposalSceneDto>? sceneResult = null,
             ServiceResult<ProposalDetailDto>? detailResult = null,
             ServiceResult<SyncProposalItemsFromSceneResponseDto>? syncResult = null,
-            ServiceResult<SelectFinalProposalResponseDto>? selectFinalResult = null)
+            ServiceResult<SelectFinalProposalResponseDto>? selectFinalResult = null,
+            ServiceResult<RequestProposalRevisionResponseDto>? requestRevisionResult = null,
+            ServiceResult<PublishProposalResponseDto>? publishResult = null,
+            ServiceResult<UpdateProposalResponseDto>? updateResult = null,
+            ServiceResult<UpdateProposalSceneResponseDto>? updateSceneResult = null)
         {
             _createResult = createResult ?? ServiceResult<ProposalDto>.Created(new ProposalDto());
             _listResult = listResult ?? ServiceResult<ProposalListResponseDto>.Success(new ProposalListResponseDto());
@@ -258,17 +370,26 @@ public sealed class ProposalsControllerTests
             _detailResult = detailResult ?? ServiceResult<ProposalDetailDto>.Success(new ProposalDetailDto());
             _syncResult = syncResult ?? ServiceResult<SyncProposalItemsFromSceneResponseDto>.Success(new SyncProposalItemsFromSceneResponseDto());
             _selectFinalResult = selectFinalResult ?? ServiceResult<SelectFinalProposalResponseDto>.Success(new SelectFinalProposalResponseDto());
+            _requestRevisionResult = requestRevisionResult ?? ServiceResult<RequestProposalRevisionResponseDto>.Success(new RequestProposalRevisionResponseDto());
+            _publishResult = publishResult ?? ServiceResult<PublishProposalResponseDto>.Success(new PublishProposalResponseDto());
+            _updateResult = updateResult ?? ServiceResult<UpdateProposalResponseDto>.Success(new UpdateProposalResponseDto());
+            _updateSceneResult = updateSceneResult ?? ServiceResult<UpdateProposalSceneResponseDto>.Success(new UpdateProposalSceneResponseDto());
         }
 
         public int CallCount { get; private set; }
         public Guid ProjectId { get; private set; }
         public Guid ProposalId { get; private set; }
+        public Guid SceneId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public CreateProposalRequestDto? CreateRequest { get; private set; }
         public ProposalListQueryDto? ListQuery { get; private set; }
         public CreateProposalSceneRequestDto? SceneRequest { get; private set; }
         public SyncProposalItemsFromSceneRequestDto? SyncRequest { get; private set; }
         public SelectFinalProposalRequestDto? SelectFinalRequest { get; private set; }
+        public RequestProposalRevisionRequestDto? RequestRevisionRequest { get; private set; }
+        public PublishProposalRequestDto? PublishRequest { get; private set; }
+        public UpdateProposalRequestDto? UpdateRequest { get; private set; }
+        public UpdateProposalSceneRequestDto? UpdateSceneRequest { get; private set; }
 
         public Task<ServiceResult<ProposalDto>> CreateAsync(
             Guid projectId,
@@ -344,6 +465,58 @@ public sealed class ProposalsControllerTests
             CurrentUserId = currentUserId;
             SelectFinalRequest = request;
             return Task.FromResult(_selectFinalResult);
+        }
+
+        public Task<ServiceResult<RequestProposalRevisionResponseDto>> RequestRevisionAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            RequestProposalRevisionRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProposalId = proposalId;
+            CurrentUserId = currentUserId;
+            RequestRevisionRequest = request;
+            return Task.FromResult(_requestRevisionResult);
+        }
+
+        public Task<ServiceResult<PublishProposalResponseDto>> PublishAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            PublishProposalRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProposalId = proposalId;
+            CurrentUserId = currentUserId;
+            PublishRequest = request;
+            return Task.FromResult(_publishResult);
+        }
+
+        public Task<ServiceResult<UpdateProposalResponseDto>> UpdateAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            UpdateProposalRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProposalId = proposalId;
+            CurrentUserId = currentUserId;
+            UpdateRequest = request;
+            return Task.FromResult(_updateResult);
+        }
+
+        public Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(
+            Guid sceneId,
+            Guid currentUserId,
+            UpdateProposalSceneRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            SceneId = sceneId;
+            CurrentUserId = currentUserId;
+            UpdateSceneRequest = request;
+            return Task.FromResult(_updateSceneResult);
         }
     }
 }

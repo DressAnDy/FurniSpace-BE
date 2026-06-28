@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
@@ -13,7 +14,6 @@ using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
-using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Services.ProjectFiles;
 
@@ -80,22 +80,17 @@ public sealed class ProjectFileService : IProjectFileService
         IProjectFileRepository projectFiles,
         IProductRepository products,
         IProductVersionRepository productVersions,
-        IFileStorageService storage,
-        IOptions<FileUploadSettings> uploadSettings,
-        IOptions<FirebaseStorageSettings> firebaseSettings,
-        IUnitOfWork unitOfWork,
-        ISearchIndexService? search = null,
-        IProjectFileSearchIndexer? projectFileSearchIndexer = null)
+        ProjectFileServiceDependencies dependencies)
     {
         _projectFiles = projectFiles;
         _products = products;
         _productVersions = productVersions;
-        _unitOfWork = unitOfWork;
-        _storage = storage;
-        _uploadSettings = uploadSettings.Value;
-        _firebaseSettings = firebaseSettings.Value;
-        _search = search;
-        _projectFileSearchIndexer = projectFileSearchIndexer;
+        _unitOfWork = dependencies.UnitOfWork;
+        _storage = dependencies.Storage;
+        _uploadSettings = dependencies.UploadSettings;
+        _firebaseSettings = dependencies.FirebaseSettings;
+        _search = dependencies.Search;
+        _projectFileSearchIndexer = dependencies.ProjectFileSearchIndexer;
     }
 
     public async Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectFileAsync(

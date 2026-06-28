@@ -152,7 +152,7 @@ public sealed class SearchReindexServiceTests
         Assert.Empty(search.Deleted);
     }
 
-    private static IReadOnlyList<Account> CreateAccounts(int count)
+    private static Account[] CreateAccounts(int count)
         => Enumerable.Range(1, count)
             .Select(index => new Account
             {

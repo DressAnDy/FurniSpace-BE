@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Services.Products;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Tests;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Application.Interfaces.Search;
@@ -32,12 +33,13 @@ public static class CatalogServiceTestHelper
         return new ProductService(
             products,
             files,
-            storage ?? new NoOpFileStorageService(),
-            Options.Create(DefaultUploadSettings()),
-            Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
-            Options.Create(DefaultFirebaseSettings()),
-            search ?? new NoOpSearchIndexService(),
-            productSearchIndexer ?? new NoOpProductSearchIndexer(),
+            new ProductServiceDependencies(
+                storage ?? new NoOpFileStorageService(),
+                search ?? new NoOpSearchIndexService(),
+                productSearchIndexer ?? new NoOpProductSearchIndexer(),
+                DefaultUploadSettings(),
+                previewSettings ?? DefaultPreviewImageSettings(),
+                DefaultFirebaseSettings()),
             TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
     }
 
@@ -67,10 +69,11 @@ public static class CatalogServiceTestHelper
         return new ProductVersionService(
             productVersions,
             files,
-            storage ?? new NoOpFileStorageService(),
-            Options.Create(DefaultUploadSettings()),
-            Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
-            Options.Create(DefaultFirebaseSettings()),
+            new ProductVersionFileUploadDependencies(
+                storage ?? new NoOpFileStorageService(),
+                DefaultUploadSettings(),
+                previewSettings ?? DefaultPreviewImageSettings(),
+                DefaultFirebaseSettings()),
             productSearchIndexer ?? new NoOpProductSearchIndexer(),
             TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync));
     }

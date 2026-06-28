@@ -73,7 +73,7 @@ public sealed class ElasticsearchQueryBuilderTests
         var accountId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         var publishedAt = new DateTime(2026, 6, 28, 8, 30, 0, DateTimeKind.Utc);
 
-        var queries = ElasticsearchQueryBuilder.CreateFilterQueries<TestDocument>(
+        var queries = ElasticsearchQueryBuilder.CreateFilterQueries(
         [
             new("status", SearchFilterOperator.Term, "ACTIVE"),
             new("tags", SearchFilterOperator.Terms, Values: ["wood", "modern"]),
@@ -115,7 +115,7 @@ public sealed class ElasticsearchQueryBuilderTests
         var unsupported = (SearchFilterOperator)999;
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            ElasticsearchQueryBuilder.CreateFilterQueries<TestDocument>(
+            ElasticsearchQueryBuilder.CreateFilterQueries(
             [
                 new("status", unsupported, "ACTIVE")
             ]));

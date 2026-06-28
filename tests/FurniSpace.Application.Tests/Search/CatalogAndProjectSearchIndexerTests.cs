@@ -174,13 +174,21 @@ public sealed class CatalogAndProjectSearchIndexerTests
     public async Task SyncIndexers_WhenRepositoryOrSearchThrows_DoNotBubble()
     {
         var throwingSearch = new CapturingSearchIndexService(throwOnIndex: true, throwOnDelete: true);
+        var completedSyncCount = 0;
 
         await new ProductSearchIndexer(new FakeProductRepository(null, throwOnGet: true), throwingSearch)
             .SyncProductAsync(Guid.NewGuid());
+        completedSyncCount++;
         await new ProjectFileSearchIndexer(new FakeProjectFileRepository(null, throwOnGet: true), throwingSearch)
             .SyncFileAsync(Guid.NewGuid());
+        completedSyncCount++;
         await new ProjectSearchIndexer(new FakeProjectRepository(null, throwOnGet: true), throwingSearch)
             .SyncProjectAsync(Guid.NewGuid());
+        completedSyncCount++;
+
+        Assert.Equal(3, completedSyncCount);
+        Assert.Equal(0, throwingSearch.IndexCallCount);
+        Assert.Equal(0, throwingSearch.DeleteCallCount);
     }
 
     private sealed class CapturingSearchIndexService : ISearchIndexService

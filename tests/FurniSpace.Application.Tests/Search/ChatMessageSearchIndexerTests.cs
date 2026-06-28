@@ -82,6 +82,10 @@ public sealed class ChatMessageSearchIndexerTests
         var indexer = new ChatMessageSearchIndexer(repository, search);
 
         await indexer.SyncMessageAsync(Guid.NewGuid());
+
+        Assert.Equal(1, repository.GetSearchIndexItemCallCount);
+        Assert.Equal(0, search.IndexCallCount);
+        Assert.Equal(0, search.DeleteCallCount);
     }
 
     private sealed class FakeChatMessageRepository : IProjectChatMessageRepository

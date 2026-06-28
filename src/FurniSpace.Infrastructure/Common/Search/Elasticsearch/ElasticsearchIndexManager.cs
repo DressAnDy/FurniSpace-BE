@@ -24,7 +24,7 @@ public sealed class ElasticsearchIndexManager : IIndexManager
     private const string ProjectFilesMappingResourceName =
         "FurniSpace.Infrastructure.Common.Search.Mappings.project-files-index.json";
 
-    private static readonly IReadOnlyDictionary<string, string> IndexMappingResources =
+    private static readonly Dictionary<string, string> IndexMappingResources =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             ["accounts"] = AccountsMappingResourceName,

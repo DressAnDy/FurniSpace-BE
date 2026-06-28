@@ -36,9 +36,11 @@ using Mapster;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Persistence;
 
 namespace FurniSpace.Application;
 
@@ -74,11 +76,60 @@ public static class DependencyInjection
                 sp.GetRequiredService<IFileUploadValidator>(),
                 firebaseSettings);
         });
+        services.AddScoped<ProjectChatMessageServiceDependencies>(sp =>
+        {
+            return new ProjectChatMessageServiceDependencies(
+                sp.GetRequiredService<IProjectChatRealtimeService>(),
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<ProjectChatFileUploadDependencies>(),
+                sp.GetRequiredService<ILogger<ProjectChatMessageService>>(),
+                sp.GetService<ISearchIndexService>(),
+                sp.GetService<IChatMessageSearchIndexer>());
+        });
+        services.AddScoped<ProductServiceDependencies>(sp =>
+        {
+            return new ProductServiceDependencies(
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<ISearchIndexService>(),
+                sp.GetRequiredService<IProductSearchIndexer>(),
+                sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
+                sp.GetRequiredService<IOptions<ProductPreviewImageSettings>>().Value,
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
+        });
+        services.AddScoped<ProjectFileServiceDependencies>(sp =>
+        {
+            return new ProjectFileServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
+                sp.GetService<ISearchIndexService>(),
+                sp.GetService<IProjectFileSearchIndexer>());
+        });
+        services.AddScoped<ProductVersionFileUploadDependencies>(sp =>
+        {
+            return new ProductVersionFileUploadDependencies(
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
+                sp.GetRequiredService<IOptions<ProductPreviewImageSettings>>().Value,
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
+        });
         services.AddScoped<IProjectFileService, ProjectFileService>();
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<ProjectStatusTransitionEvaluator>();
+        services.AddScoped<ProjectServiceDependencies>(sp =>
+        {
+            return new ProjectServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<ProjectStatusTransitionEvaluator>(),
+                sp.GetService<INotificationDispatcher>(),
+                sp.GetService<ILogger<ProjectService>>(),
+                sp.GetService<IProjectChatService>(),
+                sp.GetService<ISearchIndexService>(),
+                sp.GetService<IProjectSearchIndexer>());
+        });
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();

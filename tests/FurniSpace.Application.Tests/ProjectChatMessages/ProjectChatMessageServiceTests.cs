@@ -832,15 +832,18 @@ public sealed class ProjectChatMessageServiceTests
         return new ProjectChatMessageService(
             repository,
             projectFiles ?? new FakeCatalogProjectFileRepository(),
-            realtime ?? new FakeProjectChatRealtimeService(),
-            unitOfWork ?? TestUnitOfWork.Instance,
-            new ProjectChatFileUploadDependencies(
-                storage ?? new FakeFileStorageService(),
-                new FileUploadValidator(
-                    Options.Create(uploadSettings ?? new FileUploadSettings()),
-                    Options.Create(new FirebaseStorageSettings())),
-                new FirebaseStorageSettings()),
-            NullLogger<ProjectChatMessageService>.Instance);
+            new ProjectChatMessageServiceDependencies(
+                realtime ?? new FakeProjectChatRealtimeService(),
+                unitOfWork ?? TestUnitOfWork.Instance,
+                new ProjectChatFileUploadDependencies(
+                    storage ?? new FakeFileStorageService(),
+                    new FileUploadValidator(
+                        Options.Create(uploadSettings ?? new FileUploadSettings()),
+                        Options.Create(new FirebaseStorageSettings())),
+                    new FirebaseStorageSettings()),
+                NullLogger<ProjectChatMessageService>.Instance,
+                Search: null,
+                ChatMessageSearchIndexer: null));
     }
 
     private static SendTextChatMessageRequestDto ValidSendRequest()

@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Application.Interfaces.Search;
@@ -12,7 +13,6 @@ using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
-using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Services.Products;
 
@@ -39,23 +39,18 @@ public sealed class ProductService : IProductService
     public ProductService(
         IProductRepository products,
         IProjectFileRepository files,
-        IFileStorageService storage,
-        IOptions<FileUploadSettings> uploadSettings,
-        IOptions<ProductPreviewImageSettings> previewSettings,
-        IOptions<FirebaseStorageSettings> firebaseSettings,
-        ISearchIndexService search,
-        IProductSearchIndexer productSearchIndexer,
+        ProductServiceDependencies dependencies,
         IUnitOfWork unitOfWork)
     {
         _products = products;
         _files = files;
         _unitOfWork = unitOfWork;
-        _storage = storage;
-        _search = search;
-        _productSearchIndexer = productSearchIndexer;
-        _uploadSettings = uploadSettings.Value;
-        _previewSettings = previewSettings.Value;
-        _firebaseSettings = firebaseSettings.Value;
+        _storage = dependencies.Storage;
+        _search = dependencies.Search;
+        _productSearchIndexer = dependencies.ProductSearchIndexer;
+        _uploadSettings = dependencies.UploadSettings;
+        _previewSettings = dependencies.PreviewSettings;
+        _firebaseSettings = dependencies.FirebaseSettings;
     }
 
     public async Task<ServiceResult<ProductDto>> CreateAsync(

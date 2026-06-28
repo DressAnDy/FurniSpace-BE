@@ -139,7 +139,7 @@ public sealed class ElasticsearchIndexService : ISearchIndexService
                         .MinTermFreq(1)
                         .MaxQueryTerms(12)))
                     .MustNot(mn => mn.Ids(ids => ids.Values(documentId)))
-                    .Filter(ElasticsearchQueryBuilder.CreateFilterQueries<TDocument>(request.Filters)))),
+                    .Filter(ElasticsearchQueryBuilder.CreateFilterQueries(request.Filters)))),
             cancellationToken);
 
         if (!response.IsValidResponse)

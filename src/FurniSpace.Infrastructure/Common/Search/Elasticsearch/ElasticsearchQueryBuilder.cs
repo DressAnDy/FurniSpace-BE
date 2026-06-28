@@ -76,7 +76,7 @@ public static class ElasticsearchQueryBuilder
 
             if (hasFilters)
             {
-                b.Filter(BuildFilterQueries<TDocument>(request));
+                b.Filter(BuildFilterQueries(request));
             }
         }));
     }
@@ -95,35 +95,31 @@ public static class ElasticsearchQueryBuilder
         return expanded.ToArray();
     }
 
-    private static Query[] BuildFilterQueries<TDocument>(IndexSearchRequest request)
+    private static Query[] BuildFilterQueries(IndexSearchRequest request)
     {
-        var filters = new List<Query>(CreateFilterQueries<TDocument>(request.Filters));
+        var filters = new List<Query>(CreateFilterQueries(request.Filters));
 
-        foreach (var group in request.FilterShouldMatchOne)
-        {
-            if (group.AnyOf.Count == 0)
+        filters.AddRange(
+            request.FilterShouldMatchOne
+                .Select(group => group.AnyOf)
+                .Where(anyOf => anyOf.Count > 0)
+                .Select(anyOf => (Query)new BoolQuery
             {
-                continue;
-            }
-
-            filters.Add(new BoolQuery
-            {
-                Should = CreateFilterQueries<TDocument>(group.AnyOf),
+                Should = CreateFilterQueries(anyOf),
                 MinimumShouldMatch = 1
-            });
-        }
+            }));
 
         return filters.ToArray();
     }
 
-    internal static Query[] CreateFilterQueries<TDocument>(IReadOnlyList<SearchFilter> filters)
+    internal static Query[] CreateFilterQueries(IReadOnlyList<SearchFilter> filters)
     {
         return filters
-            .Select(filter => BuildFilterQuery<TDocument>(filter))
+            .Select(BuildFilterQuery)
             .ToArray();
     }
 
-    private static Query BuildFilterQuery<TDocument>(SearchFilter filter)
+    private static Query BuildFilterQuery(SearchFilter filter)
     {
         return filter.Operator switch
         {

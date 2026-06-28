@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -71,22 +72,16 @@ public sealed class ProjectService : IProjectService
 
     public ProjectService(
         IProjectRepository projects,
-        IUnitOfWork unitOfWork,
-        ProjectStatusTransitionEvaluator transitionEvaluator,
-        INotificationDispatcher? notifications = null,
-        ILogger<ProjectService>? logger = null,
-        IProjectChatService? projectChats = null,
-        ISearchIndexService? search = null,
-        IProjectSearchIndexer? projectSearchIndexer = null)
+        ProjectServiceDependencies dependencies)
     {
         _projects = projects;
-        _unitOfWork = unitOfWork;
-        _transitionEvaluator = transitionEvaluator;
-        _notifications = notifications;
-        _logger = logger;
-        _projectChats = projectChats;
-        _search = search;
-        _projectSearchIndexer = projectSearchIndexer;
+        _unitOfWork = dependencies.UnitOfWork;
+        _transitionEvaluator = dependencies.TransitionEvaluator;
+        _notifications = dependencies.Notifications;
+        _logger = dependencies.Logger;
+        _projectChats = dependencies.ProjectChats;
+        _search = dependencies.Search;
+        _projectSearchIndexer = dependencies.ProjectSearchIndexer;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(

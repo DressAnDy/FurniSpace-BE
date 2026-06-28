@@ -40,21 +40,16 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
     public ProjectChatMessageService(
         IProjectChatMessageRepository messages,
         IProjectFileRepository projectFiles,
-        IProjectChatRealtimeService realtime,
-        IUnitOfWork unitOfWork,
-        ProjectChatFileUploadDependencies fileUpload,
-        ILogger<ProjectChatMessageService> logger,
-        ISearchIndexService? search = null,
-        IChatMessageSearchIndexer? chatMessageSearchIndexer = null)
+        ProjectChatMessageServiceDependencies dependencies)
     {
         _messages = messages;
         _projectFiles = projectFiles;
-        _realtime = realtime;
-        _unitOfWork = unitOfWork;
-        _fileUpload = fileUpload;
-        _logger = logger;
-        _search = search;
-        _chatMessageSearchIndexer = chatMessageSearchIndexer;
+        _realtime = dependencies.Realtime;
+        _unitOfWork = dependencies.UnitOfWork;
+        _fileUpload = dependencies.FileUpload;
+        _logger = dependencies.Logger;
+        _search = dependencies.Search;
+        _chatMessageSearchIndexer = dependencies.ChatMessageSearchIndexer;
     }
 
     public async Task<bool> CanAccessChatAsync(

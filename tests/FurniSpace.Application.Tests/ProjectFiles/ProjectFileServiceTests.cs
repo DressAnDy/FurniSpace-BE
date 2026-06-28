@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Services.ProjectFiles;
 using FurniSpace.Application.Tests;
@@ -507,19 +508,22 @@ public sealed class ProjectFileServiceTests
             repository,
             products ?? new FakeCatalogProductRepository(),
             productVersions ?? new FakeCatalogProductVersionRepository(),
-            storage,
-            Options.Create(new FileUploadSettings
-            {
-                MaxFileSizeBytes = 1024 * 1024,
-                AllowedExtensions = [".jpg", ".jpeg", ".pdf"],
-                AllowedMimeTypes = ["image/jpeg", "application/pdf"]
-            }),
-            Options.Create(new FirebaseStorageSettings
-            {
-                Bucket = "test-bucket",
-                ProjectFilesPrefix = "projects"
-            }),
-            global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            new ProjectFileServiceDependencies(
+                global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+                storage,
+                new FileUploadSettings
+                {
+                    MaxFileSizeBytes = 1024 * 1024,
+                    AllowedExtensions = [".jpg", ".jpeg", ".pdf"],
+                    AllowedMimeTypes = ["image/jpeg", "application/pdf"]
+                },
+                new FirebaseStorageSettings
+                {
+                    Bucket = "test-bucket",
+                    ProjectFilesPrefix = "projects"
+                },
+                Search: null,
+                ProjectFileSearchIndexer: null));
     }
 
     private static UploadProjectFileRequestDto CreateUploadRequest(

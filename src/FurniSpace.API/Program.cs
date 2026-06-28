@@ -38,6 +38,7 @@ if (TryGetReindexModule(args, out var reindexModule))
 const string AllowAllCorsPolicy = "AllowAllCors";
 const string WildcardCorsOrigin = "*";
 const string CorsAllowedOriginsEnvKey = "CORS_ALLOWED_ORIGINS";
+const string ReindexCompletedLogTemplate = "Elasticsearch reindex completed for module {Module}.";
 
 var builder = WebApplication.CreateBuilder(args);
 var jwtSettings = LoadJwtSettings(builder.Configuration);
@@ -391,23 +392,23 @@ static async Task RunReindexCommandAsync(string module)
     {
         case "accounts":
             await reindexService.ReindexAccountsAsync();
-            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            Log.Information(ReindexCompletedLogTemplate, module);
             break;
         case "products":
             await reindexService.ReindexProductsAsync();
-            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            Log.Information(ReindexCompletedLogTemplate, module);
             break;
         case "projects":
             await reindexService.ReindexProjectsAsync();
-            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            Log.Information(ReindexCompletedLogTemplate, module);
             break;
         case "chat-messages":
             await reindexService.ReindexChatMessagesAsync();
-            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            Log.Information(ReindexCompletedLogTemplate, module);
             break;
         case "project-files":
             await reindexService.ReindexProjectFilesAsync();
-            Log.Information("Elasticsearch reindex completed for module {Module}.", module);
+            Log.Information(ReindexCompletedLogTemplate, module);
             break;
         default:
             throw new InvalidOperationException(

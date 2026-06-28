@@ -50,7 +50,11 @@ public sealed class ElasticsearchIndexInitializerTests
             new TestScopeFactory(new CapturingIndexManager()),
             NullLogger<ElasticsearchIndexInitializer>.Instance);
 
-        await initializer.StopAsync(CancellationToken.None);
+        var stopTask = initializer.StopAsync(CancellationToken.None);
+
+        await stopTask;
+
+        Assert.True(stopTask.IsCompletedSuccessfully);
     }
 
     private sealed class CapturingIndexManager : IIndexManager

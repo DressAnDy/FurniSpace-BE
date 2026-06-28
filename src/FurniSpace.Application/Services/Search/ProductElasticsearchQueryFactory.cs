@@ -10,6 +10,8 @@ public static class ProductElasticsearchQueryFactory
     public const string CategoryFacetField = "categoryName.keyword";
     public const string MaterialFacetField = "material";
     public const string ColorFacetField = "color";
+    private const string EstimatedPriceField = "estimatedPrice";
+    private const string ProductNameKeywordField = "productName.keyword";
 
     private static readonly string[] ProductFacetFields =
     [
@@ -80,12 +82,12 @@ public static class ProductElasticsearchQueryFactory
 
         if (request.MinPrice.HasValue)
         {
-            filters.Add(new SearchFilter("estimatedPrice", SearchFilterOperator.RangeGte, request.MinPrice.Value));
+            filters.Add(new SearchFilter(EstimatedPriceField, SearchFilterOperator.RangeGte, request.MinPrice.Value));
         }
 
         if (request.MaxPrice.HasValue)
         {
-            filters.Add(new SearchFilter("estimatedPrice", SearchFilterOperator.RangeLte, request.MaxPrice.Value));
+            filters.Add(new SearchFilter(EstimatedPriceField, SearchFilterOperator.RangeLte, request.MaxPrice.Value));
         }
 
         return new SearchRequest
@@ -133,23 +135,23 @@ public static class ProductElasticsearchQueryFactory
         {
             "price_asc" =>
             [
-                new SearchSortField("estimatedPrice", SortDirection.Asc),
-                new SearchSortField("productName.keyword", SortDirection.Asc)
+                new SearchSortField(EstimatedPriceField, SortDirection.Asc),
+                new SearchSortField(ProductNameKeywordField, SortDirection.Asc)
             ],
             "price_desc" =>
             [
-                new SearchSortField("estimatedPrice", SortDirection.Desc),
-                new SearchSortField("productName.keyword", SortDirection.Asc)
+                new SearchSortField(EstimatedPriceField, SortDirection.Desc),
+                new SearchSortField(ProductNameKeywordField, SortDirection.Asc)
             ],
             "created_asc" =>
             [
                 new SearchSortField("createdAt", SortDirection.Asc),
-                new SearchSortField("productName.keyword", SortDirection.Asc)
+                new SearchSortField(ProductNameKeywordField, SortDirection.Asc)
             ],
             _ =>
             [
                 new SearchSortField("createdAt", SortDirection.Desc),
-                new SearchSortField("productName.keyword", SortDirection.Asc)
+                new SearchSortField(ProductNameKeywordField, SortDirection.Asc)
             ]
         };
     }

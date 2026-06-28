@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
@@ -11,7 +12,6 @@ using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
-using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Services.ProductVersions;
 
@@ -41,21 +41,18 @@ public sealed class ProductVersionService : IProductVersionService
     public ProductVersionService(
         IProductVersionRepository productVersions,
         IProjectFileRepository files,
-        IFileStorageService storage,
-        IOptions<FileUploadSettings> uploadSettings,
-        IOptions<ProductPreviewImageSettings> previewSettings,
-        IOptions<FirebaseStorageSettings> firebaseSettings,
+        ProductVersionFileUploadDependencies fileUpload,
         IProductSearchIndexer productSearchIndexer,
         IUnitOfWork unitOfWork)
     {
         _productVersions = productVersions;
         _files = files;
         _unitOfWork = unitOfWork;
-        _storage = storage;
+        _storage = fileUpload.Storage;
         _productSearchIndexer = productSearchIndexer;
-        _uploadSettings = uploadSettings.Value;
-        _previewSettings = previewSettings.Value;
-        _firebaseSettings = firebaseSettings.Value;
+        _uploadSettings = fileUpload.UploadSettings;
+        _previewSettings = fileUpload.PreviewSettings;
+        _firebaseSettings = fileUpload.FirebaseSettings;
     }
 
     public async Task<ServiceResult<ProductVersionDto>> CreateAsync(

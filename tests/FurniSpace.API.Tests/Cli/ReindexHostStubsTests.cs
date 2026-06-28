@@ -15,9 +15,13 @@ public sealed class ReindexHostStubsTests
     {
         var service = new NoOpRealtimeNotificationService();
 
-        await service.SendToUserAsync(Guid.NewGuid(), "event", new { Value = 1 });
-        await service.SendToRoleAsync("ADMIN", "event", new { Value = 1 });
-        await service.SendToUsersAsync([Guid.NewGuid(), Guid.NewGuid()], "event", new { Value = 1 });
+        var sendToUser = service.SendToUserAsync(Guid.NewGuid(), "event", new { Value = 1 });
+        var sendToRole = service.SendToRoleAsync("ADMIN", "event", new { Value = 1 });
+        var sendToUsers = service.SendToUsersAsync([Guid.NewGuid(), Guid.NewGuid()], "event", new { Value = 1 });
+
+        await Task.WhenAll(sendToUser, sendToRole, sendToUsers);
+
+        Assert.All([sendToUser, sendToRole, sendToUsers], task => Assert.True(task.IsCompletedSuccessfully));
     }
 
     [Fact]
@@ -25,9 +29,13 @@ public sealed class ReindexHostStubsTests
     {
         var service = new NoOpProjectChatRealtimeService();
 
-        await service.SendMessageSentAsync(
+        var sendMessage = service.SendMessageSentAsync(
             Guid.NewGuid(),
             Guid.NewGuid(),
             new ProjectChatMessageDto { MessageId = Guid.NewGuid() });
+
+        await sendMessage;
+
+        Assert.True(sendMessage.IsCompletedSuccessfully);
     }
 }

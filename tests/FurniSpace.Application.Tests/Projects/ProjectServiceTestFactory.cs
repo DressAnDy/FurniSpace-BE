@@ -40,12 +40,14 @@ internal static class ProjectServiceTestFactory
 
         return new ProjectService(
             repository,
-            unitOfWork,
-            evaluator,
-            dispatcher,
-            projectChats: projectChats,
-            search: search,
-            projectSearchIndexer: projectSearchIndexer);
+            new ProjectServiceDependencies(
+                unitOfWork,
+                evaluator,
+                dispatcher,
+                Logger: null,
+                projectChats,
+                search,
+                projectSearchIndexer));
     }
 }
 

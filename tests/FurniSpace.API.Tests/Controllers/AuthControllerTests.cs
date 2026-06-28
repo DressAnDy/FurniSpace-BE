@@ -40,6 +40,35 @@ public sealed class AuthControllerTests
     }
 
     [Fact]
+    public async Task PublicIdentityActions_ReturnServiceResults()
+    {
+        var identity = new FakeIdentityService();
+        var controller = CreateController(identity: identity);
+
+        var register = await controller.Register(new RegisterRequestDto(), CancellationToken.None);
+        var resend = await controller.ResendVerificationOtp(new ResendVerificationOtpRequestDto(), CancellationToken.None);
+        var forgot = await controller.ForgotPassword(new ForgotPasswordRequestDto(), CancellationToken.None);
+        var reset = await controller.ResetPassword(new ResetPasswordRequestDto(), CancellationToken.None);
+
+        Assert.Equal(200, Assert.IsType<ObjectResult>(register).StatusCode);
+        Assert.Equal(200, Assert.IsType<ObjectResult>(resend).StatusCode);
+        Assert.Equal(200, Assert.IsType<ObjectResult>(forgot).StatusCode);
+        Assert.Equal(200, Assert.IsType<ObjectResult>(reset).StatusCode);
+    }
+
+    [Fact]
+    public async Task VerifyEmail_ReturnsResultAndSetsAuthCookies()
+    {
+        var identity = new FakeIdentityService();
+        var controller = CreateController(identity: identity);
+
+        var result = await controller.VerifyEmail(new VerifyEmailRequestDto(), CancellationToken.None);
+
+        Assert.Equal(200, Assert.IsType<ObjectResult>(result).StatusCode);
+        Assert.Contains("access_token=access-token", controller.Response.Headers.SetCookie.ToString());
+    }
+
+    [Fact]
     public async Task Refresh_WhenRequestMissingToken_UsesRefreshCookie()
     {
         var identity = new FakeIdentityService
@@ -87,6 +116,35 @@ public sealed class AuthControllerTests
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(401, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProfileActions_WithValidUserId_DelegateToIdentityService()
+    {
+        var userId = Guid.NewGuid();
+        var identity = new FakeIdentityService();
+        var controller = CreateController(identity: identity);
+        SetUser(controller, userId);
+
+        var update = await controller.UpdateMe(new UpdateProfileRequestDto(), CancellationToken.None);
+        var changePassword = await controller.ChangePassword(new ChangePasswordRequestDto(), CancellationToken.None);
+
+        Assert.Equal(200, Assert.IsType<ObjectResult>(update).StatusCode);
+        Assert.Equal(200, Assert.IsType<ObjectResult>(changePassword).StatusCode);
+        Assert.Equal(userId, identity.UpdatedUserId);
+        Assert.Equal(userId, identity.PasswordChangedUserId);
+    }
+
+    [Fact]
+    public async Task ProfileActions_WithMissingUserId_ReturnUnauthorized()
+    {
+        var controller = CreateController();
+
+        var update = await controller.UpdateMe(new UpdateProfileRequestDto(), CancellationToken.None);
+        var changePassword = await controller.ChangePassword(new ChangePasswordRequestDto(), CancellationToken.None);
+
+        Assert.Equal(401, Assert.IsType<ObjectResult>(update).StatusCode);
+        Assert.Equal(401, Assert.IsType<ObjectResult>(changePassword).StatusCode);
     }
 
     [Fact]
@@ -242,6 +300,8 @@ public sealed class AuthControllerTests
         public ServiceResult<CurrentUserDto> CurrentUserResult { get; set; } = ServiceResult<CurrentUserDto>.Success(new CurrentUserDto());
         public RefreshRequestDto? RefreshRequest { get; private set; }
         public Guid? CurrentUserId { get; private set; }
+        public Guid? UpdatedUserId { get; private set; }
+        public Guid? PasswordChangedUserId { get; private set; }
 
         public Task<ServiceResult<AuthResponseDto>> LoginAsync(LoginRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(LoginResult);
@@ -269,8 +329,15 @@ public sealed class AuthControllerTests
         public Task<ServiceResult> ResetPasswordAsync(ResetPasswordRequestDto request, CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult.Success());
         public Task<ServiceResult<CurrentUserDto>> UpdateProfileAsync(Guid userId, UpdateProfileRequestDto request, CancellationToken cancellationToken = default)
-            => Task.FromResult(CurrentUserResult);
+        {
+            UpdatedUserId = userId;
+            return Task.FromResult(CurrentUserResult);
+        }
+
         public Task<ServiceResult> ChangePasswordAsync(Guid userId, ChangePasswordRequestDto request, CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult.Success());
+        {
+            PasswordChangedUserId = userId;
+            return Task.FromResult(ServiceResult.Success());
+        }
     }
 }

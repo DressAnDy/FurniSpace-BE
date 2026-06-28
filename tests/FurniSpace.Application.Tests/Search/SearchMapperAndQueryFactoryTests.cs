@@ -121,6 +121,38 @@ public sealed class SearchMapperAndQueryFactoryTests
     }
 
     [Fact]
+    public void AccountQueryFactory_BuildsSearchSuggestStatsAndEscapedFilters()
+    {
+        var search = AccountElasticsearchQueryFactory.BuildSearch(
+            page: 2,
+            pageSize: 25,
+            search: " a+b@example.com ",
+            status: "ACTIVE",
+            includeDeleted: false);
+        var suggest = AccountElasticsearchQueryFactory.BuildSuggest(" Nguyen Van A ", limit: 7);
+        var stats = AccountElasticsearchQueryFactory.BuildStatsAggregation(includeDeleted: true);
+        var deletedFilters = AccountElasticsearchQueryFactory.CreateAccountFilters(status: null, includeDeleted: false);
+
+        Assert.Equal(2, search.Page);
+        Assert.Equal(25, search.PageSize);
+        Assert.Contains("email:*a\\+b@example.com*", search.Query);
+        Assert.Contains(search.Filters, filter => filter.Field == "deletedAt" && filter.Operator == SearchFilterOperator.NotExists);
+        Assert.Contains(search.Filters, filter => filter.Field == "status" && Equals(filter.Value, "ACTIVE"));
+        Assert.Equal(["createdAt", "email.keyword"], search.Sort.Select(sort => sort.Field).ToArray());
+        Assert.True(search.TrackTotalHits);
+
+        Assert.Contains("fullName:*Nguyen\\ Van\\ A*", suggest.Query);
+        Assert.Equal(7, suggest.PageSize);
+        Assert.False(suggest.TrackTotalHits);
+        Assert.Equal(["fullName.keyword", "email.keyword"], suggest.Sort.Select(sort => sort.Field).ToArray());
+
+        Assert.Empty(stats.Filters);
+        Assert.Equal([AccountElasticsearchQueryFactory.StatusField, AccountElasticsearchQueryFactory.RoleIdField], stats.TermsFields);
+        Assert.Equal(20, stats.TermsSize);
+        Assert.Single(deletedFilters);
+    }
+
+    [Fact]
     public void ResponseMappers_MapSearchDocumentsToDtos()
     {
         var message = new ChatMessageSearchDocument

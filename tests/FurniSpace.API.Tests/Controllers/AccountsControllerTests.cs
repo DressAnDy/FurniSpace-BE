@@ -18,6 +18,17 @@ namespace FurniSpace.API.Tests.Controllers;
 
 public sealed class AccountsControllerTests
 {
+    [Theory]
+    [InlineData(nameof(AccountsController.Suggest), "ADMIN")]
+    [InlineData(nameof(AccountsController.GetSearchStats), "ADMIN")]
+    public void AdminSearchActions_RequireAdminRole(string methodName, string expectedRoles)
+    {
+        var authorize = GetMethodAuthorizeAttribute(methodName);
+
+        Assert.NotNull(authorize);
+        Assert.Equal(expectedRoles, authorize.Roles);
+    }
+
     [Fact]
     public void GetAdminDetail_RequiresAdminRole()
     {
@@ -71,6 +82,116 @@ public sealed class AccountsControllerTests
         Assert.Equal("Account detail retrieved successfully.", result.Message);
         Assert.Same(response, result.Data);
         Assert.Equal(accountId, service.AdminDetailAccountId);
+    }
+
+    [Fact]
+    public async Task GetPaged_ReturnsServiceResultAndPassesQuery()
+    {
+        var page = PagedResult<AccountDto>.Create(
+        [
+            new AccountDto
+            {
+                AccountId = Guid.NewGuid(),
+                Email = "admin@furnispace.com",
+                FullName = "Admin User",
+                Status = "ACTIVE"
+            }
+        ], page: 3, pageSize: 15, totalItems: 31);
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            pagedResult: ServiceResult<PagedResult<AccountDto>>.Success(page, "Accounts retrieved successfully."));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetPaged(
+            page: 3,
+            pageSize: 15,
+            search: "admin",
+            status: "ACTIVE",
+            includeDeleted: true);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<PagedResult<AccountDto>>>(objectResult.Value);
+        Assert.Same(page, result.Data);
+        Assert.Equal(3, service.Page);
+        Assert.Equal(15, service.PageSize);
+        Assert.Equal("admin", service.Search);
+        Assert.Equal("ACTIVE", service.Status);
+        Assert.True(service.IncludeDeleted);
+    }
+
+    [Fact]
+    public async Task GetById_ReturnsServiceResultAndPassesAccountId()
+    {
+        var accountId = Guid.NewGuid();
+        var response = new AccountDto
+        {
+            AccountId = accountId,
+            Email = "designer@furnispace.com",
+            FullName = "Designer User"
+        };
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            getByIdResult: ServiceResult<AccountDto>.Success(response, "Account retrieved successfully."));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetById(accountId, CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<AccountDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(accountId, service.AccountId);
+    }
+
+    [Fact]
+    public async Task Suggest_ReturnsServiceResultAndPassesQuery()
+    {
+        var response = new AccountSuggestResponseDto
+        {
+            Items =
+            [
+                new AccountSuggestItemDto
+                {
+                    AccountId = Guid.NewGuid(),
+                    FullName = "Sarah Johnson",
+                    Email = "sarah@furnispace.com"
+                }
+            ]
+        };
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            suggestResult: ServiceResult<AccountSuggestResponseDto>.Success(response, string.Empty));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.Suggest("sarah", limit: 5);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<AccountSuggestResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal("sarah", service.SuggestQuery);
+        Assert.Equal(5, service.SuggestLimit);
+    }
+
+    [Fact]
+    public async Task GetSearchStats_ReturnsServiceResultAndPassesIncludeDeleted()
+    {
+        var response = new AccountSearchStatsDto();
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            searchStatsResult: ServiceResult<AccountSearchStatsDto>.Success(
+                response,
+                "Account search stats retrieved successfully."));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetSearchStats(includeDeleted: true);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<AccountSearchStatsDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.True(service.SearchStatsIncludeDeleted);
     }
 
     [Fact]
@@ -213,26 +334,140 @@ public sealed class AccountsControllerTests
         Assert.Equal("Unauthorized", result.Message);
     }
 
+    [Fact]
+    public async Task Create_ReturnsServiceResultAndPassesRequest()
+    {
+        var response = new AccountDto
+        {
+            AccountId = Guid.NewGuid(),
+            Email = "new@furnispace.com",
+            FullName = "New User"
+        };
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            createResult: ServiceResult<AccountDto>.Created(response, "Account created successfully."));
+        var controller = new AccountsController(service);
+        var request = new CreateAccountRequestDto
+        {
+            Email = "new@furnispace.com",
+            FullName = "New User",
+            PasswordHash = "hashed"
+        };
+
+        var actionResult = await controller.Create(request, CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<AccountDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Same(request, service.CreateRequest);
+    }
+
+    [Fact]
+    public async Task Update_ReturnsServiceResultAndPassesRequest()
+    {
+        var accountId = Guid.NewGuid();
+        var response = new AccountDto
+        {
+            AccountId = accountId,
+            Email = "updated@furnispace.com",
+            FullName = "Updated User"
+        };
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            updateResult: ServiceResult<AccountDto>.Success(response, "Account updated successfully."));
+        var controller = new AccountsController(service);
+        var request = new UpdateAccountRequestDto
+        {
+            Email = "updated@furnispace.com",
+            FullName = "Updated User"
+        };
+
+        var actionResult = await controller.Update(accountId, request, CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<AccountDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(accountId, service.AccountId);
+        Assert.Same(request, service.UpdateRequest);
+    }
+
+    [Fact]
+    public async Task Delete_ReturnsServiceResultAndPassesAccountId()
+    {
+        var accountId = Guid.NewGuid();
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            deleteResult: ServiceResult.Success("Account deleted successfully."));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.Delete(accountId, CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult>(objectResult.Value);
+        Assert.Equal("Account deleted successfully.", result.Message);
+        Assert.Equal(accountId, service.AccountId);
+    }
+
     private sealed class FakeAccountService : IAccountService
     {
         private readonly ServiceResult<AccountDetailDto> _adminDetailResult;
         private readonly ServiceResult<MyProfileDto> _updateProfileResult;
         private readonly ServiceResult<PagedResult<AvailableDesignerDto>> _availableDesignersResult;
+        private readonly ServiceResult<AccountDto> _createResult;
+        private readonly ServiceResult<AccountDto> _getByIdResult;
+        private readonly ServiceResult<PagedResult<AccountDto>> _pagedResult;
+        private readonly ServiceResult<AccountSearchStatsDto> _searchStatsResult;
+        private readonly ServiceResult<AccountSuggestResponseDto> _suggestResult;
+        private readonly ServiceResult<AccountDto> _updateResult;
+        private readonly ServiceResult _deleteResult;
 
         public FakeAccountService(
             ServiceResult<AccountDetailDto> adminDetailResult,
             ServiceResult<MyProfileDto>? updateProfileResult = null,
-            ServiceResult<PagedResult<AvailableDesignerDto>>? availableDesignersResult = null)
+            ServiceResult<PagedResult<AvailableDesignerDto>>? availableDesignersResult = null,
+            ServiceResult<AccountDto>? createResult = null,
+            ServiceResult<AccountDto>? getByIdResult = null,
+            ServiceResult<PagedResult<AccountDto>>? pagedResult = null,
+            ServiceResult<AccountSearchStatsDto>? searchStatsResult = null,
+            ServiceResult<AccountSuggestResponseDto>? suggestResult = null,
+            ServiceResult<AccountDto>? updateResult = null,
+            ServiceResult? deleteResult = null)
         {
             _adminDetailResult = adminDetailResult;
             _updateProfileResult = updateProfileResult ?? ServiceResult<MyProfileDto>.Success(new MyProfileDto());
             _availableDesignersResult = availableDesignersResult ??
                 ServiceResult<PagedResult<AvailableDesignerDto>>.Success(
                     PagedResult<AvailableDesignerDto>.Create([], page: 1, pageSize: 10, totalItems: 0));
+            _createResult = createResult ?? ServiceResult<AccountDto>.Created(new AccountDto());
+            _getByIdResult = getByIdResult ?? ServiceResult<AccountDto>.Success(new AccountDto());
+            _pagedResult = pagedResult ?? ServiceResult<PagedResult<AccountDto>>.Success(
+                PagedResult<AccountDto>.Create([], page: 1, pageSize: 20, totalItems: 0));
+            _searchStatsResult = searchStatsResult ?? ServiceResult<AccountSearchStatsDto>.Success(
+                new AccountSearchStatsDto(),
+                "Account search stats retrieved successfully.");
+            _suggestResult = suggestResult ?? ServiceResult<AccountSuggestResponseDto>.Success(
+                new AccountSuggestResponseDto(),
+                string.Empty);
+            _updateResult = updateResult ?? ServiceResult<AccountDto>.Success(new AccountDto());
+            _deleteResult = deleteResult ?? ServiceResult.Success();
         }
 
         public Guid AdminDetailAccountId { get; private set; }
+        public Guid AccountId { get; private set; }
         public Guid CurrentUserId { get; private set; }
+        public int Page { get; private set; }
+        public int PageSize { get; private set; }
+        public string? Search { get; private set; }
+        public string? Status { get; private set; }
+        public bool IncludeDeleted { get; private set; }
+        public bool SearchStatsIncludeDeleted { get; private set; }
+        public string? SuggestQuery { get; private set; }
+        public int SuggestLimit { get; private set; }
+        public CreateAccountRequestDto? CreateRequest { get; private set; }
+        public UpdateAccountRequestDto? UpdateRequest { get; private set; }
         public UpdateMyProfileRequestDto? UpdateProfileRequest { get; private set; }
         public AvailableDesignerQueryDto? AvailableDesignerQuery { get; private set; }
 
@@ -264,12 +499,14 @@ public sealed class AccountsControllerTests
 
         public Task<ServiceResult<AccountDto>> CreateAsync(CreateAccountRequestDto request, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(ServiceResult<AccountDto>.Created(new AccountDto()));
+            CreateRequest = request;
+            return Task.FromResult(_createResult);
         }
 
         public Task<ServiceResult<AccountDto>> GetByIdAsync(Guid accountId, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(ServiceResult<AccountDto>.Success(new AccountDto()));
+            AccountId = accountId;
+            return Task.FromResult(_getByIdResult);
         }
 
         public Task<ServiceResult<PagedResult<AccountDto>>> GetPagedAsync(
@@ -280,18 +517,20 @@ public sealed class AccountsControllerTests
             bool includeDeleted,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(ServiceResult<PagedResult<AccountDto>>.Success(
-                PagedResult<AccountDto>.Create([], page, pageSize, totalItems: 0)));
+            Page = page;
+            PageSize = pageSize;
+            Search = search;
+            Status = status;
+            IncludeDeleted = includeDeleted;
+            return Task.FromResult(_pagedResult);
         }
 
         public Task<ServiceResult<AccountSearchStatsDto>> GetSearchStatsAsync(
             bool includeDeleted,
             CancellationToken cancellationToken = default)
         {
-            _ = includeDeleted;
-            return Task.FromResult(ServiceResult<AccountSearchStatsDto>.Success(
-                new AccountSearchStatsDto(),
-                "Account search stats retrieved successfully."));
+            SearchStatsIncludeDeleted = includeDeleted;
+            return Task.FromResult(_searchStatsResult);
         }
 
         public Task<ServiceResult<AccountSuggestResponseDto>> SuggestAsync(
@@ -299,11 +538,9 @@ public sealed class AccountsControllerTests
             int limit,
             CancellationToken cancellationToken = default)
         {
-            _ = query;
-            _ = limit;
-            return Task.FromResult(ServiceResult<AccountSuggestResponseDto>.Success(
-                new AccountSuggestResponseDto(),
-                string.Empty));
+            SuggestQuery = query;
+            SuggestLimit = limit;
+            return Task.FromResult(_suggestResult);
         }
 
         public Task<ServiceResult<AccountDto>> UpdateAsync(
@@ -311,12 +548,15 @@ public sealed class AccountsControllerTests
             UpdateAccountRequestDto request,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(ServiceResult<AccountDto>.Success(new AccountDto()));
+            AccountId = accountId;
+            UpdateRequest = request;
+            return Task.FromResult(_updateResult);
         }
 
         public Task<ServiceResult> DeleteAsync(Guid accountId, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(ServiceResult.Success());
+            AccountId = accountId;
+            return Task.FromResult(_deleteResult);
         }
     }
 

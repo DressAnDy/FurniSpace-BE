@@ -2,16 +2,21 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Security.Claims;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Catalog;
+using FurniSpace.API.DTOs.Products;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
 
@@ -23,6 +28,7 @@ public sealed class ProductVersionsControllerTests
     [InlineData(nameof(ProductVersionsController.Create))]
     [InlineData(nameof(ProductVersionsController.Update))]
     [InlineData(nameof(ProductVersionsController.SetDefault))]
+    [InlineData(nameof(ProductVersionsController.UploadFile))]
     public void Mutations_RequireAdminRole(string methodName)
     {
         var authorize = typeof(ProductVersionsController)
@@ -126,6 +132,85 @@ public sealed class ProductVersionsControllerTests
         Assert.Equal("Default product version updated successfully.", result.Message);
         Assert.Same(response, result.Data);
         Assert.Equal(productVersionId, service.ProductVersionId);
+    }
+
+    [Fact]
+    public void UploadFile_ConsumesMultipartAndUsesRequestLimit()
+    {
+        var method = typeof(ProductVersionsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(ProductVersionsController.UploadFile));
+
+        var consumes = method.GetCustomAttributes(typeof(ConsumesAttribute), inherit: false)
+            .Cast<ConsumesAttribute>()
+            .Single();
+        var requestSizeLimit = method.GetCustomAttributes(typeof(RequestSizeLimitAttribute), inherit: false)
+            .Cast<RequestSizeLimitAttribute>()
+            .Single();
+
+        Assert.Contains("multipart/form-data", consumes.ContentTypes);
+        Assert.NotNull(requestSizeLimit);
+    }
+
+    [Fact]
+    public async Task UploadFile_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProductVersionService();
+        var controller = new ProductVersionsController(service)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.UploadFile(Guid.NewGuid(), new UploadCatalogFileFormRequest());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.ProductVersionId);
+    }
+
+    [Fact]
+    public async Task UploadFile_PassesMultipartRequestToService()
+    {
+        var currentUserId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var response = new CatalogFileUploadResponseDto
+        {
+            FileId = Guid.NewGuid(),
+            ReferenceType = "PRODUCT_VERSION",
+            ReferenceId = productVersionId,
+            FileType = FileType.PRODUCT_PREVIEW
+        };
+        var service = new FakeProductVersionService(
+            uploadFileResult: ServiceResult<CatalogFileUploadResponseDto>.Created(
+                response,
+                "Product version file uploaded successfully."));
+        var controller = CreateController(service, currentUserId);
+        var request = new UploadCatalogFileFormRequest
+        {
+            File = CreateFormFile("chair-preview.webp", "image/webp", "file-content"),
+            FileType = FileType.PRODUCT_PREVIEW,
+            Visibility = FileVisibility.CUSTOMER_VISIBLE,
+            Description = "Preview image",
+            DisplayOrder = 2
+        };
+
+        var actionResult = await controller.UploadFile(productVersionId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<CatalogFileUploadResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(productVersionId, service.ProductVersionId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.NotNull(service.UploadFileRequest);
+        Assert.Equal("chair-preview.webp", service.UploadFileRequest.OriginalFileName);
+        Assert.Equal("image/webp", service.UploadFileRequest.ContentType);
+        Assert.Equal(FileType.PRODUCT_PREVIEW, service.UploadFileRequest.FileType);
+        Assert.Equal(FileVisibility.CUSTOMER_VISIBLE, service.UploadFileRequest.Visibility);
+        Assert.Equal("Preview image", service.UploadFileRequest.Description);
+        Assert.Equal(2, service.UploadFileRequest.DisplayOrder);
     }
 
     [Fact]
@@ -271,5 +356,32 @@ public sealed class ProductVersionsControllerTests
             FileId = fileId;
             return Task.FromResult(_deletePreviewResult);
         }
+    }
+
+    private static ProductVersionsController CreateController(FakeProductVersionService service, Guid currentUserId)
+    {
+        return new ProductVersionsController(service)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(ClaimTypes.NameIdentifier, currentUserId.ToString())
+                    ], "Test"))
+                }
+            }
+        };
+    }
+
+    private static FormFile CreateFormFile(string fileName, string contentType, string content)
+    {
+        var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
+        return new FormFile(stream, 0, stream.Length, "file", fileName)
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = contentType
+        };
     }
 }

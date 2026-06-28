@@ -11,6 +11,6 @@ public sealed record ProjectChatMessageServiceDependencies(
     IProjectChatRealtimeService Realtime,
     IUnitOfWork UnitOfWork,
     ProjectChatFileUploadDependencies FileUpload,
-    ILogger<ProjectChatMessageService> Logger,
+    ILogger<ProjectChatMessageServiceDependencies> Logger,
     ISearchIndexService? Search,
     IChatMessageSearchIndexer? ChatMessageSearchIndexer);

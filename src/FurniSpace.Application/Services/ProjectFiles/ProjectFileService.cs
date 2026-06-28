@@ -356,53 +356,15 @@ public sealed class ProjectFileService : IProjectFileService
         }
 
         var customerVisibleOnly = IsCustomer(roleName);
-        ProjectFileSearchResponseDto response;
-        if (_search is not null)
-        {
-            try
-            {
-                var searchResult = await _search.SearchAsync<ProjectFileSearchDocument>(
-                    ProjectFileIndexName,
-                    ProjectFileElasticsearchQueryFactory.BuildProjectSearch(
-                        projectId,
-                        query,
-                        page,
-                        limit,
-                        customerVisibleOnly,
-                        IsCustomer(roleName) ? currentUserId : null),
-                    cancellationToken);
-
-                response = new ProjectFileSearchResponseDto
-                {
-                    Items = searchResult.Documents.Select(ProjectFileSearchResponseMapper.ToItem).ToList(),
-                    Page = page,
-                    Limit = limit,
-                    Total = (int)Math.Min(searchResult.Total, int.MaxValue)
-                };
-            }
-            catch
-            {
-                response = await GetProjectFilesSearchFromRepositoryAsync(
-                    projectId,
-                    query,
-                    page,
-                    limit,
-                    customerVisibleOnly,
-                    IsCustomer(roleName) ? currentUserId : null,
-                    cancellationToken);
-            }
-        }
-        else
-        {
-            response = await GetProjectFilesSearchFromRepositoryAsync(
-                projectId,
-                query,
-                page,
-                limit,
-                customerVisibleOnly,
-                IsCustomer(roleName) ? currentUserId : null,
-                cancellationToken);
-        }
+        Guid? customerAccountId = customerVisibleOnly ? currentUserId : null;
+        var response = await SearchProjectFilesWithFallbackAsync(
+            projectId,
+            query,
+            page,
+            limit,
+            customerVisibleOnly,
+            customerAccountId,
+            cancellationToken);
 
         return ServiceResult<ProjectFileSearchResponseDto>.Success(
             response,
@@ -999,6 +961,61 @@ public sealed class ProjectFileService : IProjectFileService
             Limit = limit,
             Total = total
         };
+    }
+
+    private async Task<ProjectFileSearchResponseDto> SearchProjectFilesWithFallbackAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken)
+    {
+        if (_search is null)
+        {
+            return await GetProjectFilesSearchFromRepositoryAsync(
+                projectId,
+                query,
+                page,
+                limit,
+                customerVisibleOnly,
+                customerAccountId,
+                cancellationToken);
+        }
+
+        try
+        {
+            var searchResult = await _search.SearchAsync<ProjectFileSearchDocument>(
+                ProjectFileIndexName,
+                ProjectFileElasticsearchQueryFactory.BuildProjectSearch(
+                    projectId,
+                    query,
+                    page,
+                    limit,
+                    customerVisibleOnly,
+                    customerAccountId),
+                cancellationToken);
+
+            return new ProjectFileSearchResponseDto
+            {
+                Items = searchResult.Documents.Select(ProjectFileSearchResponseMapper.ToItem).ToList(),
+                Page = page,
+                Limit = limit,
+                Total = (int)Math.Min(searchResult.Total, int.MaxValue)
+            };
+        }
+        catch
+        {
+            return await GetProjectFilesSearchFromRepositoryAsync(
+                projectId,
+                query,
+                page,
+                limit,
+                customerVisibleOnly,
+                customerAccountId,
+                cancellationToken);
+        }
     }
 
     private Task SyncProjectFileIndexAsync(Guid fileId, CancellationToken cancellationToken)

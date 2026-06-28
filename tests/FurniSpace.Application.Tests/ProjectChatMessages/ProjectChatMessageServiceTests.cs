@@ -841,7 +841,7 @@ public sealed class ProjectChatMessageServiceTests
                         Options.Create(uploadSettings ?? new FileUploadSettings()),
                         Options.Create(new FirebaseStorageSettings())),
                     new FirebaseStorageSettings()),
-                NullLogger<ProjectChatMessageService>.Instance,
+                NullLogger<ProjectChatMessageServiceDependencies>.Instance,
                 Search: null,
                 ChatMessageSearchIndexer: null));
     }

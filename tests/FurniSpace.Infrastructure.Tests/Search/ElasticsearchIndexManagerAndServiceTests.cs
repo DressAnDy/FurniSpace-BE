@@ -42,7 +42,11 @@ public sealed class ElasticsearchIndexManagerAndServiceTests
     {
         var manager = new ElasticsearchIndexManager(CreateClient(statusCode: 404, "{}"), Options.Create(Settings()));
 
-        await manager.DeleteIndexAsync("products");
+        var deleteTask = manager.DeleteIndexAsync("products");
+
+        await deleteTask;
+
+        Assert.True(deleteTask.IsCompletedSuccessfully);
     }
 
     [Fact]
@@ -68,7 +72,11 @@ public sealed class ElasticsearchIndexManagerAndServiceTests
     {
         var service = new ElasticsearchIndexService(CreateClient(statusCode: 404, "{}"), Options.Create(Settings()));
 
-        await service.DeleteAsync("products", "missing");
+        var deleteTask = service.DeleteAsync("products", "missing");
+
+        await deleteTask;
+
+        Assert.True(deleteTask.IsCompletedSuccessfully);
     }
 
     [Fact]

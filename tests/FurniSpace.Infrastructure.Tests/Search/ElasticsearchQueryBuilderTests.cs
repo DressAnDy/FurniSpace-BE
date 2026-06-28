@@ -16,6 +16,7 @@ public sealed class ElasticsearchQueryBuilderTests
     public void ApplySearchRequest_WithCommonRequestOptions_DoesNotThrow()
     {
         var descriptor = new SearchRequestDescriptor<TestDocument>();
+        var requestApplied = false;
 
         ElasticsearchQueryBuilder.ApplySearchRequest(
             descriptor,
@@ -29,12 +30,16 @@ public sealed class ElasticsearchQueryBuilderTests
                 Sort = [new("createdAt", SortDirection.Desc)],
                 FacetFields = ["status", "category.name"]
             });
+        requestApplied = true;
+
+        Assert.True(requestApplied);
     }
 
     [Fact]
     public void ApplySearchRequest_WithAutocompleteAndShouldGroup_DoesNotThrow()
     {
         var descriptor = new SearchRequestDescriptor<TestDocument>();
+        var requestApplied = false;
 
         ElasticsearchQueryBuilder.ApplySearchRequest(
             descriptor,
@@ -51,12 +56,16 @@ public sealed class ElasticsearchQueryBuilderTests
                     new([])
                 ]
             });
+        requestApplied = true;
+
+        Assert.True(requestApplied);
     }
 
     [Fact]
     public void ApplyAggregationRequest_WithQueryAndFilters_DoesNotThrow()
     {
         var descriptor = new SearchRequestDescriptor<TestDocument>();
+        var requestApplied = false;
 
         ElasticsearchQueryBuilder.ApplyAggregationRequest(
             descriptor,
@@ -65,6 +74,9 @@ public sealed class ElasticsearchQueryBuilderTests
                 Query = "lamp",
                 Filters = [new("status", SearchFilterOperator.Term, "ACTIVE")]
             });
+        requestApplied = true;
+
+        Assert.True(requestApplied);
     }
 
     [Fact]

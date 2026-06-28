@@ -82,7 +82,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<IProjectChatRealtimeService>(),
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<ProjectChatFileUploadDependencies>(),
-                sp.GetRequiredService<ILogger<ProjectChatMessageService>>(),
+                sp.GetRequiredService<ILogger<ProjectChatMessageServiceDependencies>>(),
                 sp.GetService<ISearchIndexService>(),
                 sp.GetService<IChatMessageSearchIndexer>());
         });

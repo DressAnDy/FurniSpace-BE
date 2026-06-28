@@ -33,7 +33,7 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
     private readonly IProjectChatRealtimeService _realtime;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ProjectChatFileUploadDependencies _fileUpload;
-    private readonly ILogger<ProjectChatMessageService> _logger;
+    private readonly ILogger<ProjectChatMessageServiceDependencies> _logger;
     private readonly ISearchIndexService? _search;
     private readonly IChatMessageSearchIndexer? _chatMessageSearchIndexer;
 

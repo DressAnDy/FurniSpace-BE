@@ -121,6 +121,65 @@ public sealed class ProjectRepositoryTests
         Assert.Equal(data.DesignerId, projects[0].AssignedDesignerId);
     }
 
+    [Fact]
+    public async Task GetDetailAndSearchIndexQueries_ReturnProjectReadModels()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectRepository(context);
+
+        var detail = await repository.GetDetailAsync(data.PrimaryProjectId);
+        var searchItem = await repository.GetSearchIndexItemAsync(data.PrimaryProjectId);
+        var searchPage = await repository.GetSearchIndexPageAsync(page: 1, limit: 10);
+
+        Assert.NotNull(detail);
+        Assert.Equal(data.PrimaryProjectId, detail.ProjectId);
+        Assert.Equal("Luxury Cafe Interior", detail.ProjectName);
+        Assert.NotNull(searchItem);
+        Assert.Equal(data.PrimaryProjectId, searchItem.ProjectId);
+        Assert.Equal("Michael Chen", searchItem.CustomerName);
+        Assert.Equal("michael@example.com", searchItem.CustomerEmail);
+        Assert.Contains(searchPage, project => project.ProjectId == data.PrimaryProjectId);
+    }
+
+    [Fact]
+    public async Task AccountHelpers_ReturnActiveNamesAndDesigners()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectRepository(context);
+
+        var fullName = await repository.GetAccountFullNameAsync(data.CustomerId);
+        var deletedFullName = await repository.GetAccountFullNameAsync(data.DeletedCustomerId);
+        var activeDesigner = await repository.GetActiveDesignerAsync(data.DesignerId);
+        var nonDesigner = await repository.GetActiveDesignerAsync(data.SalesId);
+        var activeIds = await repository.GetActiveAccountIdsByRoleNamesAsync([" designer ", "DESIGNER", " ", "sales"]);
+        var emptyIds = await repository.GetActiveAccountIdsByRoleNamesAsync([" ", ""]);
+
+        Assert.Equal("Michael Chen", fullName);
+        Assert.Null(deletedFullName);
+        Assert.NotNull(activeDesigner);
+        Assert.Equal(data.DesignerId, activeDesigner.AccountId);
+        Assert.Null(nonDesigner);
+        Assert.Contains(data.DesignerId, activeIds);
+        Assert.Contains(data.SalesId, activeIds);
+        Assert.Empty(emptyIds);
+    }
+
+    [Fact]
+    public async Task CountSubmittedInYear_UsesSubmittedAtOrCreatedAt()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectRepository(context);
+
+        var submittedCount = await repository.CountSubmittedInYearAsync(2026);
+        var missingCount = await repository.CountSubmittedInYearAsync(2025);
+
+        Assert.Equal(3, submittedCount);
+        Assert.Equal(0, missingCount);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -148,10 +207,11 @@ public sealed class ProjectRepositoryTests
             CreateAccount(salesId, salesRole.RoleId, "sales@example.com", "Sarah Johnson"),
             CreateAccount(designerId, designerRole.RoleId, "designer@example.com", "Emily Davis"),
             CreateAccount(adminId, adminRole.RoleId, "admin@example.com", "Admin User"));
+        var primaryProjectId = Guid.NewGuid();
         context.ProjectSet.AddRange(
             new Project
             {
-                ProjectId = Guid.NewGuid(),
+                ProjectId = primaryProjectId,
                 CustomerId = customerId,
                 AssignedSalesId = salesId,
                 AssignedDesignerId = designerId,
@@ -160,8 +220,8 @@ public sealed class ProjectRepositoryTests
                 BusinessType = "Cafe",
                 ProjectAddress = "123 Main Street",
                 Status = ProjectStatus.PROPOSAL_DRAFTING,
-                SubmittedAt = DateTime.UtcNow.AddDays(-1),
-                CreatedAt = DateTime.UtcNow.AddDays(-2)
+                SubmittedAt = new DateTime(2026, 6, 10, 8, 0, 0, DateTimeKind.Utc),
+                CreatedAt = new DateTime(2026, 6, 9, 8, 0, 0, DateTimeKind.Utc)
             },
             new Project
             {
@@ -171,8 +231,8 @@ public sealed class ProjectRepositoryTests
                 ProjectName = "Retail Counter",
                 BusinessType = "Retail",
                 Status = ProjectStatus.SUBMITTED,
-                SubmittedAt = DateTime.UtcNow.AddDays(-3),
-                CreatedAt = DateTime.UtcNow.AddDays(-4)
+                SubmittedAt = new DateTime(2026, 6, 8, 8, 0, 0, DateTimeKind.Utc),
+                CreatedAt = new DateTime(2026, 6, 7, 8, 0, 0, DateTimeKind.Utc)
             },
             new Project
             {
@@ -182,12 +242,12 @@ public sealed class ProjectRepositoryTests
                 ProjectName = "Other Project",
                 BusinessType = "Office",
                 Status = ProjectStatus.IN_CONSULTATION,
-                SubmittedAt = DateTime.UtcNow.AddDays(-5),
-                CreatedAt = DateTime.UtcNow.AddDays(-6)
+                SubmittedAt = null,
+                CreatedAt = new DateTime(2026, 6, 6, 8, 0, 0, DateTimeKind.Utc)
             });
 
         await context.SaveChangesAsync();
-        return new SeededData(customerId, deletedCustomerId, salesId, designerId, adminId);
+        return new SeededData(customerId, deletedCustomerId, salesId, designerId, adminId, primaryProjectId);
     }
 
     private static Account CreateAccount(
@@ -215,5 +275,6 @@ public sealed class ProjectRepositoryTests
         Guid DeletedCustomerId,
         Guid SalesId,
         Guid DesignerId,
-        Guid AdminId);
+        Guid AdminId,
+        Guid PrimaryProjectId);
 }

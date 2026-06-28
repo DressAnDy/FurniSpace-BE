@@ -1,21 +1,25 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
+using FurniSpace.Application.Interfaces.Search;
+using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
-using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.Common.Search.Documents;
+using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Storage;
 using Mapster;
-using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Services.Products;
 
 public sealed class ProductService : IProductService
 {
+    private const string ProductIndexName = "products";
+
     private static readonly HashSet<FileType> AllowedProductFileTypes =
     [
         FileType.PRODUCT_PREVIEW,
@@ -26,6 +30,8 @@ public sealed class ProductService : IProductService
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
+    private readonly ISearchIndexService _search;
+    private readonly IProductSearchIndexer _productSearchIndexer;
     private readonly FileUploadSettings _uploadSettings;
     private readonly ProductPreviewImageSettings _previewSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
@@ -33,19 +39,18 @@ public sealed class ProductService : IProductService
     public ProductService(
         IProductRepository products,
         IProjectFileRepository files,
-        IFileStorageService storage,
-        IOptions<FileUploadSettings> uploadSettings,
-        IOptions<ProductPreviewImageSettings> previewSettings,
-        IOptions<FirebaseStorageSettings> firebaseSettings,
+        ProductServiceDependencies dependencies,
         IUnitOfWork unitOfWork)
     {
         _products = products;
         _files = files;
         _unitOfWork = unitOfWork;
-        _storage = storage;
-        _uploadSettings = uploadSettings.Value;
-        _previewSettings = previewSettings.Value;
-        _firebaseSettings = firebaseSettings.Value;
+        _storage = dependencies.Storage;
+        _search = dependencies.Search;
+        _productSearchIndexer = dependencies.ProductSearchIndexer;
+        _uploadSettings = dependencies.UploadSettings;
+        _previewSettings = dependencies.PreviewSettings;
+        _firebaseSettings = dependencies.FirebaseSettings;
     }
 
     public async Task<ServiceResult<ProductDto>> CreateAsync(
@@ -82,6 +87,7 @@ public sealed class ProductService : IProductService
         await _products.AddAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         product.Status ??= ProductStatus.ACTIVE;
+        await _productSearchIndexer.SyncProductAsync(product.ProductId, cancellationToken);
 
         return ServiceResult<ProductDto>.Created(product.Adapt<ProductDto>(), "Product master created successfully.");
     }
@@ -119,6 +125,7 @@ public sealed class ProductService : IProductService
         product.Status ??= ProductStatus.ACTIVE;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _productSearchIndexer.SyncProductAsync(product.ProductId, cancellationToken);
 
         return ServiceResult<ProductDto>.Success(
             product.Adapt<ProductDto>(),
@@ -216,6 +223,159 @@ public sealed class ProductService : IProductService
                 Total = total
             },
             string.Empty);
+    }
+
+    public async Task<ServiceResult<ProductListResponseDto>> SearchAsync(
+        ProductSearchRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var validationError = ValidateSearchRequest(request);
+        if (validationError is not null)
+        {
+            return ServiceResult<ProductListResponseDto>.BadRequest(validationError);
+        }
+
+        ProductListResponseDto response;
+        try
+        {
+            var searchRequest = ProductElasticsearchQueryFactory.Build(request);
+            var searchResult = await _search.SearchAsync<ProductSearchDocument>(
+                ProductIndexName,
+                searchRequest,
+                cancellationToken);
+
+            var items = searchResult.Documents
+                .Select(ProductSearchResponseMapper.ToListItem)
+                .ToList();
+
+            response = new ProductListResponseDto
+            {
+                Items = items,
+                Page = request.Page,
+                Limit = request.Limit,
+                Total = (int)Math.Min(searchResult.Total, int.MaxValue),
+                Facets = SearchFacetMapper.ToProductFacets(searchResult.Facets)
+            };
+        }
+        catch
+        {
+            var fallback = await _products.SearchPublicAsync(
+                ProductElasticsearchQueryFactory.ToRepositoryQuery(request),
+                cancellationToken);
+
+            response = new ProductListResponseDto
+            {
+                Items = fallback.Items.Adapt<List<ProductListItemDto>>(),
+                Page = request.Page,
+                Limit = request.Limit,
+                Total = fallback.Total
+            };
+        }
+
+        await EnrichListItemsAsync(response.Items.ToList(), cancellationToken);
+
+        return ServiceResult<ProductListResponseDto>.Success(response, string.Empty);
+    }
+
+    public async Task<ServiceResult<ProductSuggestResponseDto>> SuggestAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return ServiceResult<ProductSuggestResponseDto>.BadRequest("Query is required.");
+        }
+
+        if (limit is < 1 or > 20)
+        {
+            return ServiceResult<ProductSuggestResponseDto>.BadRequest("Limit must be between 1 and 20.");
+        }
+
+        IReadOnlyList<ProductSuggestItemDto> items;
+        try
+        {
+            var searchResult = await _search.SearchAsync<ProductSearchDocument>(
+                ProductIndexName,
+                ProductElasticsearchQueryFactory.BuildSuggest(query, limit),
+                cancellationToken);
+
+            items = searchResult.Documents
+                .Select(document => new ProductSuggestItemDto
+                {
+                    ProductId = document.ProductId,
+                    ProductName = document.ProductName
+                })
+                .ToList();
+        }
+        catch
+        {
+            var fallback = await _products.SuggestPublicAsync(query, limit, cancellationToken);
+            items = fallback
+                .Select(item => new ProductSuggestItemDto
+                {
+                    ProductId = item.ProductId,
+                    ProductName = item.ProductName
+                })
+                .ToList();
+        }
+
+        return ServiceResult<ProductSuggestResponseDto>.Success(
+            new ProductSuggestResponseDto { Items = items },
+            string.Empty);
+    }
+
+    public async Task<ServiceResult<ProductListResponseDto>> GetSimilarAsync(
+        Guid productId,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (productId == Guid.Empty)
+        {
+            return ServiceResult<ProductListResponseDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
+        }
+
+        if (limit is < 1 or > 20)
+        {
+            return ServiceResult<ProductListResponseDto>.BadRequest("Limit must be between 1 and 20.");
+        }
+
+        ProductListResponseDto response;
+        try
+        {
+            var searchResult = await _search.MoreLikeThisAsync<ProductSearchDocument>(
+                ProductIndexName,
+                productId.ToString(),
+                ProductElasticsearchQueryFactory.BuildSimilar(limit),
+                cancellationToken);
+
+            var items = searchResult.Documents
+                .Select(ProductSearchResponseMapper.ToListItem)
+                .ToList();
+
+            response = new ProductListResponseDto
+            {
+                Items = items,
+                Page = 1,
+                Limit = limit,
+                Total = items.Count
+            };
+        }
+        catch
+        {
+            var fallback = await _products.GetSimilarPublicAsync(productId, limit, cancellationToken);
+            response = new ProductListResponseDto
+            {
+                Items = fallback.Adapt<List<ProductListItemDto>>(),
+                Page = 1,
+                Limit = limit,
+                Total = fallback.Count
+            };
+        }
+
+        await EnrichListItemsAsync(response.Items.ToList(), cancellationToken);
+
+        return ServiceResult<ProductListResponseDto>.Success(response, string.Empty);
     }
 
     public async Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
@@ -581,6 +741,41 @@ public sealed class ProductService : IProductService
         if (limit is < 1 or > 100)
         {
             return "Limit must be between 1 and 100.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateSearchRequest(ProductSearchRequestDto request)
+    {
+        var paginationError = ValidatePagination(request.Page, request.Limit);
+        if (paginationError is not null)
+        {
+            return paginationError;
+        }
+
+        if (request.MinPrice.HasValue && request.MinPrice.Value < 0)
+        {
+            return "Minimum price must be greater than or equal to zero.";
+        }
+
+        if (request.MaxPrice.HasValue && request.MaxPrice.Value < 0)
+        {
+            return "Maximum price must be greater than or equal to zero.";
+        }
+
+        if (request.MinPrice.HasValue &&
+            request.MaxPrice.HasValue &&
+            request.MinPrice.Value > request.MaxPrice.Value)
+        {
+            return "Minimum price must be less than or equal to maximum price.";
+        }
+
+        var sort = request.Sort?.Trim().ToLowerInvariant();
+        if (sort is not null &&
+            sort is not ("price_asc" or "price_desc" or "created_asc" or "created_desc"))
+        {
+            return "Sort must be one of: price_asc, price_desc, created_asc, created_desc.";
         }
 
         return null;

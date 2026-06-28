@@ -5,7 +5,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Shared;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
@@ -290,6 +290,24 @@ public sealed class FilesControllerTests
             CurrentUserId = currentUserId;
             ProjectFilesQuery = query;
             return Task.FromResult(_projectFilesResult);
+        }
+
+        public Task<ServiceResult<ProjectFileSearchResponseDto>> SearchProjectFilesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            string query,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            _ = query;
+            _ = page;
+            _ = limit;
+            return Task.FromResult(ServiceResult<ProjectFileSearchResponseDto>.Success(
+                new ProjectFileSearchResponseDto(),
+                string.Empty));
         }
 
         public Task<ServiceResult<FilesByReferenceResponseDto>> GetFilesByReferenceAsync(

@@ -1,5 +1,5 @@
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Products;
+using FurniSpace.Infrastructure.ReadModels.Products;
 
 namespace FurniSpace.Application.Common;
 

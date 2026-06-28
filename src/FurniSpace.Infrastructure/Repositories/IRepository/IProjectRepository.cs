@@ -1,5 +1,5 @@
 using FurniSpace.Domain.Entities;
-using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.Base;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;
@@ -44,5 +44,14 @@ public interface IProjectRepository : IGenericRepository<Project>
 
     Task<int> CountByUserAsync(
         ProjectByUserQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
         CancellationToken cancellationToken = default);
 }

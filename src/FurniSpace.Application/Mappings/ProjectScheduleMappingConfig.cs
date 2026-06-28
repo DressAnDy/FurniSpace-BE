@@ -1,6 +1,6 @@
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Domain.Entities;
-using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using Mapster;
 
 namespace FurniSpace.Application.Mappings;

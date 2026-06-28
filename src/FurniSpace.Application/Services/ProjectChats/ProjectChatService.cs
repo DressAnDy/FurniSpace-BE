@@ -5,7 +5,7 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.DTOs.ProjectChats;
+using FurniSpace.Infrastructure.ReadModels.ProjectChats;
 using Mapster;
 
 namespace FurniSpace.Application.Services.ProjectChats;

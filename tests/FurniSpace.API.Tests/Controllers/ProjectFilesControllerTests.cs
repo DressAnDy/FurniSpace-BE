@@ -7,7 +7,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Projects;
 using FurniSpace.API.DTOs.ProjectFiles;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectFiles;
@@ -132,6 +132,60 @@ public sealed class ProjectFilesControllerTests
         Assert.Equal(5, service.ProjectFilesQuery.Limit);
     }
 
+    [Fact]
+    public async Task GetProjectFiles_ReturnsUnauthorized_WhenUserIdClaimMissing()
+    {
+        var service = new FakeProjectFileService();
+        var controller = CreateController(service, userId: null);
+
+        var actionResult = await controller.GetProjectFiles(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.ProjectId);
+    }
+
+    [Fact]
+    public async Task SearchProjectFiles_PassesQueryToService()
+    {
+        var userId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var response = new ProjectFileSearchResponseDto
+        {
+            Page = 2,
+            Limit = 4,
+            Total = 9
+        };
+        var service = new FakeProjectFileService(
+            searchResult: ServiceResult<ProjectFileSearchResponseDto>.Success(
+                response,
+                "Project files search completed successfully."));
+        var controller = CreateController(service, userId);
+
+        var actionResult = await controller.SearchProjectFiles(projectId, "plan", page: 2, limit: 4);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectFileSearchResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.Equal("plan", service.SearchQuery);
+        Assert.Equal(2, service.SearchPage);
+        Assert.Equal(4, service.SearchLimit);
+    }
+
+    [Fact]
+    public async Task SearchProjectFiles_ReturnsUnauthorized_WhenUserIdClaimMissing()
+    {
+        var service = new FakeProjectFileService();
+        var controller = CreateController(service, userId: null);
+
+        var actionResult = await controller.SearchProjectFiles(Guid.NewGuid(), "plan");
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.ProjectId);
+    }
+
     private static ProjectFilesController CreateController(FakeProjectFileService service, Guid? userId)
     {
         var controller = new ProjectFilesController(service);
@@ -174,6 +228,7 @@ public sealed class ProjectFilesControllerTests
         private readonly ServiceResult<ProjectFileUploadResponseDto> _uploadResult;
         private readonly ServiceResult<FileDetailResponseDto> _fileDetailResult;
         private readonly ServiceResult<ProjectFilesResponseDto> _projectFilesResult;
+        private readonly ServiceResult<ProjectFileSearchResponseDto> _searchResult;
         private readonly ServiceResult<FilesByReferenceResponseDto> _byReferenceResult;
         private readonly ServiceResult<DeleteFileResponseDto> _deleteResult;
         private readonly ServiceResult<ArchiveFileResponseDto> _archiveResult;
@@ -182,6 +237,7 @@ public sealed class ProjectFilesControllerTests
             ServiceResult<ProjectFileUploadResponseDto>? uploadResult = null,
             ServiceResult<FileDetailResponseDto>? fileDetailResult = null,
             ServiceResult<ProjectFilesResponseDto>? projectFilesResult = null,
+            ServiceResult<ProjectFileSearchResponseDto>? searchResult = null,
             ServiceResult<FilesByReferenceResponseDto>? byReferenceResult = null,
             ServiceResult<DeleteFileResponseDto>? deleteResult = null,
             ServiceResult<ArchiveFileResponseDto>? archiveResult = null)
@@ -189,6 +245,7 @@ public sealed class ProjectFilesControllerTests
             _uploadResult = uploadResult ?? ServiceResult<ProjectFileUploadResponseDto>.Created(new ProjectFileUploadResponseDto());
             _fileDetailResult = fileDetailResult ?? ServiceResult<FileDetailResponseDto>.Success(new FileDetailResponseDto());
             _projectFilesResult = projectFilesResult ?? ServiceResult<ProjectFilesResponseDto>.Success(new ProjectFilesResponseDto());
+            _searchResult = searchResult ?? ServiceResult<ProjectFileSearchResponseDto>.Success(new ProjectFileSearchResponseDto());
             _byReferenceResult = byReferenceResult ?? ServiceResult<FilesByReferenceResponseDto>.Success(new FilesByReferenceResponseDto());
             _deleteResult = deleteResult ?? ServiceResult<DeleteFileResponseDto>.Success(new DeleteFileResponseDto());
             _archiveResult = archiveResult ?? ServiceResult<ArchiveFileResponseDto>.Success(new ArchiveFileResponseDto());
@@ -199,6 +256,9 @@ public sealed class ProjectFilesControllerTests
         public Guid FileId { get; private set; }
         public UploadProjectFileRequestDto? UploadRequest { get; private set; }
         public ProjectFilesQueryDto? ProjectFilesQuery { get; private set; }
+        public string? SearchQuery { get; private set; }
+        public int SearchPage { get; private set; }
+        public int SearchLimit { get; private set; }
         public FilesByReferenceQueryDto? FilesByReferenceQuery { get; private set; }
         public ArchiveFileRequestDto? ArchiveRequest { get; private set; }
 
@@ -234,6 +294,22 @@ public sealed class ProjectFilesControllerTests
             CurrentUserId = currentUserId;
             ProjectFilesQuery = query;
             return Task.FromResult(_projectFilesResult);
+        }
+
+        public Task<ServiceResult<ProjectFileSearchResponseDto>> SearchProjectFilesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            string query,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            SearchQuery = query;
+            SearchPage = page;
+            SearchLimit = limit;
+            return Task.FromResult(_searchResult);
         }
 
         public Task<ServiceResult<FilesByReferenceResponseDto>> GetFilesByReferenceAsync(

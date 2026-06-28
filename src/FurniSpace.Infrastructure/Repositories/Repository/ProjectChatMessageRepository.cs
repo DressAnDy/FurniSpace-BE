@@ -1,6 +1,6 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure.Data;
-using FurniSpace.Infrastructure.DTOs.ProjectChatMessages;
+using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
@@ -110,5 +110,84 @@ public sealed class ProjectChatMessageRepository
             .ToListAsync(cancellationToken);
 
         return (items, total);
+    }
+
+    public Task<ChatMessageSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+        Guid messageId,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildSearchIndexQuery()
+            .Where(item => item.MessageId == messageId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ChatMessageSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildSearchIndexQuery()
+            .OrderByDescending(item => item.CreatedAt)
+            .ThenByDescending(item => item.MessageId)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ChatMessageSearchIndexItemReadModel>> SearchByProjectAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        var pattern = $"%{query.Trim()}%";
+        return await BuildSearchIndexQuery()
+            .Where(item => item.ProjectId == projectId)
+            .Where(item => item.DeletedAt == null)
+            .Where(item => item.Content != null && EF.Functions.ILike(item.Content, pattern))
+            .OrderByDescending(item => item.CreatedAt)
+            .ThenByDescending(item => item.MessageId)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountSearchByProjectAsync(
+        Guid projectId,
+        string query,
+        CancellationToken cancellationToken = default)
+    {
+        var pattern = $"%{query.Trim()}%";
+        return BuildSearchIndexQuery()
+            .Where(item => item.ProjectId == projectId)
+            .Where(item => item.DeletedAt == null)
+            .Where(item => item.Content != null && EF.Functions.ILike(item.Content, pattern))
+            .CountAsync(cancellationToken);
+    }
+
+    private IQueryable<ChatMessageSearchIndexItemReadModel> BuildSearchIndexQuery()
+    {
+        return DbContext.ProjectChatMessageSet
+            .Join(
+                DbContext.ProjectChatSet,
+                message => message.ChatId,
+                chat => chat.ChatId,
+                (message, chat) => new { message, chat })
+            .Select(entry => new ChatMessageSearchIndexItemReadModel
+            {
+                MessageId = entry.message.MessageId,
+                ChatId = entry.message.ChatId,
+                ProjectId = entry.chat.ProjectId,
+                SenderId = entry.message.SenderId,
+                SenderName = DbContext.AccountSet
+                    .Where(account => account.AccountId == entry.message.SenderId)
+                    .Select(account => account.FullName)
+                    .FirstOrDefault(),
+                MessageType = entry.message.MessageType,
+                Content = entry.message.Content,
+                CreatedAt = entry.message.CreatedAt,
+                DeletedAt = entry.message.DeletedAt
+            });
     }
 }

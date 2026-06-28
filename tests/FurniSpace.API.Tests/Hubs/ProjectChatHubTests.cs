@@ -251,6 +251,24 @@ public sealed class ProjectChatHubTests
             SendFileChatMessageRequestDto request,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()));
+
+        public Task<ServiceResult<ProjectChatMessageSearchResponseDto>> SearchProjectMessagesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            string query,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            _ = projectId;
+            _ = currentUserId;
+            _ = query;
+            _ = page;
+            _ = limit;
+            return Task.FromResult(ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
+                new ProjectChatMessageSearchResponseDto(),
+                string.Empty));
+        }
     }
 
     private sealed class FakeGroupManager : IGroupManager

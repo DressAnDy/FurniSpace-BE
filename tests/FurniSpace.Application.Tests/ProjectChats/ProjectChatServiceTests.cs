@@ -11,7 +11,7 @@ using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.DTOs.ProjectChats;
+using FurniSpace.Infrastructure.ReadModels.ProjectChats;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.ProjectChats;

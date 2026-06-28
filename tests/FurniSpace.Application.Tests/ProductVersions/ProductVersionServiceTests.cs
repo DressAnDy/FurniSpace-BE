@@ -13,11 +13,10 @@ using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.Products;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Storage;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.ProductVersions;
@@ -1186,6 +1185,46 @@ public sealed class ProductVersionServiceTests
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<FileLink>>([]);
 
+        public Task<ProjectFileSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+            Guid fileId,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.GetSearchIndexItemAsync(fileId, cancellationToken);
+
+        public Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.GetSearchIndexPageAsync(page, limit, cancellationToken);
+
+        public Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> SearchByProjectAsync(
+            Guid projectId,
+            string query,
+            int page,
+            int limit,
+            bool customerVisibleOnly,
+            Guid? customerAccountId,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.SearchByProjectAsync(
+                projectId,
+                query,
+                page,
+                limit,
+                customerVisibleOnly,
+                customerAccountId,
+                cancellationToken);
+
+        public Task<int> CountSearchByProjectAsync(
+            Guid projectId,
+            string query,
+            bool customerVisibleOnly,
+            Guid? customerAccountId,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.CountSearchByProjectAsync(
+                projectId,
+                query,
+                customerVisibleOnly,
+                customerAccountId,
+                cancellationToken);
         public Task<bool> HasProjectFileWithTypesAsync(
             Guid projectId,
             IReadOnlyCollection<FileType> fileTypes,

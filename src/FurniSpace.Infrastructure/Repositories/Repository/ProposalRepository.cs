@@ -1,7 +1,7 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
-using FurniSpace.Infrastructure.DTOs.Proposals;
+using FurniSpace.Infrastructure.ReadModels.Proposals;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;

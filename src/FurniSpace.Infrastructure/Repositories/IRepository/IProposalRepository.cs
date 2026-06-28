@@ -1,5 +1,5 @@
 using FurniSpace.Domain.Entities;
-using FurniSpace.Infrastructure.DTOs.Proposals;
+using FurniSpace.Infrastructure.ReadModels.Proposals;
 using FurniSpace.Infrastructure.Repositories.Base;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;

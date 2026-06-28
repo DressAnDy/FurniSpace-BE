@@ -4,7 +4,7 @@ using System;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Shared;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;

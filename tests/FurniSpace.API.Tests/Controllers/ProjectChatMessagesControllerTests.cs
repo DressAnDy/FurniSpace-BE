@@ -5,7 +5,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Chat;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
@@ -305,6 +305,24 @@ public sealed class ProjectChatMessagesControllerTests
             ChatId = chatId;
             CurrentUserId = currentUserId;
             return Task.FromResult(_sendFileResult!);
+        }
+
+        public Task<ServiceResult<ProjectChatMessageSearchResponseDto>> SearchProjectMessagesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            string query,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            _ = projectId;
+            _ = currentUserId;
+            _ = query;
+            _ = page;
+            _ = limit;
+            return Task.FromResult(ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
+                new ProjectChatMessageSearchResponseDto(),
+                string.Empty));
         }
     }
 }

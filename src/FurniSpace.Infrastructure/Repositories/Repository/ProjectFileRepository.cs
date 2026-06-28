@@ -2,8 +2,8 @@ using System.Linq.Expressions;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.Products;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
@@ -523,6 +523,108 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 Status = project.Status
             })
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<ProjectFileSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildProjectFileSearchIndexQuery()
+            .Where(item => item.FileId == fileId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildProjectFileSearchIndexQuery()
+            .OrderByDescending(item => item.UploadedAt)
+            .ThenByDescending(item => item.FileId)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> SearchByProjectAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        var pattern = $"%{query.Trim()}%";
+        return await ApplyProjectFileSearchFilters(
+                BuildProjectFileSearchIndexQuery().Where(item => item.ProjectId == projectId),
+                customerVisibleOnly,
+                customerAccountId)
+            .Where(item => EF.Functions.ILike(item.OriginalFileName, pattern))
+            .OrderByDescending(item => item.UploadedAt)
+            .ThenByDescending(item => item.FileId)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountSearchByProjectAsync(
+        Guid projectId,
+        string query,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        var pattern = $"%{query.Trim()}%";
+        return ApplyProjectFileSearchFilters(
+                BuildProjectFileSearchIndexQuery().Where(item => item.ProjectId == projectId),
+                customerVisibleOnly,
+                customerAccountId)
+            .Where(item => EF.Functions.ILike(item.OriginalFileName, pattern))
+            .CountAsync(cancellationToken);
+    }
+
+    private IQueryable<ProjectFileSearchIndexItemReadModel> BuildProjectFileSearchIndexQuery()
+    {
+        return BuildLinkedFileMetadataQuery()
+            .Where(file => file.ProjectAccess != null && file.ReferenceId.HasValue)
+            .Select(file => new ProjectFileSearchIndexItemReadModel
+            {
+                FileId = file.FileId,
+                FileLinkId = file.FileLinkId,
+                ProjectId = file.ProjectAccess!.ProjectId,
+                ReferenceType = file.ReferenceType,
+                ReferenceId = file.ReferenceId!.Value,
+                OriginalFileName = file.OriginalFileName,
+                FileType = file.FileType,
+                Visibility = file.Visibility,
+                MimeType = file.MimeType,
+                UploadedAt = file.UploadedAt,
+                UploadedBy = file.UploadedBy,
+                Status = file.Status
+            });
+    }
+
+    private static IQueryable<ProjectFileSearchIndexItemReadModel> ApplyProjectFileSearchFilters(
+        IQueryable<ProjectFileSearchIndexItemReadModel> query,
+        bool customerVisibleOnly,
+        Guid? customerAccountId)
+    {
+        if (!customerVisibleOnly)
+        {
+            return query;
+        }
+
+        if (!customerAccountId.HasValue)
+        {
+            return query.Where(item => item.Visibility == FileVisibility.CUSTOMER_VISIBLE);
+        }
+
+        var accountId = customerAccountId.Value;
+        return query.Where(item =>
+            item.Visibility == FileVisibility.CUSTOMER_VISIBLE ||
+            item.UploadedBy == accountId);
     }
 
     public Task<bool> HasProjectFileWithTypesAsync(

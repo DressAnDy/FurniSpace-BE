@@ -7,18 +7,18 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.ProjectFiles;
-using FurniSpace.Application.Mappings;
 using FurniSpace.Application.Services.ProjectFiles;
+using FurniSpace.Application.Tests;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.Products;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Storage;
-using Mapster;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -28,7 +28,7 @@ public sealed class ProjectFileServiceTests
 {
     public ProjectFileServiceTests()
     {
-        TypeAdapterConfig.GlobalSettings.Scan(typeof(ProjectFileMappingConfig).Assembly);
+        MapsterTestSetup.EnsureConfigured();
     }
 
     [Fact]
@@ -322,6 +322,103 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
+    public async Task SearchProjectFilesAsync_WithRepositoryFallback_ReturnsPagedResultsAndCustomerFilter()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var uploadedAt = new DateTime(2026, 6, 20, 10, 0, 0, DateTimeKind.Utc);
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId
+            },
+            SearchItems =
+            [
+                new ProjectFileSearchIndexItemReadModel
+                {
+                    FileId = fileId,
+                    ProjectId = projectId,
+                    ReferenceType = "PROJECT",
+                    ReferenceId = projectId,
+                    OriginalFileName = "measurement-plan.pdf",
+                    FileType = FileType.PDF_DRAWING,
+                    Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                    MimeType = "application/pdf",
+                    UploadedAt = uploadedAt,
+                    Status = FileStatus.ACTIVE,
+                    UploadedBy = customerId
+                }
+            ],
+            SearchTotal = 7
+        };
+        var service = CreateService(repository, new FakeFileStorageService());
+
+        var result = await service.SearchProjectFilesAsync(projectId, customerId, "plan", page: 2, limit: 3);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project files search completed successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(2, result.Data.Page);
+        Assert.Equal(3, result.Data.Limit);
+        Assert.Equal(7, result.Data.Total);
+        var item = Assert.Single(result.Data.Items);
+        Assert.Equal(fileId, item.FileId);
+        Assert.Equal("measurement-plan.pdf", item.OriginalFileName);
+        Assert.Equal(nameof(FileType.PDF_DRAWING), item.FileType);
+        Assert.Equal(nameof(FileVisibility.CUSTOMER_VISIBLE), item.Visibility);
+        Assert.Equal("plan", repository.LastSearchQuery);
+        Assert.Equal(projectId, repository.LastSearchProjectId);
+        Assert.True(repository.LastSearchCustomerVisibleOnly);
+        Assert.Equal(customerId, repository.LastSearchCustomerAccountId);
+        Assert.Equal(2, repository.LastSearchPage);
+        Assert.Equal(3, repository.LastSearchLimit);
+    }
+
+    [Fact]
+    public async Task SearchProjectFilesAsync_WithMissingProject_ReturnsNotFound()
+    {
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "ADMIN"
+        };
+        var service = CreateService(repository, new FakeFileStorageService());
+
+        var result = await service.SearchProjectFilesAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "plan",
+            page: 1,
+            limit: 10);
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project not found.", result.Message);
+        Assert.Null(repository.LastSearchQuery);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task SearchProjectFilesAsync_WithBlankQuery_ReturnsBadRequest(string query)
+    {
+        var repository = new FakeProjectFileRepository();
+        var service = CreateService(repository, new FakeFileStorageService());
+
+        var result = await service.SearchProjectFilesAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            query,
+            page: 1,
+            limit: 10);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Search query is required.", result.Message);
+    }
+
+    [Fact]
     public async Task GetFileDetailAsync_ForCustomerStaffOnlyFile_ReturnsForbidden()
     {
         var customerId = Guid.NewGuid();
@@ -411,19 +508,22 @@ public sealed class ProjectFileServiceTests
             repository,
             products ?? new FakeCatalogProductRepository(),
             productVersions ?? new FakeCatalogProductVersionRepository(),
-            storage,
-            Options.Create(new FileUploadSettings
-            {
-                MaxFileSizeBytes = 1024 * 1024,
-                AllowedExtensions = [".jpg", ".jpeg", ".pdf"],
-                AllowedMimeTypes = ["image/jpeg", "application/pdf"]
-            }),
-            Options.Create(new FirebaseStorageSettings
-            {
-                Bucket = "test-bucket",
-                ProjectFilesPrefix = "projects"
-            }),
-            global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            new ProjectFileServiceDependencies(
+                global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+                storage,
+                new FileUploadSettings
+                {
+                    MaxFileSizeBytes = 1024 * 1024,
+                    AllowedExtensions = [".jpg", ".jpeg", ".pdf"],
+                    AllowedMimeTypes = ["image/jpeg", "application/pdf"]
+                },
+                new FirebaseStorageSettings
+                {
+                    Bucket = "test-bucket",
+                    ProjectFilesPrefix = "projects"
+                },
+                Search: null,
+                ProjectFileSearchIndexer: null));
     }
 
     private static UploadProjectFileRequestDto CreateUploadRequest(
@@ -530,6 +630,8 @@ public sealed class ProjectFileServiceTests
         public ProjectFileAccessReadModel? ProjectAccess { get; init; }
         public string? RoleName { get; init; }
         public FileReferencePageReadModel FileReferencePage { get; init; } = new();
+        public IReadOnlyList<ProjectFileSearchIndexItemReadModel> SearchItems { get; init; } = [];
+        public int SearchTotal { get; init; }
         public Dictionary<Guid, StoredFile> Entities { get; } = [];
         public Dictionary<Guid, FileMetadataReadModel> FileMetadata { get; } = [];
         public List<StoredFile> StoredFiles { get; } = [];
@@ -539,6 +641,12 @@ public sealed class ProjectFileServiceTests
         public StoredFile? RemovedFile { get; private set; }
         public StoredFile? UpdatedFile { get; private set; }
         public FileReferenceQueryReadModel? LastReferenceQuery { get; private set; }
+        public Guid LastSearchProjectId { get; private set; }
+        public string? LastSearchQuery { get; private set; }
+        public int LastSearchPage { get; private set; }
+        public int LastSearchLimit { get; private set; }
+        public bool LastSearchCustomerVisibleOnly { get; private set; }
+        public Guid? LastSearchCustomerAccountId { get; private set; }
         public int SaveChangesCallCount { get; private set; }
         public int GetReferenceProjectAccessCallCount { get; private set; }
 
@@ -695,6 +803,42 @@ public sealed class ProjectFileServiceTests
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<FileLink>>([]);
 
+        public Task<ProjectFileSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+            Guid fileId,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.GetSearchIndexItemAsync(fileId, cancellationToken);
+
+        public Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => ProjectFileRepositorySearchStubs.GetSearchIndexPageAsync(page, limit, cancellationToken);
+
+        public Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> SearchByProjectAsync(
+            Guid projectId,
+            string query,
+            int page,
+            int limit,
+            bool customerVisibleOnly,
+            Guid? customerAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            LastSearchProjectId = projectId;
+            LastSearchQuery = query;
+            LastSearchPage = page;
+            LastSearchLimit = limit;
+            LastSearchCustomerVisibleOnly = customerVisibleOnly;
+            LastSearchCustomerAccountId = customerAccountId;
+            return Task.FromResult(SearchItems);
+        }
+
+        public Task<int> CountSearchByProjectAsync(
+            Guid projectId,
+            string query,
+            bool customerVisibleOnly,
+            Guid? customerAccountId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(SearchTotal);
         public Task<bool> HasProjectFileWithTypesAsync(
             Guid projectId,
             IReadOnlyCollection<FileType> fileTypes,
@@ -723,6 +867,21 @@ public sealed class ProjectFileServiceTests
         public Task<ProductCategoryReadModel?> GetCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default) => Task.FromResult<ProductCategoryReadModel?>(null);
         public Task<IReadOnlyList<ProductListItemReadModel>> GetPublicListByCategoryAsync(Guid categoryId, int page, int limit, bool includeDefaultVersion, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductListItemReadModel>>([]);
         public Task<int> CountByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+        public Task<ProductListItemReadModel?> GetSearchIndexItemAsync(Guid productId, CancellationToken cancellationToken = default)
+            => ProductRepositorySearchStubs.GetSearchIndexItemAsync(productId, cancellationToken);
+
+        public Task<IReadOnlyList<ProductListItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default)
+            => ProductRepositorySearchStubs.GetSearchIndexPageAsync(page, limit, cancellationToken);
+
+        public Task<ProductSearchResultReadModel> SearchPublicAsync(ProductSearchQueryReadModel query, CancellationToken cancellationToken = default)
+            => ProductRepositorySearchStubs.SearchPublicAsync(query, cancellationToken);
+
+        public Task<IReadOnlyList<ProductListItemReadModel>> SuggestPublicAsync(string query, int limit, CancellationToken cancellationToken = default)
+            => ProductRepositorySearchStubs.SuggestPublicAsync(query, limit, cancellationToken);
+
+        public Task<IReadOnlyList<ProductListItemReadModel>> GetSimilarPublicAsync(Guid productId, int limit, CancellationToken cancellationToken = default)
+            => ProductRepositorySearchStubs.GetSimilarPublicAsync(productId, limit, cancellationToken);
     }
 
     private sealed class FakeCatalogProductVersionRepository : IProductVersionRepository

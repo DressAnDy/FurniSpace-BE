@@ -2,8 +2,8 @@ using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Domain.Entities;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.ReadModels.Products;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using Mapster;
 
 namespace FurniSpace.Application.Mappings;

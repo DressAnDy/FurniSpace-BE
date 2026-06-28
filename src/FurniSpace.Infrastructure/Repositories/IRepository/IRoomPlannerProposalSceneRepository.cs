@@ -1,4 +1,4 @@
-using FurniSpace.Infrastructure.DTOs.RoomPlanner;
+using FurniSpace.Infrastructure.ReadModels.RoomPlanner;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;
 

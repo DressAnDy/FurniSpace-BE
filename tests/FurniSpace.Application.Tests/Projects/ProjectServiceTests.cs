@@ -11,11 +11,14 @@ using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
+using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.Common.Search;
+using FurniSpace.Infrastructure.ReadModels.Projects;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 
@@ -2141,6 +2144,44 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task GetListAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    {
+        var projectId = Guid.NewGuid();
+        var repository = new FakeProjectRepository(
+            roleName: "ADMIN",
+            listItems:
+            [
+                new ProjectListItemReadModel
+                {
+                    ProjectId = projectId,
+                    ProjectCode = "PRJ-2026-0099",
+                    ProjectName = "Oak Workspace",
+                    Status = ProjectStatus.SUBMITTED,
+                    CustomerId = Guid.NewGuid(),
+                    SubmittedAt = DateTime.UtcNow
+                }
+            ]);
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            search: new ThrowingSearchIndexService());
+
+        var result = await service.GetListAsync(Guid.NewGuid(), new ProjectListQueryDto
+        {
+            Search = "Oak",
+            Page = 1,
+            Limit = 20
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(1, result.Data!.Total);
+        Assert.Equal(projectId, Assert.Single(result.Data.Items).ProjectId);
+        Assert.Equal(1, repository.GetListCallCount);
+        Assert.Equal(1, repository.CountCallCount);
+    }
+
+    [Fact]
     public async Task GetListAsync_WithSalesRole_ReturnsFilteredProjectQueue()
     {
         var salesId = Guid.NewGuid();
@@ -2686,6 +2727,35 @@ public sealed class ProjectServiceTests
         public string? AccountFullName { get; init; }
     }
 
+    private sealed class ThrowingSearchIndexService : ISearchIndexService
+    {
+        public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(string indexName, SearchRequest request, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+
+        public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(string indexName, string query, int size = 100, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+
+        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new SuggestResult());
+
+        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
+            string indexName,
+            string documentId,
+            MoreLikeThisRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+
+        public Task<SearchAggregationResult> AggregateAsync(
+            string indexName,
+            SearchAggregationRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Elasticsearch unavailable.");
+    }
+
     internal sealed class FakeProjectRepository : IProjectRepository
     {
         private readonly string? _roleName;
@@ -2819,6 +2889,16 @@ public sealed class ProjectServiceTests
             return Task.FromResult((_state.ListItems ?? []).Count);
         }
 
+        public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
+
+        public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
         public Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(
             ProjectByUserQueryReadModel query,
             CancellationToken cancellationToken = default)

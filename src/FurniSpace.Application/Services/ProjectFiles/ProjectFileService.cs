@@ -1,22 +1,25 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
+using FurniSpace.Application.Interfaces.Search;
+using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
+using FurniSpace.Infrastructure.Common.Search.Documents;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Storage;
 using Mapster;
-using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Services.ProjectFiles;
 
 public sealed class ProjectFileService : IProjectFileService
 {
+    private const string ProjectFileIndexName = "project-files";
     private const string AdminRole = "ADMIN";
     private const string CustomerRole = "CUSTOMER";
     private const string SalesRole = "SALES";
@@ -70,23 +73,24 @@ public sealed class ProjectFileService : IProjectFileService
     private readonly IFileStorageService _storage;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
+    private readonly ISearchIndexService? _search;
+    private readonly IProjectFileSearchIndexer? _projectFileSearchIndexer;
 
     public ProjectFileService(
         IProjectFileRepository projectFiles,
         IProductRepository products,
         IProductVersionRepository productVersions,
-        IFileStorageService storage,
-        IOptions<FileUploadSettings> uploadSettings,
-        IOptions<FirebaseStorageSettings> firebaseSettings,
-        IUnitOfWork unitOfWork)
+        ProjectFileServiceDependencies dependencies)
     {
         _projectFiles = projectFiles;
         _products = products;
         _productVersions = productVersions;
-        _unitOfWork = unitOfWork;
-        _storage = storage;
-        _uploadSettings = uploadSettings.Value;
-        _firebaseSettings = firebaseSettings.Value;
+        _unitOfWork = dependencies.UnitOfWork;
+        _storage = dependencies.Storage;
+        _uploadSettings = dependencies.UploadSettings;
+        _firebaseSettings = dependencies.FirebaseSettings;
+        _search = dependencies.Search;
+        _projectFileSearchIndexer = dependencies.ProjectFileSearchIndexer;
     }
 
     public async Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectFileAsync(
@@ -189,6 +193,8 @@ public sealed class ProjectFileService : IProjectFileService
             await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
             throw;
         }
+
+        await SyncProjectFileIndexAsync(fileId, cancellationToken);
 
         var response = new ProjectFileUploadResponseDto
         {
@@ -306,6 +312,63 @@ public sealed class ProjectFileService : IProjectFileService
                 Total = page.Total
             },
             "Project files retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectFileSearchResponseDto>> SearchProjectFilesAsync(
+        Guid projectId,
+        Guid currentUserId,
+        string query,
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectFileSearchResponseDto>.BadRequest("Project id is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return ServiceResult<ProjectFileSearchResponseDto>.BadRequest("Search query is required.");
+        }
+
+        var pageErrors = ValidatePagination(page, limit);
+        if (pageErrors.Count > 0)
+        {
+            return ServiceResult<ProjectFileSearchResponseDto>.BadRequest(pageErrors);
+        }
+
+        var roleName = await GetRequiredRoleNameAsync(currentUserId, cancellationToken);
+        if (roleName is null)
+        {
+            return ServiceResult<ProjectFileSearchResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
+        }
+
+        var project = await _projectFiles.GetProjectAccessAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectFileSearchResponseDto>.NotFound("Project not found.");
+        }
+
+        if (!CanAccessProject(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectFileSearchResponseDto>.Forbidden("You do not have access to search files for this project.");
+        }
+
+        var customerVisibleOnly = IsCustomer(roleName);
+        Guid? customerAccountId = customerVisibleOnly ? currentUserId : null;
+        var response = await SearchProjectFilesWithFallbackAsync(
+            projectId,
+            query,
+            page,
+            limit,
+            customerVisibleOnly,
+            customerAccountId,
+            cancellationToken);
+
+        return ServiceResult<ProjectFileSearchResponseDto>.Success(
+            response,
+            "Project files search completed successfully.");
     }
 
     public async Task<ServiceResult<FilesByReferenceResponseDto>> GetFilesByReferenceAsync(
@@ -852,5 +915,111 @@ public sealed class ProjectFileService : IProjectFileService
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
             throw;
         }
+    }
+
+    private async Task<ProjectFileSearchResponseDto> GetProjectFilesSearchFromRepositoryAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken)
+    {
+        var items = await _projectFiles.SearchByProjectAsync(
+            projectId,
+            query,
+            page,
+            limit,
+            customerVisibleOnly,
+            customerAccountId,
+            cancellationToken);
+        var total = await _projectFiles.CountSearchByProjectAsync(
+            projectId,
+            query,
+            customerVisibleOnly,
+            customerAccountId,
+            cancellationToken);
+
+        return new ProjectFileSearchResponseDto
+        {
+            Items = items
+                .Select(item => new ProjectFileSearchItemDto
+                {
+                    FileId = item.FileId,
+                    ProjectId = item.ProjectId,
+                    ReferenceType = item.ReferenceType,
+                    ReferenceId = item.ReferenceId,
+                    OriginalFileName = item.OriginalFileName,
+                    FileType = item.FileType?.ToString(),
+                    Visibility = item.Visibility?.ToString(),
+                    MimeType = item.MimeType,
+                    UploadedAt = item.UploadedAt
+                })
+                .ToList(),
+            Page = page,
+            Limit = limit,
+            Total = total
+        };
+    }
+
+    private async Task<ProjectFileSearchResponseDto> SearchProjectFilesWithFallbackAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken)
+    {
+        if (_search is null)
+        {
+            return await GetProjectFilesSearchFromRepositoryAsync(
+                projectId,
+                query,
+                page,
+                limit,
+                customerVisibleOnly,
+                customerAccountId,
+                cancellationToken);
+        }
+
+        try
+        {
+            var searchResult = await _search.SearchAsync<ProjectFileSearchDocument>(
+                ProjectFileIndexName,
+                ProjectFileElasticsearchQueryFactory.BuildProjectSearch(
+                    projectId,
+                    query,
+                    page,
+                    limit,
+                    customerVisibleOnly,
+                    customerAccountId),
+                cancellationToken);
+
+            return new ProjectFileSearchResponseDto
+            {
+                Items = searchResult.Documents.Select(ProjectFileSearchResponseMapper.ToItem).ToList(),
+                Page = page,
+                Limit = limit,
+                Total = (int)Math.Min(searchResult.Total, int.MaxValue)
+            };
+        }
+        catch
+        {
+            return await GetProjectFilesSearchFromRepositoryAsync(
+                projectId,
+                query,
+                page,
+                limit,
+                customerVisibleOnly,
+                customerAccountId,
+                cancellationToken);
+        }
+    }
+
+    private Task SyncProjectFileIndexAsync(Guid fileId, CancellationToken cancellationToken)
+    {
+        return _projectFileSearchIndexer?.SyncFileAsync(fileId, cancellationToken) ?? Task.CompletedTask;
     }
 }

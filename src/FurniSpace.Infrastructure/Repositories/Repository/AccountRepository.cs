@@ -1,7 +1,7 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
-using FurniSpace.Infrastructure.DTOs.Accounts;
+using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
@@ -139,6 +139,34 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
     public Task<int> CountAsync(string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default)
     {
         return BuildQuery(search, status, includeDeleted).CountAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByStatusAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildQuery(search: null, status: null, includeDeleted)
+            .GroupBy(account => account.Status)
+            .Select(group => new AccountFacetCountReadModel
+            {
+                Key = group.Key == null ? "UNKNOWN" : group.Key.ToString()!,
+                Count = group.Count()
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByRoleIdAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildQuery(search: null, status: null, includeDeleted)
+            .GroupBy(account => account.RoleId)
+            .Select(group => new AccountFacetCountReadModel
+            {
+                Key = group.Key.ToString(),
+                Count = group.Count()
+            })
+            .ToListAsync(cancellationToken);
     }
 
     private IQueryable<Account> BuildQuery(string? search, string? status, bool includeDeleted)

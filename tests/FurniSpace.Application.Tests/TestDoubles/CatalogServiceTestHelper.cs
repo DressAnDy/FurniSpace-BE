@@ -2,15 +2,15 @@
 
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.Application.Mappings;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Services.Products;
+using FurniSpace.Application.Common.Storage;
+using FurniSpace.Application.Tests;
 using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using FurniSpace.Infrastructure.Storage;
-using Mapster;
 using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Tests.TestDoubles;
@@ -19,22 +19,27 @@ public static class CatalogServiceTestHelper
 {
     static CatalogServiceTestHelper()
     {
-        TypeAdapterConfig.GlobalSettings.Scan(typeof(CatalogFileMappingConfig).Assembly);
+        MapsterTestSetup.EnsureConfigured();
     }
 
     public static ProductService CreateProductService(
         IProductRepository products,
         IProjectFileRepository files,
         IFileStorageService? storage = null,
-        ProductPreviewImageSettings? previewSettings = null)
+        ProductPreviewImageSettings? previewSettings = null,
+        ISearchIndexService? search = null,
+        IProductSearchIndexer? productSearchIndexer = null)
     {
         return new ProductService(
             products,
             files,
-            storage ?? new NoOpFileStorageService(),
-            Options.Create(DefaultUploadSettings()),
-            Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
-            Options.Create(DefaultFirebaseSettings()),
+            new ProductServiceDependencies(
+                storage ?? new NoOpFileStorageService(),
+                search ?? new NoOpSearchIndexService(),
+                productSearchIndexer ?? new NoOpProductSearchIndexer(),
+                DefaultUploadSettings(),
+                previewSettings ?? DefaultPreviewImageSettings(),
+                DefaultFirebaseSettings()),
             TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
     }
 
@@ -58,15 +63,18 @@ public static class CatalogServiceTestHelper
         IProductVersionRepository productVersions,
         IProjectFileRepository files,
         IFileStorageService? storage = null,
-        ProductPreviewImageSettings? previewSettings = null)
+        ProductPreviewImageSettings? previewSettings = null,
+        IProductSearchIndexer? productSearchIndexer = null)
     {
         return new ProductVersionService(
             productVersions,
             files,
-            storage ?? new NoOpFileStorageService(),
-            Options.Create(DefaultUploadSettings()),
-            Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
-            Options.Create(DefaultFirebaseSettings()),
+            new ProductVersionFileUploadDependencies(
+                storage ?? new NoOpFileStorageService(),
+                DefaultUploadSettings(),
+                previewSettings ?? DefaultPreviewImageSettings(),
+                DefaultFirebaseSettings()),
+            productSearchIndexer ?? new NoOpProductSearchIndexer(),
             TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync));
     }
 

@@ -10,7 +10,7 @@ using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 
@@ -292,6 +292,10 @@ internal sealed class ByUserFakeProjectRepository : IProjectRepository
         Task.FromResult<IReadOnlyList<ProjectListItemReadModel>>([]);
     public Task<int> CountAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) =>
         Task.FromResult(0);
+    public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+        Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
+    public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
     public IQueryable<Project> Query() => Array.Empty<Project>().AsQueryable();
     public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
         Task.FromResult<Project?>(null);

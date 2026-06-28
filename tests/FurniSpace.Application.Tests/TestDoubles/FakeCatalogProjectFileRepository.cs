@@ -8,8 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.Products;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 
 namespace FurniSpace.Application.Tests.TestDoubles;
@@ -25,6 +25,8 @@ namespace FurniSpace.Application.Tests.TestDoubles;
 public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
 {
     public IReadOnlyList<CatalogFileReadModel> CatalogFiles { get; init; } = [];
+    public ProjectFileAccessReadModel? ProjectAccess { get; init; }
+    public string? RoleName { get; init; }
     public List<StoredFile> StoredFiles { get; } = [];
     public List<FileLink> FileLinks { get; } = [];
 
@@ -50,7 +52,7 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
     public Task<ProjectFileAccessReadModel?> GetProjectAccessAsync(
         Guid projectId,
         CancellationToken cancellationToken = default) =>
-        ProjectFileRepositoryStubResponses.NullProjectAccess(projectId, cancellationToken);
+        Task.FromResult(ProjectAccess?.ProjectId == projectId ? ProjectAccess : null);
 
     public Task<ProjectFileAccessReadModel?> GetReferenceProjectAccessAsync(
         string referenceType,
@@ -64,7 +66,7 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
     public Task<string?> GetAccountRoleNameAsync(
         Guid accountId,
         CancellationToken cancellationToken = default) =>
-        ProjectFileRepositoryStubResponses.NullRoleName(accountId, cancellationToken);
+        Task.FromResult(RoleName);
 
     public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
     {
@@ -161,11 +163,55 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
         CancellationToken cancellationToken = default) =>
         ProjectFileRepositoryStubResponses.EmptyFileLinks(productVersionId, cancellationToken);
 
+    public Task<ProjectFileSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+        Guid fileId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositorySearchStubs.GetSearchIndexItemAsync(fileId, cancellationToken);
+
+    public Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositorySearchStubs.GetSearchIndexPageAsync(page, limit, cancellationToken);
+
+    public Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> SearchByProjectAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositorySearchStubs.SearchByProjectAsync(
+            projectId,
+            query,
+            page,
+            limit,
+            customerVisibleOnly,
+            customerAccountId,
+            cancellationToken);
+
+    public Task<int> CountSearchByProjectAsync(
+        Guid projectId,
+        string query,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositorySearchStubs.CountSearchByProjectAsync(
+            projectId,
+            query,
+            customerVisibleOnly,
+            customerAccountId,
+            cancellationToken);
+
     public Task<bool> HasProjectFileWithTypesAsync(
         Guid projectId,
         IReadOnlyCollection<FileType> fileTypes,
         CancellationToken cancellationToken = default) =>
-        ProjectFileRepositoryStubResponses.FalseHasProjectFileWithTypes(projectId, fileTypes, cancellationToken);
+        ProjectFileRepositoryStubResponses.FalseHasProjectFileWithTypes(
+            projectId,
+            fileTypes,
+            cancellationToken);
 }
 
 [SuppressMessage(

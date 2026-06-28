@@ -6,15 +6,12 @@ using FurniSpace.Infrastructure.Common.Mongo;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Data;
-using FurniSpace.Infrastructure.Email;
 using FurniSpace.Infrastructure.Interfaces;
-using FurniSpace.Infrastructure.Mongo;
+using FurniSpace.Infrastructure.Data.Mongo;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Repositories.Repository;
-using FurniSpace.Infrastructure.Search;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -191,6 +188,8 @@ public static class DependencyInjection
 
         services.AddSingleton(new ElasticsearchClient(settings));
         services.AddScoped<ISearchIndexService, ElasticsearchIndexService>();
+        services.AddScoped<IIndexManager, ElasticsearchIndexManager>();
+        services.AddHostedService<ElasticsearchIndexInitializer>();
     }
 
     private static string AppendRedisPasswordIfNeeded(string connectionString)

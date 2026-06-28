@@ -7,7 +7,7 @@ using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Services.RoomPlanner;
 using FurniSpace.Domain.Enums;
 using InfrastructureRoomPlannerSceneRepository = FurniSpace.Infrastructure.Repositories.IRepository.IRoomPlannerSceneRepository;
-using InfrastructureRoomPlannerSceneDocument = FurniSpace.Infrastructure.Mongo.RoomPlannerSceneDocument;
+using InfrastructureRoomPlannerSceneDocument = FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneDocument;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.RoomPlanner;
@@ -123,14 +123,14 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
             Unit = "meter",
             Objects =
             [
-                new FurniSpace.Infrastructure.Mongo.RoomPlannerObjectDocument
+                new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerObjectDocument
                 {
                     ObjectId = "object-01",
                     ProductVersionId = Guid.NewGuid(),
-                    Transform = new FurniSpace.Infrastructure.Mongo.RoomPlannerTransformDocument()
+                    Transform = new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerTransformDocument()
                 }
             ],
-            Metadata = new FurniSpace.Infrastructure.Mongo.RoomPlannerSceneMetadataDocument
+            Metadata = new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneMetadataDocument
             {
                 UpdatedAt = DateTime.UtcNow
             }

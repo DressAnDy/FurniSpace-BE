@@ -15,7 +15,9 @@ using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.RoomPlanner;
+using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Accounts;
+using FurniSpace.Application.Services.Search;
 using FurniSpace.Application.Services.Categories;
 using FurniSpace.Application.Services.Identity;
 using FurniSpace.Application.Services.Notifications;
@@ -34,9 +36,11 @@ using Mapster;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Persistence;
 
 namespace FurniSpace.Application;
 
@@ -72,11 +76,60 @@ public static class DependencyInjection
                 sp.GetRequiredService<IFileUploadValidator>(),
                 firebaseSettings);
         });
+        services.AddScoped<ProjectChatMessageServiceDependencies>(sp =>
+        {
+            return new ProjectChatMessageServiceDependencies(
+                sp.GetRequiredService<IProjectChatRealtimeService>(),
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<ProjectChatFileUploadDependencies>(),
+                sp.GetRequiredService<ILogger<ProjectChatMessageServiceDependencies>>(),
+                sp.GetService<ISearchIndexService>(),
+                sp.GetService<IChatMessageSearchIndexer>());
+        });
+        services.AddScoped<ProductServiceDependencies>(sp =>
+        {
+            return new ProductServiceDependencies(
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<ISearchIndexService>(),
+                sp.GetRequiredService<IProductSearchIndexer>(),
+                sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
+                sp.GetRequiredService<IOptions<ProductPreviewImageSettings>>().Value,
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
+        });
+        services.AddScoped<ProjectFileServiceDependencies>(sp =>
+        {
+            return new ProjectFileServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
+                sp.GetService<ISearchIndexService>(),
+                sp.GetService<IProjectFileSearchIndexer>());
+        });
+        services.AddScoped<ProductVersionFileUploadDependencies>(sp =>
+        {
+            return new ProductVersionFileUploadDependencies(
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
+                sp.GetRequiredService<IOptions<ProductPreviewImageSettings>>().Value,
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
+        });
         services.AddScoped<IProjectFileService, ProjectFileService>();
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<ProjectStatusTransitionEvaluator>();
+        services.AddScoped<ProjectServiceDependencies>(sp =>
+        {
+            return new ProjectServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<ProjectStatusTransitionEvaluator>(),
+                sp.GetService<INotificationDispatcher>(),
+                sp.GetService<ILogger<ProjectService>>(),
+                sp.GetService<IProjectChatService>(),
+                sp.GetService<ISearchIndexService>(),
+                sp.GetService<IProjectSearchIndexer>());
+        });
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
@@ -89,6 +142,11 @@ public static class DependencyInjection
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepositoryAdapter>();
         services.AddScoped<IRoomPlannerSceneService, RoomPlannerSceneService>();
+        services.AddScoped<ISearchReindexService, SearchReindexService>();
+        services.AddScoped<IProductSearchIndexer, ProductSearchIndexer>();
+        services.AddScoped<IProjectSearchIndexer, ProjectSearchIndexer>();
+        services.AddScoped<IChatMessageSearchIndexer, ChatMessageSearchIndexer>();
+        services.AddScoped<IProjectFileSearchIndexer, ProjectFileSearchIndexer>();
 
         return services;
     }

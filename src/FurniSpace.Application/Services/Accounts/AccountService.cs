@@ -1,7 +1,9 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Accounts;
+using FurniSpace.Application.DTOs.Search;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.Identity;
+using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -235,6 +237,89 @@ public sealed class AccountService : IAccountService
         return ServiceResult<PagedResult<AccountDto>>.Success(result);
     }
 
+    public async Task<ServiceResult<AccountSearchStatsDto>> GetSearchStatsAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var aggregation = await _search.AggregateAsync(
+                AccountIndexName,
+                AccountElasticsearchQueryFactory.BuildStatsAggregation(includeDeleted),
+                cancellationToken);
+
+            var roleCounts = await EnrichRoleFacetLabelsAsync(
+                SearchFacetMapper.ToDto(
+                    aggregation.Facets.GetValueOrDefault(AccountElasticsearchQueryFactory.RoleIdField) ?? []),
+                cancellationToken);
+
+            return ServiceResult<AccountSearchStatsDto>.Success(
+                new AccountSearchStatsDto
+                {
+                    StatusCounts = SearchFacetMapper.ToDto(
+                        aggregation.Facets.GetValueOrDefault(AccountElasticsearchQueryFactory.StatusField) ?? []),
+                    RoleCounts = roleCounts
+                },
+                "Account search stats retrieved successfully.");
+        }
+        catch
+        {
+            return ServiceResult<AccountSearchStatsDto>.Success(
+                await GetSearchStatsFromDatabaseAsync(includeDeleted, cancellationToken),
+                "Account search stats retrieved successfully.");
+        }
+    }
+
+    public async Task<ServiceResult<AccountSuggestResponseDto>> SuggestAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return ServiceResult<AccountSuggestResponseDto>.BadRequest("Query is required.");
+        }
+
+        if (limit is < 1 or > 20)
+        {
+            return ServiceResult<AccountSuggestResponseDto>.BadRequest("Limit must be between 1 and 20.");
+        }
+
+        IReadOnlyList<AccountSuggestItemDto> items;
+        try
+        {
+            var searchResult = await _search.SearchAsync<AccountDto>(
+                AccountIndexName,
+                AccountElasticsearchQueryFactory.BuildSuggest(query, limit),
+                cancellationToken);
+
+            items = searchResult.Documents
+                .Select(account => new AccountSuggestItemDto
+                {
+                    AccountId = account.AccountId,
+                    FullName = account.FullName,
+                    Email = account.Email
+                })
+                .ToList();
+        }
+        catch
+        {
+            var fallback = await GetPagedAccountsFromDatabaseAsync(1, limit, query.Trim(), null, includeDeleted: false, cancellationToken);
+            items = fallback.Items
+                .Select(account => new AccountSuggestItemDto
+                {
+                    AccountId = account.AccountId,
+                    FullName = account.FullName,
+                    Email = account.Email
+                })
+                .ToList();
+        }
+
+        return ServiceResult<AccountSuggestResponseDto>.Success(
+            new AccountSuggestResponseDto { Items = items },
+            string.Empty);
+    }
+
     public async Task<ServiceResult<AccountDto>> UpdateAsync(Guid accountId, UpdateAccountRequestDto request, CancellationToken cancellationToken = default)
     {
         var validationErrors = ValidateUpdateRequest(request);
@@ -324,31 +409,82 @@ public sealed class AccountService : IAccountService
         bool includeDeleted,
         CancellationToken cancellationToken)
     {
-        var query = BuildAccountSearchQuery(normalizedSearch);
-        var searchSize = Math.Max(page * pageSize, 100);
-        IReadOnlyList<AccountDto> searchResults;
+        var request = AccountElasticsearchQueryFactory.BuildSearch(
+            page,
+            pageSize,
+            normalizedSearch,
+            normalizedStatus,
+            includeDeleted);
+
         try
         {
-            searchResults = await _search.SearchAsync<AccountDto>(AccountIndexName, query, searchSize, cancellationToken);
+            var searchResult = await _search.SearchAsync<AccountDto>(AccountIndexName, request, cancellationToken);
+
+            return PagedResult<AccountDto>.Create(
+                searchResult.Documents.ToList(),
+                page,
+                pageSize,
+                (int)Math.Min(searchResult.Total, int.MaxValue));
         }
         catch
         {
             return await GetPagedAccountsFromDatabaseAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
         }
+    }
 
-        var filtered = searchResults
-            .Where(account => includeDeleted || account.DeletedAt is null)
-            .Where(account => normalizedStatus is null || account.Status == normalizedStatus)
-            .OrderByDescending(account => account.CreatedAt)
-            .ThenBy(account => account.Email)
+    private async Task<AccountSearchStatsDto> GetSearchStatsFromDatabaseAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken)
+    {
+        var statusCounts = (await _accounts.CountGroupedByStatusAsync(includeDeleted, cancellationToken))
+            .Select(item => new SearchFacetItemDto
+            {
+                Key = item.Key,
+                Count = item.Count
+            })
+            .OrderByDescending(item => item.Count)
+            .ThenBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var items = filtered
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToList();
+        var roleCounts = await EnrichRoleFacetLabelsAsync(
+            (await _accounts.CountGroupedByRoleIdAsync(includeDeleted, cancellationToken))
+                .Select(item => new SearchFacetItemDto
+                {
+                    Key = item.Key,
+                    Count = item.Count
+                })
+                .ToList(),
+            cancellationToken);
 
-        return PagedResult<AccountDto>.Create(items, page, pageSize, filtered.Count);
+        return new AccountSearchStatsDto
+        {
+            StatusCounts = statusCounts,
+            RoleCounts = roleCounts
+        };
+    }
+
+    private async Task<IReadOnlyList<SearchFacetItemDto>> EnrichRoleFacetLabelsAsync(
+        IReadOnlyList<SearchFacetItemDto> roleCounts,
+        CancellationToken cancellationToken)
+    {
+        var enriched = new List<SearchFacetItemDto>(roleCounts.Count);
+        foreach (var roleCount in roleCounts)
+        {
+            string? label = null;
+            if (Guid.TryParse(roleCount.Key, out var roleId))
+            {
+                label = await _accounts.GetRoleNameAsync(roleId, cancellationToken);
+            }
+
+            enriched.Add(new SearchFacetItemDto
+            {
+                Key = roleCount.Key,
+                Count = roleCount.Count,
+                Label = label
+            });
+        }
+
+        return enriched;
     }
 
     private async Task CacheAccountAsync(AccountDto account, CancellationToken cancellationToken)
@@ -443,24 +579,6 @@ public sealed class AccountService : IAccountService
     {
         var value = $"{page}|{pageSize}|{search}|{status}|{includeDeleted}";
         return $"{AccountListCachePrefix}{Sha256(value)}";
-    }
-
-    private static string BuildAccountSearchQuery(string search)
-    {
-        var value = EscapeQueryString(search);
-        return $"email:*{value}* OR fullName:*{value}* OR phone:*{value}*";
-    }
-
-    private static string EscapeQueryString(string value)
-    {
-        var reservedChars = new[] { "\\", "+", "-", "=", "&&", "||", ">", "<", "!", "(", ")", "{", "}", "[", "]", "^", "\"", "~", "*", "?", ":", "/", " " };
-        var escaped = value.Trim();
-        foreach (var reservedChar in reservedChars)
-        {
-            escaped = escaped.Replace(reservedChar, $"\\{reservedChar}", StringComparison.Ordinal);
-        }
-
-        return escaped;
     }
 
     private static string Sha256(string value)

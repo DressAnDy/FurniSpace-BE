@@ -2,7 +2,6 @@ using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
-using FurniSpace.Infrastructure.Storage;
 
 namespace FurniSpace.Application.Common;
 

@@ -5,9 +5,11 @@ using System.Linq;
 using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
-using FurniSpace.API.Controllers;
+using FurniSpace.API.Controllers.Projects;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -138,7 +140,7 @@ public sealed class ProjectsControllerTests
         };
         var service = new FakeProjectService(
             ServiceResult<ProjectDto>.Created(response, "Project request submitted successfully."));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -174,7 +176,7 @@ public sealed class ProjectsControllerTests
     public async Task Create_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -251,7 +253,7 @@ public sealed class ProjectsControllerTests
     public async Task GetList_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -312,7 +314,7 @@ public sealed class ProjectsControllerTests
     public async Task GetByUser_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -366,7 +368,7 @@ public sealed class ProjectsControllerTests
     public async Task GetById_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -421,7 +423,7 @@ public sealed class ProjectsControllerTests
     public async Task AssignSales_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -476,7 +478,7 @@ public sealed class ProjectsControllerTests
     public async Task RequestInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -534,7 +536,7 @@ public sealed class ProjectsControllerTests
     public async Task UpdateBasicInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -590,7 +592,7 @@ public sealed class ProjectsControllerTests
     public async Task UpdateStatus_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -646,7 +648,7 @@ public sealed class ProjectsControllerTests
     public async Task Reject_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -709,7 +711,7 @@ public sealed class ProjectsControllerTests
     public async Task AssignDesigner_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service)
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -737,7 +739,7 @@ public sealed class ProjectsControllerTests
 
     private static ProjectsController CreateControllerWithUser(FakeProjectService service, Guid currentUserId)
     {
-        return new ProjectsController(service)
+        return new ProjectsController(service, new FakeProjectChatMessageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -921,5 +923,48 @@ public sealed class ProjectsControllerTests
             ProjectsByUserQuery = query;
             return Task.FromResult(_projectsByUserResult);
         }
+    }
+
+    private sealed class FakeProjectChatMessageService : IProjectChatMessageService
+    {
+        public Task<bool> CanAccessChatAsync(
+            Guid chatId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<ServiceResult<ProjectChatMessageListResponseDto>> GetMessagesAsync(
+            Guid chatId,
+            Guid currentUserId,
+            ProjectChatMessageQueryDto query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProjectChatMessageListResponseDto>.Success(
+                new ProjectChatMessageListResponseDto(),
+                string.Empty));
+
+        public Task<ServiceResult<ProjectChatMessageDto>> SendTextMessageAsync(
+            Guid chatId,
+            Guid currentUserId,
+            SendTextChatMessageRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()));
+
+        public Task<ServiceResult<ProjectChatMessageDto>> SendFileMessageAsync(
+            Guid chatId,
+            Guid currentUserId,
+            SendFileChatMessageRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()));
+
+        public Task<ServiceResult<ProjectChatMessageSearchResponseDto>> SearchProjectMessagesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            string query,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
+                new ProjectChatMessageSearchResponseDto(),
+                string.Empty));
     }
 }

@@ -1,0 +1,22 @@
+{
+  "mappings": {
+    "properties": {
+      "fileId": { "type": "keyword" },
+      "fileLinkId": { "type": "keyword" },
+      "projectId": { "type": "keyword" },
+      "referenceType": { "type": "keyword" },
+      "referenceId": { "type": "keyword" },
+      "originalFileName": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "fileType": { "type": "keyword" },
+      "visibility": { "type": "keyword" },
+      "mimeType": { "type": "keyword" },
+      "uploadedAt": { "type": "date" },
+      "uploadedBy": { "type": "keyword" }
+    }
+  }
+}

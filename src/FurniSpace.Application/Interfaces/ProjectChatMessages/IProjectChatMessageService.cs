@@ -27,4 +27,12 @@ public interface IProjectChatMessageService
         Guid currentUserId,
         SendFileChatMessageRequestDto request,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectChatMessageSearchResponseDto>> SearchProjectMessagesAsync(
+        Guid projectId,
+        Guid currentUserId,
+        string query,
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default);
 }

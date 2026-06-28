@@ -1,5 +1,5 @@
 using FurniSpace.Application.DTOs.ProjectFiles;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using Mapster;
 
 namespace FurniSpace.Application.Mappings;

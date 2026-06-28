@@ -8,10 +8,12 @@ using System.Threading.Tasks;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
+using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Options;
@@ -25,7 +27,9 @@ internal static class ProjectServiceTestFactory
         IUnitOfWork unitOfWork,
         INotificationDispatcher? dispatcher = null,
         IProjectChatService? projectChats = null,
-        ProjectServiceTransitionFakes? transitionFakes = null)
+        ProjectServiceTransitionFakes? transitionFakes = null,
+        ISearchIndexService? search = null,
+        IProjectSearchIndexer? projectSearchIndexer = null)
     {
         transitionFakes ??= new ProjectServiceTransitionFakes();
         var evaluator = new ProjectStatusTransitionEvaluator(
@@ -36,10 +40,14 @@ internal static class ProjectServiceTestFactory
 
         return new ProjectService(
             repository,
-            unitOfWork,
-            evaluator,
-            dispatcher,
-            projectChats: projectChats);
+            new ProjectServiceDependencies(
+                unitOfWork,
+                evaluator,
+                dispatcher,
+                Logger: null,
+                projectChats,
+                search,
+                projectSearchIndexer));
     }
 }
 
@@ -69,24 +77,24 @@ internal sealed class FakeProjectScheduleRepository : IProjectScheduleRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult(HasCompletedMeasurement && status == ProjectScheduleStatus.COMPLETED);
 
-    public Task<Infrastructure.DTOs.ProjectSchedules.ProjectScheduleDetailReadModel?> GetDetailAsync(
+    public Task<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleDetailReadModel?> GetDetailAsync(
         Guid scheduleId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.ProjectSchedules.ProjectScheduleDetailReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleDetailReadModel?>(null);
 
-    public Task<(IReadOnlyList<Infrastructure.DTOs.ProjectSchedules.ProjectScheduleListItemReadModel> Items, int Total)> GetListByProjectAsync(
+    public Task<(IReadOnlyList<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleListItemReadModel> Items, int Total)> GetListByProjectAsync(
         Guid projectId,
-        Infrastructure.DTOs.ProjectSchedules.ProjectScheduleListQueryReadModel query,
+        Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleListQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<(IReadOnlyList<Infrastructure.DTOs.ProjectSchedules.ProjectScheduleListItemReadModel>, int)>(
-            (Array.Empty<Infrastructure.DTOs.ProjectSchedules.ProjectScheduleListItemReadModel>(), 0));
+        => Task.FromResult<(IReadOnlyList<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleListItemReadModel>, int)>(
+            (Array.Empty<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleListItemReadModel>(), 0));
 
-    public Task<(IReadOnlyList<Infrastructure.DTOs.ProjectSchedules.ProjectScheduleListItemReadModel> Items, int Total)> GetMyAssignedAsync(
+    public Task<(IReadOnlyList<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleListItemReadModel> Items, int Total)> GetMyAssignedAsync(
         Guid? staffId,
-        Infrastructure.DTOs.ProjectSchedules.ProjectScheduleListQueryReadModel query,
+        Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleListQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<(IReadOnlyList<Infrastructure.DTOs.ProjectSchedules.ProjectScheduleListItemReadModel>, int)>(
-            (Array.Empty<Infrastructure.DTOs.ProjectSchedules.ProjectScheduleListItemReadModel>(), 0));
+        => Task.FromResult<(IReadOnlyList<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleListItemReadModel>, int)>(
+            (Array.Empty<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleListItemReadModel>(), 0));
 
     public IQueryable<ProjectSchedule> Query() => Enumerable.Empty<ProjectSchedule>().AsQueryable();
     public Task<ProjectSchedule?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -113,16 +121,16 @@ internal sealed class FakeProjectFileRepository : IProjectFileRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult(HasMeasurementFiles);
 
-    public Task<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?> GetProjectAccessAsync(
+    public Task<Infrastructure.ReadModels.ProjectFiles.ProjectFileAccessReadModel?> GetProjectAccessAsync(
         Guid projectId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.ProjectFiles.ProjectFileAccessReadModel?>(null);
 
-    public Task<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?> GetReferenceProjectAccessAsync(
+    public Task<Infrastructure.ReadModels.ProjectFiles.ProjectFileAccessReadModel?> GetReferenceProjectAccessAsync(
         string referenceType,
         Guid referenceId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.ProjectFiles.ProjectFileAccessReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.ProjectFiles.ProjectFileAccessReadModel?>(null);
 
     public Task<string?> GetAccountRoleNameAsync(
         Guid accountId,
@@ -132,20 +140,20 @@ internal sealed class FakeProjectFileRepository : IProjectFileRepository
     public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    public Task<Infrastructure.DTOs.ProjectFiles.FileMetadataReadModel?> GetFileMetadataAsync(
+    public Task<Infrastructure.ReadModels.ProjectFiles.FileMetadataReadModel?> GetFileMetadataAsync(
         Guid fileId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.ProjectFiles.FileMetadataReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.ProjectFiles.FileMetadataReadModel?>(null);
 
-    public Task<Infrastructure.DTOs.ProjectFiles.FileReferencePageReadModel> GetFilesByReferenceAsync(
-        Infrastructure.DTOs.ProjectFiles.FileReferenceQueryReadModel query,
+    public Task<Infrastructure.ReadModels.ProjectFiles.FileReferencePageReadModel> GetFilesByReferenceAsync(
+        Infrastructure.ReadModels.ProjectFiles.FileReferenceQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(new Infrastructure.DTOs.ProjectFiles.FileReferencePageReadModel());
+        => Task.FromResult(new Infrastructure.ReadModels.ProjectFiles.FileReferencePageReadModel());
 
-    public Task<Infrastructure.DTOs.ProjectFiles.FileLinkReadModel?> GetFileLinkAsync(
+    public Task<Infrastructure.ReadModels.ProjectFiles.FileLinkReadModel?> GetFileLinkAsync(
         Guid fileLinkId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.ProjectFiles.FileLinkReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.ProjectFiles.FileLinkReadModel?>(null);
 
     public Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByFileIdAsync(
         Guid fileId,
@@ -154,28 +162,28 @@ internal sealed class FakeProjectFileRepository : IProjectFileRepository
 
     public void RemoveFileLinks(IEnumerable<FileLink> fileLinks) { }
 
-    public Task<IReadOnlyList<Infrastructure.DTOs.Products.CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Products.CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
         string referenceType,
         IReadOnlyList<Guid> referenceIds,
         bool customerVisibleOnly,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<Infrastructure.DTOs.Products.CatalogFileReadModel>>([]);
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Products.CatalogFileReadModel>>([]);
 
     public Task<int> CountProductPreviewFilesAsync(
         Guid productId,
         CancellationToken cancellationToken = default)
         => Task.FromResult(0);
 
-    public Task<IReadOnlyList<Infrastructure.DTOs.Products.ProductPreviewImageReadModel>> GetProductPreviewFilesAsync(
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Products.ProductPreviewImageReadModel>> GetProductPreviewFilesAsync(
         Guid productId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<Infrastructure.DTOs.Products.ProductPreviewImageReadModel>>([]);
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Products.ProductPreviewImageReadModel>>([]);
 
-    public Task<Infrastructure.DTOs.Products.ProductPreviewImageReadModel?> GetProductPreviewFileAsync(
+    public Task<Infrastructure.ReadModels.Products.ProductPreviewImageReadModel?> GetProductPreviewFileAsync(
         Guid productId,
         Guid fileId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.Products.ProductPreviewImageReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.Products.ProductPreviewImageReadModel?>(null);
 
     public Task<IReadOnlyList<FileLink>> GetProductPreviewFileLinkEntitiesAsync(
         Guid productId,
@@ -191,6 +199,35 @@ internal sealed class FakeProjectFileRepository : IProjectFileRepository
         Guid productVersionId,
         CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<FileLink>>([]);
+
+    public Task<Infrastructure.ReadModels.ProjectFiles.ProjectFileSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.ProjectFiles.ProjectFileSearchIndexItemReadModel?>(null);
+
+    public Task<IReadOnlyList<Infrastructure.ReadModels.ProjectFiles.ProjectFileSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.ProjectFiles.ProjectFileSearchIndexItemReadModel>>([]);
+
+    public Task<IReadOnlyList<Infrastructure.ReadModels.ProjectFiles.ProjectFileSearchIndexItemReadModel>> SearchByProjectAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.ProjectFiles.ProjectFileSearchIndexItemReadModel>>([]);
+
+    public Task<int> CountSearchByProjectAsync(
+        Guid projectId,
+        string query,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
 
     public IQueryable<StoredFile> Query() => Enumerable.Empty<StoredFile>().AsQueryable();
     public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -223,26 +260,26 @@ internal sealed class FakeProposalRepository : IProposalRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult(HasSelectedFinalProposal);
 
-    public Task<Infrastructure.DTOs.Proposals.ProposalProjectAccessReadModel?> GetProjectAccessAsync(
+    public Task<Infrastructure.ReadModels.Proposals.ProposalProjectAccessReadModel?> GetProjectAccessAsync(
         Guid projectId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.Proposals.ProposalProjectAccessReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalProjectAccessReadModel?>(null);
 
-    public Task<Infrastructure.DTOs.Proposals.ProposalContextReadModel?> GetProposalContextAsync(
+    public Task<Infrastructure.ReadModels.Proposals.ProposalContextReadModel?> GetProposalContextAsync(
         Guid proposalId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.Proposals.ProposalContextReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalContextReadModel?>(null);
 
     public Task<int> CountByProjectAsync(Guid projectId, CancellationToken cancellationToken = default)
         => Task.FromResult(0);
 
-    public Task<IReadOnlyList<Infrastructure.DTOs.Proposals.ProposalReadModel>> GetListAsync(
-        Infrastructure.DTOs.Proposals.ProposalListQueryReadModel query,
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalReadModel>> GetListAsync(
+        Infrastructure.ReadModels.Proposals.ProposalListQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<Infrastructure.DTOs.Proposals.ProposalReadModel>>([]);
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalReadModel>>([]);
 
     public Task<int> CountListAsync(
-        Infrastructure.DTOs.Proposals.ProposalListQueryReadModel query,
+        Infrastructure.ReadModels.Proposals.ProposalListQueryReadModel query,
         CancellationToken cancellationToken = default)
         => Task.FromResult(0);
 
@@ -252,16 +289,16 @@ internal sealed class FakeProposalRepository : IProposalRepository
     public Task AddSceneAsync(ProposalScene scene, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    public Task<Infrastructure.DTOs.Proposals.ProposalDetailReadModel?> GetDetailAsync(
+    public Task<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?> GetDetailAsync(
         Guid proposalId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.Proposals.ProposalDetailReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?>(null);
 
-    public Task<Infrastructure.DTOs.Proposals.ProposalSceneContextReadModel?> GetSceneContextAsync(
+    public Task<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?> GetSceneContextAsync(
         Guid proposalId,
         Guid sceneId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<Infrastructure.DTOs.Proposals.ProposalSceneContextReadModel?>(null);
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?>(null);
 
     public Task<IReadOnlyList<ProposalItem>> GetItemsBySceneAsync(
         Guid proposalId,

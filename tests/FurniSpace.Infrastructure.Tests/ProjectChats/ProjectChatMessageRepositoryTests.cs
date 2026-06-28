@@ -4,7 +4,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.ProjectChatMessages;
+using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using Xunit;
 
 namespace FurniSpace.Infrastructure.Tests.ProjectChats;
@@ -138,6 +138,43 @@ public sealed class ProjectChatMessageRepositoryTests
 
             Assert.Equal(3, total);
             Assert.Single(items);
+        }
+    }
+
+    [Fact]
+    public async Task GetSearchIndexItemAsync_ReturnsMessageWithProjectAndSender()
+    {
+        var (context, data) = await ProjectChatTestDataFactory.CreateSeededContextAsync();
+        await using (context)
+        {
+            var repository = ProjectChatTestDataFactory.CreateMessageRepository(context);
+
+            var item = await repository.GetSearchIndexItemAsync(data.FileMessageId);
+
+            Assert.NotNull(item);
+            Assert.Equal(data.FileMessageId, item.MessageId);
+            Assert.Equal(data.SalesChatId, item.ChatId);
+            Assert.Equal(data.ProjectId, item.ProjectId);
+            Assert.Equal(data.SalesAccountId, item.SenderId);
+            Assert.Equal("Sales User", item.SenderName);
+            Assert.Equal(ProjectChatMessageType.FILE, item.MessageType);
+            Assert.Equal("Attached file", item.Content);
+            Assert.Null(item.DeletedAt);
+        }
+    }
+
+    [Fact]
+    public async Task GetSearchIndexPageAsync_ReturnsNewestMessagesFirst()
+    {
+        var (context, _) = await ProjectChatTestDataFactory.CreateSeededContextAsync();
+        await using (context)
+        {
+            var repository = ProjectChatTestDataFactory.CreateMessageRepository(context);
+
+            var items = await repository.GetSearchIndexPageAsync(page: 1, limit: 2);
+
+            Assert.Equal(2, items.Count);
+            Assert.True(items[0].CreatedAt >= items[1].CreatedAt);
         }
     }
 }

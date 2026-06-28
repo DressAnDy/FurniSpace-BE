@@ -1,7 +1,7 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.Products;
-using FurniSpace.Infrastructure.DTOs.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.Products;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.Base;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;
@@ -72,6 +72,31 @@ public interface IProjectFileRepository : IGenericRepository<StoredFile>
 
     Task<IReadOnlyList<FileLink>> GetProductVersionPreviewFileLinkEntitiesAsync(
         Guid productVersionId,
+        CancellationToken cancellationToken = default);
+
+    Task<ProjectFileSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+        Guid fileId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+        int page,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> SearchByProjectAsync(
+        Guid projectId,
+        string query,
+        int page,
+        int limit,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountSearchByProjectAsync(
+        Guid projectId,
+        string query,
+        bool customerVisibleOnly,
+        Guid? customerAccountId,
         CancellationToken cancellationToken = default);
 
     Task<bool> HasProjectFileWithTypesAsync(

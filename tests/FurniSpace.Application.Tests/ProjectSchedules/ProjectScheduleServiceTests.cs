@@ -13,8 +13,8 @@ using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.ProjectSchedules;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.DTOs.ProjectSchedules;
-using FurniSpace.Infrastructure.DTOs.Projects;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Options;
 using Xunit;
@@ -768,6 +768,17 @@ public sealed class ProjectScheduleServiceTests
             => Task.FromResult<IReadOnlyList<ProjectByUserItemReadModel>>([]);
         public Task<int> CountByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
+
+        public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
+
+        public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
 
         public IQueryable<Project> Query() => Enumerable.Empty<Project>().AsQueryable();
         public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

@@ -16,6 +16,7 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -682,6 +683,144 @@ public sealed class ProjectChatMessageServiceTests
         Assert.Equal(0, repository.GetAccessCallCount);
     }
 
+    [Fact]
+    public async Task SearchProjectMessagesAsync_WithRepositoryFallback_ReturnsContentMessages()
+    {
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var chatId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        var createdAt = new DateTime(2026, 6, 22, 9, 30, 0, DateTimeKind.Utc);
+        var repository = new FakeProjectChatMessageRepository(
+            searchItems:
+            [
+                new ChatMessageSearchIndexItemReadModel
+                {
+                    MessageId = messageId,
+                    ChatId = chatId,
+                    ProjectId = projectId,
+                    SenderId = customerId,
+                    SenderName = "Customer",
+                    MessageType = ProjectChatMessageType.TEXT,
+                    Content = "Need revised floor plan",
+                    CreatedAt = createdAt
+                },
+                new ChatMessageSearchIndexItemReadModel
+                {
+                    MessageId = Guid.NewGuid(),
+                    ChatId = chatId,
+                    ProjectId = projectId,
+                    SenderId = customerId,
+                    SenderName = "Customer",
+                    MessageType = ProjectChatMessageType.TEXT,
+                    Content = null,
+                    CreatedAt = createdAt.AddMinutes(1)
+                }
+            ],
+            searchTotal: 2);
+        var projectFiles = new FakeCatalogProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId
+            }
+        };
+        var service = CreateService(repository, projectFiles: projectFiles);
+
+        var result = await service.SearchProjectMessagesAsync(projectId, customerId, "floor", page: 2, limit: 5);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project chat messages search completed successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(2, result.Data.Page);
+        Assert.Equal(5, result.Data.Limit);
+        Assert.Equal(2, result.Data.Total);
+        var item = Assert.Single(result.Data.Items);
+        Assert.Equal(messageId, item.MessageId);
+        Assert.Equal(chatId, item.ChatId);
+        Assert.Equal(projectId, item.ProjectId);
+        Assert.Equal(customerId, item.SenderId);
+        Assert.Equal("Customer", item.SenderName);
+        Assert.Equal(nameof(ProjectChatMessageType.TEXT), item.MessageType);
+        Assert.Equal("Need revised floor plan", item.Content);
+        Assert.Equal(createdAt, item.CreatedAt);
+        Assert.Equal(projectId, repository.LastSearchProjectId);
+        Assert.Equal("floor", repository.LastSearchQuery);
+        Assert.Equal(2, repository.LastSearchPage);
+        Assert.Equal(5, repository.LastSearchLimit);
+    }
+
+    [Fact]
+    public async Task SearchProjectMessagesAsync_WithMissingProject_ReturnsNotFound()
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.SearchProjectMessagesAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "floor",
+            page: 1,
+            limit: 10);
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project not found.", result.Message);
+        Assert.Null(repository.LastSearchQuery);
+    }
+
+    [Fact]
+    public async Task SearchProjectMessagesAsync_WithoutProjectAccess_ReturnsForbidden()
+    {
+        var projectId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var repository = new FakeProjectChatMessageRepository();
+        var projectFiles = new FakeCatalogProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = Guid.NewGuid()
+            }
+        };
+        var service = CreateService(repository, projectFiles: projectFiles);
+
+        var result = await service.SearchProjectMessagesAsync(projectId, currentUserId, "floor", page: 1, limit: 10);
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You do not have access to search messages for this project.", result.Message);
+        Assert.Null(repository.LastSearchQuery);
+    }
+
+    [Theory]
+    [InlineData("", 1, 10, "Search query is required.")]
+    [InlineData("   ", 1, 10, "Search query is required.")]
+    [InlineData("floor", 0, 10, "Page must be >= 1 and limit must be between 1 and 50.")]
+    [InlineData("floor", 1, 0, "Page must be >= 1 and limit must be between 1 and 50.")]
+    [InlineData("floor", 1, 51, "Page must be >= 1 and limit must be between 1 and 50.")]
+    public async Task SearchProjectMessagesAsync_WithInvalidInput_ReturnsBadRequest(
+        string query,
+        int page,
+        int limit,
+        string expectedMessage)
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.SearchProjectMessagesAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            query,
+            page,
+            limit);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedMessage, result.Message);
+        Assert.Null(repository.LastSearchQuery);
+    }
+
     private static ProjectChatMessageService CreateService(
         IProjectChatMessageRepository repository,
         IProjectChatRealtimeService? realtime = null,
@@ -796,13 +935,19 @@ public sealed class ProjectChatMessageServiceTests
     {
         private readonly ProjectChatMessageAccessReadModel? _access;
         private readonly IReadOnlyList<ProjectChatMessageReadModel> _items;
+        private readonly IReadOnlyList<ChatMessageSearchIndexItemReadModel> _searchItems;
+        private readonly int _searchTotal;
 
         public FakeProjectChatMessageRepository(
             ProjectChatMessageAccessReadModel? access = null,
-            IReadOnlyList<ProjectChatMessageReadModel>? items = null)
+            IReadOnlyList<ProjectChatMessageReadModel>? items = null,
+            IReadOnlyList<ChatMessageSearchIndexItemReadModel>? searchItems = null,
+            int searchTotal = 0)
         {
             _access = access;
             _items = items ?? [];
+            _searchItems = searchItems ?? [];
+            _searchTotal = searchTotal;
         }
 
         public int GetAccessCallCount { get; private set; }
@@ -810,6 +955,10 @@ public sealed class ProjectChatMessageServiceTests
         public int AddCallCount { get; private set; }
         public Guid LastChatId { get; private set; }
         public ProjectChatMessageQueryReadModel? LastQuery { get; private set; }
+        public Guid LastSearchProjectId { get; private set; }
+        public string? LastSearchQuery { get; private set; }
+        public int LastSearchPage { get; private set; }
+        public int LastSearchLimit { get; private set; }
         public ProjectChatMessage? AddedMessage { get; private set; }
         public ProjectChatMessage? LastAddedEntity { get; private set; }
 
@@ -872,18 +1021,19 @@ public sealed class ProjectChatMessageServiceTests
             int page,
             int limit,
             CancellationToken cancellationToken = default)
-            => ProjectChatMessageRepositorySearchStubs.SearchByProjectAsync(
-                projectId,
-                query,
-                page,
-                limit,
-                cancellationToken);
+        {
+            LastSearchProjectId = projectId;
+            LastSearchQuery = query;
+            LastSearchPage = page;
+            LastSearchLimit = limit;
+            return Task.FromResult(_searchItems);
+        }
 
         public Task<int> CountSearchByProjectAsync(
             Guid projectId,
             string query,
             CancellationToken cancellationToken = default)
-            => ProjectChatMessageRepositorySearchStubs.CountSearchByProjectAsync(projectId, query, cancellationToken);
+            => Task.FromResult(_searchTotal);
     }
 
     private sealed class FakeProjectChatRealtimeService : IProjectChatRealtimeService

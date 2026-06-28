@@ -25,6 +25,8 @@ namespace FurniSpace.Application.Tests.TestDoubles;
 public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
 {
     public IReadOnlyList<CatalogFileReadModel> CatalogFiles { get; init; } = [];
+    public ProjectFileAccessReadModel? ProjectAccess { get; init; }
+    public string? RoleName { get; init; }
     public List<StoredFile> StoredFiles { get; } = [];
     public List<FileLink> FileLinks { get; } = [];
 
@@ -50,7 +52,7 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
     public Task<ProjectFileAccessReadModel?> GetProjectAccessAsync(
         Guid projectId,
         CancellationToken cancellationToken = default) =>
-        ProjectFileRepositoryStubResponses.NullProjectAccess(projectId, cancellationToken);
+        Task.FromResult(ProjectAccess?.ProjectId == projectId ? ProjectAccess : null);
 
     public Task<ProjectFileAccessReadModel?> GetReferenceProjectAccessAsync(
         string referenceType,
@@ -64,7 +66,7 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
     public Task<string?> GetAccountRoleNameAsync(
         Guid accountId,
         CancellationToken cancellationToken = default) =>
-        ProjectFileRepositoryStubResponses.NullRoleName(accountId, cancellationToken);
+        Task.FromResult(RoleName);
 
     public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
     {

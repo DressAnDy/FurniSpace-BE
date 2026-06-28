@@ -1207,6 +1207,92 @@ public sealed class ProductServiceTests
         Assert.Equal("Oak Desk", result.Data.Items[0].ProductName);
     }
 
+    [Theory]
+    [InlineData("", 10, "Query is required.")]
+    [InlineData("   ", 10, "Query is required.")]
+    [InlineData("Oak", 0, "Limit must be between 1 and 20.")]
+    [InlineData("Oak", 21, "Limit must be between 1 and 20.")]
+    public async Task SuggestAsync_WithInvalidInput_ReturnsBadRequest(
+        string query,
+        int limit,
+        string expectedMessage)
+    {
+        var repository = new FakeProductRepository([]);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
+
+        var result = await service.SuggestAsync(query, limit);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedMessage, result.Message);
+        Assert.Null(result.Data);
+    }
+
+    [Fact]
+    public async Task GetSimilarAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    {
+        var categoryId = Guid.NewGuid();
+        var sourceProductId = Guid.NewGuid();
+        var similarProductId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+        [
+            new ProductListItemReadModel
+            {
+                ProductId = sourceProductId,
+                CategoryId = categoryId,
+                ProductName = "Oak Desk",
+                Status = ProductStatus.ACTIVE
+            },
+            new ProductListItemReadModel
+            {
+                ProductId = similarProductId,
+                CategoryId = categoryId,
+                ProductName = "Oak Shelf",
+                Status = ProductStatus.ACTIVE,
+                DefaultVersion = new ProductVersionReadModel
+                {
+                    ProductVersionId = Guid.NewGuid(),
+                    VersionCode = "V1",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE,
+                    IsPublic = true
+                }
+            }
+        ]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            search: new ThrowingSearchIndexService());
+
+        var result = await service.GetSimilarAsync(sourceProductId, limit: 4);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(1, result.Data.Total);
+        var item = Assert.Single(result.Data.Items);
+        Assert.Equal(similarProductId, item.ProductId);
+        Assert.Equal("Oak Shelf", item.ProductName);
+        Assert.Equal(1, result.Data.Page);
+        Assert.Equal(4, result.Data.Limit);
+    }
+
+    [Theory]
+    [InlineData(0, "Product id is required.")]
+    [InlineData(21, "Limit must be between 1 and 20.")]
+    public async Task GetSimilarAsync_WithInvalidInput_ReturnsBadRequest(
+        int limit,
+        string expectedMessage)
+    {
+        var productId = limit == 0 ? Guid.Empty : Guid.NewGuid();
+        var repository = new FakeProductRepository([]);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
+
+        var result = await service.GetSimilarAsync(productId, limit);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedMessage, result.Message);
+        Assert.Null(result.Data);
+    }
+
     private sealed class ThrowingSearchIndexService : ISearchIndexService
     {
         public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;

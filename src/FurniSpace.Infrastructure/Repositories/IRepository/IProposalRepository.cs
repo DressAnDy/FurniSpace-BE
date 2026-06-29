@@ -30,6 +30,10 @@ public interface IProposalRepository : IGenericRepository<Proposal>
         Guid proposalId,
         CancellationToken cancellationToken = default);
 
+    Task<int> CountScenesAsync(
+        ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
     Task AddSceneAsync(
         ProposalScene scene,
         CancellationToken cancellationToken = default);
@@ -43,10 +47,6 @@ public interface IProposalRepository : IGenericRepository<Proposal>
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ProposalSceneReadModel>> GetScenesAsync(
-        ProposalSceneListQueryReadModel query,
-        CancellationToken cancellationToken = default);
-
-    Task<int> CountScenesAsync(
         ProposalSceneListQueryReadModel query,
         CancellationToken cancellationToken = default);
 

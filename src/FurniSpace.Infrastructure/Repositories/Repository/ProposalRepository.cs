@@ -114,6 +114,13 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
             cancellationToken);
     }
 
+    public Task<int> CountScenesAsync(
+        ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildSceneListQuery(query).CountAsync(cancellationToken);
+    }
+
     public Task AddSceneAsync(
         ProposalScene scene,
         CancellationToken cancellationToken = default)
@@ -239,13 +246,6 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     UpdatedAt = joined.scene.UpdatedAt
                 })
             .ToListAsync(cancellationToken);
-    }
-
-    public Task<int> CountScenesAsync(
-        ProposalSceneListQueryReadModel query,
-        CancellationToken cancellationToken = default)
-    {
-        return BuildSceneListQuery(query).CountAsync(cancellationToken);
     }
 
     public Task<ProposalSceneDetailReadModel?> GetSceneDetailAsync(

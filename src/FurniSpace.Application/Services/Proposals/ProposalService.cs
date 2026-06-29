@@ -30,6 +30,10 @@ public sealed class ProposalService : IProposalService
     private const string ProjectIdRequiredMessage = "Project id is required.";
     private const string ProposalIdRequiredMessage = "Proposal id is required.";
     private const string ProposalNotFoundMessage = "Proposal not found.";
+    private const string ProposalItemNotFoundMessage = "Proposal item not found.";
+    private const string InvalidProposalStatusCode = "INVALID_PROPOSAL_STATUS";
+    private const string ProposalNotFoundCode = "PROPOSAL_NOT_FOUND";
+    private const string ProposalItemNotFoundCode = "PROPOSAL_ITEM_NOT_FOUND";
 
     private static readonly ProposalStatus[] CustomerVisibleStatuses =
     [
@@ -233,7 +237,7 @@ public sealed class ProposalService : IProposalService
         if (proposal.ProposalStatus != ProposalStatus.DRAFT)
         {
             return ServiceResult<ProposalSceneDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
+                InvalidProposalStatusCode,
                 "Proposal scene can only be created for draft proposal."));
         }
 
@@ -288,7 +292,7 @@ public sealed class ProposalService : IProposalService
         if (proposal is null)
         {
             return ServiceResult<ProposalSceneListResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -374,7 +378,7 @@ public sealed class ProposalService : IProposalService
         if (proposal is null)
         {
             return ServiceResult<ProposalDetailDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -457,7 +461,7 @@ public sealed class ProposalService : IProposalService
         if (proposal is null)
         {
             return ServiceResult<ProposalItemListResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -523,8 +527,8 @@ public sealed class ProposalService : IProposalService
         if (item is null)
         {
             return ServiceResult<UpdateProposalItemResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_ITEM_NOT_FOUND",
-                "Proposal item not found."));
+                ProposalItemNotFoundCode,
+                ProposalItemNotFoundMessage));
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -536,7 +540,7 @@ public sealed class ProposalService : IProposalService
         if (item.ProposalStatus != ProposalStatus.DRAFT)
         {
             return ServiceResult<UpdateProposalItemResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
+                InvalidProposalStatusCode,
                 "Proposal item can only be updated while proposal is draft."));
         }
 
@@ -544,8 +548,8 @@ public sealed class ProposalService : IProposalService
         if (entity is null)
         {
             return ServiceResult<UpdateProposalItemResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_ITEM_NOT_FOUND",
-                "Proposal item not found."));
+                ProposalItemNotFoundCode,
+                ProposalItemNotFoundMessage));
         }
 
         entity.Quantity = request.Quantity;
@@ -579,8 +583,8 @@ public sealed class ProposalService : IProposalService
         if (item is null)
         {
             return ServiceResult<DeleteProposalItemResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_ITEM_NOT_FOUND",
-                "Proposal item not found."));
+                ProposalItemNotFoundCode,
+                ProposalItemNotFoundMessage));
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -592,7 +596,7 @@ public sealed class ProposalService : IProposalService
         if (item.ProposalStatus != ProposalStatus.DRAFT)
         {
             return ServiceResult<DeleteProposalItemResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
+                InvalidProposalStatusCode,
                 "Proposal item can only be deleted while proposal is draft."));
         }
 
@@ -600,8 +604,8 @@ public sealed class ProposalService : IProposalService
         if (entity is null)
         {
             return ServiceResult<DeleteProposalItemResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_ITEM_NOT_FOUND",
-                "Proposal item not found."));
+                ProposalItemNotFoundCode,
+                ProposalItemNotFoundMessage));
         }
 
         _proposals.RemoveItem(entity);
@@ -653,7 +657,7 @@ public sealed class ProposalService : IProposalService
         if (proposal.ProposalStatus != ProposalStatus.DRAFT)
         {
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
+                InvalidProposalStatusCode,
                 "Proposal items can only be synced for draft proposal."));
         }
 
@@ -739,7 +743,7 @@ public sealed class ProposalService : IProposalService
         if (proposal is null)
         {
             return ServiceResult<SelectFinalProposalResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -752,7 +756,7 @@ public sealed class ProposalService : IProposalService
         if (!IsSelectableFinalProposal(proposal.Status))
         {
             return ServiceResult<SelectFinalProposalResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
+                InvalidProposalStatusCode,
                 "Only published proposals can be selected as final."));
         }
 
@@ -831,7 +835,7 @@ public sealed class ProposalService : IProposalService
         if (proposal is null)
         {
             return ServiceResult<RequestProposalRevisionResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -844,7 +848,7 @@ public sealed class ProposalService : IProposalService
         if (!CanRequestRevision(proposal.Status))
         {
             return ServiceResult<RequestProposalRevisionResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
+                InvalidProposalStatusCode,
                 "Only published proposals can be requested for revision."));
         }
 
@@ -852,7 +856,7 @@ public sealed class ProposalService : IProposalService
         if (proposalEntity is null)
         {
             return ServiceResult<RequestProposalRevisionResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -895,7 +899,7 @@ public sealed class ProposalService : IProposalService
         if (proposal is null)
         {
             return ServiceResult<PublishProposalResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -908,7 +912,7 @@ public sealed class ProposalService : IProposalService
         if (proposal.Status != ProposalStatus.DRAFT)
         {
             return ServiceResult<PublishProposalResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
+                InvalidProposalStatusCode,
                 "Only draft proposals can be published."));
         }
 
@@ -924,7 +928,7 @@ public sealed class ProposalService : IProposalService
         if (proposalEntity is null || projectEntity is null)
         {
             return ServiceResult<PublishProposalResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -986,7 +990,7 @@ public sealed class ProposalService : IProposalService
         if (proposal is null)
         {
             return ServiceResult<UpdateProposalResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -999,7 +1003,7 @@ public sealed class ProposalService : IProposalService
         if (proposal.ProposalStatus != ProposalStatus.DRAFT)
         {
             return ServiceResult<UpdateProposalResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
+                InvalidProposalStatusCode,
                 "Only draft proposals can be updated."));
         }
 
@@ -1007,7 +1011,7 @@ public sealed class ProposalService : IProposalService
         if (proposalEntity is null)
         {
             return ServiceResult<UpdateProposalResponseDto>.Failure(Error.NotFound(
-                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundCode,
                 ProposalNotFoundMessage));
         }
 
@@ -1078,7 +1082,7 @@ public sealed class ProposalService : IProposalService
         if (sceneContext.ProposalStatus != ProposalStatus.DRAFT)
         {
             return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
+                InvalidProposalStatusCode,
                 "Proposal scene metadata can only be updated for draft proposal."));
         }
 
@@ -1455,7 +1459,7 @@ public sealed class ProposalService : IProposalService
     }
 
     private async Task PopulateSceneObjectIdsAsync(
-        IReadOnlyCollection<ProposalItemSummaryDto> items,
+        List<ProposalItemSummaryDto> items,
         CancellationToken cancellationToken)
     {
         if (_roomPlannerScenes is null || items.Count == 0)
@@ -1474,7 +1478,7 @@ public sealed class ProposalService : IProposalService
     }
 
     private async Task<Dictionary<Guid, string>> GetSceneObjectIdsByProposalItemAsync(
-        IEnumerable<ProposalItemSummaryDto> items,
+        List<ProposalItemSummaryDto> items,
         CancellationToken cancellationToken)
     {
         var sceneObjectIds = new Dictionary<Guid, string>();
@@ -1499,7 +1503,7 @@ public sealed class ProposalService : IProposalService
 
     private static void AddExactSceneObjectMatches(
         IEnumerable<RoomPlannerObjectDocument> sceneObjects,
-        IDictionary<Guid, string> sceneObjectIds)
+        Dictionary<Guid, string> sceneObjectIds)
     {
         foreach (var sceneObject in sceneObjects)
         {
@@ -1513,7 +1517,7 @@ public sealed class ProposalService : IProposalService
     private static void AddSingleObjectFallback(
         IEnumerable<ProposalItemSummaryDto> sceneItems,
         IEnumerable<RoomPlannerObjectDocument> sceneObjects,
-        IDictionary<Guid, string> sceneObjectIds)
+        Dictionary<Guid, string> sceneObjectIds)
     {
         var unmatchedItems = sceneItems
             .Where(item => !sceneObjectIds.ContainsKey(item.ProposalItemId))
@@ -1865,3 +1869,4 @@ public sealed class ProposalService : IProposalService
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 }
+

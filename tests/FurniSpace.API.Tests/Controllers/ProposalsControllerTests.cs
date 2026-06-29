@@ -37,8 +37,10 @@ public sealed class ProposalsControllerTests
     [InlineData(nameof(ProposalsController.GetScenes), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.GetSceneDetail), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.GetDetail), "CUSTOMER,DESIGNER,SALES,ADMIN")]
-    [InlineData(nameof(ProposalsController.GetPublishedByProject), "CUSTOMER")]
     [InlineData(nameof(ProposalsController.SyncItemsFromScene), "DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(ProposalsController.GetItems), "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(ProposalsController.UpdateItem), "DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(ProposalsController.DeleteItem), "DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.SelectFinal), "CUSTOMER")]
     [InlineData(nameof(ProposalsController.RequestRevision), "CUSTOMER")]
     [InlineData(nameof(ProposalsController.Publish), "DESIGNER,SALES,ADMIN")]
@@ -214,28 +216,6 @@ public sealed class ProposalsControllerTests
     }
 
     [Fact]
-    public async Task GetPublishedByProject_ReturnsServiceResult()
-    {
-        var projectId = Guid.NewGuid();
-        var currentUserId = Guid.NewGuid();
-        var response = new PublishedProposalDto { ProjectId = projectId };
-        var service = new FakeProposalService(
-            publishedProposalResult: ServiceResult<PublishedProposalDto>.Success(
-                response,
-                "Published proposal retrieved successfully."));
-        var controller = BuildController(service, currentUserId);
-
-        var actionResult = await controller.GetPublishedByProject(projectId);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        var result = Assert.IsType<ServiceResult<PublishedProposalDto>>(objectResult.Value);
-        Assert.Same(response, result.Data);
-        Assert.Equal(projectId, service.ProjectId);
-        Assert.Equal(currentUserId, service.CurrentUserId);
-    }
-
-    [Fact]
     public async Task SyncItemsFromScene_ReturnsServiceResultAndPassesRequest()
     {
         var proposalId = Guid.NewGuid();
@@ -257,6 +237,87 @@ public sealed class ProposalsControllerTests
         Assert.Equal(proposalId, service.ProposalId);
         Assert.Equal(currentUserId, service.CurrentUserId);
         Assert.Same(request, service.SyncRequest);
+    }
+
+    [Fact]
+    public async Task GetItems_ReturnsServiceResultAndPassesQuery()
+    {
+        var proposalId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var response = new ProposalItemListResponseDto { Page = 2, Limit = 5, Total = 1 };
+        var service = new FakeProposalService(
+            itemListResult: ServiceResult<ProposalItemListResponseDto>.Success(
+                response,
+                "Proposal items retrieved successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.GetItems(proposalId, sceneId, page: 2, limit: 5);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProposalItemListResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(proposalId, service.ProposalId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.NotNull(service.ItemListQuery);
+        Assert.Equal(sceneId, service.ItemListQuery.SceneId);
+        Assert.Equal(2, service.ItemListQuery.Page);
+        Assert.Equal(5, service.ItemListQuery.Limit);
+    }
+
+    [Fact]
+    public async Task UpdateItem_ReturnsServiceResultAndPassesRequest()
+    {
+        var proposalItemId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var request = new UpdateProposalItemRequestDto
+        {
+            Quantity = 6,
+            CustomizationNote = "Increase quantity."
+        };
+        var response = new UpdateProposalItemResponseDto { ProposalItemId = proposalItemId };
+        var service = new FakeProposalService(
+            updateItemResult: ServiceResult<UpdateProposalItemResponseDto>.Success(
+                response,
+                "Proposal item updated successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.UpdateItem(proposalItemId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<UpdateProposalItemResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(proposalItemId, service.ProposalItemId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.UpdateItemRequest);
+    }
+
+    [Fact]
+    public async Task DeleteItem_ReturnsServiceResult()
+    {
+        var proposalItemId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var response = new DeleteProposalItemResponseDto
+        {
+            ProposalItemId = proposalItemId,
+            Deleted = true
+        };
+        var service = new FakeProposalService(
+            deleteItemResult: ServiceResult<DeleteProposalItemResponseDto>.Success(
+                response,
+                "Proposal item deleted successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.DeleteItem(proposalItemId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<DeleteProposalItemResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(proposalItemId, service.ProposalItemId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
     }
 
     [Fact]
@@ -391,8 +452,10 @@ public sealed class ProposalsControllerTests
         Assert.IsType<UnauthorizedResult>(await controller.GetScenes(Guid.NewGuid()));
         Assert.IsType<UnauthorizedResult>(await controller.GetSceneDetail(Guid.NewGuid()));
         Assert.IsType<UnauthorizedResult>(await controller.GetDetail(Guid.NewGuid()));
-        Assert.IsType<UnauthorizedResult>(await controller.GetPublishedByProject(Guid.NewGuid()));
         Assert.IsType<UnauthorizedResult>(await controller.SyncItemsFromScene(Guid.NewGuid(), new SyncProposalItemsFromSceneRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.GetItems(Guid.NewGuid()));
+        Assert.IsType<UnauthorizedResult>(await controller.UpdateItem(Guid.NewGuid(), new UpdateProposalItemRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.DeleteItem(Guid.NewGuid()));
         Assert.IsType<UnauthorizedResult>(await controller.SelectFinal(Guid.NewGuid(), new SelectFinalProposalRequestDto()));
         Assert.IsType<UnauthorizedResult>(await controller.RequestRevision(Guid.NewGuid(), new RequestProposalRevisionRequestDto()));
         Assert.IsType<UnauthorizedResult>(await controller.Publish(Guid.NewGuid(), new PublishProposalRequestDto()));
@@ -431,6 +494,9 @@ public sealed class ProposalsControllerTests
         private readonly ServiceResult<ProposalDetailDto> _detailResult;
         private readonly ServiceResult<PublishedProposalDto> _publishedProposalResult;
         private readonly ServiceResult<SyncProposalItemsFromSceneResponseDto> _syncResult;
+        private readonly ServiceResult<ProposalItemListResponseDto> _itemListResult;
+        private readonly ServiceResult<UpdateProposalItemResponseDto> _updateItemResult;
+        private readonly ServiceResult<DeleteProposalItemResponseDto> _deleteItemResult;
         private readonly ServiceResult<SelectFinalProposalResponseDto> _selectFinalResult;
         private readonly ServiceResult<RequestProposalRevisionResponseDto> _requestRevisionResult;
         private readonly ServiceResult<PublishProposalResponseDto> _publishResult;
@@ -446,6 +512,9 @@ public sealed class ProposalsControllerTests
             ServiceResult<ProposalDetailDto>? detailResult = null,
             ServiceResult<PublishedProposalDto>? publishedProposalResult = null,
             ServiceResult<SyncProposalItemsFromSceneResponseDto>? syncResult = null,
+            ServiceResult<ProposalItemListResponseDto>? itemListResult = null,
+            ServiceResult<UpdateProposalItemResponseDto>? updateItemResult = null,
+            ServiceResult<DeleteProposalItemResponseDto>? deleteItemResult = null,
             ServiceResult<SelectFinalProposalResponseDto>? selectFinalResult = null,
             ServiceResult<RequestProposalRevisionResponseDto>? requestRevisionResult = null,
             ServiceResult<PublishProposalResponseDto>? publishResult = null,
@@ -460,6 +529,9 @@ public sealed class ProposalsControllerTests
             _detailResult = detailResult ?? ServiceResult<ProposalDetailDto>.Success(new ProposalDetailDto());
             _publishedProposalResult = publishedProposalResult ?? ServiceResult<PublishedProposalDto>.Success(new PublishedProposalDto());
             _syncResult = syncResult ?? ServiceResult<SyncProposalItemsFromSceneResponseDto>.Success(new SyncProposalItemsFromSceneResponseDto());
+            _itemListResult = itemListResult ?? ServiceResult<ProposalItemListResponseDto>.Success(new ProposalItemListResponseDto());
+            _updateItemResult = updateItemResult ?? ServiceResult<UpdateProposalItemResponseDto>.Success(new UpdateProposalItemResponseDto());
+            _deleteItemResult = deleteItemResult ?? ServiceResult<DeleteProposalItemResponseDto>.Success(new DeleteProposalItemResponseDto());
             _selectFinalResult = selectFinalResult ?? ServiceResult<SelectFinalProposalResponseDto>.Success(new SelectFinalProposalResponseDto());
             _requestRevisionResult = requestRevisionResult ?? ServiceResult<RequestProposalRevisionResponseDto>.Success(new RequestProposalRevisionResponseDto());
             _publishResult = publishResult ?? ServiceResult<PublishProposalResponseDto>.Success(new PublishProposalResponseDto());
@@ -471,12 +543,15 @@ public sealed class ProposalsControllerTests
         public Guid ProjectId { get; private set; }
         public Guid ProposalId { get; private set; }
         public Guid SceneId { get; private set; }
+        public Guid ProposalItemId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public CreateProposalRequestDto? CreateRequest { get; private set; }
         public ProposalListQueryDto? ListQuery { get; private set; }
         public CreateProposalSceneRequestDto? SceneRequest { get; private set; }
         public ProposalSceneListQueryDto? SceneListQuery { get; private set; }
         public SyncProposalItemsFromSceneRequestDto? SyncRequest { get; private set; }
+        public ProposalItemListQueryDto? ItemListQuery { get; private set; }
+        public UpdateProposalItemRequestDto? UpdateItemRequest { get; private set; }
         public SelectFinalProposalRequestDto? SelectFinalRequest { get; private set; }
         public RequestProposalRevisionRequestDto? RequestRevisionRequest { get; private set; }
         public PublishProposalRequestDto? PublishRequest { get; private set; }
@@ -566,6 +641,43 @@ public sealed class ProposalsControllerTests
             ProjectId = projectId;
             CurrentUserId = currentUserId;
             return Task.FromResult(_publishedProposalResult);
+        }
+
+        public Task<ServiceResult<ProposalItemListResponseDto>> GetItemsAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            ProposalItemListQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProposalId = proposalId;
+            CurrentUserId = currentUserId;
+            ItemListQuery = query;
+            return Task.FromResult(_itemListResult);
+        }
+
+        public Task<ServiceResult<UpdateProposalItemResponseDto>> UpdateItemAsync(
+            Guid proposalItemId,
+            Guid currentUserId,
+            UpdateProposalItemRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProposalItemId = proposalItemId;
+            CurrentUserId = currentUserId;
+            UpdateItemRequest = request;
+            return Task.FromResult(_updateItemResult);
+        }
+
+        public Task<ServiceResult<DeleteProposalItemResponseDto>> DeleteItemAsync(
+            Guid proposalItemId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProposalItemId = proposalItemId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_deleteItemResult);
         }
 
         public Task<ServiceResult<SyncProposalItemsFromSceneResponseDto>> SyncItemsFromSceneAsync(

@@ -382,11 +382,122 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ProposalItemReadModel>> GetItemsAsync(
+        ProposalItemListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildItemListQuery(query)
+            .OrderBy(item => item.ItemName)
+            .ThenBy(item => item.ProposalItemId)
+            .Skip((query.Page - 1) * query.Limit)
+            .Take(query.Limit)
+            .GroupJoin(
+                DbContext.ProductVersionSet,
+                item => item.ProductVersionId,
+                version => version.ProductVersionId,
+                (item, versions) => new { item, versions })
+            .SelectMany(
+                joined => joined.versions.DefaultIfEmpty(),
+                (joined, version) => new ProposalItemReadModel
+                {
+                    ProposalItemId = joined.item.ProposalItemId,
+                    ProposalId = joined.item.ProposalId,
+                    SceneId = joined.item.SceneId,
+                    SceneObjectId = null,
+                    ProductVersionId = joined.item.ProductVersionId,
+                    ProductNameSnapshot = joined.item.ItemName,
+                    VersionNameSnapshot = version == null ? null : version.VersionName,
+                    MaterialSnapshot = joined.item.Material,
+                    ColorSnapshot = joined.item.Color,
+                    WidthSnapshot = joined.item.Width,
+                    HeightSnapshot = joined.item.Height,
+                    DepthSnapshot = joined.item.Depth,
+                    DimensionUnit = version == null ? null : version.DimensionUnit,
+                    Quantity = joined.item.Quantity,
+                    UnitPriceSnapshot = joined.item.UnitPriceSnapshot,
+                    SubtotalAmount = joined.item.TotalPriceSnapshot,
+                    CustomizationNote = joined.item.Note
+                })
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountItemsAsync(
+        ProposalItemListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildItemListQuery(query).CountAsync(cancellationToken);
+    }
+
+    public Task<ProposalItemDetailReadModel?> GetItemDetailAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalItemSet
+            .Where(item => item.ProposalItemId == proposalItemId)
+            .Join(
+                DbContext.ProposalSet,
+                item => item.ProposalId,
+                proposal => proposal.ProposalId,
+                (item, proposal) => new { item, proposal })
+            .Join(
+                DbContext.ProjectSet,
+                joined => joined.proposal.ProjectId,
+                project => project.ProjectId,
+                (joined, project) => new { joined.item, joined.proposal, project })
+            .GroupJoin(
+                DbContext.ProductVersionSet,
+                joined => joined.item.ProductVersionId,
+                version => version.ProductVersionId,
+                (joined, versions) => new { joined, versions })
+            .SelectMany(
+                grouped => grouped.versions.DefaultIfEmpty(),
+                (grouped, version) => new ProposalItemDetailReadModel
+                {
+                    ProposalItemId = grouped.joined.item.ProposalItemId,
+                    ProposalId = grouped.joined.item.ProposalId,
+                    SceneId = grouped.joined.item.SceneId,
+                    SceneObjectId = null,
+                    ProductVersionId = grouped.joined.item.ProductVersionId,
+                    ProductNameSnapshot = grouped.joined.item.ItemName,
+                    VersionNameSnapshot = version == null ? null : version.VersionName,
+                    MaterialSnapshot = grouped.joined.item.Material,
+                    ColorSnapshot = grouped.joined.item.Color,
+                    WidthSnapshot = grouped.joined.item.Width,
+                    HeightSnapshot = grouped.joined.item.Height,
+                    DepthSnapshot = grouped.joined.item.Depth,
+                    DimensionUnit = version == null ? null : version.DimensionUnit,
+                    Quantity = grouped.joined.item.Quantity,
+                    UnitPriceSnapshot = grouped.joined.item.UnitPriceSnapshot,
+                    SubtotalAmount = grouped.joined.item.TotalPriceSnapshot,
+                    CustomizationNote = grouped.joined.item.Note,
+                    UpdatedAt = grouped.joined.item.UpdatedAt,
+                    ProjectId = grouped.joined.proposal.ProjectId,
+                    CustomerId = grouped.joined.project.CustomerId,
+                    AssignedSalesId = grouped.joined.project.AssignedSalesId,
+                    AssignedDesignerId = grouped.joined.project.AssignedDesignerId,
+                    ProposalStatus = grouped.joined.proposal.Status
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<ProposalItem?> GetItemEntityAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalItemSet
+            .FirstOrDefaultAsync(item => item.ProposalItemId == proposalItemId, cancellationToken);
+    }
+
     public Task AddItemAsync(
         ProposalItem item,
         CancellationToken cancellationToken = default)
     {
         return DbContext.ProposalItemSet.AddAsync(item, cancellationToken).AsTask();
+    }
+
+    public void RemoveItem(ProposalItem item)
+    {
+        DbContext.ProposalItemSet.Remove(item);
     }
 
     public Task<Proposal?> GetProposalEntityAsync(
@@ -436,6 +547,18 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         }
 
         return proposals;
+    }
+
+    private IQueryable<ProposalItem> BuildItemListQuery(ProposalItemListQueryReadModel query)
+    {
+        var items = DbContext.ProposalItemSet.Where(item => item.ProposalId == query.ProposalId);
+
+        if (query.SceneId.HasValue)
+        {
+            items = items.Where(item => item.SceneId == query.SceneId.Value);
+        }
+
+        return items;
     }
 
     private async Task<IReadOnlyList<ProposalSceneReadModel>> GetScenesAsync(

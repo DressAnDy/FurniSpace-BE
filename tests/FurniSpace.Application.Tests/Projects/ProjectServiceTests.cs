@@ -879,6 +879,96 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task UpdateStatusAsync_ToProposalSelected_WithSelectedFinalProposal_Succeeds()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.Status = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var transitionFakes = new ProjectServiceTransitionFakes
+        {
+            Proposals =
+            {
+                HasSelectedFinalProposal = true
+            }
+        };
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            transitionFakes: transitionFakes);
+
+        var result = await service.UpdateStatusAsync(projectId, salesId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.PROPOSAL_SELECTED,
+            Note = "Customer selected final proposal."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project moved to proposal selected successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, result.Data.OldStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_SELECTED, result.Data.NewStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_SELECTED, project.Status);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_ToProposalSelected_WithoutSelectedFinalProposal_ReturnsFinalProposalRequired()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.Status = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            transitionFakes: new ProjectServiceTransitionFakes());
+
+        var result = await service.UpdateStatusAsync(projectId, salesId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.PROPOSAL_SELECTED
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.FinalProposalRequired, result.ErrorCode);
+        Assert.Equal(ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, project.Status);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_ToProposalSelected_WithInvalidCurrentStatus_ReturnsInvalidProjectStatus()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.Status = ProjectStatus.PROPOSAL_DRAFTING;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var transitionFakes = new ProjectServiceTransitionFakes
+        {
+            Proposals =
+            {
+                HasSelectedFinalProposal = true
+            }
+        };
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            transitionFakes: transitionFakes);
+
+        var result = await service.UpdateStatusAsync(projectId, salesId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.PROPOSAL_SELECTED
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatus, result.ErrorCode);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
     public async Task UpdateStatusAsync_ToProposalDrafting_WithoutCompletedMeasurement_ReturnsMeasurementNotCompleted()
     {
         var salesId = Guid.NewGuid();

@@ -69,6 +69,14 @@ public sealed class ProjectStatusTransitionEvaluator
                 "Target status must be different from current status.");
         }
 
+        if (targetStatus == ProjectStatus.PROPOSAL_SELECTED &&
+            currentStatus.Value != ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW)
+        {
+            return Error.Validation(
+                ProjectStatusErrorCodes.InvalidProjectStatus,
+                "Project must be waiting for customer review before moving to proposal selected.");
+        }
+
         return (currentStatus.Value, targetStatus) switch
         {
             (ProjectStatus.IN_CONSULTATION, ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT) =>

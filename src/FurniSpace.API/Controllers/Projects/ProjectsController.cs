@@ -2,6 +2,7 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Projects;
@@ -17,13 +18,16 @@ public sealed class ProjectsController : BaseApiController
 {
     private readonly IProjectService _projects;
     private readonly IProjectChatMessageService _chatMessages;
+    private readonly IProposalService _proposals;
 
     public ProjectsController(
         IProjectService projects,
-        IProjectChatMessageService chatMessages)
+        IProjectChatMessageService chatMessages,
+        IProposalService proposals)
     {
         _projects = projects;
         _chatMessages = chatMessages;
+        _proposals = proposals;
     }
 
     [Authorize(Roles = "CUSTOMER")]
@@ -115,6 +119,21 @@ public sealed class ProjectsController : BaseApiController
         }
 
         var result = await _projects.GetByIdAsync(projectId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpGet("{projectId:guid}/published-proposal")]
+    public async Task<IActionResult> GetPublishedProposal(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.GetPublishedByProjectAsync(projectId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 

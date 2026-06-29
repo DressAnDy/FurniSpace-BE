@@ -334,8 +334,30 @@ internal sealed class FakeProposalRepository : IProposalRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<ProposalItem>>([]);
 
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalItemReadModel>> GetItemsAsync(
+        Infrastructure.ReadModels.Proposals.ProposalItemListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalItemReadModel>>([]);
+
+    public Task<int> CountItemsAsync(
+        Infrastructure.ReadModels.Proposals.ProposalItemListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
+
+    public Task<Infrastructure.ReadModels.Proposals.ProposalItemDetailReadModel?> GetItemDetailAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalItemDetailReadModel?>(null);
+
+    public Task<ProposalItem?> GetItemEntityAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<ProposalItem?>(null);
+
     public Task AddItemAsync(ProposalItem item, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+
+    public void RemoveItem(ProposalItem item) { }
 
     public Task<Proposal?> GetProposalEntityAsync(Guid proposalId, CancellationToken cancellationToken = default)
         => Task.FromResult<Proposal?>(null);

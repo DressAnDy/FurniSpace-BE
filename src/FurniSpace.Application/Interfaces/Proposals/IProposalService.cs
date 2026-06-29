@@ -45,6 +45,23 @@ public interface IProposalService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProposalItemListResponseDto>> GetItemsAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        ProposalItemListQueryDto query,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<UpdateProposalItemResponseDto>> UpdateItemAsync(
+        Guid proposalItemId,
+        Guid currentUserId,
+        UpdateProposalItemRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<DeleteProposalItemResponseDto>> DeleteItemAsync(
+        Guid proposalItemId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<SyncProposalItemsFromSceneResponseDto>> SyncItemsFromSceneAsync(
         Guid proposalId,
         Guid currentUserId,

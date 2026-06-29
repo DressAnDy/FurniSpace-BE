@@ -139,21 +139,6 @@ public sealed class ProposalsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER")]
-    [HttpGet("projects/{projectId:guid}/published-proposal")]
-    public async Task<IActionResult> GetPublishedByProject(
-        Guid projectId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _proposals.GetPublishedByProjectAsync(projectId, currentUserId, cancellationToken);
-        return ToActionResult(result);
-    }
-
     [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
     [HttpPost("proposals/{proposalId:guid}/items/sync-from-scene")]
     public async Task<IActionResult> SyncItemsFromScene(
@@ -171,6 +156,68 @@ public sealed class ProposalsController : BaseApiController
             currentUserId,
             request,
             cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [HttpGet("proposals/{proposalId:guid}/items")]
+    public async Task<IActionResult> GetItems(
+        Guid proposalId,
+        [FromQuery] Guid? sceneId = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.GetItemsAsync(
+            proposalId,
+            currentUserId,
+            new ProposalItemListQueryDto
+            {
+                SceneId = sceneId,
+                Page = page,
+                Limit = limit
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [HttpPatch("proposal-items/{proposalItemId:guid}")]
+    public async Task<IActionResult> UpdateItem(
+        Guid proposalItemId,
+        [FromBody] UpdateProposalItemRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.UpdateItemAsync(
+            proposalItemId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [HttpDelete("proposal-items/{proposalItemId:guid}")]
+    public async Task<IActionResult> DeleteItem(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.DeleteItemAsync(proposalItemId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 

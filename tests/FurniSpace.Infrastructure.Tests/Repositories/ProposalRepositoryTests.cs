@@ -216,6 +216,71 @@ public sealed class ProposalRepositoryTests
     }
 
     [Fact]
+    public async Task GetItemsAsync_WithSceneFilter_ReturnsPagedItemsWithVersionSnapshot()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+        var query = new ProposalItemListQueryReadModel
+        {
+            ProposalId = data.PublishedProposalId,
+            SceneId = data.ActiveSceneId,
+            Page = 1,
+            Limit = 10
+        };
+
+        var items = await repository.GetItemsAsync(query);
+        var count = await repository.CountItemsAsync(query);
+
+        Assert.Equal(1, count);
+        var item = Assert.Single(items);
+        Assert.Equal(data.ProposalItemId, item.ProposalItemId);
+        Assert.Equal(data.PublishedProposalId, item.ProposalId);
+        Assert.Equal(data.ActiveSceneId, item.SceneId);
+        Assert.Equal("Cafe Chair", item.ProductNameSnapshot);
+        Assert.Equal("Brown Wood", item.VersionNameSnapshot);
+        Assert.Equal("cm", item.DimensionUnit);
+        Assert.Equal("Wood", item.MaterialSnapshot);
+        Assert.Equal("Brown", item.ColorSnapshot);
+        Assert.Equal(4800000m, item.SubtotalAmount);
+    }
+
+    [Fact]
+    public async Task GetItemDetailAsync_ReturnsProjectAssignmentData()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var item = await repository.GetItemDetailAsync(data.ProposalItemId);
+
+        Assert.NotNull(item);
+        Assert.Equal(data.ProposalItemId, item.ProposalItemId);
+        Assert.Equal(data.ProjectId, item.ProjectId);
+        Assert.Equal(data.CustomerId, item.CustomerId);
+        Assert.Equal(data.SalesId, item.AssignedSalesId);
+        Assert.Equal(data.DesignerId, item.AssignedDesignerId);
+        Assert.Equal(ProposalStatus.PUBLISHED, item.ProposalStatus);
+        Assert.Equal("Brown Wood", item.VersionNameSnapshot);
+    }
+
+    [Fact]
+    public async Task GetItemEntityAndRemoveItem_UpdateProposalItems()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var item = await repository.GetItemEntityAsync(data.ProposalItemId);
+        Assert.NotNull(item);
+
+        repository.RemoveItem(item);
+        await context.SaveChangesAsync();
+
+        Assert.DoesNotContain(context.ProposalItemSet, entity => entity.ProposalItemId == data.ProposalItemId);
+    }
+
+    [Fact]
     public async Task AddSceneAsync_AddsSceneAndCountScenesIncludesIt()
     {
         await using var context = CreateContext();
@@ -355,6 +420,8 @@ public sealed class ProposalRepositoryTests
         var inactiveSceneId = Guid.NewGuid();
         var previewFileId = Guid.NewGuid();
         var projectAreaId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var proposalItemId = Guid.NewGuid();
 
         context.ProjectSet.Add(new Project
         {
@@ -388,6 +455,17 @@ public sealed class ProposalRepositoryTests
             Status = ProjectAreaStatus.VERIFIED,
             CreatedAt = DateTime.UtcNow
         });
+        context.ProductVersionSet.Add(new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-CHAIR-001",
+            VersionName = "Brown Wood",
+            Material = "Wood",
+            Color = "Brown",
+            DimensionUnit = "cm",
+            EstimatedPrice = 1200000m
+        });
         context.ProposalSet.AddRange(
             CreateProposal(draftProposalId, projectId, "Draft proposal", ProposalStatus.DRAFT, versionNo: 1),
             CreateProposal(publishedProposalId, projectId, "Published proposal", ProposalStatus.PUBLISHED, versionNo: 2),
@@ -418,13 +496,21 @@ public sealed class ProposalRepositoryTests
             });
         context.ProposalItemSet.Add(new ProposalItem
         {
-            ProposalItemId = Guid.NewGuid(),
+            ProposalItemId = proposalItemId,
             ProposalId = publishedProposalId,
             SceneId = activeSceneId,
+            ProductVersionId = productVersionId,
             ItemName = "Cafe Chair",
             Quantity = 4,
+            Material = "Wood",
+            Color = "Brown",
+            Width = 45,
+            Height = 80,
+            Depth = 45,
             UnitPriceSnapshot = 1200000m,
-            TotalPriceSnapshot = 4800000m
+            TotalPriceSnapshot = 4800000m,
+            Note = "Use brown wood version.",
+            UpdatedAt = DateTime.UtcNow
         });
 
         await context.SaveChangesAsync();
@@ -438,7 +524,8 @@ public sealed class ProposalRepositoryTests
             selectedProposalId,
             activeSceneId,
             previewFileId,
-            projectAreaId);
+            projectAreaId,
+            proposalItemId);
     }
 
     private static Proposal CreateProposal(
@@ -471,5 +558,6 @@ public sealed class ProposalRepositoryTests
         Guid SelectedProposalId,
         Guid ActiveSceneId,
         Guid PreviewFileId,
-        Guid ProjectAreaId);
+        Guid ProjectAreaId,
+        Guid ProposalItemId);
 }

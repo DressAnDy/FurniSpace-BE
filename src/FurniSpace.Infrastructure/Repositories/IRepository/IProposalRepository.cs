@@ -72,9 +72,27 @@ public interface IProposalRepository : IGenericRepository<Proposal>
         Guid sceneId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<ProposalItemReadModel>> GetItemsAsync(
+        ProposalItemListQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountItemsAsync(
+        ProposalItemListQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<ProposalItemDetailReadModel?> GetItemDetailAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default);
+
+    Task<ProposalItem?> GetItemEntityAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default);
+
     Task AddItemAsync(
         ProposalItem item,
         CancellationToken cancellationToken = default);
+
+    void RemoveItem(ProposalItem item);
 
     Task<Proposal?> GetProposalEntityAsync(
         Guid proposalId,

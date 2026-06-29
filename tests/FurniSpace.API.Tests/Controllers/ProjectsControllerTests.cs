@@ -9,8 +9,10 @@ using FurniSpace.API.Controllers.Projects;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.DTOs.Proposals;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -58,6 +60,15 @@ public sealed class ProjectsControllerTests
 
         Assert.NotNull(authorize);
         Assert.Equal("SALES,ADMIN,CUSTOMER,DESIGNER", authorize.Roles);
+    }
+
+    [Fact]
+    public void GetPublishedProposal_RequiresCustomerRole()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.GetPublishedProposal));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER", authorize.Roles);
     }
 
     [Fact]
@@ -140,7 +151,7 @@ public sealed class ProjectsControllerTests
         };
         var service = new FakeProjectService(
             ServiceResult<ProjectDto>.Created(response, "Project request submitted successfully."));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -176,7 +187,7 @@ public sealed class ProjectsControllerTests
     public async Task Create_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -253,7 +264,7 @@ public sealed class ProjectsControllerTests
     public async Task GetList_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -314,7 +325,7 @@ public sealed class ProjectsControllerTests
     public async Task GetByUser_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -368,7 +379,7 @@ public sealed class ProjectsControllerTests
     public async Task GetById_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -381,6 +392,54 @@ public sealed class ProjectsControllerTests
         Assert.IsType<UnauthorizedResult>(actionResult);
         Assert.Equal(Guid.Empty, service.ProjectId);
         Assert.Equal(Guid.Empty, service.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task GetPublishedProposal_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var response = new PublishedProposalDto { ProjectId = projectId };
+        var proposalService = new FakeProposalService(
+            publishedProposalResult: ServiceResult<PublishedProposalDto>.Success(
+                response,
+                "Published proposal retrieved successfully."));
+        var controller = CreateControllerWithUser(
+            new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
+            currentUserId,
+            proposalService);
+
+        var actionResult = await controller.GetPublishedProposal(projectId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<PublishedProposalDto>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, proposalService.ProjectId);
+        Assert.Equal(currentUserId, proposalService.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task GetPublishedProposal_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var proposalService = new FakeProposalService();
+        var controller = new ProjectsController(
+            new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
+            new FakeProjectChatMessageService(),
+            proposalService)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.GetPublishedProposal(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, proposalService.ProjectId);
+        Assert.Equal(Guid.Empty, proposalService.CurrentUserId);
     }
 
     [Fact]
@@ -423,7 +482,7 @@ public sealed class ProjectsControllerTests
     public async Task AssignSales_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -478,7 +537,7 @@ public sealed class ProjectsControllerTests
     public async Task RequestInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -536,7 +595,7 @@ public sealed class ProjectsControllerTests
     public async Task UpdateBasicInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -592,7 +651,7 @@ public sealed class ProjectsControllerTests
     public async Task UpdateStatus_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -648,7 +707,7 @@ public sealed class ProjectsControllerTests
     public async Task Reject_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -711,7 +770,7 @@ public sealed class ProjectsControllerTests
     public async Task AssignDesigner_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -737,9 +796,15 @@ public sealed class ProjectsControllerTests
             .SingleOrDefault();
     }
 
-    private static ProjectsController CreateControllerWithUser(FakeProjectService service, Guid currentUserId)
+    private static ProjectsController CreateControllerWithUser(
+        FakeProjectService service,
+        Guid currentUserId,
+        FakeProposalService? proposalService = null)
     {
-        return new ProjectsController(service, new FakeProjectChatMessageService())
+        return new ProjectsController(
+            service,
+            new FakeProjectChatMessageService(),
+            proposalService ?? new FakeProposalService())
         {
             ControllerContext = new ControllerContext
             {
@@ -923,6 +988,132 @@ public sealed class ProjectsControllerTests
             ProjectsByUserQuery = query;
             return Task.FromResult(_projectsByUserResult);
         }
+    }
+
+    private sealed class FakeProposalService : IProposalService
+    {
+        private readonly ServiceResult<PublishedProposalDto> _publishedProposalResult;
+
+        public FakeProposalService(ServiceResult<PublishedProposalDto>? publishedProposalResult = null)
+        {
+            _publishedProposalResult = publishedProposalResult ??
+                ServiceResult<PublishedProposalDto>.Success(new PublishedProposalDto());
+        }
+
+        public Guid ProjectId { get; private set; }
+        public Guid CurrentUserId { get; private set; }
+
+        public Task<ServiceResult<ProposalDto>> CreateAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CreateProposalRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProposalDto>.Created(new ProposalDto()));
+
+        public Task<ServiceResult<ProposalListResponseDto>> GetListByProjectAsync(
+            Guid projectId,
+            Guid currentUserId,
+            ProposalListQueryDto query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProposalListResponseDto>.Success(new ProposalListResponseDto()));
+
+        public Task<ServiceResult<ProposalSceneDto>> CreateSceneAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            CreateProposalSceneRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProposalSceneDto>.Created(new ProposalSceneDto()));
+
+        public Task<ServiceResult<ProposalSceneListResponseDto>> GetScenesAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            ProposalSceneListQueryDto query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProposalSceneListResponseDto>.Success(new ProposalSceneListResponseDto()));
+
+        public Task<ServiceResult<ProposalSceneDetailDto>> GetSceneDetailAsync(
+            Guid sceneId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProposalSceneDetailDto>.Success(new ProposalSceneDetailDto()));
+
+        public Task<ServiceResult<ProposalDetailDto>> GetDetailAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProposalDetailDto>.Success(new ProposalDetailDto()));
+
+        public Task<ServiceResult<PublishedProposalDto>> GetPublishedByProjectAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_publishedProposalResult);
+        }
+
+        public Task<ServiceResult<ProposalItemListResponseDto>> GetItemsAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            ProposalItemListQueryDto query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProposalItemListResponseDto>.Success(new ProposalItemListResponseDto()));
+
+        public Task<ServiceResult<UpdateProposalItemResponseDto>> UpdateItemAsync(
+            Guid proposalItemId,
+            Guid currentUserId,
+            UpdateProposalItemRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<UpdateProposalItemResponseDto>.Success(new UpdateProposalItemResponseDto()));
+
+        public Task<ServiceResult<DeleteProposalItemResponseDto>> DeleteItemAsync(
+            Guid proposalItemId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<DeleteProposalItemResponseDto>.Success(new DeleteProposalItemResponseDto()));
+
+        public Task<ServiceResult<SyncProposalItemsFromSceneResponseDto>> SyncItemsFromSceneAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            SyncProposalItemsFromSceneRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<SyncProposalItemsFromSceneResponseDto>.Success(new SyncProposalItemsFromSceneResponseDto()));
+
+        public Task<ServiceResult<SelectFinalProposalResponseDto>> SelectFinalAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            SelectFinalProposalRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<SelectFinalProposalResponseDto>.Success(new SelectFinalProposalResponseDto()));
+
+        public Task<ServiceResult<RequestProposalRevisionResponseDto>> RequestRevisionAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            RequestProposalRevisionRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<RequestProposalRevisionResponseDto>.Success(new RequestProposalRevisionResponseDto()));
+
+        public Task<ServiceResult<PublishProposalResponseDto>> PublishAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            PublishProposalRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PublishProposalResponseDto>.Success(new PublishProposalResponseDto()));
+
+        public Task<ServiceResult<UpdateProposalResponseDto>> UpdateAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            UpdateProposalRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<UpdateProposalResponseDto>.Success(new UpdateProposalResponseDto()));
+
+        public Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(
+            Guid sceneId,
+            Guid currentUserId,
+            UpdateProposalSceneRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<UpdateProposalSceneResponseDto>.Success(new UpdateProposalSceneResponseDto()));
     }
 
     private sealed class FakeProjectChatMessageService : IProjectChatMessageService

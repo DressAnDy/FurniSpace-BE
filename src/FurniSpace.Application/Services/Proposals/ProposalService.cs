@@ -257,6 +257,99 @@ public sealed class ProposalService : IProposalService
             "Proposal scene created successfully.");
     }
 
+    public async Task<ServiceResult<ProposalSceneListResponseDto>> GetScenesAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        ProposalSceneListQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (proposalId == Guid.Empty)
+        {
+            return ServiceResult<ProposalSceneListResponseDto>.BadRequest(ProposalIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProposalSceneListResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var paginationError = ValidatePagination(query.Page, query.Limit);
+        if (paginationError is not null)
+        {
+            return ServiceResult<ProposalSceneListResponseDto>.BadRequest(paginationError);
+        }
+
+        var proposal = await _proposals.GetProposalContextAsync(proposalId, cancellationToken);
+        if (proposal is null)
+        {
+            return ServiceResult<ProposalSceneListResponseDto>.Failure(Error.NotFound(
+                "PROPOSAL_NOT_FOUND",
+                ProposalNotFoundMessage));
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanViewProposalContext(proposal, currentUserId, roleName))
+        {
+            return ServiceResult<ProposalSceneListResponseDto>.Forbidden("You do not have access to view proposal scenes.");
+        }
+
+        var repositoryQuery = new ProposalSceneListQueryReadModel
+        {
+            ProposalId = proposalId,
+            SceneType = query.SceneType,
+            IsActive = query.IsActive,
+            ActiveOnly = IsCustomer(roleName),
+            Page = query.Page,
+            Limit = query.Limit
+        };
+        var scenes = await _proposals.GetScenesAsync(repositoryQuery, cancellationToken);
+        var total = await _proposals.CountScenesAsync(repositoryQuery, cancellationToken);
+
+        return ServiceResult<ProposalSceneListResponseDto>.Success(
+            new ProposalSceneListResponseDto
+            {
+                Items = scenes.Adapt<List<ProposalSceneDto>>(),
+                Page = query.Page,
+                Limit = query.Limit,
+                Total = total
+            },
+            "Proposal scenes retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProposalSceneDetailDto>> GetSceneDetailAsync(
+        Guid sceneId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (sceneId == Guid.Empty)
+        {
+            return ServiceResult<ProposalSceneDetailDto>.BadRequest("Scene id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProposalSceneDetailDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var scene = await _proposals.GetSceneDetailAsync(sceneId, cancellationToken);
+        if (scene is null)
+        {
+            return ServiceResult<ProposalSceneDetailDto>.Failure(Error.NotFound(
+                "SCENE_NOT_FOUND",
+                "Proposal scene not found."));
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanViewProposalScene(scene, currentUserId, roleName))
+        {
+            return ServiceResult<ProposalSceneDetailDto>.Forbidden("You do not have access to view this proposal scene.");
+        }
+
+        return ServiceResult<ProposalSceneDetailDto>.Success(
+            scene.Adapt<ProposalSceneDetailDto>(),
+            "Proposal scene detail retrieved successfully.");
+    }
+
     public async Task<ServiceResult<ProposalDetailDto>> GetDetailAsync(
         Guid proposalId,
         Guid currentUserId,
@@ -289,6 +382,48 @@ public sealed class ProposalService : IProposalService
         return ServiceResult<ProposalDetailDto>.Success(
             proposal.Adapt<ProposalDetailDto>(),
             "Proposal detail retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<PublishedProposalDto>> GetPublishedByProjectAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<PublishedProposalDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PublishedProposalDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var project = await _proposals.GetProjectAccessAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<PublishedProposalDto>.Failure(Error.NotFound(
+                "PROJECT_NOT_FOUND",
+                "Project not found."));
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!IsCustomer(roleName) || project.CustomerId != currentUserId)
+        {
+            return ServiceResult<PublishedProposalDto>.Forbidden("You do not have access to view this published proposal.");
+        }
+
+        var proposal = await _proposals.GetLatestPublishedByProjectAsync(projectId, cancellationToken);
+        if (proposal is null)
+        {
+            return ServiceResult<PublishedProposalDto>.Failure(Error.NotFound(
+                "PUBLISHED_PROPOSAL_NOT_FOUND",
+                "Published proposal not found."));
+        }
+
+        return ServiceResult<PublishedProposalDto>.Success(
+            ToPublishedProposalDto(proposal),
+            "Published proposal retrieved successfully.");
     }
 
     public async Task<ServiceResult<SyncProposalItemsFromSceneResponseDto>> SyncItemsFromSceneAsync(
@@ -1004,6 +1139,36 @@ public sealed class ProposalService : IProposalService
         return IsDesigner(roleName) && proposal.AssignedDesignerId == currentUserId;
     }
 
+    private static bool CanViewProposalContext(
+        ProposalContextReadModel proposal,
+        Guid currentUserId,
+        string? roleName)
+    {
+        if (IsCustomer(roleName))
+        {
+            return proposal.CustomerId == currentUserId && IsCustomerVisible(proposal.ProposalStatus);
+        }
+
+        return CanStaffAccessProposal(proposal, currentUserId, roleName);
+    }
+
+    private static bool CanViewProposalScene(
+        ProposalSceneDetailReadModel scene,
+        Guid currentUserId,
+        string? roleName)
+    {
+        if (IsCustomer(roleName))
+        {
+            return scene.CustomerId == currentUserId && IsCustomerVisible(scene.ProposalStatus);
+        }
+
+        return CanAccessAssignedStaff(
+            scene.AssignedSalesId,
+            scene.AssignedDesignerId,
+            currentUserId,
+            roleName);
+    }
+
     private static bool CanStaffAccessProject(
         ProposalProjectAccessReadModel project,
         Guid currentUserId,
@@ -1187,6 +1352,23 @@ public sealed class ProposalService : IProposalService
     private static bool IsSelectableFinalProposal(ProposalStatus? status)
     {
         return status is ProposalStatus.PUBLISHED or ProposalStatus.VIEWED;
+    }
+
+    private static PublishedProposalDto ToPublishedProposalDto(ProposalDetailReadModel proposal)
+    {
+        var dto = proposal.Adapt<PublishedProposalDto>();
+        dto.Scenes = proposal.Scenes
+            .Select(scene => new PublishedProposalSceneDto
+            {
+                SceneId = scene.SceneId,
+                SceneName = scene.SceneName,
+                SceneType = scene.SceneType,
+                PreviewFileUrl = scene.PreviewFileUrl,
+                RoomPlannerUrl = $"/proposal-scenes/{scene.SceneId}/room-planner"
+            })
+            .ToList();
+        dto.Items = proposal.Items.Adapt<List<ProposalItemSummaryDto>>();
+        return dto;
     }
 
     private static bool CanRequestRevision(ProposalStatus? status)

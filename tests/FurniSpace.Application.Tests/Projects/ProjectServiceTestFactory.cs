@@ -294,6 +294,26 @@ internal sealed class FakeProposalRepository : IProposalRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?>(null);
 
+    public Task<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?> GetLatestPublishedByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?>(null);
+
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalSceneReadModel>> GetScenesAsync(
+        Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalSceneReadModel>>([]);
+
+    public Task<int> CountScenesAsync(
+        Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
+
+    public Task<Infrastructure.ReadModels.Proposals.ProposalSceneDetailReadModel?> GetSceneDetailAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneDetailReadModel?>(null);
+
     public Task<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?> GetSceneContextAsync(
         Guid proposalId,
         Guid sceneId,

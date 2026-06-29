@@ -104,6 +104,118 @@ public sealed class ProposalRepositoryTests
     }
 
     [Fact]
+    public async Task GetLatestPublishedByProjectAsync_ReturnsVisibleProposalWithScenesAndItems()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var detail = await repository.GetLatestPublishedByProjectAsync(data.ProjectId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(data.PublishedProposalId, detail.ProposalId);
+        Assert.Equal(data.CustomerId, detail.CustomerId);
+        Assert.Equal(data.SalesId, detail.AssignedSalesId);
+        Assert.Equal(data.DesignerId, detail.AssignedDesignerId);
+        Assert.Single(detail.Scenes);
+        Assert.Single(detail.Items);
+    }
+
+    [Fact]
+    public async Task GetLatestPublishedByProjectAsync_WithMissingProject_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var detail = await repository.GetLatestPublishedByProjectAsync(Guid.NewGuid());
+
+        Assert.Null(detail);
+    }
+
+    [Fact]
+    public async Task GetScenesAsync_WithFiltersAndPagination_ReturnsMatchingScenes()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+        var query = new ProposalSceneListQueryReadModel
+        {
+            ProposalId = data.PublishedProposalId,
+            SceneType = ProposalSceneType.TWO_D,
+            IsActive = false,
+            Page = 1,
+            Limit = 1
+        };
+
+        var scenes = await repository.GetScenesAsync(query);
+        var count = await repository.CountScenesAsync(query);
+
+        Assert.Equal(1, count);
+        var scene = Assert.Single(scenes);
+        Assert.Equal("Inactive layout", scene.SceneName);
+        Assert.Equal(ProposalSceneType.TWO_D, scene.SceneType);
+        Assert.False(scene.IsActive);
+    }
+
+    [Fact]
+    public async Task GetScenesAsync_WithActiveOnly_IgnoresInactiveFilter()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+        var query = new ProposalSceneListQueryReadModel
+        {
+            ProposalId = data.PublishedProposalId,
+            IsActive = false,
+            ActiveOnly = true,
+            Page = 1,
+            Limit = 10
+        };
+
+        var scenes = await repository.GetScenesAsync(query);
+        var count = await repository.CountScenesAsync(query);
+
+        Assert.Equal(1, count);
+        var scene = Assert.Single(scenes);
+        Assert.Equal(data.ActiveSceneId, scene.SceneId);
+        Assert.True(scene.IsActive);
+        Assert.Equal("https://cdn.furnispace.test/preview.png", scene.PreviewFileUrl);
+    }
+
+    [Fact]
+    public async Task GetSceneDetailAsync_ReturnsSceneMetadataAndProjectAccessData()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var scene = await repository.GetSceneDetailAsync(data.ActiveSceneId);
+
+        Assert.NotNull(scene);
+        Assert.Equal(data.ActiveSceneId, scene.SceneId);
+        Assert.Equal(data.ProjectId, scene.ProjectId);
+        Assert.Equal(data.CustomerId, scene.CustomerId);
+        Assert.Equal(data.SalesId, scene.AssignedSalesId);
+        Assert.Equal(data.DesignerId, scene.AssignedDesignerId);
+        Assert.Equal(ProposalStatus.PUBLISHED, scene.ProposalStatus);
+        Assert.Equal("mongo-scene-id", scene.MongoSceneId);
+        Assert.Equal("https://cdn.furnispace.test/preview.png", scene.PreviewFileUrl);
+    }
+
+    [Fact]
+    public async Task GetSceneDetailAsync_WithMissingScene_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var scene = await repository.GetSceneDetailAsync(Guid.NewGuid());
+
+        Assert.Null(scene);
+    }
+
+    [Fact]
     public async Task AddSceneAsync_AddsSceneAndCountScenesIncludesIt()
     {
         await using var context = CreateContext();

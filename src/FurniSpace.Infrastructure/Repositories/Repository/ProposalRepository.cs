@@ -161,6 +161,102 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         return proposal;
     }
 
+    public async Task<ProposalDetailReadModel?> GetLatestPublishedByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var proposal = await DbContext.ProposalSet
+            .Where(item =>
+                item.ProjectId == projectId &&
+                (item.Status == ProposalStatus.PUBLISHED || item.Status == ProposalStatus.VIEWED))
+            .OrderByDescending(item => item.PublishedAt)
+            .ThenByDescending(item => item.VersionNo)
+            .ThenByDescending(item => item.CreatedAt)
+            .Join(
+                DbContext.ProjectSet,
+                item => item.ProjectId,
+                project => project.ProjectId,
+                (item, project) => new ProposalDetailReadModel
+                {
+                    ProposalId = item.ProposalId,
+                    ProjectId = item.ProjectId,
+                    ParentProposalId = item.ParentProposalId,
+                    ProposalName = item.ProposalName,
+                    Description = item.Description,
+                    VersionNo = item.VersionNo,
+                    Status = item.Status,
+                    PublishedAt = item.PublishedAt,
+                    SelectedAt = item.SelectedAt,
+                    RejectedAt = item.RejectedAt,
+                    CreatedAt = item.CreatedAt,
+                    UpdatedAt = item.UpdatedAt,
+                    CustomerId = project.CustomerId,
+                    AssignedSalesId = project.AssignedSalesId,
+                    AssignedDesignerId = project.AssignedDesignerId
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (proposal is null)
+        {
+            return null;
+        }
+
+        proposal.Scenes = await GetScenesAsync(proposal.ProposalId, cancellationToken);
+        proposal.Items = await GetItemsAsync(proposal.ProposalId, cancellationToken);
+        return proposal;
+    }
+
+    public async Task<IReadOnlyList<ProposalSceneReadModel>> GetScenesAsync(
+        ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildSceneListQuery(query)
+            .OrderBy(scene => scene.VersionNo)
+            .ThenBy(scene => scene.CreatedAt)
+            .ThenBy(scene => scene.SceneId)
+            .Skip((query.Page - 1) * query.Limit)
+            .Take(query.Limit)
+            .GroupJoin(
+                DbContext.StoredFileSet,
+                scene => scene.PreviewFileId,
+                file => file.FileId,
+                (scene, files) => new { scene, files })
+            .SelectMany(
+                joined => joined.files.DefaultIfEmpty(),
+                (joined, file) => new ProposalSceneReadModel
+                {
+                    SceneId = joined.scene.SceneId,
+                    ProposalId = joined.scene.ProposalId,
+                    ProjectAreaId = joined.scene.ProjectAreaId,
+                    SceneName = joined.scene.SceneName,
+                    SceneType = joined.scene.SceneType,
+                    MongoSceneId = joined.scene.MongoSceneId,
+                    PreviewFileId = joined.scene.PreviewFileId,
+                    PreviewFileUrl = file == null ? null : file.FileUrl,
+                    VersionNo = joined.scene.VersionNo,
+                    IsActive = joined.scene.IsActive,
+                    CreatedAt = joined.scene.CreatedAt,
+                    UpdatedAt = joined.scene.UpdatedAt
+                })
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountScenesAsync(
+        ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildSceneListQuery(query).CountAsync(cancellationToken);
+    }
+
+    public Task<ProposalSceneDetailReadModel?> GetSceneDetailAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildSceneDetailQuery()
+            .Where(scene => scene.SceneId == sceneId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public Task<ProposalSceneContextReadModel?> GetSceneContextAsync(
         Guid proposalId,
         Guid sceneId,
@@ -186,6 +282,69 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
     {
         return DbContext.ProposalSceneSet
             .FirstOrDefaultAsync(scene => scene.SceneId == sceneId, cancellationToken);
+    }
+
+    private IQueryable<ProposalScene> BuildSceneListQuery(ProposalSceneListQueryReadModel query)
+    {
+        var scenes = DbContext.ProposalSceneSet.Where(scene => scene.ProposalId == query.ProposalId);
+
+        if (query.ActiveOnly)
+        {
+            scenes = scenes.Where(scene => scene.IsActive == true);
+        }
+        else if (query.IsActive.HasValue)
+        {
+            scenes = scenes.Where(scene => scene.IsActive == query.IsActive);
+        }
+
+        if (query.SceneType.HasValue)
+        {
+            scenes = scenes.Where(scene => scene.SceneType == query.SceneType);
+        }
+
+        return scenes;
+    }
+
+    private IQueryable<ProposalSceneDetailReadModel> BuildSceneDetailQuery()
+    {
+        return DbContext.ProposalSceneSet
+            .Join(
+                DbContext.ProposalSet,
+                scene => scene.ProposalId,
+                proposal => proposal.ProposalId,
+                (scene, proposal) => new { scene, proposal })
+            .Join(
+                DbContext.ProjectSet,
+                joined => joined.proposal.ProjectId,
+                project => project.ProjectId,
+                (joined, project) => new { joined.scene, joined.proposal, project })
+            .GroupJoin(
+                DbContext.StoredFileSet,
+                joined => joined.scene.PreviewFileId,
+                file => file.FileId,
+                (joined, files) => new { joined.scene, joined.proposal, joined.project, files })
+            .SelectMany(
+                joined => joined.files.DefaultIfEmpty(),
+                (joined, file) => new ProposalSceneDetailReadModel
+                {
+                    SceneId = joined.scene.SceneId,
+                    ProposalId = joined.scene.ProposalId,
+                    ProjectId = joined.proposal.ProjectId,
+                    CustomerId = joined.project.CustomerId,
+                    AssignedSalesId = joined.project.AssignedSalesId,
+                    AssignedDesignerId = joined.project.AssignedDesignerId,
+                    ProposalStatus = joined.proposal.Status,
+                    ProjectAreaId = joined.scene.ProjectAreaId,
+                    SceneName = joined.scene.SceneName,
+                    SceneType = joined.scene.SceneType,
+                    MongoSceneId = joined.scene.MongoSceneId,
+                    PreviewFileId = joined.scene.PreviewFileId,
+                    PreviewFileUrl = file == null ? null : file.FileUrl,
+                    VersionNo = joined.scene.VersionNo,
+                    IsActive = joined.scene.IsActive,
+                    CreatedAt = joined.scene.CreatedAt,
+                    UpdatedAt = joined.scene.UpdatedAt
+                });
     }
 
     private IQueryable<ProposalSceneContextReadModel> BuildSceneContextQuery()
@@ -386,4 +545,5 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
             area => area.ProjectAreaId == projectAreaId && area.ProjectId == projectId,
             cancellationToken);
     }
+
 }

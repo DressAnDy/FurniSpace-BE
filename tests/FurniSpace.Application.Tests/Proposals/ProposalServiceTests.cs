@@ -238,6 +238,137 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
+    public async Task GetScenesAsync_WithAssignedDesigner_ReturnsFilteredScenes()
+    {
+        var designerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var scene = new ProposalSceneReadModel
+        {
+            SceneId = Guid.NewGuid(),
+            ProposalId = proposalId,
+            SceneName = "Main 3D layout",
+            SceneType = ProposalSceneType.THREE_D,
+            IsActive = true
+        };
+        var repository = new FakeProposalRepository(
+            context: CreateProposalContext(proposalId, assignedDesignerId: designerId),
+            sceneItems: [scene]);
+        var service = CreateService(repository, new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.GetScenesAsync(
+            proposalId,
+            designerId,
+            new ProposalSceneListQueryDto
+            {
+                SceneType = ProposalSceneType.THREE_D,
+                IsActive = true,
+                Page = 2,
+                Limit = 5
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Single(result.Data.Items);
+        Assert.Equal(2, result.Data.Page);
+        Assert.Equal(5, result.Data.Limit);
+        Assert.Equal(1, result.Data.Total);
+        Assert.NotNull(repository.LastSceneListQuery);
+        Assert.Equal(ProposalSceneType.THREE_D, repository.LastSceneListQuery.SceneType);
+        Assert.True(repository.LastSceneListQuery.IsActive);
+        Assert.False(repository.LastSceneListQuery.ActiveOnly);
+    }
+
+    [Fact]
+    public async Task GetScenesAsync_WithCustomerDraftProposal_ReturnsForbidden()
+    {
+        var customerId = Guid.NewGuid();
+        var context = CreateProposalContext(Guid.NewGuid());
+        context.CustomerId = customerId;
+        context.ProposalStatus = ProposalStatus.DRAFT;
+        var service = CreateService(
+            new FakeProposalRepository(context: context),
+            new FakeProjectRepository("CUSTOMER"));
+
+        var result = await service.GetScenesAsync(context.ProposalId, customerId, new ProposalSceneListQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetScenesAsync_WithCustomerPublishedProposal_ForcesActiveOnly()
+    {
+        var customerId = Guid.NewGuid();
+        var context = CreateProposalContext(Guid.NewGuid());
+        context.CustomerId = customerId;
+        context.ProposalStatus = ProposalStatus.PUBLISHED;
+        var repository = new FakeProposalRepository(
+            context: context,
+            sceneItems:
+            [
+                new ProposalSceneReadModel
+                {
+                    SceneId = Guid.NewGuid(),
+                    ProposalId = context.ProposalId,
+                    IsActive = true
+                }
+            ]);
+        var service = CreateService(repository, new FakeProjectRepository("CUSTOMER"));
+
+        var result = await service.GetScenesAsync(
+            context.ProposalId,
+            customerId,
+            new ProposalSceneListQueryDto { IsActive = false });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(repository.LastSceneListQuery);
+        Assert.True(repository.LastSceneListQuery.ActiveOnly);
+    }
+
+    [Fact]
+    public async Task GetSceneDetailAsync_WithAssignedSales_ReturnsSceneMetadata()
+    {
+        var salesId = Guid.NewGuid();
+        var scene = CreateSceneDetail(Guid.NewGuid(), assignedSalesId: salesId);
+        var service = CreateService(
+            new FakeProposalRepository(sceneDetail: scene),
+            new FakeProjectRepository("SALES"));
+
+        var result = await service.GetSceneDetailAsync(scene.SceneId, salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(scene.SceneId, result.Data.SceneId);
+        Assert.Equal(scene.ProjectId, result.Data.ProjectId);
+        Assert.Equal(scene.PreviewFileUrl, result.Data.PreviewFileUrl);
+    }
+
+    [Fact]
+    public async Task GetSceneDetailAsync_WithCustomerDraftProposal_ReturnsForbidden()
+    {
+        var customerId = Guid.NewGuid();
+        var scene = CreateSceneDetail(Guid.NewGuid(), customerId: customerId);
+        scene.ProposalStatus = ProposalStatus.DRAFT;
+        var service = CreateService(
+            new FakeProposalRepository(sceneDetail: scene),
+            new FakeProjectRepository("CUSTOMER"));
+
+        var result = await service.GetSceneDetailAsync(scene.SceneId, customerId);
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetSceneDetailAsync_WithMissingScene_ReturnsSceneNotFound()
+    {
+        var service = CreateService(new FakeProposalRepository(), new FakeProjectRepository("ADMIN"));
+
+        var result = await service.GetSceneDetailAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("SCENE_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
     public async Task GetDetailAsync_WithAssignedSales_ReturnsScenesAndItems()
     {
         var salesId = Guid.NewGuid();
@@ -291,6 +422,59 @@ public sealed class ProposalServiceTests
 
         Assert.Equal(401, result.Status);
         Assert.Equal("Authenticated account id is required.", result.Message);
+    }
+
+    [Fact]
+    public async Task GetPublishedByProjectAsync_WithOwnerCustomer_ReturnsLatestPublishedProposal()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var proposal = CreateDetail(proposalId, customerId: customerId);
+        proposal.ProjectId = projectId;
+        proposal.Status = ProposalStatus.PUBLISHED;
+        proposal.PublishedAt = DateTime.UtcNow;
+        var repository = new FakeProposalRepository(
+            project: CreateProjectAccess(projectId, customerId: customerId),
+            publishedDetail: proposal);
+        var service = CreateService(repository, new FakeProjectRepository("CUSTOMER"));
+
+        var result = await service.GetPublishedByProjectAsync(projectId, customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(proposalId, result.Data.ProposalId);
+        Assert.Single(result.Data.Scenes);
+        Assert.Equal($"/proposal-scenes/{proposal.Scenes[0].SceneId}/room-planner", result.Data.Scenes[0].RoomPlannerUrl);
+        Assert.Single(result.Data.Items);
+    }
+
+    [Fact]
+    public async Task GetPublishedByProjectAsync_WithDifferentCustomer_ReturnsForbidden()
+    {
+        var projectId = Guid.NewGuid();
+        var service = CreateService(
+            new FakeProposalRepository(project: CreateProjectAccess(projectId, customerId: Guid.NewGuid())),
+            new FakeProjectRepository("CUSTOMER"));
+
+        var result = await service.GetPublishedByProjectAsync(projectId, Guid.NewGuid());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetPublishedByProjectAsync_WithoutPublishedProposal_ReturnsNotFound()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var service = CreateService(
+            new FakeProposalRepository(project: CreateProjectAccess(projectId, customerId: customerId)),
+            new FakeProjectRepository("CUSTOMER"));
+
+        var result = await service.GetPublishedByProjectAsync(projectId, customerId);
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("PUBLISHED_PROPOSAL_NOT_FOUND", result.ErrorCode);
     }
 
     [Fact]
@@ -904,12 +1088,40 @@ public sealed class ProposalServiceTests
         };
     }
 
+    private static ProposalSceneDetailReadModel CreateSceneDetail(
+        Guid sceneId,
+        Guid? customerId = null,
+        Guid? assignedSalesId = null,
+        Guid? assignedDesignerId = null)
+    {
+        return new ProposalSceneDetailReadModel
+        {
+            SceneId = sceneId,
+            ProposalId = Guid.NewGuid(),
+            ProjectId = Guid.NewGuid(),
+            CustomerId = customerId ?? Guid.NewGuid(),
+            AssignedSalesId = assignedSalesId,
+            AssignedDesignerId = assignedDesignerId,
+            ProposalStatus = ProposalStatus.PUBLISHED,
+            SceneName = "Main cafe layout",
+            SceneType = ProposalSceneType.THREE_D,
+            MongoSceneId = "mongo-scene-id",
+            PreviewFileId = Guid.NewGuid(),
+            PreviewFileUrl = "https://cdn.furnispace.test/preview.png",
+            VersionNo = 1,
+            IsActive = true
+        };
+    }
+
     private sealed class FakeProposalRepository : IProposalRepository
     {
         private readonly ProposalProjectAccessReadModel? _project;
         private readonly ProposalContextReadModel? _context;
         private readonly ProposalDetailReadModel? _detail;
         private readonly IReadOnlyList<ProposalReadModel> _listItems;
+        private readonly IReadOnlyList<ProposalSceneReadModel> _sceneItems;
+        private readonly ProposalSceneDetailReadModel? _sceneDetail;
+        private readonly ProposalDetailReadModel? _publishedDetail;
         private readonly int _proposalCount;
         private readonly int _sceneCount;
         private readonly ProposalSceneContextReadModel? _sceneContext;
@@ -919,6 +1131,9 @@ public sealed class ProposalServiceTests
             ProposalContextReadModel? context = null,
             ProposalDetailReadModel? detail = null,
             IReadOnlyList<ProposalReadModel>? listItems = null,
+            IReadOnlyList<ProposalSceneReadModel>? sceneItems = null,
+            ProposalSceneDetailReadModel? sceneDetail = null,
+            ProposalDetailReadModel? publishedDetail = null,
             int proposalCount = 0,
             int sceneCount = 0,
             ProposalSceneContextReadModel? sceneContext = null)
@@ -927,6 +1142,9 @@ public sealed class ProposalServiceTests
             _context = context;
             _detail = detail;
             _listItems = listItems ?? [];
+            _sceneItems = sceneItems ?? [];
+            _sceneDetail = sceneDetail;
+            _publishedDetail = publishedDetail;
             _proposalCount = proposalCount;
             _sceneCount = sceneCount;
             _sceneContext = sceneContext;
@@ -941,6 +1159,7 @@ public sealed class ProposalServiceTests
         public int RejectOtherActiveProposalsCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
         public ProposalListQueryReadModel? LastListQuery { get; private set; }
+        public ProposalSceneListQueryReadModel? LastSceneListQuery { get; private set; }
 
         public Task<ProposalProjectAccessReadModel?> GetProjectAccessAsync(Guid projectId, CancellationToken cancellationToken = default)
         {
@@ -985,6 +1204,34 @@ public sealed class ProposalServiceTests
         public Task<ProposalDetailReadModel?> GetDetailAsync(Guid proposalId, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(_detail?.ProposalId == proposalId ? _detail : null);
+        }
+
+        public Task<ProposalDetailReadModel?> GetLatestPublishedByProjectAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_publishedDetail?.ProjectId == projectId ? _publishedDetail : null);
+        }
+
+        public Task<IReadOnlyList<ProposalSceneReadModel>> GetScenesAsync(
+            ProposalSceneListQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            LastSceneListQuery = query;
+            return Task.FromResult(_sceneItems);
+        }
+
+        public Task<int> CountScenesAsync(
+            ProposalSceneListQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            LastSceneListQuery = query;
+            return Task.FromResult(_sceneItems.Count);
+        }
+
+        public Task<ProposalSceneDetailReadModel?> GetSceneDetailAsync(Guid sceneId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_sceneDetail?.SceneId == sceneId ? _sceneDetail : null);
         }
 
         public Task<ProposalSceneContextReadModel?> GetSceneContextAsync(Guid proposalId, Guid sceneId, CancellationToken cancellationToken = default)

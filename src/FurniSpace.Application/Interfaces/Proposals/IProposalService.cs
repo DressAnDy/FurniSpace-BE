@@ -24,8 +24,24 @@ public interface IProposalService
         CreateProposalSceneRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProposalSceneListResponseDto>> GetScenesAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        ProposalSceneListQueryDto query,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProposalSceneDetailDto>> GetSceneDetailAsync(
+        Guid sceneId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProposalDetailDto>> GetDetailAsync(
         Guid proposalId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<PublishedProposalDto>> GetPublishedByProjectAsync(
+        Guid projectId,
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 

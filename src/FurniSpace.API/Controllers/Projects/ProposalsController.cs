@@ -81,6 +81,50 @@ public sealed class ProposalsController : BaseApiController
     }
 
     [Authorize(Roles = "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [HttpGet("proposals/{proposalId:guid}/scenes")]
+    public async Task<IActionResult> GetScenes(
+        Guid proposalId,
+        [FromQuery] ProposalSceneType? sceneType = null,
+        [FromQuery] bool? isActive = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.GetScenesAsync(
+            proposalId,
+            currentUserId,
+            new ProposalSceneListQueryDto
+            {
+                SceneType = sceneType,
+                IsActive = isActive,
+                Page = page,
+                Limit = limit
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [HttpGet("proposal-scenes/{sceneId:guid}")]
+    public async Task<IActionResult> GetSceneDetail(
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.GetSceneDetailAsync(sceneId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [HttpGet("proposals/{proposalId:guid}")]
     public async Task<IActionResult> GetDetail(
         Guid proposalId,
@@ -92,6 +136,21 @@ public sealed class ProposalsController : BaseApiController
         }
 
         var result = await _proposals.GetDetailAsync(proposalId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpGet("projects/{projectId:guid}/published-proposal")]
+    public async Task<IActionResult> GetPublishedByProject(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.GetPublishedByProjectAsync(projectId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 

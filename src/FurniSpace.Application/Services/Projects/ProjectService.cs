@@ -850,6 +850,10 @@ public sealed class ProjectService : IProjectService
         await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
         await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
 
+        var message = newStatus == ProjectStatus.PROPOSAL_SELECTED
+            ? "Project moved to proposal selected successfully."
+            : "Project status updated successfully.";
+
         return ServiceResult<ProjectStatusUpdateDto>.Success(
             new ProjectStatusUpdateDto
             {
@@ -860,7 +864,7 @@ public sealed class ProjectService : IProjectService
                 Note = NormalizeOptional(request.Note),
                 UpdatedAt = project.UpdatedAt
             },
-            "Project status updated successfully.");
+            message);
     }
 
     public async Task<ServiceResult<ProjectRejectionDto>> RejectAsync(

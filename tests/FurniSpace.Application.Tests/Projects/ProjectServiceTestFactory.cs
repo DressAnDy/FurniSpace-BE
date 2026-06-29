@@ -294,11 +294,39 @@ internal sealed class FakeProposalRepository : IProposalRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?>(null);
 
+    public Task<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?> GetLatestPublishedByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?>(null);
+
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalSceneReadModel>> GetScenesAsync(
+        Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalSceneReadModel>>([]);
+
+    public Task<int> CountScenesAsync(
+        Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
+
+    public Task<Infrastructure.ReadModels.Proposals.ProposalSceneDetailReadModel?> GetSceneDetailAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneDetailReadModel?>(null);
+
     public Task<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?> GetSceneContextAsync(
         Guid proposalId,
         Guid sceneId,
         CancellationToken cancellationToken = default)
         => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?>(null);
+
+    public Task<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?> GetSceneContextBySceneIdAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?>(null);
+
+    public Task<ProposalScene?> GetSceneEntityAsync(Guid sceneId, CancellationToken cancellationToken = default)
+        => Task.FromResult<ProposalScene?>(null);
 
     public Task<IReadOnlyList<ProposalItem>> GetItemsBySceneAsync(
         Guid proposalId,
@@ -306,8 +334,30 @@ internal sealed class FakeProposalRepository : IProposalRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<ProposalItem>>([]);
 
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalItemReadModel>> GetItemsAsync(
+        Infrastructure.ReadModels.Proposals.ProposalItemListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalItemReadModel>>([]);
+
+    public Task<int> CountItemsAsync(
+        Infrastructure.ReadModels.Proposals.ProposalItemListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
+
+    public Task<Infrastructure.ReadModels.Proposals.ProposalItemDetailReadModel?> GetItemDetailAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalItemDetailReadModel?>(null);
+
+    public Task<ProposalItem?> GetItemEntityAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<ProposalItem?>(null);
+
     public Task AddItemAsync(ProposalItem item, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+
+    public void RemoveItem(ProposalItem item) { }
 
     public Task<Proposal?> GetProposalEntityAsync(Guid proposalId, CancellationToken cancellationToken = default)
         => Task.FromResult<Proposal?>(null);
@@ -318,6 +368,18 @@ internal sealed class FakeProposalRepository : IProposalRepository
         DateTime rejectedAt,
         CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+
+    public Task<bool> HasActiveSceneAsync(Guid proposalId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> FileExistsAsync(Guid fileId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> ProjectAreaBelongsToProjectAsync(
+        Guid projectAreaId,
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
 
     public IQueryable<Proposal> Query() => Enumerable.Empty<Proposal>().AsQueryable();
     public Task<Proposal?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

@@ -47,6 +47,18 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "project.designer.assigned"),
 
+            NotificationType.ProposalPublished => new NotificationTemplate(
+                "New proposal ready for review",
+                "A design proposal \"{ProposalName}\" is ready for your review.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "proposal.published"),
+
+            NotificationType.ProposalRevisionRequested => new NotificationTemplate(
+                "Proposal revision requested",
+                "Customer requested revisions for proposal \"{ProposalName}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "proposal.revision.requested"),
+
             NotificationType.ProposalFinalSelected => new NotificationTemplate(
                 "Final proposal selected",
                 "Customer selected proposal \"{ProposalName}\" as the final design proposal.",

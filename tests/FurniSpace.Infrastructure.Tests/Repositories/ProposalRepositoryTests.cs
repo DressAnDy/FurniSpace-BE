@@ -104,6 +104,183 @@ public sealed class ProposalRepositoryTests
     }
 
     [Fact]
+    public async Task GetLatestPublishedByProjectAsync_ReturnsVisibleProposalWithScenesAndItems()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var detail = await repository.GetLatestPublishedByProjectAsync(data.ProjectId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(data.PublishedProposalId, detail.ProposalId);
+        Assert.Equal(data.CustomerId, detail.CustomerId);
+        Assert.Equal(data.SalesId, detail.AssignedSalesId);
+        Assert.Equal(data.DesignerId, detail.AssignedDesignerId);
+        Assert.Single(detail.Scenes);
+        Assert.Single(detail.Items);
+    }
+
+    [Fact]
+    public async Task GetLatestPublishedByProjectAsync_WithMissingProject_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var detail = await repository.GetLatestPublishedByProjectAsync(Guid.NewGuid());
+
+        Assert.Null(detail);
+    }
+
+    [Fact]
+    public async Task GetScenesAsync_WithFiltersAndPagination_ReturnsMatchingScenes()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+        var query = new ProposalSceneListQueryReadModel
+        {
+            ProposalId = data.PublishedProposalId,
+            SceneType = ProposalSceneType.TWO_D,
+            IsActive = false,
+            Page = 1,
+            Limit = 1
+        };
+
+        var scenes = await repository.GetScenesAsync(query);
+        var count = await repository.CountScenesAsync(query);
+
+        Assert.Equal(1, count);
+        var scene = Assert.Single(scenes);
+        Assert.Equal("Inactive layout", scene.SceneName);
+        Assert.Equal(ProposalSceneType.TWO_D, scene.SceneType);
+        Assert.False(scene.IsActive);
+    }
+
+    [Fact]
+    public async Task GetScenesAsync_WithActiveOnly_IgnoresInactiveFilter()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+        var query = new ProposalSceneListQueryReadModel
+        {
+            ProposalId = data.PublishedProposalId,
+            IsActive = false,
+            ActiveOnly = true,
+            Page = 1,
+            Limit = 10
+        };
+
+        var scenes = await repository.GetScenesAsync(query);
+        var count = await repository.CountScenesAsync(query);
+
+        Assert.Equal(1, count);
+        var scene = Assert.Single(scenes);
+        Assert.Equal(data.ActiveSceneId, scene.SceneId);
+        Assert.True(scene.IsActive);
+        Assert.Equal("https://cdn.furnispace.test/preview.png", scene.PreviewFileUrl);
+    }
+
+    [Fact]
+    public async Task GetSceneDetailAsync_ReturnsSceneMetadataAndProjectAccessData()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var scene = await repository.GetSceneDetailAsync(data.ActiveSceneId);
+
+        Assert.NotNull(scene);
+        Assert.Equal(data.ActiveSceneId, scene.SceneId);
+        Assert.Equal(data.ProjectId, scene.ProjectId);
+        Assert.Equal(data.CustomerId, scene.CustomerId);
+        Assert.Equal(data.SalesId, scene.AssignedSalesId);
+        Assert.Equal(data.DesignerId, scene.AssignedDesignerId);
+        Assert.Equal(ProposalStatus.PUBLISHED, scene.ProposalStatus);
+        Assert.Equal("mongo-scene-id", scene.MongoSceneId);
+        Assert.Equal("https://cdn.furnispace.test/preview.png", scene.PreviewFileUrl);
+    }
+
+    [Fact]
+    public async Task GetSceneDetailAsync_WithMissingScene_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var scene = await repository.GetSceneDetailAsync(Guid.NewGuid());
+
+        Assert.Null(scene);
+    }
+
+    [Fact]
+    public async Task GetItemsAsync_WithSceneFilter_ReturnsPagedItemsWithVersionSnapshot()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+        var query = new ProposalItemListQueryReadModel
+        {
+            ProposalId = data.PublishedProposalId,
+            SceneId = data.ActiveSceneId,
+            Page = 1,
+            Limit = 10
+        };
+
+        var items = await repository.GetItemsAsync(query);
+        var count = await repository.CountItemsAsync(query);
+
+        Assert.Equal(1, count);
+        var item = Assert.Single(items);
+        Assert.Equal(data.ProposalItemId, item.ProposalItemId);
+        Assert.Equal(data.PublishedProposalId, item.ProposalId);
+        Assert.Equal(data.ActiveSceneId, item.SceneId);
+        Assert.Equal("Cafe Chair", item.ProductNameSnapshot);
+        Assert.Equal("Brown Wood", item.VersionNameSnapshot);
+        Assert.Equal("cm", item.DimensionUnit);
+        Assert.Equal("Wood", item.MaterialSnapshot);
+        Assert.Equal("Brown", item.ColorSnapshot);
+        Assert.Equal(4800000m, item.SubtotalAmount);
+    }
+
+    [Fact]
+    public async Task GetItemDetailAsync_ReturnsProjectAssignmentData()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var item = await repository.GetItemDetailAsync(data.ProposalItemId);
+
+        Assert.NotNull(item);
+        Assert.Equal(data.ProposalItemId, item.ProposalItemId);
+        Assert.Equal(data.ProjectId, item.ProjectId);
+        Assert.Equal(data.CustomerId, item.CustomerId);
+        Assert.Equal(data.SalesId, item.AssignedSalesId);
+        Assert.Equal(data.DesignerId, item.AssignedDesignerId);
+        Assert.Equal(ProposalStatus.PUBLISHED, item.ProposalStatus);
+        Assert.Equal("Brown Wood", item.VersionNameSnapshot);
+    }
+
+    [Fact]
+    public async Task GetItemEntityAndRemoveItem_UpdateProposalItems()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var item = await repository.GetItemEntityAsync(data.ProposalItemId);
+        Assert.NotNull(item);
+
+        repository.RemoveItem(item);
+        await context.SaveChangesAsync();
+
+        Assert.DoesNotContain(context.ProposalItemSet, entity => entity.ProposalItemId == data.ProposalItemId);
+    }
+
+    [Fact]
     public async Task AddSceneAsync_AddsSceneAndCountScenesIncludesIt()
     {
         await using var context = CreateContext();
@@ -134,13 +311,37 @@ public sealed class ProposalRepositoryTests
         var repository = new ProposalRepository(context);
 
         var scene = await repository.GetSceneContextAsync(data.PublishedProposalId, data.ActiveSceneId);
+        var sceneById = await repository.GetSceneContextBySceneIdAsync(data.ActiveSceneId);
         var items = await repository.GetItemsBySceneAsync(data.PublishedProposalId, data.ActiveSceneId);
 
         Assert.NotNull(scene);
         Assert.Equal(data.ProjectId, scene.ProjectId);
         Assert.Equal(data.SalesId, scene.AssignedSalesId);
+        Assert.NotNull(sceneById);
+        Assert.Equal(data.PublishedProposalId, sceneById.ProposalId);
         Assert.Single(items);
         Assert.Equal("Cafe Chair", items[0].ItemName);
+    }
+
+    [Fact]
+    public async Task SceneMetadataHelpers_ReturnExpectedValues()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var scene = await repository.GetSceneEntityAsync(data.ActiveSceneId);
+        var hasActiveScene = await repository.HasActiveSceneAsync(data.PublishedProposalId);
+        var fileExists = await repository.FileExistsAsync(data.PreviewFileId);
+        var areaBelongsToProject = await repository.ProjectAreaBelongsToProjectAsync(data.ProjectAreaId, data.ProjectId);
+        var areaBelongsToOtherProject = await repository.ProjectAreaBelongsToProjectAsync(data.ProjectAreaId, Guid.NewGuid());
+
+        Assert.NotNull(scene);
+        Assert.Equal(data.ActiveSceneId, scene.SceneId);
+        Assert.True(hasActiveScene);
+        Assert.True(fileExists);
+        Assert.True(areaBelongsToProject);
+        Assert.False(areaBelongsToOtherProject);
     }
 
     [Fact]
@@ -218,6 +419,9 @@ public sealed class ProposalRepositoryTests
         var activeSceneId = Guid.NewGuid();
         var inactiveSceneId = Guid.NewGuid();
         var previewFileId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var proposalItemId = Guid.NewGuid();
 
         context.ProjectSet.Add(new Project
         {
@@ -243,6 +447,25 @@ public sealed class ProposalRepositoryTests
             Status = FileStatus.ACTIVE,
             UploadedAt = DateTime.UtcNow
         });
+        context.ProjectAreaSet.Add(new ProjectArea
+        {
+            ProjectAreaId = projectAreaId,
+            ProjectId = projectId,
+            AreaName = "Main cafe area",
+            Status = ProjectAreaStatus.VERIFIED,
+            CreatedAt = DateTime.UtcNow
+        });
+        context.ProductVersionSet.Add(new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-CHAIR-001",
+            VersionName = "Brown Wood",
+            Material = "Wood",
+            Color = "Brown",
+            DimensionUnit = "cm",
+            EstimatedPrice = 1200000m
+        });
         context.ProposalSet.AddRange(
             CreateProposal(draftProposalId, projectId, "Draft proposal", ProposalStatus.DRAFT, versionNo: 1),
             CreateProposal(publishedProposalId, projectId, "Published proposal", ProposalStatus.PUBLISHED, versionNo: 2),
@@ -255,6 +478,7 @@ public sealed class ProposalRepositoryTests
                 SceneName = "Main layout",
                 SceneType = ProposalSceneType.THREE_D,
                 MongoSceneId = "mongo-scene-id",
+                ProjectAreaId = projectAreaId,
                 PreviewFileId = previewFileId,
                 VersionNo = 1,
                 IsActive = true,
@@ -272,13 +496,21 @@ public sealed class ProposalRepositoryTests
             });
         context.ProposalItemSet.Add(new ProposalItem
         {
-            ProposalItemId = Guid.NewGuid(),
+            ProposalItemId = proposalItemId,
             ProposalId = publishedProposalId,
             SceneId = activeSceneId,
+            ProductVersionId = productVersionId,
             ItemName = "Cafe Chair",
             Quantity = 4,
+            Material = "Wood",
+            Color = "Brown",
+            Width = 45,
+            Height = 80,
+            Depth = 45,
             UnitPriceSnapshot = 1200000m,
-            TotalPriceSnapshot = 4800000m
+            TotalPriceSnapshot = 4800000m,
+            Note = "Use brown wood version.",
+            UpdatedAt = DateTime.UtcNow
         });
 
         await context.SaveChangesAsync();
@@ -290,7 +522,10 @@ public sealed class ProposalRepositoryTests
             draftProposalId,
             publishedProposalId,
             selectedProposalId,
-            activeSceneId);
+            activeSceneId,
+            previewFileId,
+            projectAreaId,
+            proposalItemId);
     }
 
     private static Proposal CreateProposal(
@@ -321,5 +556,8 @@ public sealed class ProposalRepositoryTests
         Guid DraftProposalId,
         Guid PublishedProposalId,
         Guid SelectedProposalId,
-        Guid ActiveSceneId);
+        Guid ActiveSceneId,
+        Guid PreviewFileId,
+        Guid ProjectAreaId,
+        Guid ProposalItemId);
 }

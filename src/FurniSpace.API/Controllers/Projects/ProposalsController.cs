@@ -81,6 +81,50 @@ public sealed class ProposalsController : BaseApiController
     }
 
     [Authorize(Roles = "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [HttpGet("proposals/{proposalId:guid}/scenes")]
+    public async Task<IActionResult> GetScenes(
+        Guid proposalId,
+        [FromQuery] ProposalSceneType? sceneType = null,
+        [FromQuery] bool? isActive = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.GetScenesAsync(
+            proposalId,
+            currentUserId,
+            new ProposalSceneListQueryDto
+            {
+                SceneType = sceneType,
+                IsActive = isActive,
+                Page = page,
+                Limit = limit
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [HttpGet("proposal-scenes/{sceneId:guid}")]
+    public async Task<IActionResult> GetSceneDetail(
+        Guid sceneId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.GetSceneDetailAsync(sceneId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [HttpGet("proposals/{proposalId:guid}")]
     public async Task<IActionResult> GetDetail(
         Guid proposalId,
@@ -115,6 +159,68 @@ public sealed class ProposalsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [HttpGet("proposals/{proposalId:guid}/items")]
+    public async Task<IActionResult> GetItems(
+        Guid proposalId,
+        [FromQuery] Guid? sceneId = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.GetItemsAsync(
+            proposalId,
+            currentUserId,
+            new ProposalItemListQueryDto
+            {
+                SceneId = sceneId,
+                Page = page,
+                Limit = limit
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [HttpPatch("proposal-items/{proposalItemId:guid}")]
+    public async Task<IActionResult> UpdateItem(
+        Guid proposalItemId,
+        [FromBody] UpdateProposalItemRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.UpdateItemAsync(
+            proposalItemId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [HttpDelete("proposal-items/{proposalItemId:guid}")]
+    public async Task<IActionResult> DeleteItem(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.DeleteItemAsync(proposalItemId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "CUSTOMER")]
     [HttpPatch("proposals/{proposalId:guid}/select-final")]
     public async Task<IActionResult> SelectFinal(
@@ -129,6 +235,86 @@ public sealed class ProposalsController : BaseApiController
 
         var result = await _proposals.SelectFinalAsync(
             proposalId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPatch("proposals/{proposalId:guid}/request-revision")]
+    public async Task<IActionResult> RequestRevision(
+        Guid proposalId,
+        [FromBody] RequestProposalRevisionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.RequestRevisionAsync(
+            proposalId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [HttpPatch("proposals/{proposalId:guid}/publish")]
+    public async Task<IActionResult> Publish(
+        Guid proposalId,
+        [FromBody] PublishProposalRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.PublishAsync(
+            proposalId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [HttpPatch("proposals/{proposalId:guid}")]
+    public async Task<IActionResult> Update(
+        Guid proposalId,
+        [FromBody] UpdateProposalRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.UpdateAsync(
+            proposalId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [HttpPatch("proposal-scenes/{sceneId:guid}")]
+    public async Task<IActionResult> UpdateScene(
+        Guid sceneId,
+        [FromBody] UpdateProposalSceneRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.UpdateSceneAsync(
+            sceneId,
             currentUserId,
             request,
             cancellationToken);

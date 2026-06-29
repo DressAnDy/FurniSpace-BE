@@ -1,6 +1,8 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
@@ -74,6 +76,43 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
     }
 
     [Fact]
+    public async Task UpsertBySqlSceneIdAsync_NormalizesJsonElementDynamicValues()
+    {
+        var inner = new FakeInfrastructureRoomPlannerSceneRepository();
+        var adapter = new RoomPlannerSceneRepositoryAdapter(inner);
+        var document = CreateApplicationDocument("app-mongo-id");
+        document.Objects[0].MaterialOverrides = new Dictionary<string, object?>
+        {
+            ["seatColor"] = CreateJsonElement("\"#7A4A24\""),
+            ["nested"] = CreateJsonElement("{\"enabled\":true,\"levels\":[1,2]}")
+        };
+        document.Lighting.CustomLights =
+        [
+            new Dictionary<string, object?>
+            {
+                ["type"] = CreateJsonElement("\"POINT\""),
+                ["intensity"] = CreateJsonElement("0.7")
+            }
+        ];
+        document.EditorState = new RoomPlannerEditorStateDocument
+        {
+            SnapSettings = new Dictionary<string, object?>
+            {
+                ["snapToGrid"] = CreateJsonElement("true")
+            }
+        };
+
+        await adapter.UpsertBySqlSceneIdAsync(document);
+
+        Assert.NotNull(inner.UpsertedDocument);
+        Assert.IsType<string>(inner.UpsertedDocument.Objects[0].MaterialOverrides["seatColor"]);
+        Assert.IsType<Dictionary<string, object?>>(inner.UpsertedDocument.Objects[0].MaterialOverrides["nested"]);
+        Assert.IsType<string>(inner.UpsertedDocument.Lighting.CustomLights[0]["type"]);
+        Assert.IsType<double>(inner.UpsertedDocument.Lighting.CustomLights[0]["intensity"]);
+        Assert.IsType<bool>(inner.UpsertedDocument.EditorState!.SnapSettings["snapToGrid"]);
+    }
+
+    [Fact]
     public async Task DeleteBySqlSceneIdAsync_DelegatesToInnerRepository()
     {
         var inner = new FakeInfrastructureRoomPlannerSceneRepository { DeleteResult = true };
@@ -107,6 +146,12 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
             ],
             Metadata = new RoomPlannerMetadataDocument { UpdatedAt = DateTime.UtcNow }
         };
+    }
+
+    private static JsonElement CreateJsonElement(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return document.RootElement.Clone();
     }
 
     private static InfrastructureRoomPlannerSceneDocument CreateInfrastructureDocument(

@@ -70,7 +70,7 @@ var app = builder.Build();
 await MigrateAndSeedDatabaseAsync(app);
 UseDevelopmentSwagger(app);
 app.UseForwardedHeaders();
-UseProductionHttps(app);
+// UseProductionHttps(app);
 app.UseHttpsRedirection();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseRateLimiter();
@@ -335,10 +335,10 @@ static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSet
 
 static void UseDevelopmentSwagger(WebApplication app)
 {
-    if (!app.Environment.IsDevelopment())
-    {
-        return;
-    }
+    // if (!app.Environment.IsDevelopment())
+    // {
+    //     return;
+    // }
 
     app.UseSwagger();
     app.UseSwaggerUI(options =>
@@ -348,13 +348,13 @@ static void UseDevelopmentSwagger(WebApplication app)
     });
 }
 
-static void UseProductionHttps(WebApplication app)
-{
-    if (!app.Environment.IsDevelopment())
-    {
-        app.UseHsts();
-    }
-}
+// static void UseProductionHttps(WebApplication app)
+// {
+//     if (!app.Environment.IsDevelopment())
+//     {
+//         app.UseHsts();
+//     }
+// }
 
 static bool TryGetReindexModule(string[] args, out string module)
 {

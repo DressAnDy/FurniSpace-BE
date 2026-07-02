@@ -2,7 +2,6 @@ using Serilog;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Security.Claims;
-using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FurniSpace.API.Cli;
@@ -27,7 +26,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
-using StackExchange.Redis;
 
 EnvLoader.LoadEnv(required: false);
 
@@ -85,7 +83,6 @@ app.MapControllers();
 app.MapHub<NotificationsHub>(RealtimeGroupNames.HubPath);
 app.MapHub<ProjectChatHub>(ProjectChatRealtimeConstants.HubPath);
 app.MapGet("/", () => "FurniSpace API");
-MapRedisDebugHealth(app);
 await app.RunAsync();
 await Log.CloseAndFlushAsync();
 
@@ -358,75 +355,6 @@ static void UseDevelopmentSwagger(WebApplication app)
 //         app.UseHsts();
 //     }
 // }
-
-static void MapRedisDebugHealth(WebApplication app)
-{
-    var enabled = app.Configuration.GetValue<bool>("REDIS_DEBUG_HEALTH")
-        || app.Configuration.GetValue<bool>("Redis:DebugHealth");
-
-    if (!enabled)
-    {
-        return;
-    }
-
-    app.MapGet("/health/redis", async (
-        IConnectionMultiplexer redis,
-        IConfiguration configuration,
-        CancellationToken cancellationToken) =>
-    {
-        var configuredConnection = configuration.GetSection("Redis")["ConnectionString"]
-            ?? configuration["REDIS_CONNECTION"]
-            ?? "<missing>";
-
-        var database = redis.GetDatabase();
-        var key = $"furnispace:health:{Guid.NewGuid():N}";
-
-        try
-        {
-            var ping = await database.PingAsync();
-            await database.StringSetAsync(key, "ok", TimeSpan.FromMinutes(1));
-            var value = await database.StringGetAsync(key);
-
-            return Results.Ok(new
-            {
-                status = "ok",
-                redis.IsConnected,
-                pingMs = ping.TotalMilliseconds,
-                writeReadOk = value == "ok",
-                endpoints = redis.GetEndPoints().Select(endpoint => endpoint.ToString()),
-                configuredConnection = MaskRedisConnection(configuredConnection)
-            });
-        }
-        catch (Exception exception)
-        {
-            return Results.Problem(
-                title: "Redis health check failed.",
-                detail: exception.Message,
-                statusCode: StatusCodes.Status503ServiceUnavailable,
-                extensions: new Dictionary<string, object>
-                {
-                    ["redisConnected"] = redis.IsConnected,
-                    ["endpoints"] = redis.GetEndPoints().Select(endpoint => endpoint.ToString()),
-                    ["configuredConnection"] = MaskRedisConnection(configuredConnection),
-                    ["exceptionType"] = exception.GetType().FullName
-                });
-        }
-    });
-}
-
-static string MaskRedisConnection(string connectionString)
-{
-    if (string.IsNullOrWhiteSpace(connectionString))
-    {
-        return connectionString;
-    }
-
-    return Regex.Replace(
-        connectionString,
-        "(password=)[^,]+",
-        "$1***",
-        RegexOptions.IgnoreCase);
-}
 
 static bool TryGetReindexModule(string[] args, out string module)
 {

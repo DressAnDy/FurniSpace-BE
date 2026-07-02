@@ -5,8 +5,6 @@ using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 
 namespace FurniSpace.Infrastructure.Repositories.Repository;
 
@@ -33,11 +31,8 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         ProjectStatus.DELIVERED
     ];
 
-    private readonly ILogger<AccountRepository>? _logger;
-
-    public AccountRepository(AppDbContext dbContext, ILogger<AccountRepository>? logger = null) : base(dbContext)
+    public AccountRepository(AppDbContext dbContext) : base(dbContext)
     {
-        _logger = logger;
     }
 
     public Task<Account?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
@@ -133,41 +128,17 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         bool includeDeleted,
         CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
-        var accounts = await BuildQuery(search, status, includeDeleted)
+        return await BuildQuery(search, status, includeDeleted)
             .OrderByDescending(account => account.CreatedAt)
             .ThenBy(account => account.Email)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
-        stopwatch.Stop();
-
-        LogAccountQueryTiming(
-            "page",
-            stopwatch.Elapsed,
-            search,
-            status,
-            includeDeleted,
-            accounts.Count);
-
-        return accounts;
     }
 
-    public async Task<int> CountAsync(string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default)
+    public Task<int> CountAsync(string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
-        var count = await BuildQuery(search, status, includeDeleted).CountAsync(cancellationToken);
-        stopwatch.Stop();
-
-        LogAccountQueryTiming(
-            "count",
-            stopwatch.Elapsed,
-            search,
-            status,
-            includeDeleted,
-            count);
-
-        return count;
+        return BuildQuery(search, status, includeDeleted).CountAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByStatusAsync(
@@ -271,40 +242,4 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
     {
         return $"%{search.Trim()}%";
     }
-
-    private void LogAccountQueryTiming(
-        string operation,
-        TimeSpan elapsed,
-        string? search,
-        string? status,
-        bool includeDeleted,
-        int resultCount)
-    {
-        if (IsAccountPerformanceDebugEnabled())
-        {
-            _logger?.LogInformation(
-                "Account repository {Operation} query completed in {ElapsedMs:0.000} ms. Search={Search}, Status={Status}, IncludeDeleted={IncludeDeleted}, ResultCount={ResultCount}.",
-                operation,
-                elapsed.TotalMilliseconds,
-                search,
-                status,
-                includeDeleted,
-                resultCount);
-        }
-
-        if (elapsed.TotalMilliseconds >= 500)
-        {
-            _logger?.LogWarning(
-                "Slow account repository {Operation} query: {ElapsedMs:0.000} ms. Search={Search}, Status={Status}, IncludeDeleted={IncludeDeleted}, ResultCount={ResultCount}.",
-                operation,
-                elapsed.TotalMilliseconds,
-                search,
-                status,
-                includeDeleted,
-                resultCount);
-        }
-    }
-
-    private static bool IsAccountPerformanceDebugEnabled() =>
-        bool.TryParse(Environment.GetEnvironmentVariable("ACCOUNT_DEBUG_PERFORMANCE"), out var enabled) && enabled;
 }

@@ -106,10 +106,20 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasKey("AccountId");
 
+                    b.HasIndex("CreatedAt", "Email")
+                        .HasDatabaseName("idx_accounts_active_list_sort")
+                        .HasFilter("deleted_at IS NULL")
+                        .IsDescending(true, false);
+
                     b.HasIndex("Email")
                         .IsUnique();
 
                     b.HasIndex("RoleId");
+
+                    b.HasIndex("Status", "CreatedAt", "Email")
+                        .HasDatabaseName("idx_accounts_active_status_list_sort")
+                        .HasFilter("deleted_at IS NULL")
+                        .IsDescending(false, true, false);
 
                     b.ToTable("accounts", (string)null);
                 });

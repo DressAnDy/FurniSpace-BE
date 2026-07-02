@@ -204,6 +204,14 @@ public class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.DeletedAt).HasColumnName("deleted_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => e.Email).IsUnique();
+            entity.HasIndex(e => new { e.CreatedAt, e.Email })
+                .HasDatabaseName("idx_accounts_active_list_sort")
+                .HasFilter("deleted_at IS NULL")
+                .IsDescending(true, false);
+            entity.HasIndex(e => new { e.Status, e.CreatedAt, e.Email })
+                .HasDatabaseName("idx_accounts_active_status_list_sort")
+                .HasFilter("deleted_at IS NULL")
+                .IsDescending(false, true, false);
             entity.HasOne<Role>().WithMany().HasForeignKey(e => e.RoleId).OnDelete(DeleteBehavior.Restrict);
         });
     }

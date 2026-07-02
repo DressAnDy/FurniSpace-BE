@@ -9,6 +9,8 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Persistence;
 using Mapster;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using InfrastructureCacheService = FurniSpace.Infrastructure.Interfaces.ICacheService;
@@ -26,6 +28,8 @@ public sealed class AccountService : IAccountService
     private const string ProfileUpdatedMessage = "Profile updated successfully.";
     private const string AvailableDesignersRetrievedMessage = "Available designers retrieved successfully.";
     private const int MaxActiveDesignerProjects = 2;
+    private const int SlowAccountListOperationMs = 500;
+    private const int SlowCacheOperationMs = 250;
     private static readonly TimeSpan AccountItemCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(2);
 
@@ -34,19 +38,22 @@ public sealed class AccountService : IAccountService
     private readonly IUnitOfWork _unitOfWork;
     private readonly InfrastructureCacheService _cache;
     private readonly InfrastructureSearchIndexService _search;
+    private readonly ILogger<AccountService>? _logger;
 
     public AccountService(
         IAccountRepository accounts,
         IAuthService auth,
         InfrastructureCacheService cache,
         InfrastructureSearchIndexService search,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ILogger<AccountService>? logger = null)
     {
         _accounts = accounts;
         _auth = auth;
         _unitOfWork = unitOfWork;
         _cache = cache;
         _search = search;
+        _logger = logger;
     }
 
     public async Task<ServiceResult<AccountDto>> CreateAsync(CreateAccountRequestDto request, CancellationToken cancellationToken = default)
@@ -222,17 +229,30 @@ public sealed class AccountService : IAccountService
 
         var normalizedSearch = NormalizeOptional(search);
         var cacheKey = AccountListCacheKey(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted);
+        var cacheGetStopwatch = Stopwatch.StartNew();
         var cached = await TryGetCacheAsync<PagedResult<AccountDto>>(cacheKey, cancellationToken);
+        cacheGetStopwatch.Stop();
         if (cached is not null)
         {
+            LogAccountListCacheHit(cacheKey, page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cacheGetStopwatch.Elapsed);
             return ServiceResult<PagedResult<AccountDto>>.Success(cached);
         }
 
+        LogAccountListCacheMiss(cacheKey, page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cacheGetStopwatch.Elapsed);
+
+        var source = !string.IsNullOrWhiteSpace(normalizedSearch) ? "elasticsearch" : "database";
+        var sourceStopwatch = Stopwatch.StartNew();
         var result = !string.IsNullOrWhiteSpace(normalizedSearch)
             ? await SearchAccountsAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken)
             : await GetPagedAccountsFromDatabaseAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+        sourceStopwatch.Stop();
 
+        LogAccountListSourceTiming(source, cacheKey, result.TotalItems, sourceStopwatch.Elapsed);
+
+        var cacheSetStopwatch = Stopwatch.StartNew();
         await TrySetCacheAsync(cacheKey, result, AccountListCacheTtl, cancellationToken);
+        cacheSetStopwatch.Stop();
+        LogAccountListCacheSet(cacheKey, cacheSetStopwatch.Elapsed);
 
         return ServiceResult<PagedResult<AccountDto>>.Success(result);
     }
@@ -540,8 +560,12 @@ public sealed class AccountService : IAccountService
         {
             return await _cache.GetAsync<T>(key, cancellationToken);
         }
-        catch
+        catch (Exception exception)
         {
+            _logger?.LogWarning(
+                exception,
+                "Cache get failed for key {CacheKey}. Falling back to source.",
+                key);
             return default;
         }
     }
@@ -552,9 +576,12 @@ public sealed class AccountService : IAccountService
         {
             await _cache.SetAsync(key, value, expiration, cancellationToken);
         }
-        catch
+        catch (Exception exception)
         {
-            // Cache writes are best-effort.
+            _logger?.LogWarning(
+                exception,
+                "Cache set failed for key {CacheKey}. Cache writes are best-effort.",
+                key);
         }
     }
 
@@ -564,11 +591,117 @@ public sealed class AccountService : IAccountService
         {
             await _cache.RemoveAsync(key, cancellationToken);
         }
-        catch
+        catch (Exception exception)
         {
-            // Cache removals are best-effort.
+            _logger?.LogWarning(
+                exception,
+                "Cache remove failed for key {CacheKey}. Cache removals are best-effort.",
+                key);
         }
     }
+
+    private void LogAccountListCacheHit(
+        string cacheKey,
+        int page,
+        int pageSize,
+        string? search,
+        string? status,
+        bool includeDeleted,
+        TimeSpan elapsed)
+    {
+        if (IsAccountPerformanceDebugEnabled())
+        {
+            _logger?.LogInformation(
+                "Account list cache hit in {ElapsedMs:0.000} ms. Key={CacheKey}, Page={Page}, PageSize={PageSize}, Search={Search}, Status={Status}, IncludeDeleted={IncludeDeleted}.",
+                elapsed.TotalMilliseconds,
+                cacheKey,
+                page,
+                pageSize,
+                search,
+                status,
+                includeDeleted);
+        }
+
+        LogSlowCacheOperation("get", cacheKey, elapsed);
+    }
+
+    private void LogAccountListCacheMiss(
+        string cacheKey,
+        int page,
+        int pageSize,
+        string? search,
+        string? status,
+        bool includeDeleted,
+        TimeSpan elapsed)
+    {
+        if (IsAccountPerformanceDebugEnabled())
+        {
+            _logger?.LogInformation(
+                "Account list cache miss after {ElapsedMs:0.000} ms. Key={CacheKey}, Page={Page}, PageSize={PageSize}, Search={Search}, Status={Status}, IncludeDeleted={IncludeDeleted}.",
+                elapsed.TotalMilliseconds,
+                cacheKey,
+                page,
+                pageSize,
+                search,
+                status,
+                includeDeleted);
+        }
+
+        LogSlowCacheOperation("get", cacheKey, elapsed);
+    }
+
+    private void LogAccountListSourceTiming(string source, string cacheKey, long totalItems, TimeSpan elapsed)
+    {
+        if (IsAccountPerformanceDebugEnabled())
+        {
+            _logger?.LogInformation(
+                "Account list loaded from {Source} in {ElapsedMs:0.000} ms. Key={CacheKey}, TotalItems={TotalItems}.",
+                source,
+                elapsed.TotalMilliseconds,
+                cacheKey,
+                totalItems);
+        }
+
+        if (elapsed.TotalMilliseconds >= SlowAccountListOperationMs)
+        {
+            _logger?.LogWarning(
+                "Slow account list source {Source}: {ElapsedMs:0.000} ms. Key={CacheKey}, TotalItems={TotalItems}.",
+                source,
+                elapsed.TotalMilliseconds,
+                cacheKey,
+                totalItems);
+        }
+    }
+
+    private void LogAccountListCacheSet(string cacheKey, TimeSpan elapsed)
+    {
+        if (IsAccountPerformanceDebugEnabled())
+        {
+            _logger?.LogInformation(
+                "Account list cache set in {ElapsedMs:0.000} ms. Key={CacheKey}.",
+                elapsed.TotalMilliseconds,
+                cacheKey);
+        }
+
+        LogSlowCacheOperation("set", cacheKey, elapsed);
+    }
+
+    private void LogSlowCacheOperation(string operation, string cacheKey, TimeSpan elapsed)
+    {
+        if (elapsed.TotalMilliseconds < SlowCacheOperationMs)
+        {
+            return;
+        }
+
+        _logger?.LogWarning(
+            "Slow cache {CacheOperation} for key {CacheKey}: {ElapsedMs:0.000} ms.",
+            operation,
+            cacheKey,
+            elapsed.TotalMilliseconds);
+    }
+
+    private static bool IsAccountPerformanceDebugEnabled() =>
+        bool.TryParse(Environment.GetEnvironmentVariable("ACCOUNT_DEBUG_PERFORMANCE"), out var enabled) && enabled;
 
     private static string AccountItemCacheKey(Guid accountId)
     {

@@ -74,6 +74,7 @@ public abstract class RoomPlannerObjectBase<TTransform, TDimensions, TVisual, TM
 public abstract class RoomPlannerScenePayloadBase<TLayout, TObject, TLayer, TCamera, TLighting, TValidation, TEditorState>
 {
     public int SchemaVersion { get; set; } = 1;
+    public string? EditorVersion { get; set; }
     public string Unit { get; set; } = "meter";
     public TLayout Layout { get; set; } = default!;
     public List<TObject> Objects { get; set; } = [];

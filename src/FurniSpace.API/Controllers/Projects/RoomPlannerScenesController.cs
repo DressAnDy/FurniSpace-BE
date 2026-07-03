@@ -39,7 +39,7 @@ public sealed class RoomPlannerScenesController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [Authorize(Roles = "DESIGNER,ADMIN")]
     [HttpPut("{sceneId:guid}/room-planner")]
     public async Task<IActionResult> SaveScene(
         Guid sceneId,

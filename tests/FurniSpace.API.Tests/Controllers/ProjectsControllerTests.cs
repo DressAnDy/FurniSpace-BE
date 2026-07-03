@@ -108,12 +108,12 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
-    public void UpdateStatus_AllowsSalesAndAdminRoles()
+    public void UpdateStatus_AllowsSalesDesignerAndAdminRoles()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.UpdateStatus));
 
         Assert.NotNull(authorize);
-        Assert.Equal("SALES,ADMIN", authorize.Roles);
+        Assert.Equal("SALES,DESIGNER,ADMIN", authorize.Roles);
     }
 
     [Fact]

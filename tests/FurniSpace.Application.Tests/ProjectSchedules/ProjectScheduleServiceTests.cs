@@ -46,11 +46,61 @@ public sealed class ProjectScheduleServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_ReturnsForbidden_WhenRoleIsNotSalesOrAdmin()
+    public async Task CreateAsync_ReturnsForbidden_WhenRoleCannotCreateSchedules()
     {
         var service = BuildService(new() { Role = "CUSTOMER" });
 
         var result = await service.CreateAsync(Guid.NewGuid(), Guid.NewGuid(), ValidCreateRequest());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ProductionCanCreateDeliverySchedule_WhenAssignedToSchedule()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject();
+        var scheduleRepo = new FakeProjectScheduleRepository();
+        var service = BuildService(new() { Role = "PRODUCTION", ProjectDetail = project, ScheduleRepo = scheduleRepo });
+
+        var result = await service.CreateAsync(
+            project.ProjectId,
+            productionId,
+            ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, productionId));
+
+        Assert.Equal(201, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectScheduleType.DELIVERY, result.Data.ScheduleType);
+        Assert.Equal(productionId, result.Data.AssignedStaffId);
+        Assert.Equal(1, scheduleRepo.AddCallCount);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ProductionCreatingMeasurement_ReturnsInvalidScheduleType()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject();
+        var service = BuildService(new() { Role = "PRODUCTION", ProjectDetail = project });
+
+        var result = await service.CreateAsync(
+            project.ProjectId,
+            productionId,
+            ValidProductionCreateRequest(ProjectScheduleType.MEASUREMENT, productionId));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.InvalidScheduleType, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ProductionWithoutRelatedWork_ReturnsForbidden()
+    {
+        var project = CreateProject();
+        var service = BuildService(new() { Role = "PRODUCTION", ProjectDetail = project });
+
+        var result = await service.CreateAsync(
+            project.ProjectId,
+            Guid.NewGuid(),
+            ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, Guid.NewGuid()));
 
         Assert.Equal(403, result.Status);
     }
@@ -207,6 +257,37 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(200, result.Status);
     }
 
+    [Fact]
+    public async Task GetListByProjectAsync_ReturnsSuccess_ForAssignedProductionStaff()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject();
+        var scheduleRepo = new FakeProjectScheduleRepository { HasAssignedSchedule = true };
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ProjectDetail = project,
+            ScheduleRepo = scheduleRepo
+        });
+
+        var result = await service.GetListByProjectAsync(project.ProjectId, productionId, new ProjectScheduleListQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(project.ProjectId, scheduleRepo.LastAssignedScheduleProjectId);
+        Assert.Equal(productionId, scheduleRepo.LastAssignedScheduleStaffId);
+    }
+
+    [Fact]
+    public async Task GetListByProjectAsync_ReturnsForbidden_ForUnrelatedProductionStaff()
+    {
+        var project = CreateProject();
+        var service = BuildService(new() { Role = "PRODUCTION", ProjectDetail = project });
+
+        var result = await service.GetListByProjectAsync(project.ProjectId, Guid.NewGuid(), new ProjectScheduleListQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
     // ── SCH-03: GetDetail ───────────────────────────────────────────────────────
 
     [Fact]
@@ -310,6 +391,42 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(ProjectScheduleStatus.PENDING_CONFIRMATION, schedule.Status);
     }
 
+    [Fact]
+    public async Task UpdateAsync_ProductionUpdatesAssignedDeliverySchedule()
+    {
+        var productionId = Guid.NewGuid();
+        var schedule = CreateScheduleEntity(ProjectScheduleStatus.CONFIRMED, scheduleType: ProjectScheduleType.DELIVERY);
+        schedule.AssignedStaffId = productionId;
+        var detail = CreateScheduleDetail(
+            scheduleId: schedule.ScheduleId,
+            assignedStaffId: productionId,
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleType: ProjectScheduleType.DELIVERY);
+        var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
+        var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
+
+        var result = await service.UpdateAsync(schedule.ScheduleId, productionId, new UpdateProjectScheduleRequestDto
+        {
+            Title = "Delivery window updated"
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Delivery window updated", schedule.Title);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ProductionUpdatingMeasurement_ReturnsInvalidScheduleType()
+    {
+        var productionId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(assignedStaffId: productionId, scheduleType: ProjectScheduleType.MEASUREMENT);
+        var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail });
+
+        var result = await service.UpdateAsync(detail.ScheduleId, productionId, new UpdateProjectScheduleRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.InvalidScheduleType, result.ErrorCode);
+    }
+
     // ── SCH-05: UpdateStatus ────────────────────────────────────────────────────
 
     [Fact]
@@ -380,6 +497,48 @@ public sealed class ProjectScheduleServiceTests
             new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.COMPLETED });
 
         Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_ProductionCompletesAssignedDeliverySchedule()
+    {
+        var productionId = Guid.NewGuid();
+        var schedule = CreateScheduleEntity(ProjectScheduleStatus.CONFIRMED, scheduleType: ProjectScheduleType.DELIVERY);
+        schedule.AssignedStaffId = productionId;
+        var detail = CreateScheduleDetail(
+            scheduleId: schedule.ScheduleId,
+            assignedStaffId: productionId,
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleType: ProjectScheduleType.DELIVERY);
+        var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
+        var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
+
+        var result = await service.UpdateStatusAsync(
+            schedule.ScheduleId,
+            productionId,
+            new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.COMPLETED });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectScheduleStatus.COMPLETED, schedule.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_ProductionCompletingOtherSchedule_ReturnsInvalidScheduleType()
+    {
+        var productionId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(
+            assignedStaffId: productionId,
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleType: ProjectScheduleType.OTHER);
+        var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail });
+
+        var result = await service.UpdateStatusAsync(
+            detail.ScheduleId,
+            productionId,
+            new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.COMPLETED });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.InvalidScheduleType, result.ErrorCode);
     }
 
     // ── SCH-06: GetMyAssigned ───────────────────────────────────────────────────
@@ -550,6 +709,18 @@ public sealed class ProjectScheduleServiceTests
         Location = "123 Test St"
     };
 
+    private static CreateProjectScheduleRequestDto ValidProductionCreateRequest(
+        ProjectScheduleType scheduleType,
+        Guid assignedStaffId) => new()
+    {
+        ScheduleType = scheduleType,
+        Title = "Production schedule",
+        AssignedStaffId = assignedStaffId,
+        ScheduledStart = DateTime.UtcNow.AddDays(1),
+        ScheduledEnd = DateTime.UtcNow.AddDays(1).AddHours(2),
+        Location = "Factory"
+    };
+
     private static ProjectDetailReadModel CreateProject(
         Guid? customerId = null,
         Guid? assignedSalesId = null,
@@ -574,7 +745,8 @@ public sealed class ProjectScheduleServiceTests
         Guid? assignedSalesId = null,
         Guid? assignedDesignerId = null,
         Guid? assignedStaffId = null,
-        ProjectScheduleStatus status = ProjectScheduleStatus.PENDING_CONFIRMATION)
+        ProjectScheduleStatus status = ProjectScheduleStatus.PENDING_CONFIRMATION,
+        ProjectScheduleType scheduleType = ProjectScheduleType.MEASUREMENT)
     {
         return new ProjectScheduleDetailReadModel
         {
@@ -585,7 +757,7 @@ public sealed class ProjectScheduleServiceTests
             AssignedSalesId = assignedSalesId,
             AssignedDesignerId = assignedDesignerId,
             AssignedStaffId = assignedStaffId,
-            ScheduleType = ProjectScheduleType.MEASUREMENT,
+            ScheduleType = scheduleType,
             Title = "Test Schedule",
             ScheduledStart = DateTime.UtcNow.AddDays(1),
             Status = status
@@ -594,13 +766,14 @@ public sealed class ProjectScheduleServiceTests
 
     private static ProjectSchedule CreateScheduleEntity(
         ProjectScheduleStatus status = ProjectScheduleStatus.PENDING_CONFIRMATION,
-        DateTime? scheduledStart = null)
+        DateTime? scheduledStart = null,
+        ProjectScheduleType scheduleType = ProjectScheduleType.MEASUREMENT)
     {
         return new ProjectSchedule
         {
             ScheduleId = Guid.NewGuid(),
             ProjectId = Guid.NewGuid(),
-            ScheduleType = ProjectScheduleType.MEASUREMENT,
+            ScheduleType = scheduleType,
             Title = "Test",
             ScheduledStart = scheduledStart ?? DateTime.UtcNow.AddDays(1),
             Status = status,
@@ -651,9 +824,13 @@ public sealed class ProjectScheduleServiceTests
         }
 
         public int AddCallCount { get; private set; }
+        public int RemoveCallCount { get; private set; }
         public int SaveChangesCallCount { get; private set; }
         public Guid? LastMyAssignedStaffId { get; private set; }
+        public Guid? LastAssignedScheduleProjectId { get; private set; }
+        public Guid? LastAssignedScheduleStaffId { get; private set; }
         public bool HasCompletedMeasurement { get; set; }
+        public bool HasAssignedSchedule { get; set; }
 
         public Task<bool> HasCompletedMeasurementScheduleAsync(
             Guid projectId,
@@ -665,6 +842,17 @@ public sealed class ProjectScheduleServiceTests
             ProjectScheduleStatus? status,
             CancellationToken cancellationToken = default)
             => Task.FromResult(HasCompletedMeasurement && status == ProjectScheduleStatus.COMPLETED);
+
+        public Task<bool> HasAssignedScheduleAsync(
+            Guid projectId,
+            Guid staffId,
+            CancellationToken cancellationToken = default)
+        {
+            LastAssignedScheduleProjectId = projectId;
+            LastAssignedScheduleStaffId = staffId;
+            return Task.FromResult(HasAssignedSchedule ||
+                _entities.Any(schedule => schedule.ProjectId == projectId && schedule.AssignedStaffId == staffId));
+        }
 
         public Task<ProjectScheduleDetailReadModel?> GetDetailAsync(
             Guid scheduleId, CancellationToken cancellationToken = default)
@@ -702,7 +890,11 @@ public sealed class ProjectScheduleServiceTests
         }
 
         public void Update(ProjectSchedule entity) { }
-        public void Remove(ProjectSchedule entity) => _entities.Remove(entity);
+        public void Remove(ProjectSchedule entity)
+        {
+            RemoveCallCount++;
+            _entities.Remove(entity);
+        }
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {

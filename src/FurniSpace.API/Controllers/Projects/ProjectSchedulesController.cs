@@ -21,8 +21,9 @@ public sealed class ProjectSchedulesController : BaseApiController
         _schedules = schedules;
     }
 
-    [Authorize(Roles = "SALES,ADMIN")]
+    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
     [HttpPost("{projectId:guid}")]
+    [HttpPost("/projects/{projectId:guid}/schedules")]
     public async Task<IActionResult> Create(
         Guid projectId,
         [FromBody] CreateProjectScheduleRequestDto request,
@@ -37,10 +38,11 @@ public sealed class ProjectSchedulesController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [HttpGet]
+    [HttpGet("/projects/{projectId:guid}/schedules")]
     public async Task<IActionResult> GetList(
-        [FromQuery] Guid projectId,
+        Guid projectId,
         [FromQuery] ProjectScheduleListQueryDto query,
         CancellationToken cancellationToken = default)
     {
@@ -58,7 +60,7 @@ public sealed class ProjectSchedulesController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
+    [Authorize(Roles = "SALES,DESIGNER,PRODUCTION,ADMIN")]
     [HttpGet("my-assigned")]
     public async Task<IActionResult> GetMyAssigned(
         [FromQuery] ProjectScheduleType? scheduleType = null,
@@ -90,7 +92,7 @@ public sealed class ProjectSchedulesController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [HttpGet("{scheduleId:guid}")]
     public async Task<IActionResult> GetDetail(
         Guid scheduleId,
@@ -105,7 +107,7 @@ public sealed class ProjectSchedulesController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,ADMIN")]
+    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
     [HttpPatch("{scheduleId:guid}")]
     public async Task<IActionResult> Update(
         Guid scheduleId,
@@ -121,7 +123,7 @@ public sealed class ProjectSchedulesController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [Authorize(Roles = "CUSTOMER,SALES,PRODUCTION,ADMIN")]
     [HttpPatch("{scheduleId:guid}/status")]
     public async Task<IActionResult> UpdateStatus(
         Guid scheduleId,
@@ -134,6 +136,21 @@ public sealed class ProjectSchedulesController : BaseApiController
         }
 
         var result = await _schedules.UpdateStatusAsync(scheduleId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [HttpDelete("{scheduleId:guid}")]
+    public async Task<IActionResult> Delete(
+        Guid scheduleId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _schedules.DeleteAsync(scheduleId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 

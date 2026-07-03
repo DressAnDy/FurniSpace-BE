@@ -185,7 +185,7 @@ public sealed class ProjectsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,ADMIN")]
+    [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
     [HttpPatch("{projectId:guid}/status")]
     public async Task<IActionResult> UpdateStatus(
         Guid projectId,

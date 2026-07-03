@@ -19,6 +19,7 @@ public sealed class ProjectAreaService : IProjectAreaService
     private const string SalesRole = "SALES";
     private const string ProjectNotFoundMessage = "Project not found.";
     private const string ProjectAreaNotFoundMessage = "Project area not found.";
+    private const string ProjectAreaIdRequiredMessage = "Project area id is required.";
 
     private readonly IProjectAreaRepository _areas;
     private readonly IProjectRepository _projects;
@@ -133,31 +134,14 @@ public sealed class ProjectAreaService : IProjectAreaService
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
-        if (currentUserId == Guid.Empty)
+        var context = await ResolveAreaReadContextAsync(projectAreaId, currentUserId, cancellationToken);
+        if (context.Error is not null)
         {
-            return ServiceResult<ProjectAreaDto>.Unauthorized();
-        }
-
-        if (projectAreaId == Guid.Empty)
-        {
-            return ServiceResult<ProjectAreaDto>.BadRequest("Project area id is required.");
-        }
-
-        var detail = await _areas.GetDetailAsync(projectAreaId, cancellationToken);
-        if (detail is null)
-        {
-            return ServiceResult<ProjectAreaDto>.Failure(
-                Error.NotFound(ProjectAreaErrorCodes.ProjectAreaNotFound, ProjectAreaNotFoundMessage));
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanViewProjectArea(detail, currentUserId, role))
-        {
-            return ServiceResult<ProjectAreaDto>.Forbidden("You do not have access to this project area.");
+            return context.Error;
         }
 
         return ServiceResult<ProjectAreaDto>.Success(
-            detail.Adapt<ProjectAreaDto>(),
+            context.Detail!.Adapt<ProjectAreaDto>(),
             "Project area retrieved successfully.");
     }
 
@@ -167,28 +151,17 @@ public sealed class ProjectAreaService : IProjectAreaService
         UpdateProjectAreaRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (currentUserId == Guid.Empty)
+        var context = await ResolveAreaManageContextAsync(
+            projectAreaId,
+            currentUserId,
+            "You do not have access to update this project area.",
+            cancellationToken);
+        if (context.Error is not null)
         {
-            return ServiceResult<ProjectAreaDto>.Unauthorized();
+            return context.Error;
         }
 
-        if (projectAreaId == Guid.Empty)
-        {
-            return ServiceResult<ProjectAreaDto>.BadRequest("Project area id is required.");
-        }
-
-        var detail = await _areas.GetDetailAsync(projectAreaId, cancellationToken);
-        if (detail is null)
-        {
-            return ServiceResult<ProjectAreaDto>.Failure(
-                Error.NotFound(ProjectAreaErrorCodes.ProjectAreaNotFound, ProjectAreaNotFoundMessage));
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageProjectArea(detail, currentUserId, role))
-        {
-            return ServiceResult<ProjectAreaDto>.Forbidden("You do not have access to update this project area.");
-        }
+        var detail = context.Detail!;
 
         var dimensionError = ValidateDimensions(
             request.AreaSqm,
@@ -216,8 +189,7 @@ public sealed class ProjectAreaService : IProjectAreaService
         var area = await _areas.GetByIdAsync(projectAreaId, cancellationToken);
         if (area is null)
         {
-            return ServiceResult<ProjectAreaDto>.Failure(
-                Error.NotFound(ProjectAreaErrorCodes.ProjectAreaNotFound, ProjectAreaNotFoundMessage));
+            return ProjectAreaNotFoundResult();
         }
 
         request.Adapt(area);
@@ -236,28 +208,17 @@ public sealed class ProjectAreaService : IProjectAreaService
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
-        if (currentUserId == Guid.Empty)
+        var context = await ResolveAreaManageContextAsync(
+            projectAreaId,
+            currentUserId,
+            "You do not have access to cancel this project area.",
+            cancellationToken);
+        if (context.Error is not null)
         {
-            return ServiceResult<ProjectAreaDto>.Unauthorized();
+            return context.Error;
         }
 
-        if (projectAreaId == Guid.Empty)
-        {
-            return ServiceResult<ProjectAreaDto>.BadRequest("Project area id is required.");
-        }
-
-        var detail = await _areas.GetDetailAsync(projectAreaId, cancellationToken);
-        if (detail is null)
-        {
-            return ServiceResult<ProjectAreaDto>.Failure(
-                Error.NotFound(ProjectAreaErrorCodes.ProjectAreaNotFound, ProjectAreaNotFoundMessage));
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageProjectArea(detail, currentUserId, role))
-        {
-            return ServiceResult<ProjectAreaDto>.Forbidden("You do not have access to cancel this project area.");
-        }
+        var detail = context.Detail!;
 
         if (detail.Status == ProjectAreaStatus.CANCELLED)
         {
@@ -277,8 +238,7 @@ public sealed class ProjectAreaService : IProjectAreaService
         var area = await _areas.GetByIdAsync(projectAreaId, cancellationToken);
         if (area is null)
         {
-            return ServiceResult<ProjectAreaDto>.Failure(
-                Error.NotFound(ProjectAreaErrorCodes.ProjectAreaNotFound, ProjectAreaNotFoundMessage));
+            return ProjectAreaNotFoundResult();
         }
 
         area.Status = ProjectAreaStatus.CANCELLED;
@@ -292,6 +252,82 @@ public sealed class ProjectAreaService : IProjectAreaService
         return ServiceResult<ProjectAreaDto>.Success(
             detail.Adapt<ProjectAreaDto>(),
             "Project area cancelled successfully.");
+    }
+
+    private async Task<(ProjectAreaDetailReadModel? Detail, ServiceResult<ProjectAreaDto>? Error)> ResolveAreaReadContextAsync(
+        Guid projectAreaId,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        var authError = ValidateProjectAreaAccessRequest(projectAreaId, currentUserId);
+        if (authError is not null)
+        {
+            return (null, authError);
+        }
+
+        var detail = await _areas.GetDetailAsync(projectAreaId, cancellationToken);
+        if (detail is null)
+        {
+            return (null, ProjectAreaNotFoundResult());
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanViewProjectArea(detail, currentUserId, role))
+        {
+            return (null, ServiceResult<ProjectAreaDto>.Forbidden("You do not have access to this project area."));
+        }
+
+        return (detail, null);
+    }
+
+    private async Task<(ProjectAreaDetailReadModel? Detail, ServiceResult<ProjectAreaDto>? Error)> ResolveAreaManageContextAsync(
+        Guid projectAreaId,
+        Guid currentUserId,
+        string forbiddenMessage,
+        CancellationToken cancellationToken)
+    {
+        var authError = ValidateProjectAreaAccessRequest(projectAreaId, currentUserId);
+        if (authError is not null)
+        {
+            return (null, authError);
+        }
+
+        var detail = await _areas.GetDetailAsync(projectAreaId, cancellationToken);
+        if (detail is null)
+        {
+            return (null, ProjectAreaNotFoundResult());
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanManageProjectArea(detail, currentUserId, role))
+        {
+            return (null, ServiceResult<ProjectAreaDto>.Forbidden(forbiddenMessage));
+        }
+
+        return (detail, null);
+    }
+
+    private static ServiceResult<ProjectAreaDto>? ValidateProjectAreaAccessRequest(
+        Guid projectAreaId,
+        Guid currentUserId)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectAreaDto>.Unauthorized();
+        }
+
+        if (projectAreaId == Guid.Empty)
+        {
+            return ServiceResult<ProjectAreaDto>.BadRequest(ProjectAreaIdRequiredMessage);
+        }
+
+        return null;
+    }
+
+    private static ServiceResult<ProjectAreaDto> ProjectAreaNotFoundResult()
+    {
+        return ServiceResult<ProjectAreaDto>.Failure(
+            Error.NotFound(ProjectAreaErrorCodes.ProjectAreaNotFound, ProjectAreaNotFoundMessage));
     }
 
     private static ServiceResult<ProjectAreaDto>? ValidateCreateRequest(CreateProjectAreaRequestDto request)
@@ -365,22 +401,10 @@ public sealed class ProjectAreaService : IProjectAreaService
         Guid currentUserId,
         string? roleName)
     {
-        if (IsAdmin(roleName))
-        {
-            return true;
-        }
-
-        if (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase))
-        {
-            return project.AssignedSalesId == currentUserId;
-        }
-
-        if (string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase))
-        {
-            return project.AssignedDesignerId == currentUserId;
-        }
-
-        return false;
+        return CanManageStaffAssignment(
+            ToStaffAssignment(project),
+            currentUserId,
+            roleName);
     }
 
     private static bool CanManageProjectArea(
@@ -388,13 +412,8 @@ public sealed class ProjectAreaService : IProjectAreaService
         Guid currentUserId,
         string? roleName)
     {
-        return CanManageProjectAreas(
-            new ProjectDetailReadModel
-            {
-                ProjectId = area.ProjectId,
-                AssignedSalesId = area.AssignedSalesId,
-                AssignedDesignerId = area.AssignedDesignerId
-            },
+        return CanManageStaffAssignment(
+            ToStaffAssignment(area),
             currentUserId,
             roleName);
     }
@@ -404,36 +423,48 @@ public sealed class ProjectAreaService : IProjectAreaService
         Guid currentUserId,
         string? roleName)
     {
+        return CanViewParticipantAccess(
+            ToParticipantAccess(project),
+            currentUserId,
+            roleName);
+    }
+
+    private static bool CanViewProjectArea(
+        ProjectAreaDetailReadModel area,
+        Guid currentUserId,
+        string? roleName)
+    {
+        return CanViewParticipantAccess(
+            ToParticipantAccess(area),
+            currentUserId,
+            roleName);
+    }
+
+    private static bool CanManageStaffAssignment(
+        ProjectStaffAssignment assignment,
+        Guid currentUserId,
+        string? roleName)
+    {
         if (IsAdmin(roleName))
         {
             return true;
         }
 
-        if (IsCustomer(roleName))
-        {
-            return project.CustomerId == currentUserId;
-        }
-
         if (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase))
         {
-            if (!project.AssignedSalesId.HasValue && !project.AssignedDesignerId.HasValue)
-            {
-                return true;
-            }
-
-            return project.AssignedSalesId == currentUserId;
+            return assignment.AssignedSalesId == currentUserId;
         }
 
         if (string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase))
         {
-            return project.AssignedDesignerId == currentUserId;
+            return assignment.AssignedDesignerId == currentUserId;
         }
 
         return false;
     }
 
-    private static bool CanViewProjectArea(
-        ProjectAreaDetailReadModel area,
+    private static bool CanViewParticipantAccess(
+        ProjectParticipantAccess access,
         Guid currentUserId,
         string? roleName)
     {
@@ -444,25 +475,51 @@ public sealed class ProjectAreaService : IProjectAreaService
 
         if (IsCustomer(roleName))
         {
-            return area.CustomerId == currentUserId;
+            return access.CustomerId == currentUserId;
         }
 
         if (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase))
         {
-            if (!area.AssignedSalesId.HasValue && !area.AssignedDesignerId.HasValue)
+            if (!access.AssignedSalesId.HasValue && !access.AssignedDesignerId.HasValue)
             {
                 return true;
             }
 
-            return area.AssignedSalesId == currentUserId;
+            return access.AssignedSalesId == currentUserId;
         }
 
         if (string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase))
         {
-            return area.AssignedDesignerId == currentUserId;
+            return access.AssignedDesignerId == currentUserId;
         }
 
         return false;
+    }
+
+    private static ProjectStaffAssignment ToStaffAssignment(ProjectDetailReadModel project)
+    {
+        return new ProjectStaffAssignment(project.AssignedSalesId, project.AssignedDesignerId);
+    }
+
+    private static ProjectStaffAssignment ToStaffAssignment(ProjectAreaDetailReadModel area)
+    {
+        return new ProjectStaffAssignment(area.AssignedSalesId, area.AssignedDesignerId);
+    }
+
+    private static ProjectParticipantAccess ToParticipantAccess(ProjectDetailReadModel project)
+    {
+        return new ProjectParticipantAccess(
+            project.CustomerId,
+            project.AssignedSalesId,
+            project.AssignedDesignerId);
+    }
+
+    private static ProjectParticipantAccess ToParticipantAccess(ProjectAreaDetailReadModel area)
+    {
+        return new ProjectParticipantAccess(
+            area.CustomerId,
+            area.AssignedSalesId,
+            area.AssignedDesignerId);
     }
 
     private static bool IsNegative(decimal? value)
@@ -480,4 +537,10 @@ public sealed class ProjectAreaService : IProjectAreaService
         return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
     }
 
+    private readonly record struct ProjectStaffAssignment(Guid? AssignedSalesId, Guid? AssignedDesignerId);
+
+    private readonly record struct ProjectParticipantAccess(
+        Guid CustomerId,
+        Guid? AssignedSalesId,
+        Guid? AssignedDesignerId);
 }

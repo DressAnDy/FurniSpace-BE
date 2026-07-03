@@ -273,6 +273,7 @@ public sealed class ProjectScheduleServiceTests
         var result = await service.GetListByProjectAsync(project.ProjectId, productionId, new ProjectScheduleListQueryDto());
 
         Assert.Equal(200, result.Status);
+        Assert.True(await scheduleRepo.HasAssignedScheduleAsync(project.ProjectId, productionId));
         Assert.Equal(project.ProjectId, scheduleRepo.LastAssignedScheduleProjectId);
         Assert.Equal(productionId, scheduleRepo.LastAssignedScheduleStaffId);
     }
@@ -334,6 +335,17 @@ public sealed class ProjectScheduleServiceTests
         var result = await service.GetDetailAsync(detail.ScheduleId, staffId);
 
         Assert.Equal(200, result.Status);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_ReturnsForbidden_WhenUnrelatedProductionStaffAccesses()
+    {
+        var detail = CreateScheduleDetail(assignedStaffId: Guid.NewGuid());
+        var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail });
+
+        var result = await service.GetDetailAsync(detail.ScheduleId, Guid.NewGuid());
+
+        Assert.Equal(403, result.Status);
     }
 
     // ── SCH-04: Update ──────────────────────────────────────────────────────────
@@ -848,6 +860,7 @@ public sealed class ProjectScheduleServiceTests
             Guid staffId,
             CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             LastAssignedScheduleProjectId = projectId;
             LastAssignedScheduleStaffId = staffId;
             return Task.FromResult(HasAssignedSchedule ||

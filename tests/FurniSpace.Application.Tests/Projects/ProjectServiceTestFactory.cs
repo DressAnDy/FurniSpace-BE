@@ -65,6 +65,7 @@ internal sealed class ProjectServiceTransitionFakes
 internal sealed class FakeProjectScheduleRepository : IProjectScheduleRepository
 {
     public bool HasCompletedMeasurement { get; set; }
+    public bool HasAssignedSchedule { get; set; }
 
     public Task<bool> HasCompletedMeasurementScheduleAsync(
         Guid projectId,
@@ -76,6 +77,12 @@ internal sealed class FakeProjectScheduleRepository : IProjectScheduleRepository
         ProjectScheduleStatus? status,
         CancellationToken cancellationToken = default)
         => Task.FromResult(HasCompletedMeasurement && status == ProjectScheduleStatus.COMPLETED);
+
+    public Task<bool> HasAssignedScheduleAsync(
+        Guid projectId,
+        Guid staffId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(HasAssignedSchedule);
 
     public Task<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleDetailReadModel?> GetDetailAsync(
         Guid scheduleId,
@@ -286,6 +293,11 @@ internal sealed class FakeProposalRepository : IProposalRepository
     public Task<int> CountScenesAsync(Guid proposalId, CancellationToken cancellationToken = default)
         => Task.FromResult(0);
 
+    public Task<int> CountScenesAsync(
+        Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
+
     public Task AddSceneAsync(ProposalScene scene, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
@@ -303,11 +315,6 @@ internal sealed class FakeProposalRepository : IProposalRepository
         Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
         CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalSceneReadModel>>([]);
-
-    public Task<int> CountScenesAsync(
-        Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult(0);
 
     public Task<Infrastructure.ReadModels.Proposals.ProposalSceneDetailReadModel?> GetSceneDetailAsync(
         Guid sceneId,

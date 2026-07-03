@@ -749,7 +749,7 @@ public sealed class ProjectServiceTests
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
-        var project = CreateQualifiedProject(projectId, assignedSalesId: Guid.NewGuid());
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
         project.AssignedDesignerId = designerId;
         project.Status = ProjectStatus.SPACE_VERIFIED;
         var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
@@ -772,7 +772,7 @@ public sealed class ProjectServiceTests
     public async Task UpdateStatusAsync_WithUnassignedDesigner_ReturnsForbidden()
     {
         var projectId = Guid.NewGuid();
-        var project = CreateQualifiedProject(projectId, assignedSalesId: Guid.NewGuid());
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
         project.AssignedDesignerId = Guid.NewGuid();
         project.Status = ProjectStatus.SPACE_VERIFIED;
         var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
@@ -793,7 +793,7 @@ public sealed class ProjectServiceTests
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
-        var project = CreateQualifiedProject(projectId, assignedSalesId: Guid.NewGuid());
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
         project.AssignedDesignerId = designerId;
         project.Status = ProjectStatus.PROPOSAL_DRAFTING;
         var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
@@ -802,6 +802,27 @@ public sealed class ProjectServiceTests
         var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
         {
             Status = ProjectStatus.QUOTATION_SENT
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatusTransition, result.ErrorCode);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToInProduction_ReturnsInvalidTransition()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.PROPOSAL_DRAFTING;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.IN_PRODUCTION
         });
 
         Assert.Equal(400, result.Status);

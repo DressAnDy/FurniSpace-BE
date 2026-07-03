@@ -20,8 +20,21 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private const string SalesRole = "SALES";
     private const string CustomerRole = "CUSTOMER";
     private const string DesignerRole = "DESIGNER";
+    private const string ProductionRole = "PRODUCTION";
     private const string ScheduleNotFoundMessage = "Schedule not found.";
     private const string ProjectScheduleReferenceType = "PROJECT_SCHEDULE";
+    private static readonly ProjectScheduleType[] ProductionManageableScheduleTypes =
+    [
+        ProjectScheduleType.DELIVERY,
+        ProjectScheduleType.HANDOVER,
+        ProjectScheduleType.OTHER
+    ];
+
+    private static readonly ProjectScheduleType[] ProductionStatusScheduleTypes =
+    [
+        ProjectScheduleType.DELIVERY,
+        ProjectScheduleType.HANDOVER
+    ];
 
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectRepository _projects;
@@ -63,7 +76,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role is not (AdminRole or SalesRole))
+        if (!CanCreateSchedules(role))
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden("Only assigned Sales or Admin can create schedules.");
         }
@@ -77,6 +90,19 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (role == SalesRole && project.AssignedSalesId != currentUserId)
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden("You are not the assigned Sales for this project.");
+        }
+
+        if (IsProduction(role))
+        {
+            var productionAccessError = await ValidateProductionCreatePermissionAsync(
+                projectId,
+                currentUserId,
+                request,
+                cancellationToken);
+            if (productionAccessError is not null)
+            {
+                return productionAccessError;
+            }
         }
 
         var now = DateTime.UtcNow;
@@ -159,7 +185,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ServiceResult<ProjectScheduleListResponseDto>.NotFound("Project not found.");
         }
 
-        if (!CanViewProjectSchedules(role, project, currentUserId))
+        if (!await CanViewProjectSchedulesAsync(role, project, currentUserId, cancellationToken))
         {
             return ServiceResult<ProjectScheduleListResponseDto>.Forbidden("You do not have access to this project's schedules.");
         }
@@ -222,7 +248,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        var authorizationError = ValidateUpdatePermission(role, detail, currentUserId);
+        var authorizationError = ValidateUpdatePermission(role, detail, currentUserId, request);
         if (authorizationError is not null)
         {
             return authorizationError;
@@ -360,6 +386,48 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             $"Schedule status updated to {newStatus}.");
     }
 
+    public async Task<ServiceResult<ProjectScheduleDto>> DeleteAsync(
+        Guid scheduleId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectScheduleDto>.Unauthorized();
+        }
+
+        var detail = await _schedules.GetDetailAsync(scheduleId, cancellationToken);
+        if (detail is null)
+        {
+            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        var permissionError = ValidateDeletePermission(role, detail, currentUserId);
+        if (permissionError is not null)
+        {
+            return permissionError;
+        }
+
+        var schedule = await _schedules.GetByIdAsync(scheduleId, cancellationToken);
+        if (schedule is null)
+        {
+            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
+        }
+
+        await ExecuteInTransactionAsync(
+            ct =>
+            {
+                _schedules.Remove(schedule);
+                return _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
+
+        return ServiceResult<ProjectScheduleDto>.Success(
+            schedule.Adapt<ProjectScheduleDto>(),
+            "Project schedule deleted successfully.");
+    }
+
     public async Task<ServiceResult<ProjectScheduleListResponseDto>> GetMyAssignedAsync(
         Guid currentUserId,
         ProjectScheduleListQueryDto query,
@@ -390,10 +458,11 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         });
     }
 
-    private static bool CanViewProjectSchedules(
+    private async Task<bool> CanViewProjectSchedulesAsync(
         string? role,
         FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
-        Guid currentUserId)
+        Guid currentUserId,
+        CancellationToken cancellationToken)
     {
         return role switch
         {
@@ -401,6 +470,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             CustomerRole => project.CustomerId == currentUserId,
             SalesRole => project.AssignedSalesId == currentUserId,
             DesignerRole => project.AssignedDesignerId == currentUserId,
+            ProductionRole => await _schedules.HasAssignedScheduleAsync(project.ProjectId, currentUserId, cancellationToken),
             _ => false
         };
     }
@@ -416,6 +486,32 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (schedule.AssignedDesignerId == currentUserId) return true;
         if (schedule.AssignedStaffId == currentUserId) return true;
         return false;
+    }
+
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateProductionCreatePermissionAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CreateProjectScheduleRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsProductionManageableType(request.ScheduleType))
+        {
+            return InvalidScheduleTypeResult("Production staff can only create DELIVERY, HANDOVER, or OTHER schedules.");
+        }
+
+        if (request.AssignedStaffId == currentUserId)
+        {
+            return null;
+        }
+
+        var hasRelatedSchedule = await _schedules.HasAssignedScheduleAsync(
+            projectId,
+            currentUserId,
+            cancellationToken);
+        return hasRelatedSchedule
+            ? null
+            : ServiceResult<ProjectScheduleDto>.Forbidden(
+                "Production staff can only create schedules for assigned production work.");
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateStatusTransition(
@@ -482,8 +578,14 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private static ServiceResult<ProjectScheduleDto>? ValidateUpdatePermission(
         string? role,
         ProjectScheduleDetailReadModel detail,
-        Guid currentUserId)
+        Guid currentUserId,
+        UpdateProjectScheduleRequestDto request)
     {
+        if (IsProduction(role))
+        {
+            return ValidateProductionUpdatePermission(detail, currentUserId, request);
+        }
+
         if (role != AdminRole && !(role == SalesRole && detail.AssignedSalesId == currentUserId))
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden("Only assigned Sales or Admin can update schedules.");
@@ -496,6 +598,59 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         return null;
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateProductionUpdatePermission(
+        ProjectScheduleDetailReadModel detail,
+        Guid currentUserId,
+        UpdateProjectScheduleRequestDto request)
+    {
+        if (!IsProductionManageableType(detail.ScheduleType))
+        {
+            return InvalidScheduleTypeResult("Production staff can only update DELIVERY, HANDOVER, or OTHER schedules.");
+        }
+
+        if (detail.AssignedStaffId != currentUserId)
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden("You are not assigned to this production schedule.");
+        }
+
+        if (request.AssignedStaffId.HasValue && request.AssignedStaffId.Value != currentUserId)
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden("Production staff cannot reassign schedules.");
+        }
+
+        if (detail.Status is ProjectScheduleStatus.COMPLETED or ProjectScheduleStatus.CANCELLED)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Completed or cancelled schedules cannot be updated.");
+        }
+
+        return null;
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateDeletePermission(
+        string? role,
+        ProjectScheduleDetailReadModel detail,
+        Guid currentUserId)
+    {
+        if (role == AdminRole || role == SalesRole && detail.AssignedSalesId == currentUserId)
+        {
+            return null;
+        }
+
+        if (IsProduction(role))
+        {
+            if (!IsProductionManageableType(detail.ScheduleType))
+            {
+                return InvalidScheduleTypeResult("Production staff can only delete DELIVERY, HANDOVER, or OTHER schedules.");
+            }
+
+            return detail.AssignedStaffId == currentUserId
+                ? null
+                : ServiceResult<ProjectScheduleDto>.Forbidden("You are not assigned to this production schedule.");
+        }
+
+        return ServiceResult<ProjectScheduleDto>.Forbidden("You are not authorized to delete this schedule.");
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateUpdateTime(
@@ -582,8 +737,21 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         {
             return ServiceResult<ProjectScheduleDto>.Failure(
                 Error.Validation(
-                    ProjectScheduleErrorCodes.InvalidScheduleStatus,
+                ProjectScheduleErrorCodes.InvalidScheduleStatus,
                     "Only CONFIRMED schedules can be completed."));
+        }
+
+        if (IsProduction(role))
+        {
+            if (!IsProductionStatusType(detail.ScheduleType))
+            {
+                return InvalidScheduleTypeResult("Production staff can only complete DELIVERY or HANDOVER schedules.");
+            }
+
+            return detail.AssignedStaffId == currentUserId
+                ? null
+                : ServiceResult<ProjectScheduleDto>.Forbidden(
+                    "Only assigned production staff can complete this schedule.");
         }
 
         var canComplete = role == AdminRole
@@ -613,6 +781,16 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         var canCancel = role == AdminRole
             || role == SalesRole && detail.AssignedSalesId == currentUserId
             || role == CustomerRole && detail.CustomerId == currentUserId;
+        if (IsProduction(role))
+        {
+            if (!IsProductionStatusType(detail.ScheduleType))
+            {
+                return InvalidScheduleTypeResult("Production staff can only cancel DELIVERY or HANDOVER schedules.");
+            }
+
+            canCancel = detail.AssignedStaffId == currentUserId;
+        }
+
         if (!canCancel)
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden(
@@ -781,6 +959,32 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (detail.AssignedDesignerId.HasValue) receivers.Add(detail.AssignedDesignerId.Value);
         if (schedule.AssignedStaffId.HasValue) receivers.Add(schedule.AssignedStaffId.Value);
         return [.. receivers];
+    }
+
+    private static bool CanCreateSchedules(string? role)
+    {
+        return role is AdminRole or SalesRole or ProductionRole;
+    }
+
+    private static bool IsProduction(string? role)
+    {
+        return string.Equals(role, ProductionRole, StringComparison.Ordinal);
+    }
+
+    private static bool IsProductionManageableType(ProjectScheduleType? scheduleType)
+    {
+        return scheduleType.HasValue && ProductionManageableScheduleTypes.Contains(scheduleType.Value);
+    }
+
+    private static bool IsProductionStatusType(ProjectScheduleType? scheduleType)
+    {
+        return scheduleType.HasValue && ProductionStatusScheduleTypes.Contains(scheduleType.Value);
+    }
+
+    private static ServiceResult<ProjectScheduleDto> InvalidScheduleTypeResult(string message)
+    {
+        return ServiceResult<ProjectScheduleDto>.Failure(
+            Error.Validation(ProjectScheduleErrorCodes.InvalidScheduleType, message));
     }
 
     private async Task ExecuteInTransactionAsync(

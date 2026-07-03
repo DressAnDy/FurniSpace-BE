@@ -1755,6 +1755,12 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("numeric(10,2)")
                         .HasColumnName("height");
 
+                    b.Property<bool?>("IsCustomized")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_customized");
+
                     b.Property<string>("ItemName")
                         .IsRequired()
                         .HasColumnType("varchar(150)")
@@ -1794,6 +1800,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("scene_id");
 
+                    b.Property<string>("SceneObjectId")
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("scene_object_id");
+
                     b.Property<decimal?>("TotalPriceSnapshot")
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("total_price_snapshot");
@@ -1820,7 +1830,8 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasIndex("ProposalId");
 
-                    b.HasIndex("SceneId");
+                    b.HasIndex("SceneId", "SceneObjectId")
+                        .HasDatabaseName("idx_proposal_items_scene_object");
 
                     b.ToTable("proposal_items", (string)null);
                 });

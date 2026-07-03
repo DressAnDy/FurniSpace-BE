@@ -553,6 +553,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProposalItemId).HasColumnName(ProposalItemIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.SceneId).HasColumnName("scene_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.SceneObjectId).HasColumnName("scene_object_id").HasColumnType("character varying(100)");
             entity.Property(e => e.ProjectAreaId).HasColumnName(ProjectAreaIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ApprovedProductVersionId).HasColumnName("approved_product_version_id").HasColumnType(UuidColumnType);
@@ -564,6 +565,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Depth).HasColumnName("depth").HasColumnType(Decimal10ColumnType);
             entity.Property(e => e.Material).HasColumnName("material").HasColumnType(Varchar100ColumnType);
             entity.Property(e => e.Color).HasColumnName("color").HasColumnType(Varchar100ColumnType);
+            entity.Property(e => e.IsCustomized).HasColumnName("is_customized").HasColumnType(BooleanColumnType).HasDefaultValue(false);
             entity.Property(e => e.UnitPriceSnapshot).HasColumnName("unit_price_snapshot").HasColumnType(Decimal12ColumnType);
             entity.Property(e => e.TotalPriceSnapshot).HasColumnName("total_price_snapshot").HasColumnType(Decimal12ColumnType);
             entity.Property(e => e.Note).HasColumnName(NoteColumnName).HasColumnType(TextColumnType);
@@ -574,6 +576,7 @@ public class AppDbContext : DbContext
             entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ApprovedProductVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.SceneId, e.SceneObjectId }).HasDatabaseName("idx_proposal_items_scene_object");
         });
     }
 

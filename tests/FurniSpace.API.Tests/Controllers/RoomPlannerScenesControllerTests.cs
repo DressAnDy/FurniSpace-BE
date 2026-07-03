@@ -31,7 +31,7 @@ public sealed class RoomPlannerScenesControllerTests
 
     [Theory]
     [InlineData(nameof(RoomPlannerScenesController.GetScene), "CUSTOMER,DESIGNER,SALES,ADMIN")]
-    [InlineData(nameof(RoomPlannerScenesController.SaveScene), "DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(RoomPlannerScenesController.SaveScene), "DESIGNER,ADMIN")]
     public void Actions_UseExpectedRoles(string actionName, string expectedRoles)
     {
         var method = typeof(RoomPlannerScenesController)

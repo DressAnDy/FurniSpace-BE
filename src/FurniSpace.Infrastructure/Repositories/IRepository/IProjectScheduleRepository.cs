@@ -29,4 +29,9 @@ public interface IProjectScheduleRepository : IGenericRepository<ProjectSchedule
         Guid projectId,
         ProjectScheduleStatus? status,
         CancellationToken cancellationToken = default);
+
+    Task<bool> HasAssignedScheduleAsync(
+        Guid projectId,
+        Guid staffId,
+        CancellationToken cancellationToken = default);
 }

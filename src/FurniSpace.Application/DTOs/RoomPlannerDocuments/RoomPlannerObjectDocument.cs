@@ -12,6 +12,9 @@ public sealed class RoomPlannerObjectDocument
     public RoomPlannerObjectDocument()
     {
         Transform = new RoomPlannerTransformDocument();
+        Placement = new RoomPlannerPlacementDocument();
         DimensionsSnapshot = new RoomPlannerDimensionsSnapshotDocument();
     }
+
+    public RoomPlannerPlacementDocument Placement { get; set; }
 }

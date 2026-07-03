@@ -499,16 +499,7 @@ public sealed class ProposalServiceTests
                 AssignedDesignerId = designerId
             });
         var productVersions = new FakeProductVersionRepository();
-        productVersions.ProductVersions.Add(new ProductVersionDetailReadModel
-        {
-            ProductVersionId = productVersionId,
-            ProductId = Guid.NewGuid(),
-            ProductName = "Cafe Chair",
-            VersionName = "Brown Wood",
-            VersionType = ProductVersionType.STANDARD,
-            EstimatedPrice = 1200000m,
-            Status = ProductStatus.ACTIVE
-        });
+        productVersions.ProductVersions.Add(CreateProductVersion(productVersionId));
         var beginCount = 0;
         var commitCount = 0;
         var roomPlannerScenes = new FakeRoomPlannerSceneRepository();
@@ -552,13 +543,18 @@ public sealed class ProposalServiceTests
         });
 
         Assert.Equal(200, result.Status);
-        Assert.Equal("Proposal items synced from scene successfully.", result.Message);
+        Assert.Equal("Proposal items synced from Room Planner scene successfully.", result.Message);
         Assert.Single(repository.Items);
         Assert.NotNull(result.Data);
         Assert.Single(result.Data.Items);
+        Assert.Equal(1, result.Data.CreatedCount);
+        Assert.Equal(0, result.Data.UpdatedCount);
+        Assert.Equal(0, result.Data.RemovedCount);
+        Assert.Equal("chair-001", repository.Items[0].SceneObjectId);
         Assert.Equal("chair-001", result.Data.Items[0].SceneObjectId);
         Assert.Equal("Cafe Chair", result.Data.Items[0].ProductNameSnapshot);
         Assert.Equal("Brown Wood", result.Data.Items[0].VersionNameSnapshot);
+        Assert.Equal(4800000m, result.Data.Items[0].TotalPriceSnapshot);
         Assert.Equal(4800000m, result.Data.Items[0].SubtotalAmount);
         Assert.Equal(result.Data.Items[0].ProposalItemId, roomPlannerScenes.Scenes[sceneId].Objects[0].ProposalItemId);
         Assert.Equal(1, beginCount);
@@ -567,7 +563,7 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
-    public async Task SyncItemsFromSceneAsync_WithMissingProductVersion_ReturnsProductVersionNotFound()
+    public async Task SyncItemsFromSceneAsync_WithMissingProductVersion_ReturnsInvalidProductVersion()
     {
         var proposalId = Guid.NewGuid();
         var sceneId = Guid.NewGuid();
@@ -583,21 +579,34 @@ public sealed class ProposalServiceTests
                 ProposalStatus = ProposalStatus.DRAFT,
                 AssignedDesignerId = designerId
             });
-        var service = CreateService(repository, new FakeProjectRepository("DESIGNER"));
+        var roomPlannerScenes = new FakeRoomPlannerSceneRepository();
+        roomPlannerScenes.Scenes[sceneId] = CreateRoomPlannerScene(sceneId, "chair-001");
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER"),
+            roomPlannerScenes: roomPlannerScenes);
 
         var result = await service.SyncItemsFromSceneAsync(proposalId, designerId, new SyncProposalItemsFromSceneRequestDto
         {
             SceneId = sceneId,
-            Items = [new SyncProposalItemFromSceneDto { ProductVersionId = Guid.NewGuid(), Quantity = 1 }]
+            Items =
+            [
+                new SyncProposalItemFromSceneDto
+                {
+                    SceneObjectId = "chair-001",
+                    ProductVersionId = Guid.NewGuid(),
+                    Quantity = 1
+                }
+            ]
         });
 
-        Assert.Equal(404, result.Status);
-        Assert.Equal("PRODUCT_VERSION_NOT_FOUND", result.ErrorCode);
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_PRODUCT_VERSION", result.ErrorCode);
         Assert.Empty(repository.Items);
     }
 
     [Fact]
-    public async Task SyncItemsFromSceneAsync_WithSceneOutsideProposal_ReturnsInvalidScene()
+    public async Task SyncItemsFromSceneAsync_WithSceneOutsideProposal_ReturnsProposalSceneNotFound()
     {
         var proposalId = Guid.NewGuid();
         var designerId = Guid.NewGuid();
@@ -608,11 +617,207 @@ public sealed class ProposalServiceTests
         var result = await service.SyncItemsFromSceneAsync(proposalId, designerId, new SyncProposalItemsFromSceneRequestDto
         {
             SceneId = Guid.NewGuid(),
-            Items = [new SyncProposalItemFromSceneDto { ProductVersionId = Guid.NewGuid(), Quantity = 1 }]
+            Items =
+            [
+                new SyncProposalItemFromSceneDto
+                {
+                    SceneObjectId = "chair-001",
+                    ProductVersionId = Guid.NewGuid(),
+                    Quantity = 1
+                }
+            ]
         });
 
+        Assert.Equal(404, result.Status);
+        Assert.Equal("PROPOSAL_SCENE_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SyncItemsFromSceneAsync_WithoutRoomPlannerScene_ReturnsRoomPlannerSceneNotFound()
+    {
+        var proposalId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        var repository = new FakeProposalRepository(
+            context: context,
+            sceneContext: CreateSceneContext(proposalId, sceneId, context.ProjectId, designerId));
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER"),
+            roomPlannerScenes: new FakeRoomPlannerSceneRepository());
+
+        var result = await service.SyncItemsFromSceneAsync(
+            proposalId,
+            designerId,
+            CreateSyncRequest(sceneId, "chair-001", Guid.NewGuid()));
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("ROOM_PLANNER_SCENE_NOT_FOUND", result.ErrorCode);
+        Assert.Empty(repository.Items);
+    }
+
+    [Fact]
+    public async Task SyncItemsFromSceneAsync_WithUnknownSceneObject_ReturnsSceneObjectNotFound()
+    {
+        var proposalId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        var repository = new FakeProposalRepository(
+            context: context,
+            sceneContext: CreateSceneContext(proposalId, sceneId, context.ProjectId, designerId));
+        var roomPlannerScenes = new FakeRoomPlannerSceneRepository();
+        roomPlannerScenes.Scenes[sceneId] = CreateRoomPlannerScene(sceneId, "chair-001", productVersionId);
+        var productVersions = new FakeProductVersionRepository();
+        productVersions.ProductVersions.Add(CreateProductVersion(productVersionId));
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER"),
+            productVersions,
+            roomPlannerScenes: roomPlannerScenes);
+
+        var result = await service.SyncItemsFromSceneAsync(
+            proposalId,
+            designerId,
+            CreateSyncRequest(sceneId, "missing-object", productVersionId));
+
         Assert.Equal(400, result.Status);
-        Assert.Equal("INVALID_SCENE", result.ErrorCode);
+        Assert.Equal("SCENE_OBJECT_NOT_FOUND", result.ErrorCode);
+        Assert.Empty(repository.Items);
+    }
+
+    [Fact]
+    public async Task SyncItemsFromSceneAsync_WithExistingSceneObject_UpdatesProposalItem()
+    {
+        var proposalId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var existingItemId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        var repository = new FakeProposalRepository(
+            context: context,
+            sceneContext: CreateSceneContext(proposalId, sceneId, context.ProjectId, designerId));
+        repository.Items.Add(new ProposalItem
+        {
+            ProposalItemId = existingItemId,
+            ProposalId = proposalId,
+            SceneId = sceneId,
+            SceneObjectId = "chair-001",
+            ProductVersionId = Guid.NewGuid(),
+            ItemName = "Old Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 1m,
+            TotalPriceSnapshot = 1m
+        });
+        var roomPlannerScenes = new FakeRoomPlannerSceneRepository();
+        roomPlannerScenes.Scenes[sceneId] = CreateRoomPlannerScene(sceneId, "chair-001", productVersionId);
+        var productVersions = new FakeProductVersionRepository();
+        productVersions.ProductVersions.Add(CreateProductVersion(productVersionId, estimatedPrice: 200m));
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER"),
+            productVersions,
+            roomPlannerScenes: roomPlannerScenes);
+
+        var result = await service.SyncItemsFromSceneAsync(
+            proposalId,
+            designerId,
+            CreateSyncRequest(sceneId, "chair-001", productVersionId, quantity: 3));
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(repository.Items);
+        Assert.NotNull(result.Data);
+        Assert.Equal(0, result.Data.CreatedCount);
+        Assert.Equal(1, result.Data.UpdatedCount);
+        Assert.Equal(existingItemId, result.Data.Items[0].ProposalItemId);
+        Assert.Equal(600m, result.Data.Items[0].TotalPriceSnapshot);
+        Assert.Equal(existingItemId, roomPlannerScenes.Scenes[sceneId].Objects[0].ProposalItemId);
+    }
+
+    [Fact]
+    public async Task SyncItemsFromSceneAsync_WithRevisionRequestedProposal_AddsProposalItems()
+    {
+        var proposalId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        context.ProposalStatus = ProposalStatus.REVISION_REQUESTED;
+        var repository = new FakeProposalRepository(
+            context: context,
+            sceneContext: CreateSceneContext(proposalId, sceneId, context.ProjectId, designerId));
+        var roomPlannerScenes = new FakeRoomPlannerSceneRepository();
+        roomPlannerScenes.Scenes[sceneId] = CreateRoomPlannerScene(sceneId, "chair-001", productVersionId);
+        var productVersions = new FakeProductVersionRepository();
+        productVersions.ProductVersions.Add(CreateProductVersion(productVersionId));
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER"),
+            productVersions,
+            roomPlannerScenes: roomPlannerScenes);
+
+        var result = await service.SyncItemsFromSceneAsync(
+            proposalId,
+            designerId,
+            CreateSyncRequest(sceneId, "chair-001", productVersionId));
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(repository.Items);
+    }
+
+    [Fact]
+    public async Task SyncItemsFromSceneAsync_WithInvalidQuantity_ReturnsInvalidQuantity()
+    {
+        var service = CreateService(new FakeProposalRepository());
+
+        var result = await service.SyncItemsFromSceneAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            CreateSyncRequest(Guid.NewGuid(), "chair-001", Guid.NewGuid(), quantity: 0));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_QUANTITY", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SyncItemsFromSceneAsync_WithAssignedSales_ReturnsForbidden()
+    {
+        var proposalId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var repository = new FakeProposalRepository(
+            context: CreateProposalContext(proposalId, assignedSalesId: salesId));
+        var service = CreateService(repository, new FakeProjectRepository("SALES"));
+
+        var result = await service.SyncItemsFromSceneAsync(
+            proposalId,
+            salesId,
+            CreateSyncRequest(Guid.NewGuid(), "chair-001", Guid.NewGuid()));
+
+        Assert.Equal(403, result.Status);
+        Assert.Empty(repository.Items);
+    }
+
+    [Fact]
+    public async Task SyncItemsFromSceneAsync_WithPublishedProposal_ReturnsProposalNotEditable()
+    {
+        var proposalId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        context.ProposalStatus = ProposalStatus.PUBLISHED;
+        var service = CreateService(
+            new FakeProposalRepository(context: context),
+            new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.SyncItemsFromSceneAsync(
+            proposalId,
+            designerId,
+            CreateSyncRequest(Guid.NewGuid(), "chair-001", Guid.NewGuid()));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("PROPOSAL_NOT_EDITABLE", result.ErrorCode);
     }
 
     [Fact]
@@ -1261,6 +1466,79 @@ public sealed class ProposalServiceTests
         {
             SceneName = "Main cafe layout",
             SceneType = ProposalSceneType.THREE_D
+        };
+    }
+
+    private static SyncProposalItemsFromSceneRequestDto CreateSyncRequest(
+        Guid sceneId,
+        string sceneObjectId,
+        Guid productVersionId,
+        int quantity = 1)
+    {
+        return new SyncProposalItemsFromSceneRequestDto
+        {
+            SceneId = sceneId,
+            Items =
+            [
+                new SyncProposalItemFromSceneDto
+                {
+                    SceneObjectId = sceneObjectId,
+                    ProductVersionId = productVersionId,
+                    Quantity = quantity
+                }
+            ]
+        };
+    }
+
+    private static ProductVersionDetailReadModel CreateProductVersion(
+        Guid productVersionId,
+        decimal estimatedPrice = 1200000m)
+    {
+        return new ProductVersionDetailReadModel
+        {
+            ProductVersionId = productVersionId,
+            ProductId = Guid.NewGuid(),
+            ProductName = "Cafe Chair",
+            VersionName = "Brown Wood",
+            VersionType = ProductVersionType.STANDARD,
+            EstimatedPrice = estimatedPrice,
+            Status = ProductStatus.ACTIVE
+        };
+    }
+
+    private static ProposalSceneContextReadModel CreateSceneContext(
+        Guid proposalId,
+        Guid sceneId,
+        Guid projectId,
+        Guid designerId)
+    {
+        return new ProposalSceneContextReadModel
+        {
+            ProposalId = proposalId,
+            SceneId = sceneId,
+            ProjectId = projectId,
+            ProjectAreaId = Guid.NewGuid(),
+            ProposalStatus = ProposalStatus.DRAFT,
+            AssignedDesignerId = designerId
+        };
+    }
+
+    private static RoomPlannerSceneDocument CreateRoomPlannerScene(
+        Guid sceneId,
+        string sceneObjectId,
+        Guid? productVersionId = null)
+    {
+        return new RoomPlannerSceneDocument
+        {
+            SqlSceneId = sceneId,
+            Objects =
+            [
+                new RoomPlannerObjectDocument
+                {
+                    ObjectId = sceneObjectId,
+                    ProductVersionId = productVersionId ?? Guid.Empty
+                }
+            ]
         };
     }
 

@@ -745,6 +745,92 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesigner_MovesDesignStatus()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.SPACE_VERIFIED;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.PROPOSAL_DRAFTING,
+            Note = "Designer starts drafting proposal after space verification."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, result.Data.OldStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, result.Data.NewStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithUnassignedDesigner_ReturnsForbidden()
+    {
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = Guid.NewGuid();
+        project.Status = ProjectStatus.SPACE_VERIFIED;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(projectId, Guid.NewGuid(), new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.PROPOSAL_DRAFTING
+        });
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatusTransition, result.ErrorCode);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToQuotation_ReturnsInvalidTransition()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.PROPOSAL_DRAFTING;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.QUOTATION_SENT
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatusTransition, result.ErrorCode);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToInProduction_ReturnsInvalidTransition()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.PROPOSAL_DRAFTING;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.IN_PRODUCTION
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatusTransition, result.ErrorCode);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+    }
+
+    [Fact]
     public async Task UpdateStatusAsync_WithEmptyProjectId_ReturnsBadRequest()
     {
         var repository = new FakeProjectRepository(roleName: "SALES");

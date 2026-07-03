@@ -251,6 +251,183 @@ public sealed class ProjectAreaServiceTests
         Assert.Equal(ProjectAreaStatus.DRAFT, entity.Status);
     }
 
+    [Fact]
+    public async Task CreateAsync_Admin_CreatesProjectArea()
+    {
+        var adminId = Guid.NewGuid();
+        var project = CreateProject();
+        var areaRepo = new FakeProjectAreaRepository();
+        var service = BuildService(new() { Role = "ADMIN", ProjectDetail = project, AreaRepo = areaRepo });
+
+        var result = await service.CreateAsync(project.ProjectId, adminId, ValidCreateRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, areaRepo.AddCallCount);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ProjectNotFound_ReturnsNotFound()
+    {
+        var service = BuildService(new() { Role = "ADMIN" });
+
+        var result = await service.CreateAsync(Guid.NewGuid(), Guid.NewGuid(), ValidCreateRequest());
+
+        Assert.Equal(404, result.Status);
+    }
+
+    [Fact]
+    public async Task CreateAsync_EmptyProjectId_ReturnsBadRequest()
+    {
+        var service = BuildService(new() { Role = "ADMIN", ProjectDetail = CreateProject() });
+
+        var result = await service.CreateAsync(Guid.Empty, Guid.NewGuid(), ValidCreateRequest());
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task CreateAsync_MissingAreaName_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+        var request = ValidCreateRequest();
+        request.AreaName = "   ";
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task CreateAsync_MissingAreaType_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+        var request = ValidCreateRequest();
+        request.AreaType = null;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SelfParent_ReturnsInvalidParentArea()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            AreaRepo = new FakeProjectAreaRepository { Detail = detail, EntityById = entity }
+        });
+
+        var result = await service.UpdateAsync(entity.ProjectAreaId, salesId, new UpdateProjectAreaRequestDto
+        {
+            ParentAreaId = entity.ProjectAreaId
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidParentArea, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetListByProjectAsync_ProjectNotFound_ReturnsNotFound()
+    {
+        var service = BuildService(new() { Role = "ADMIN" });
+
+        var result = await service.GetListByProjectAsync(Guid.NewGuid(), Guid.NewGuid(), includeCancelled: false);
+
+        Assert.Equal(404, result.Status);
+    }
+
+    [Fact]
+    public async Task GetListByProjectAsync_EmptyUserId_ReturnsUnauthorized()
+    {
+        var service = BuildService(new() { Role = "ADMIN", ProjectDetail = CreateProject() });
+
+        var result = await service.GetListByProjectAsync(Guid.NewGuid(), Guid.Empty, includeCancelled: false);
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_NotFound_ReturnsNotFound()
+    {
+        var service = BuildService(new() { Role = "ADMIN" });
+
+        var result = await service.GetDetailAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.ProjectAreaNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_NotFound_ReturnsNotFound()
+    {
+        var service = BuildService(new() { Role = "ADMIN" });
+
+        var result = await service.UpdateAsync(Guid.NewGuid(), Guid.NewGuid(), new UpdateProjectAreaRequestDto());
+
+        Assert.Equal(404, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_NegativeDimension_ReturnsInvalidAreaDimension()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            AreaRepo = new FakeProjectAreaRepository { Detail = detail, EntityById = entity }
+        });
+
+        var result = await service.UpdateAsync(entity.ProjectAreaId, salesId, new UpdateProjectAreaRequestDto
+        {
+            Height = -2
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidAreaDimension, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAsync_AlreadyCancelled_ReturnsSuccess()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        entity.Status = ProjectAreaStatus.CANCELLED;
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        detail.Status = ProjectAreaStatus.CANCELLED;
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            AreaRepo = new FakeProjectAreaRepository { Detail = detail, EntityById = entity }
+        });
+
+        var result = await service.CancelAsync(entity.ProjectAreaId, salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectAreaStatus.CANCELLED, result.Data!.Status);
+    }
+
+    [Fact]
+    public async Task GetListByProjectAsync_UnassignedSalesWithoutDesigner_ReturnsSuccess()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: null, assignedDesignerId: null);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+
+        var result = await service.GetListByProjectAsync(project.ProjectId, salesId, includeCancelled: false);
+
+        Assert.Equal(200, result.Status);
+    }
+
     private sealed class AreaServiceTestOptions
     {
         public string? Role { get; init; }

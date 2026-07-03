@@ -36,6 +36,7 @@ public sealed class ProposalService : IProposalService
     private const string ProposalItemNotFoundCode = "PROPOSAL_ITEM_NOT_FOUND";
     private const string ProposalNotEditableCode = "PROPOSAL_NOT_EDITABLE";
     private const string ProposalSceneNotFoundCode = "PROPOSAL_SCENE_NOT_FOUND";
+    private const string ProposalSceneNotFoundMessage = "Proposal scene not found.";
     private const string RoomPlannerSceneNotFoundCode = "ROOM_PLANNER_SCENE_NOT_FOUND";
     private const string InvalidProductVersionCode = "INVALID_PRODUCT_VERSION";
     private const string InvalidQuantityCode = "INVALID_QUANTITY";
@@ -351,7 +352,7 @@ public sealed class ProposalService : IProposalService
         {
             return ServiceResult<ProposalSceneDetailDto>.Failure(Error.NotFound(
                 "SCENE_NOT_FOUND",
-                "Proposal scene not found."));
+                ProposalSceneNotFoundMessage));
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -681,7 +682,7 @@ public sealed class ProposalService : IProposalService
         {
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.NotFound(
                 ProposalSceneNotFoundCode,
-                "Proposal scene not found."));
+                ProposalSceneNotFoundMessage));
         }
 
         var roomPlannerScene = await GetRoomPlannerSceneForSyncAsync(request.SceneId, cancellationToken);
@@ -1102,7 +1103,7 @@ public sealed class ProposalService : IProposalService
         {
             return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.NotFound(
                 "SCENE_NOT_FOUND",
-                "Proposal scene not found."));
+                ProposalSceneNotFoundMessage));
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -1139,7 +1140,7 @@ public sealed class ProposalService : IProposalService
         {
             return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.NotFound(
                 "SCENE_NOT_FOUND",
-                "Proposal scene not found."));
+                ProposalSceneNotFoundMessage));
         }
 
         var now = DateTime.UtcNow;

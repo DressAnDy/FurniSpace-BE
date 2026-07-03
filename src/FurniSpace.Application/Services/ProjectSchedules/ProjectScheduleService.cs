@@ -583,27 +583,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     {
         if (IsProduction(role))
         {
-            if (!IsProductionManageableType(detail.ScheduleType))
-            {
-                return InvalidScheduleTypeResult("Production staff can only update DELIVERY, HANDOVER, or OTHER schedules.");
-            }
-
-            if (detail.AssignedStaffId != currentUserId)
-            {
-                return ServiceResult<ProjectScheduleDto>.Forbidden("You are not assigned to this production schedule.");
-            }
-
-            if (request.AssignedStaffId.HasValue && request.AssignedStaffId.Value != currentUserId)
-            {
-                return ServiceResult<ProjectScheduleDto>.Forbidden("Production staff cannot reassign schedules.");
-            }
-
-            if (detail.Status is ProjectScheduleStatus.COMPLETED or ProjectScheduleStatus.CANCELLED)
-            {
-                return ServiceResult<ProjectScheduleDto>.BadRequest("Completed or cancelled schedules cannot be updated.");
-            }
-
-            return null;
+            return ValidateProductionUpdatePermission(detail, currentUserId, request);
         }
 
         if (role != AdminRole && !(role == SalesRole && detail.AssignedSalesId == currentUserId))
@@ -613,6 +593,34 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         if (role != AdminRole &&
             detail.Status is not (ProjectScheduleStatus.PENDING_CONFIRMATION or ProjectScheduleStatus.CONFIRMED))
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Completed or cancelled schedules cannot be updated.");
+        }
+
+        return null;
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateProductionUpdatePermission(
+        ProjectScheduleDetailReadModel detail,
+        Guid currentUserId,
+        UpdateProjectScheduleRequestDto request)
+    {
+        if (!IsProductionManageableType(detail.ScheduleType))
+        {
+            return InvalidScheduleTypeResult("Production staff can only update DELIVERY, HANDOVER, or OTHER schedules.");
+        }
+
+        if (detail.AssignedStaffId != currentUserId)
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden("You are not assigned to this production schedule.");
+        }
+
+        if (request.AssignedStaffId.HasValue && request.AssignedStaffId.Value != currentUserId)
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden("Production staff cannot reassign schedules.");
+        }
+
+        if (detail.Status is ProjectScheduleStatus.COMPLETED or ProjectScheduleStatus.CANCELLED)
         {
             return ServiceResult<ProjectScheduleDto>.BadRequest("Completed or cancelled schedules cannot be updated.");
         }

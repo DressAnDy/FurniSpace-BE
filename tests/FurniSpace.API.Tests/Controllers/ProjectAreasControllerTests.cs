@@ -117,6 +117,56 @@ public sealed class ProjectAreasControllerTests
         Assert.True(service.LastCancelRequested);
     }
 
+    [Fact]
+    public async Task Create_ReturnsUnauthorized_WhenUserMissing()
+    {
+        var controller = BuildController(new FakeProjectAreaService(ServiceResult<ProjectAreaDto>.Success(new ProjectAreaDto())));
+
+        var result = await controller.Create(Guid.NewGuid(), new CreateProjectAreaRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task GetDetail_PassesProjectAreaIdAndUserId_ToService()
+    {
+        var userId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var service = new FakeProjectAreaService(ServiceResult<ProjectAreaDto>.Success(new ProjectAreaDto()));
+        var controller = BuildController(service, userId);
+
+        await controller.GetDetail(projectAreaId);
+
+        Assert.Equal(projectAreaId, service.LastProjectAreaId);
+        Assert.Equal(userId, service.LastCurrentUserId);
+    }
+
+    [Fact]
+    public async Task Update_PassesProjectAreaIdAndRequest_ToService()
+    {
+        var userId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var service = new FakeProjectAreaService(ServiceResult<ProjectAreaDto>.Success(new ProjectAreaDto()));
+        var controller = BuildController(service, userId);
+        var request = new UpdateProjectAreaRequestDto { AreaName = "Updated Area" };
+
+        await controller.Update(projectAreaId, request);
+
+        Assert.Equal(projectAreaId, service.LastProjectAreaId);
+        Assert.Equal(userId, service.LastCurrentUserId);
+        Assert.Same(request, service.LastUpdateRequest);
+    }
+
+    [Fact]
+    public async Task GetList_ReturnsUnauthorized_WhenUserMissing()
+    {
+        var controller = BuildController(new FakeProjectAreaService(ServiceResult<IReadOnlyList<ProjectAreaDto>>.Success([])));
+
+        var result = await controller.GetList(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
     private static ProjectAreasController BuildController(
         IProjectAreaService service,
         Guid? userId = null)

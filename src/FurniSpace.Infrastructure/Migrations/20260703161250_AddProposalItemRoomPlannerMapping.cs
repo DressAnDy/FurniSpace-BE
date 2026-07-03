@@ -7,6 +7,8 @@ namespace FurniSpace.Infrastructure.Migrations
     /// <inheritdoc />
     public partial class AddProposalItemRoomPlannerMapping : Migration
     {
+        private static readonly string[] ProposalItemSceneObjectIndexColumns = ["scene_id", "scene_object_id"];
+
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -30,7 +32,7 @@ namespace FurniSpace.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "idx_proposal_items_scene_object",
                 table: "proposal_items",
-                columns: new[] { "scene_id", "scene_object_id" });
+                columns: ProposalItemSceneObjectIndexColumns);
         }
 
         /// <inheritdoc />

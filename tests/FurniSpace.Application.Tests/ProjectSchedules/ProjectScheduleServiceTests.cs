@@ -439,6 +439,77 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(ProjectScheduleErrorCodes.InvalidScheduleType, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task UpdateAsync_ProductionNotAssigned_ReturnsForbidden()
+    {
+        var productionId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(
+            assignedStaffId: Guid.NewGuid(),
+            scheduleType: ProjectScheduleType.DELIVERY);
+        var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail });
+
+        var result = await service.UpdateAsync(detail.ScheduleId, productionId, new UpdateProjectScheduleRequestDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ProductionCannotReassign_ReturnsForbidden()
+    {
+        var productionId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(
+            assignedStaffId: productionId,
+            scheduleType: ProjectScheduleType.DELIVERY);
+        var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail });
+
+        var result = await service.UpdateAsync(detail.ScheduleId, productionId, new UpdateProjectScheduleRequestDto
+        {
+            AssignedStaffId = Guid.NewGuid()
+        });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ProductionCompletedSchedule_ReturnsBadRequest()
+    {
+        var productionId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(
+            assignedStaffId: productionId,
+            status: ProjectScheduleStatus.COMPLETED,
+            scheduleType: ProjectScheduleType.DELIVERY);
+        var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail });
+
+        var result = await service.UpdateAsync(detail.ScheduleId, productionId, new UpdateProjectScheduleRequestDto());
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SalesNotAssigned_ReturnsForbidden()
+    {
+        var detail = CreateScheduleDetail(assignedSalesId: Guid.NewGuid());
+        var service = BuildService(new() { Role = "SALES", ScheduleDetail = detail });
+
+        var result = await service.UpdateAsync(detail.ScheduleId, Guid.NewGuid(), new UpdateProjectScheduleRequestDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SalesOnCompletedSchedule_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(
+            assignedSalesId: salesId,
+            status: ProjectScheduleStatus.COMPLETED);
+        var service = BuildService(new() { Role = "SALES", ScheduleDetail = detail });
+
+        var result = await service.UpdateAsync(detail.ScheduleId, salesId, new UpdateProjectScheduleRequestDto());
+
+        Assert.Equal(400, result.Status);
+    }
+
     // ── SCH-05: UpdateStatus ────────────────────────────────────────────────────
 
     [Fact]

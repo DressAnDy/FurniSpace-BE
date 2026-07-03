@@ -182,6 +182,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         {
             SceneId = context.SceneId,
             MongoSceneId = null,
+            ProposalId = context.ProposalId,
+            ProjectId = context.ProjectId,
+            ProjectAreaId = context.ProjectAreaId,
             SchemaVersion = 2,
             Unit = "meter",
             Layout = new RoomPlannerLayoutDocument(),
@@ -198,6 +201,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         {
             SceneId = sceneId,
             MongoSceneId = document.Id,
+            ProposalId = document.ProposalId,
+            ProjectId = document.ProjectId,
+            ProjectAreaId = document.ProjectAreaId,
             SchemaVersion = document.SchemaVersion,
             Unit = document.Unit,
             Layout = document.Layout,

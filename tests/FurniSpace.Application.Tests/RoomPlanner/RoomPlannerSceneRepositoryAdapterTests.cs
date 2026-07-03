@@ -76,6 +76,144 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
     }
 
     [Fact]
+    public async Task UpsertBySqlSceneIdAsync_PreservesBlueprintWallGraphContractFields()
+    {
+        var inner = new FakeInfrastructureRoomPlannerSceneRepository();
+        var adapter = new RoomPlannerSceneRepositoryAdapter(inner);
+        var document = CreateApplicationDocument("app-mongo-id");
+        var thumbnailFileId = Guid.NewGuid();
+        var modelFileId = Guid.NewGuid();
+        document.Layout = new RoomPlannerLayoutDocument
+        {
+            Type = "BLUEPRINT_WALL_GRAPH",
+            IsClosed = true,
+            AreaSqFt = 320,
+            AreaSqm = 29.73m,
+            WallHeight = 9,
+            WallThickness = 0.3m,
+            FloorMaterialId = "wood-floor",
+            WallMaterialId = "wall-base",
+            Points =
+            [
+                new RoomPlannerPoint2Document { PointId = "p1", X = 0, Y = 0 },
+                new RoomPlannerPoint2Document { PointId = "p2", X = 16, Y = 0 }
+            ],
+            Walls =
+            [
+                new RoomPlannerWallDocument
+                {
+                    WallId = "w1",
+                    StartPointId = "p1",
+                    EndPointId = "p2",
+                    Height = 9,
+                    Thickness = 0.3m,
+                    Style = new RoomPlannerStyleDocument
+                    {
+                        MaterialId = "wall-base",
+                        TextureUrlSnapshot = "/materials/wall-paint/wallbase.jpg"
+                    }
+                }
+            ],
+            Doors =
+            [
+                new RoomPlannerOpeningDocument
+                {
+                    OpeningId = "door-1",
+                    WallId = "w1",
+                    Type = "DOOR",
+                    Offset = 4.5m,
+                    Width = 2.5m,
+                    Height = 7,
+                    SwingDirection = "IN_LEFT",
+                    IsOpen = true
+                }
+            ],
+            Windows =
+            [
+                new RoomPlannerOpeningDocument
+                {
+                    OpeningId = "window-1",
+                    WallId = "w1",
+                    Type = "WINDOW",
+                    Offset = 8.25m,
+                    Width = 3.5m,
+                    Height = 4,
+                    SillHeight = 3
+                }
+            ],
+            Openings =
+            [
+                new RoomPlannerOpeningDocument
+                {
+                    OpeningId = "opening-1",
+                    WallId = "w1",
+                    Type = "OPENING",
+                    Offset = 5.25m,
+                    Width = 2,
+                    Height = 7,
+                    FloorOffset = 0,
+                    Locked = true
+                }
+            ],
+            Floor = new RoomPlannerFloorDocument
+            {
+                MaterialId = "wood-floor",
+                TextureUrlSnapshot = "/materials/flooring/woodfloor.jpg"
+            }
+        };
+        document.Objects[0].ProductModelId = "catalog-model-01";
+        document.Objects[0].Placement = new RoomPlannerPlacementDocument
+        {
+            Mode = "FLOOR",
+            HeightOffset = 0,
+            MountedWallId = "w1"
+        };
+        document.Objects[0].VisualSnapshot = new RoomPlannerVisualSnapshotDocument
+        {
+            ThumbnailFileId = thumbnailFileId,
+            ThumbnailUrlSnapshot = "https://cdn.example.com/thumb.png"
+        };
+        document.Objects[0].ModelSnapshot = new RoomPlannerModelSnapshotDocument
+        {
+            ModelFileId = modelFileId,
+            Format = "GLB",
+            ModelUrlSnapshot = "https://cdn.example.com/model.glb"
+        };
+
+        var result = await adapter.UpsertBySqlSceneIdAsync(document);
+
+        Assert.NotNull(inner.UpsertedDocument);
+        Assert.Equal("BLUEPRINT_WALL_GRAPH", inner.UpsertedDocument.Layout.Type);
+        Assert.Equal("p1", inner.UpsertedDocument.Layout.Points[0].PointId);
+        Assert.Equal(0, inner.UpsertedDocument.Layout.Points[0].Y);
+        Assert.Equal("p1", inner.UpsertedDocument.Layout.Walls[0].StartPointId);
+        Assert.Single(inner.UpsertedDocument.Layout.Doors);
+        Assert.Single(inner.UpsertedDocument.Layout.Windows);
+        Assert.Single(inner.UpsertedDocument.Layout.Openings);
+        Assert.Equal(4.5m, inner.UpsertedDocument.Layout.Doors[0].Offset);
+        Assert.Equal("w1", inner.UpsertedDocument.Layout.Doors[0].WallId);
+        Assert.True(inner.UpsertedDocument.Layout.Doors[0].IsOpen);
+        Assert.Equal(8.25m, inner.UpsertedDocument.Layout.Windows[0].Offset);
+        Assert.Equal(3, inner.UpsertedDocument.Layout.Windows[0].SillHeight);
+        Assert.Equal(5.25m, inner.UpsertedDocument.Layout.Openings[0].Offset);
+        Assert.Equal(0, inner.UpsertedDocument.Layout.Openings[0].FloorOffset);
+        Assert.True(inner.UpsertedDocument.Layout.Openings[0].Locked);
+        Assert.Equal("wood-floor", inner.UpsertedDocument.Layout.Floor.MaterialId);
+        Assert.Equal("catalog-model-01", inner.UpsertedDocument.Objects[0].ProductModelId);
+        Assert.Equal("FLOOR", inner.UpsertedDocument.Objects[0].Placement.Mode);
+        Assert.Equal("w1", inner.UpsertedDocument.Objects[0].Placement.MountedWallId);
+        Assert.Equal("https://cdn.example.com/thumb.png", inner.UpsertedDocument.Objects[0].VisualSnapshot!.ThumbnailUrlSnapshot);
+        Assert.Equal("https://cdn.example.com/model.glb", inner.UpsertedDocument.Objects[0].ModelSnapshot!.ModelUrlSnapshot);
+        Assert.Equal("BLUEPRINT_WALL_GRAPH", result.Layout.Type);
+        Assert.Equal("p2", result.Layout.Points[1].PointId);
+        Assert.Equal(4.5m, result.Layout.Doors[0].Offset);
+        Assert.Equal(8.25m, result.Layout.Windows[0].Offset);
+        Assert.Equal(5.25m, result.Layout.Openings[0].Offset);
+        Assert.Equal("w1", result.Objects[0].Placement.MountedWallId);
+        Assert.Equal(modelFileId, result.Objects[0].ModelSnapshot!.ModelFileId);
+    }
+
+    [Fact]
     public async Task UpsertBySqlSceneIdAsync_NormalizesJsonElementDynamicValues()
     {
         var inner = new FakeInfrastructureRoomPlannerSceneRepository();

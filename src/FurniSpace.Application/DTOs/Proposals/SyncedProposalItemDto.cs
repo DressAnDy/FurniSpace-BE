@@ -9,6 +9,7 @@ public sealed class SyncedProposalItemDto
     public string? VersionNameSnapshot { get; set; }
     public int? Quantity { get; set; }
     public decimal? UnitPriceSnapshot { get; set; }
+    public decimal? TotalPriceSnapshot { get; set; }
     public decimal? SubtotalAmount { get; set; }
     public string? CustomizationNote { get; set; }
 }

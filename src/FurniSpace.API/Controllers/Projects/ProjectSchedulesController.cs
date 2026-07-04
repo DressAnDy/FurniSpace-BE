@@ -23,7 +23,6 @@ public sealed class ProjectSchedulesController : BaseApiController
 
     [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
     [HttpPost("{projectId:guid}")]
-    [HttpPost("/projects/{projectId:guid}/schedules")]
     public async Task<IActionResult> Create(
         Guid projectId,
         [FromBody] CreateProjectScheduleRequestDto request,
@@ -40,9 +39,8 @@ public sealed class ProjectSchedulesController : BaseApiController
 
     [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [HttpGet]
-    [HttpGet("/projects/{projectId:guid}/schedules")]
     public async Task<IActionResult> GetList(
-        Guid projectId,
+        [FromQuery] Guid projectId,
         [FromQuery] ProjectScheduleListQueryDto query,
         CancellationToken cancellationToken = default)
     {

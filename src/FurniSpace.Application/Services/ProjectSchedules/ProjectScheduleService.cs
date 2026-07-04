@@ -222,7 +222,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanAccessSchedule(role, detail, currentUserId))
+        if (!await CanAccessScheduleAsync(role, detail, currentUserId, cancellationToken))
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden("You do not have access to this schedule.");
         }
@@ -475,16 +475,26 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         };
     }
 
-    private static bool CanAccessSchedule(
+    private async Task<bool> CanAccessScheduleAsync(
         string? role,
         ProjectScheduleDetailReadModel schedule,
-        Guid currentUserId)
+        Guid currentUserId,
+        CancellationToken cancellationToken)
     {
         if (role == AdminRole) return true;
         if (schedule.CustomerId == currentUserId) return true;
         if (schedule.AssignedSalesId == currentUserId) return true;
         if (schedule.AssignedDesignerId == currentUserId) return true;
         if (schedule.AssignedStaffId == currentUserId) return true;
+
+        if (IsProduction(role))
+        {
+            return await _schedules.HasAssignedScheduleAsync(
+                schedule.ProjectId,
+                currentUserId,
+                cancellationToken);
+        }
+
         return false;
     }
 

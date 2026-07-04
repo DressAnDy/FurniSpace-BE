@@ -784,12 +784,54 @@ public sealed class ProjectServiceTests
         });
 
         Assert.Equal(403, result.Status);
-        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatusTransition, result.ErrorCode);
+        Assert.Equal(ProjectStatusErrorCodes.Forbidden, result.ErrorCode);
         Assert.Equal(ProjectStatus.SPACE_VERIFIED, project.Status);
     }
 
     [Fact]
-    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToQuotation_ReturnsInvalidTransition()
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToSpaceVerified_Succeeds()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.MEASUREMENT_REQUIRED;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.SPACE_VERIFIED,
+            Note = "Measurement completed and space verified."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerResumingAfterRevision_Succeeds()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.REVISION_REQUESTED;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.PROPOSAL_DRAFTING,
+            Note = "Designer resumes drafting after customer revision request."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToQuotation_ReturnsForbidden()
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -804,13 +846,13 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.QUOTATION_SENT
         });
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatusTransition, result.ErrorCode);
+        Assert.Equal(403, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatus, result.ErrorCode);
         Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
     }
 
     [Fact]
-    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToInProduction_ReturnsInvalidTransition()
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToInProduction_ReturnsForbidden()
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -825,8 +867,8 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.IN_PRODUCTION
         });
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatusTransition, result.ErrorCode);
+        Assert.Equal(403, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatus, result.ErrorCode);
         Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
     }
 

@@ -16,6 +16,30 @@ public sealed class ProjectStatusTransitionEvaluator
     private const string SalesRole = "SALES";
     private const int MaxNoteLength = 1000;
 
+    private static readonly HashSet<ProjectStatus> DesignerAllowedTargetStatuses =
+    [
+        ProjectStatus.MEASUREMENT_REQUIRED,
+        ProjectStatus.SPACE_VERIFIED,
+        ProjectStatus.PROPOSAL_DRAFTING,
+        ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
+        ProjectStatus.REVISION_REQUESTED
+    ];
+
+    private static readonly HashSet<ProjectStatus> DesignerForbiddenTargetStatuses =
+    [
+        ProjectStatus.PROPOSAL_SELECTED,
+        ProjectStatus.QUOTATION_SENT,
+        ProjectStatus.QUOTATION_REVISION_REQUESTED,
+        ProjectStatus.ORDER_CONFIRMED,
+        ProjectStatus.IN_PRODUCTION,
+        ProjectStatus.PRODUCTION_BLOCKED,
+        ProjectStatus.READY_FOR_DELIVERY,
+        ProjectStatus.DELIVERING,
+        ProjectStatus.DELIVERED,
+        ProjectStatus.COMPLETED,
+        ProjectStatus.REJECTED
+    ];
+
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectFileRepository _files;
     private readonly IProposalRepository _proposals;
@@ -44,8 +68,18 @@ public sealed class ProjectStatusTransitionEvaluator
         if (IsCustomer(roleName))
         {
             return Error.Forbidden(
-                ProjectStatusErrorCodes.InvalidProjectStatusTransition,
+                ProjectStatusErrorCodes.Forbidden,
                 "Customers cannot update project status.");
+        }
+
+        var designerAuthorizationError = ValidateDesignerAuthorization(
+            project,
+            roleName,
+            currentUserId,
+            targetStatus);
+        if (designerAuthorizationError is not null)
+        {
+            return designerAuthorizationError;
         }
 
         var noteError = ValidateNoteLength(note);
@@ -102,6 +136,12 @@ public sealed class ProjectStatusTransitionEvaluator
 
             (ProjectStatus.PROPOSAL_DRAFTING, ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW) =>
                 await ValidateProposalDraftingToCustomerReviewAsync(project, roleName, currentUserId, cancellationToken),
+
+            (ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, ProjectStatus.REVISION_REQUESTED) =>
+                ValidateWaitingForCustomerReviewToRevisionRequested(project, roleName, currentUserId),
+
+            (ProjectStatus.REVISION_REQUESTED, ProjectStatus.PROPOSAL_DRAFTING) =>
+                ValidateRevisionRequestedToProposalDrafting(project, roleName, currentUserId),
 
             (ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, ProjectStatus.PROPOSAL_DRAFTING) =>
                 Error.Validation(
@@ -191,14 +231,79 @@ public sealed class ProjectStatusTransitionEvaluator
         Guid currentUserId,
         string? note)
     {
-        if (!CanActAsSales(project, roleName, currentUserId))
+        if (!CanActAsDesignerOrSales(project, roleName, currentUserId))
         {
             return Error.Forbidden(
-                ProjectStatusErrorCodes.InvalidProjectStatusTransition,
-                "Only assigned Sales or Admin can override measurement requirement.");
+                ProjectStatusErrorCodes.Forbidden,
+                "Only assigned Designer, Sales, or Admin can verify project space.");
         }
 
         return RequireNote(note);
+    }
+
+    private static Error? ValidateWaitingForCustomerReviewToRevisionRequested(
+        Project project,
+        string? roleName,
+        Guid currentUserId)
+    {
+        if (!CanActAsDesignerOrSales(project, roleName, currentUserId))
+        {
+            return Error.Forbidden(
+                ProjectStatusErrorCodes.Forbidden,
+                "Only assigned Designer, Sales, or Admin can mark revision requested.");
+        }
+
+        return null;
+    }
+
+    private static Error? ValidateRevisionRequestedToProposalDrafting(
+        Project project,
+        string? roleName,
+        Guid currentUserId)
+    {
+        if (!CanActAsDesignerOrSales(project, roleName, currentUserId))
+        {
+            return Error.Forbidden(
+                ProjectStatusErrorCodes.Forbidden,
+                "Only assigned Designer, Sales, or Admin can resume proposal drafting.");
+        }
+
+        return null;
+    }
+
+    private static Error? ValidateDesignerAuthorization(
+        Project project,
+        string? roleName,
+        Guid currentUserId,
+        ProjectStatus targetStatus)
+    {
+        if (!IsDesigner(roleName))
+        {
+            return null;
+        }
+
+        if (project.AssignedDesignerId != currentUserId)
+        {
+            return Error.Forbidden(
+                ProjectStatusErrorCodes.Forbidden,
+                "You do not have access to update this project status.");
+        }
+
+        if (DesignerForbiddenTargetStatuses.Contains(targetStatus))
+        {
+            return Error.Forbidden(
+                ProjectStatusErrorCodes.InvalidProjectStatus,
+                "Designer cannot move project to this status.");
+        }
+
+        if (!DesignerAllowedTargetStatuses.Contains(targetStatus))
+        {
+            return Error.Validation(
+                ProjectStatusErrorCodes.InvalidProjectStatus,
+                "Designer can only update design-related project statuses.");
+        }
+
+        return null;
     }
 
     private async Task<Error?> ValidateToProposalDraftingAsync(
@@ -210,7 +315,7 @@ public sealed class ProjectStatusTransitionEvaluator
         if (!CanActAsDesignerOrSales(project, roleName, currentUserId))
         {
             return Error.Forbidden(
-                ProjectStatusErrorCodes.InvalidProjectStatusTransition,
+                ProjectStatusErrorCodes.Forbidden,
                 "Only assigned Designer, Sales, or Admin can move to proposal drafting.");
         }
 
@@ -257,7 +362,7 @@ public sealed class ProjectStatusTransitionEvaluator
         if (!CanActAsDesignerOrSales(project, roleName, currentUserId))
         {
             return Error.Forbidden(
-                ProjectStatusErrorCodes.InvalidProjectStatusTransition,
+                ProjectStatusErrorCodes.Forbidden,
                 "Only assigned Designer, Sales, or Admin can submit a proposal for customer review.");
         }
 
@@ -355,6 +460,11 @@ public sealed class ProjectStatusTransitionEvaluator
             CanActAsSales(project, roleName, currentUserId) ||
             (string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase) &&
                 project.AssignedDesignerId == currentUserId);
+    }
+
+    private static bool IsDesigner(string? roleName)
+    {
+        return string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsAdmin(string? roleName)

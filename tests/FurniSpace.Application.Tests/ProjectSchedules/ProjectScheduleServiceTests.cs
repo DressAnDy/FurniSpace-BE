@@ -75,8 +75,12 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(1, scheduleRepo.AddCallCount);
     }
 
-    [Fact]
-    public async Task CreateAsync_ProductionCreatingMeasurement_ReturnsInvalidScheduleType()
+    [Theory]
+    [InlineData(ProjectScheduleType.MEASUREMENT)]
+    [InlineData(ProjectScheduleType.CONSULTATION)]
+    [InlineData(ProjectScheduleType.DESIGN_REVIEW)]
+    public async Task CreateAsync_ProductionCreatingRestrictedScheduleType_ReturnsInvalidScheduleType(
+        ProjectScheduleType scheduleType)
     {
         var productionId = Guid.NewGuid();
         var project = CreateProject();
@@ -85,7 +89,7 @@ public sealed class ProjectScheduleServiceTests
         var result = await service.CreateAsync(
             project.ProjectId,
             productionId,
-            ValidProductionCreateRequest(ProjectScheduleType.MEASUREMENT, productionId));
+            ValidProductionCreateRequest(scheduleType, productionId));
 
         Assert.Equal(400, result.Status);
         Assert.Equal(ProjectScheduleErrorCodes.InvalidScheduleType, result.ErrorCode);
@@ -346,6 +350,26 @@ public sealed class ProjectScheduleServiceTests
         var result = await service.GetDetailAsync(detail.ScheduleId, Guid.NewGuid());
 
         Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_ReturnsSuccess_WhenProductionStaffHasProjectScheduleAssignment()
+    {
+        var productionId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(assignedStaffId: Guid.NewGuid());
+        var scheduleRepo = new FakeProjectScheduleRepository(detail: detail) { HasAssignedSchedule = true };
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ScheduleDetail = detail,
+            ScheduleRepo = scheduleRepo
+        });
+
+        var result = await service.GetDetailAsync(detail.ScheduleId, productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(detail.ScheduleId, result.Data.ScheduleId);
     }
 
     // ── SCH-04: Update ──────────────────────────────────────────────────────────

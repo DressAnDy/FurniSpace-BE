@@ -171,7 +171,7 @@ static void ConfigureAuthCookie(IServiceCollection services, string cookieName)
     {
         options.HttpOnly = true;
         options.Secure = true;
-        options.SameSite = SameSiteMode.Strict;
+        options.SameSite = SameSiteMode.None;
         options.Path = "/";
     });
 }

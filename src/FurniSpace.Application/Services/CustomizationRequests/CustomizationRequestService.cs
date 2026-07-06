@@ -1,0 +1,709 @@
+using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.DTOs.CustomizationRequests;
+using FurniSpace.Application.Interfaces.CustomizationRequests;
+using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Persistence;
+using FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
+using FurniSpace.Infrastructure.ReadModels.Proposals;
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using Mapster;
+
+namespace FurniSpace.Application.Services.CustomizationRequests;
+
+public sealed class CustomizationRequestService : ICustomizationRequestService
+{
+    private const string AdminRole = "ADMIN";
+    private const string CustomerRole = "CUSTOMER";
+    private const string SalesRole = "SALES";
+    private const string DesignerRole = "DESIGNER";
+    private const string ProductionRole = "PRODUCTION";
+    private const string CustomizationReferenceType = "CUSTOMIZATION_REQUEST";
+    private const string FeasibleResult = "FEASIBLE";
+    private const string NotFeasibleResult = "NOT_FEASIBLE";
+
+    private static readonly CustomizationStatus[] ProductionVisibleStatuses =
+    [
+        CustomizationStatus.PRODUCTION_REVIEWING,
+        CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL,
+        CustomizationStatus.NOT_FEASIBLE,
+        CustomizationStatus.ACCEPTED
+    ];
+
+    private static readonly ProjectStatus[] ProjectStatusesAfterProposalSelection =
+    [
+        ProjectStatus.PROPOSAL_SELECTED,
+        ProjectStatus.QUOTATION_SENT,
+        ProjectStatus.QUOTATION_REVISION_REQUESTED,
+        ProjectStatus.ORDER_CONFIRMED,
+        ProjectStatus.IN_PRODUCTION,
+        ProjectStatus.PRODUCTION_BLOCKED,
+        ProjectStatus.READY_FOR_DELIVERY,
+        ProjectStatus.DELIVERING,
+        ProjectStatus.DELIVERED,
+        ProjectStatus.COMPLETED
+    ];
+
+    private readonly ICustomizationRequestRepository _customizationRequests;
+    private readonly IProposalRepository _proposals;
+    private readonly IProjectRepository _projects;
+    private readonly INotificationDispatcher _dispatcher;
+    private readonly IUnitOfWork _unitOfWork;
+
+    public CustomizationRequestService(
+        ICustomizationRequestRepository customizationRequests,
+        IProposalRepository proposals,
+        IProjectRepository projects,
+        INotificationDispatcher dispatcher,
+        IUnitOfWork unitOfWork)
+    {
+        _customizationRequests = customizationRequests;
+        _proposals = proposals;
+        _projects = projects;
+        _dispatcher = dispatcher;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<ServiceResult<CustomizationRequestListResponseDto>> GetByProjectAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CustomizationRequestQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomizationRequestListResponseDto>.Unauthorized();
+        }
+
+        var project = await _proposals.GetProjectAccessAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFoundList(CustomizationRequestErrorCodes.ProjectNotFound, "Project not found.");
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        var accessError = await ValidateProjectAccessAsync(role, project, currentUserId, cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var readQuery = query.Adapt<CustomizationRequestQueryReadModel>();
+        readQuery.ProjectId = projectId;
+        var items = await _customizationRequests.GetByProjectAsync(readQuery, cancellationToken);
+
+        return ServiceResult<CustomizationRequestListResponseDto>.Success(
+            new CustomizationRequestListResponseDto
+            {
+                Items = FilterListByRole(items, role, currentUserId)
+                    .Select(item => item.Adapt<CustomizationRequestDto>())
+                    .ToList()
+            },
+            "Customization requests retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<CustomizationRequestDetailDto>> GetDetailAsync(
+        Guid customizationRequestId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+        }
+
+        var detail = await _customizationRequests.GetDetailAsync(customizationRequestId, cancellationToken);
+        if (detail is null)
+        {
+            return NotFoundDetail(
+                CustomizationRequestErrorCodes.CustomizationRequestNotFound,
+                "Customization request not found.");
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanAccessRequest(role, detail, currentUserId))
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+                "You do not have access to this customization request.");
+        }
+
+        return ServiceResult<CustomizationRequestDetailDto>.Success(
+            ToDetailDto(detail),
+            "Customization request detail retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<CustomizationRequestDetailDto>> SubmitAsync(
+        Guid proposalItemId,
+        Guid currentUserId,
+        SubmitCustomizationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != CustomerRole)
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+                "Only customers can submit customization requests.");
+        }
+
+        var validationError = ValidateSubmitRequest(request);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        var context = await _customizationRequests.GetSubmitContextAsync(proposalItemId, cancellationToken);
+        if (context is null)
+        {
+            return NotFoundDetail(
+                CustomizationRequestErrorCodes.ProposalItemNotFound,
+                "Proposal item not found.");
+        }
+
+        var businessError = await ValidateSubmitBusinessRulesAsync(
+            context,
+            currentUserId,
+            cancellationToken);
+        if (businessError is not null)
+        {
+            return businessError;
+        }
+
+        var entity = CreateCustomizationRequest(context, currentUserId, request);
+        await _customizationRequests.AddAsync(entity, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await DispatchSubmittedNotificationAsync(entity, context, cancellationToken);
+
+        var detail = await _customizationRequests.GetDetailAsync(
+            entity.CustomizationRequestId,
+            cancellationToken);
+
+        return ServiceResult<CustomizationRequestDetailDto>.Created(
+            detail is null ? entity.Adapt<CustomizationRequestDetailDto>() : ToDetailDto(detail),
+            "Customization request submitted successfully.");
+    }
+
+    public async Task<ServiceResult<CustomizationRequestDetailDto>> DesignerReviewAsync(
+        Guid customizationRequestId,
+        Guid currentUserId,
+        DesignerReviewCustomizationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+        }
+
+        var context = await GetUpdateContextAsync(customizationRequestId, cancellationToken);
+        if (context.Error is not null)
+        {
+            return context.Error;
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanDesignerReview(role, context.Detail!, currentUserId))
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+                "You do not have permission to review this customization request.");
+        }
+
+        if (!CanMoveToProductionReview(context.Entity!.Status))
+        {
+            return InvalidTransition("Customization request is not ready for designer review.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.DesignerSpecNote))
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.InvalidCustomizationRequest,
+                "Designer spec note is required.");
+        }
+
+        context.Entity.DesignerId = role == AdminRole
+            ? context.Detail!.AssignedDesignerId ?? currentUserId
+            : currentUserId;
+        context.Entity.DesignerSpecNote = request.DesignerSpecNote.Trim();
+        context.Entity.Status = CustomizationStatus.PRODUCTION_REVIEWING;
+        context.Entity.UpdatedAt = DateTime.UtcNow;
+
+        _customizationRequests.Update(context.Entity);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchDesignerReviewedNotificationAsync(context.Entity, context.Detail!, cancellationToken);
+
+        return await ReloadUpdatedDetailAsync(
+            customizationRequestId,
+            "Customization request designer review submitted successfully.",
+            cancellationToken);
+    }
+
+    public async Task<ServiceResult<CustomizationRequestDetailDto>> ProductionReviewAsync(
+        Guid customizationRequestId,
+        Guid currentUserId,
+        ProductionReviewCustomizationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+        }
+
+        var context = await GetUpdateContextAsync(customizationRequestId, cancellationToken);
+        if (context.Error is not null)
+        {
+            return context.Error;
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role is not (ProductionRole or AdminRole))
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+                "You do not have permission to review production feasibility.");
+        }
+
+        if (context.Entity!.Status != CustomizationStatus.PRODUCTION_REVIEWING)
+        {
+            return InvalidTransition("Customization request is not ready for production review.");
+        }
+
+        var validationError = ValidateProductionReview(request);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        ApplyProductionReview(context.Entity, currentUserId, request);
+        _customizationRequests.Update(context.Entity);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return await ReloadUpdatedDetailAsync(
+            customizationRequestId,
+            "Customization request production review submitted successfully.",
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<CustomizationRequestListResponseDto>?> ValidateProjectAccessAsync(
+        string? role,
+        ProposalProjectAccessReadModel project,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        if (role == ProductionRole)
+        {
+            var hasProductionRequest = await _customizationRequests.HasProductionVisibleRequestAsync(
+                project.ProjectId,
+                currentUserId,
+                cancellationToken);
+            return hasProductionRequest
+                ? null
+                : ServiceResult<CustomizationRequestListResponseDto>.Forbidden(
+                    "You do not have access to this project's customization requests.");
+        }
+
+        return CanAccessProject(role, project, currentUserId)
+            ? null
+            : ServiceResult<CustomizationRequestListResponseDto>.Forbidden(
+                "You do not have access to this project's customization requests.");
+    }
+
+    private async Task<ServiceResult<CustomizationRequestDetailDto>?> ValidateSubmitBusinessRulesAsync(
+        CustomizationSubmitContextReadModel context,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        if (context.CustomerId != currentUserId)
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+                "You can only submit customization requests for your own project.");
+        }
+
+        if (IsProposalAlreadySelected(context))
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.ProposalAlreadySelected,
+                "Proposal has already been selected.");
+        }
+
+        if (context.ProposalStatus != ProposalStatus.PUBLISHED)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.InvalidCustomizationRequest,
+                "Customization request can only be submitted for a published proposal.");
+        }
+
+        var hasQuotation = await _customizationRequests.HasQuotationForProposalAsync(
+            context.ProposalId,
+            cancellationToken);
+        return hasQuotation
+            ? BadRequestDetail(
+                CustomizationRequestErrorCodes.QuotationAlreadyCreated,
+                "Quotation has already been created for this proposal.")
+            : null;
+    }
+
+    private static ServiceResult<CustomizationRequestDetailDto>? ValidateSubmitRequest(
+        SubmitCustomizationRequestDto request)
+    {
+        if (string.IsNullOrWhiteSpace(request.RequestTitle))
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.InvalidCustomizationRequest,
+                "Request title is required.");
+        }
+
+        var hasRequestedChange = !string.IsNullOrWhiteSpace(request.RequestDescription)
+            || !string.IsNullOrWhiteSpace(request.RequestedMaterial)
+            || !string.IsNullOrWhiteSpace(request.RequestedColor)
+            || !string.IsNullOrWhiteSpace(request.RequestedChangeNote)
+            || request.RequestedWidth.HasValue
+            || request.RequestedHeight.HasValue
+            || request.RequestedDepth.HasValue;
+
+        return hasRequestedChange
+            ? null
+            : BadRequestDetail(
+                CustomizationRequestErrorCodes.InvalidCustomizationRequest,
+            "At least one requested customization field is required.");
+    }
+
+    private async Task<CustomizationUpdateContext> GetUpdateContextAsync(
+        Guid customizationRequestId,
+        CancellationToken cancellationToken)
+    {
+        var entity = await _customizationRequests.GetByIdAsync(customizationRequestId, cancellationToken);
+        if (entity is null)
+        {
+            return CustomizationUpdateContext.NotFound();
+        }
+
+        var detail = await _customizationRequests.GetDetailAsync(customizationRequestId, cancellationToken);
+        return detail is null
+            ? CustomizationUpdateContext.NotFound()
+            : new CustomizationUpdateContext(entity, detail, null);
+    }
+
+    private static bool CanDesignerReview(
+        string? role,
+        CustomizationRequestReadModel request,
+        Guid currentUserId)
+    {
+        return role switch
+        {
+            AdminRole => true,
+            DesignerRole => request.AssignedDesignerId == currentUserId,
+            _ => false
+        };
+    }
+
+    private static bool CanMoveToProductionReview(CustomizationStatus? status)
+    {
+        return status is CustomizationStatus.SUBMITTED or CustomizationStatus.DESIGN_REVIEWING;
+    }
+
+    private static ServiceResult<CustomizationRequestDetailDto>? ValidateProductionReview(
+        ProductionReviewCustomizationRequestDto request)
+    {
+        var result = request.Result?.Trim() ?? string.Empty;
+        if (IsResult(result, NotFeasibleResult))
+        {
+            return request.MaterialAvailable == true
+                ? BadRequestDetail(
+                    CustomizationRequestErrorCodes.MaterialNotAvailable,
+                    "Material must not be available when customization is not feasible.")
+                : null;
+        }
+
+        if (!IsResult(result, FeasibleResult))
+        {
+            return InvalidTransition("Unsupported production review result.");
+        }
+
+        if (request.MaterialAvailable != true)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.MaterialNotAvailable,
+                "Material must be available for feasible customization.");
+        }
+
+        if (!request.EstimatedProductionDays.HasValue || !request.EstimatedAdditionalCost.HasValue)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.CustomizationCostRequired,
+                "Estimated production days and additional cost are required.");
+        }
+
+        return request.EstimatedAdditionalCost > 0 &&
+            string.IsNullOrWhiteSpace(request.AdditionalCostReason)
+                ? BadRequestDetail(
+                    CustomizationRequestErrorCodes.AdditionalCostReasonRequired,
+                    "Additional cost reason is required when additional cost is greater than zero.")
+                : null;
+    }
+
+    private static void ApplyProductionReview(
+        CustomizationRequest entity,
+        Guid currentUserId,
+        ProductionReviewCustomizationRequestDto request)
+    {
+        entity.ProductionReviewBy = currentUserId;
+        entity.MaterialAvailable = request.MaterialAvailable;
+        entity.EstimatedProductionDays = request.EstimatedProductionDays;
+        entity.EstimatedAdditionalCost = request.EstimatedAdditionalCost;
+        entity.AdditionalCostReason = request.AdditionalCostReason;
+        entity.FeasibilityNote = request.FeasibilityNote;
+        entity.ProductionRiskNote = request.ProductionRiskNote;
+        entity.Status = IsResult(request.Result, FeasibleResult)
+            ? CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL
+            : CustomizationStatus.NOT_FEASIBLE;
+        entity.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private async Task<ServiceResult<CustomizationRequestDetailDto>> ReloadUpdatedDetailAsync(
+        Guid customizationRequestId,
+        string message,
+        CancellationToken cancellationToken)
+    {
+        var detail = await _customizationRequests.GetDetailAsync(customizationRequestId, cancellationToken);
+        return detail is null
+            ? NotFoundDetail(
+                CustomizationRequestErrorCodes.CustomizationRequestNotFound,
+                "Customization request not found.")
+            : ServiceResult<CustomizationRequestDetailDto>.Success(ToDetailDto(detail), message);
+    }
+
+    private static CustomizationRequest CreateCustomizationRequest(
+        CustomizationSubmitContextReadModel context,
+        Guid currentUserId,
+        SubmitCustomizationRequestDto request)
+    {
+        var now = DateTime.UtcNow;
+        return new CustomizationRequest
+        {
+            CustomizationRequestId = Guid.NewGuid(),
+            ProjectId = context.ProjectId,
+            ProposalId = context.ProposalId,
+            ProposalItemId = context.ProposalItemId,
+            RequestedByCustomerId = currentUserId,
+            RequestTitle = request.RequestTitle.Trim(),
+            RequestDescription = request.RequestDescription,
+            RequestedWidth = request.RequestedWidth,
+            RequestedHeight = request.RequestedHeight,
+            RequestedDepth = request.RequestedDepth,
+            RequestedMaterial = request.RequestedMaterial,
+            RequestedColor = request.RequestedColor,
+            RequestedChangeNote = request.RequestedChangeNote,
+            Status = CustomizationStatus.SUBMITTED,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+    }
+
+    private async Task DispatchSubmittedNotificationAsync(
+        CustomizationRequest request,
+        CustomizationSubmitContextReadModel context,
+        CancellationToken cancellationToken)
+    {
+        var receivers = BuildReceivers(context.AssignedSalesId, context.AssignedDesignerId);
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        await _dispatcher.DispatchAsync(
+            NotificationType.CustomizationRequestSubmitted,
+            new Dictionary<string, string>
+            {
+                ["RequestTitle"] = request.RequestTitle,
+                ["ProjectName"] = context.ProjectName,
+                ["ProposalName"] = context.ProposalName
+            },
+            receivers,
+            context.ProjectId,
+            CustomizationReferenceType,
+            request.CustomizationRequestId,
+            cancellationToken);
+    }
+
+    private async Task DispatchDesignerReviewedNotificationAsync(
+        CustomizationRequest request,
+        CustomizationRequestReadModel context,
+        CancellationToken cancellationToken)
+    {
+        var receivers = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+            [ProductionRole],
+            cancellationToken);
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        await _dispatcher.DispatchAsync(
+            NotificationType.CustomizationDesignerReviewed,
+            new Dictionary<string, string>
+            {
+                ["RequestTitle"] = request.RequestTitle,
+                ["ProjectName"] = context.ProjectName
+            },
+            receivers,
+            context.ProjectId,
+            CustomizationReferenceType,
+            request.CustomizationRequestId,
+            cancellationToken);
+    }
+
+    private static bool CanAccessProject(
+        string? role,
+        ProposalProjectAccessReadModel project,
+        Guid currentUserId)
+    {
+        return role switch
+        {
+            AdminRole => true,
+            CustomerRole => project.CustomerId == currentUserId,
+            SalesRole => project.AssignedSalesId == currentUserId,
+            DesignerRole => project.AssignedDesignerId == currentUserId,
+            _ => false
+        };
+    }
+
+    private static bool CanAccessRequest(
+        string? role,
+        CustomizationRequestReadModel request,
+        Guid currentUserId)
+    {
+        if (role == ProductionRole)
+        {
+            return IsProductionVisible(request, currentUserId);
+        }
+
+        return role switch
+        {
+            AdminRole => true,
+            CustomerRole => request.CustomerId == currentUserId,
+            SalesRole => request.AssignedSalesId == currentUserId,
+            DesignerRole => request.AssignedDesignerId == currentUserId,
+            _ => false
+        };
+    }
+
+    private static IEnumerable<CustomizationRequestReadModel> FilterListByRole(
+        IEnumerable<CustomizationRequestReadModel> items,
+        string? role,
+        Guid currentUserId)
+    {
+        return role == ProductionRole
+            ? items.Where(item => IsProductionVisible(item, currentUserId))
+            : items;
+    }
+
+    private static bool IsProductionVisible(
+        CustomizationRequestReadModel request,
+        Guid currentUserId)
+    {
+        return request.ProductionReviewBy == currentUserId ||
+            request.Status.HasValue && ProductionVisibleStatuses.Contains(request.Status.Value);
+    }
+
+    private static bool IsProposalAlreadySelected(CustomizationSubmitContextReadModel context)
+    {
+        return context.ProposalStatus == ProposalStatus.SELECTED ||
+            context.ProjectStatus.HasValue &&
+            ProjectStatusesAfterProposalSelection.Contains(context.ProjectStatus.Value);
+    }
+
+    private static bool IsResult(string? value, string expected)
+    {
+        return string.Equals(value, expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static List<Guid> BuildReceivers(Guid? first, Guid? second)
+    {
+        var receivers = new List<Guid>();
+        if (first.HasValue)
+        {
+            receivers.Add(first.Value);
+        }
+
+        if (second.HasValue && second.Value != first)
+        {
+            receivers.Add(second.Value);
+        }
+
+        return receivers;
+    }
+
+    private static CustomizationRequestDetailDto ToDetailDto(
+        CustomizationRequestDetailReadModel detail)
+    {
+        var dto = detail.Adapt<CustomizationRequestDetailDto>();
+        dto.ProposalItem = new CustomizationRequestItemSnapshotDto
+        {
+            ProposalItemId = detail.ProposalItemId,
+            ProposalId = detail.ProposalId,
+            ProductVersionId = detail.ProductVersionId,
+            ItemName = detail.ItemName,
+            ItemType = detail.ItemType,
+            Quantity = detail.Quantity,
+            Width = detail.Width,
+            Height = detail.Height,
+            Depth = detail.Depth,
+            Material = detail.Material,
+            Color = detail.Color,
+            UnitPriceSnapshot = detail.UnitPriceSnapshot,
+            TotalPriceSnapshot = detail.TotalPriceSnapshot,
+            Note = detail.ItemNote
+        };
+        return dto;
+    }
+
+    private static ServiceResult<CustomizationRequestListResponseDto> NotFoundList(
+        string code,
+        string message)
+    {
+        return ServiceResult<CustomizationRequestListResponseDto>.Failure(
+            Error.NotFound(code, message));
+    }
+
+    private static ServiceResult<CustomizationRequestDetailDto> NotFoundDetail(
+        string code,
+        string message)
+    {
+        return ServiceResult<CustomizationRequestDetailDto>.Failure(
+            Error.NotFound(code, message));
+    }
+
+    private static ServiceResult<CustomizationRequestDetailDto> BadRequestDetail(
+        string code,
+        string message)
+    {
+        return ServiceResult<CustomizationRequestDetailDto>.Failure(
+            Error.BadRequest(code, message));
+    }
+
+    private static ServiceResult<CustomizationRequestDetailDto> InvalidTransition(string message)
+    {
+        return BadRequestDetail(CustomizationRequestErrorCodes.InvalidCustomizationTransition, message);
+    }
+
+    private sealed record CustomizationUpdateContext(
+        CustomizationRequest? Entity,
+        CustomizationRequestDetailReadModel? Detail,
+        ServiceResult<CustomizationRequestDetailDto>? Error)
+    {
+        public static CustomizationUpdateContext NotFound()
+        {
+            return new CustomizationUpdateContext(
+                null,
+                null,
+                NotFoundDetail(
+                    CustomizationRequestErrorCodes.CustomizationRequestNotFound,
+                    "Customization request not found."));
+        }
+    }
+}

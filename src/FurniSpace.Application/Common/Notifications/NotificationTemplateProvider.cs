@@ -65,6 +65,18 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "proposal.final.selected"),
 
+            NotificationType.CustomizationRequestSubmitted => new NotificationTemplate(
+                "Customization request submitted",
+                "Customer submitted customization request \"{RequestTitle}\" for proposal \"{ProposalName}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "customization_request.submitted"),
+
+            NotificationType.CustomizationDesignerReviewed => new NotificationTemplate(
+                "Customization request ready for production review",
+                "Designer reviewed customization request \"{RequestTitle}\" for project \"{ProjectName}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "customization_request.designer_reviewed"),
+
             NotificationType.ProjectFileUploaded => new NotificationTemplate(
                 "Project file uploaded",
                 "A new file has been uploaded to project \"{ProjectName}\".",

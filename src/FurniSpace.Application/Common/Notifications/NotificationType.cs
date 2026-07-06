@@ -12,6 +12,8 @@ public enum NotificationType
     ProposalPublished,
     ProposalRevisionRequested,
     ProposalFinalSelected,
+    CustomizationRequestSubmitted,
+    CustomizationDesignerReviewed,
     ProjectFileUploaded,
     ProjectScheduleCreated,
     ProjectScheduleUpdated,

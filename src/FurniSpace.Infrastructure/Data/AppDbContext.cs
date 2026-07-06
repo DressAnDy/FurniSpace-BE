@@ -37,6 +37,7 @@ public class AppDbContext : DbContext
     private const string ProposalSceneVariantTypeColumnType = "proposal_scene_variant_type";
     private const string CustomizationStatusColumnType = "customization_status";
     private const string QuotationStatusColumnType = "quotation_status";
+    private const string QuotationItemTypeColumnType = "quotation_item_type";
     private const string OrderStatusColumnType = "order_status";
     private const string OrderItemStatusColumnType = "order_item_status";
     private const string PaymentStatusColumnType = "payment_status";
@@ -122,8 +123,9 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_type", "TWO_D,THREE_D");
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_variant_status", "DRAFT,SUBMITTED,ACCEPTED,REJECTED,APPLIED");
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_variant_type", "CUSTOMER_SUGGESTION,DESIGNER_REVISION");
-        modelBuilder.HasAnnotation("Npgsql:Enum:customization_status", "SUBMITTED,DESIGN_REVIEWING,WAITING_FOR_DESIGN_APPROVAL,DESIGN_REVISION_REQUESTED,PRODUCTION_REVIEWING,NOT_FEASIBLE,ACCEPTED,REJECTED_BY_CUSTOMER,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:customization_status", "SUBMITTED,DESIGN_REVIEWING,PRODUCTION_REVIEWING,WAITING_FOR_CUSTOMER_FINAL_APPROVAL,NOT_FEASIBLE,ACCEPTED,REJECTED_BY_CUSTOMER,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:quotation_status", "DRAFT,SENT,REVISION_REQUESTED,REVISED,ACCEPTED,REJECTED,EXPIRED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:quotation_item_type", "PRODUCT_ITEM,MANUAL_ITEM");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_status", "CREATED,DEPOSIT_PENDING,DEPOSIT_PAID,IN_PRODUCTION,PRODUCTION_PARTIALLY_FAILED,PRODUCTION_COMPLETED,READY_FOR_DELIVERY,DELIVERY_SCHEDULED,DELIVERING,DELIVERED,FINAL_PAYMENT_PENDING,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_item_status", "PENDING,IN_PRODUCTION,READY,UNAVAILABLE,DELIVERED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_status", "PENDING,PROCESSING,PAID,PARTIALLY_PAID,FAILED,CANCELLED,REFUNDED");
@@ -619,12 +621,17 @@ public class AppDbContext : DbContext
     {
         modelBuilder.Entity<CustomizationRequest>(entity =>
         {
-            entity.ToTable("customization_requests");
+            entity.ToTable("customization_requests", table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_customization_requests_additional_cost_reason",
+                    "estimated_additional_cost IS NULL OR estimated_additional_cost <= 0 OR additional_cost_reason IS NOT NULL AND btrim(additional_cost_reason) <> ''");
+            });
             entity.HasKey(e => e.CustomizationRequestId);
             entity.Property(e => e.CustomizationRequestId).HasColumnName("customization_request_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType);
-            entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType);
-            entity.Property(e => e.ProposalItemId).HasColumnName(ProposalItemIdColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ProposalItemId).HasColumnName(ProposalItemIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.RequestedByCustomerId).HasColumnName("requested_by_customer_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.RequestTitle).HasColumnName("request_title").HasColumnType(Varchar150ColumnType).IsRequired();
             entity.Property(e => e.RequestDescription).HasColumnName("request_description").HasColumnType(TextColumnType);
@@ -640,6 +647,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.FeasibilityNote).HasColumnName("feasibility_note").HasColumnType(TextColumnType);
             entity.Property(e => e.EstimatedProductionDays).HasColumnName("estimated_production_days").HasColumnType(IntegerColumnType);
             entity.Property(e => e.EstimatedAdditionalCost).HasColumnName("estimated_additional_cost").HasColumnType(Decimal12ColumnType);
+            entity.Property(e => e.AdditionalCostReason).HasColumnName("additional_cost_reason").HasColumnType(TextColumnType);
             entity.Property(e => e.MaterialAvailable).HasColumnName("material_available").HasColumnType(BooleanColumnType);
             entity.Property(e => e.ProductionRiskNote).HasColumnName("production_risk_note").HasColumnType(TextColumnType);
             entity.Property(e => e.SalesReviewBy).HasColumnName("sales_review_by").HasColumnType(UuidColumnType);
@@ -667,21 +675,20 @@ public class AppDbContext : DbContext
             entity.ToTable("quotations");
             entity.HasKey(e => e.QuotationId);
             entity.Property(e => e.QuotationId).HasColumnName(QuotationIdColumnName).HasColumnType(UuidColumnType);
-            entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType);
-            entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.QuotationCode).HasColumnName("quotation_code").HasColumnType(Varchar50ColumnType).IsRequired();
             entity.Property(e => e.VersionNo).HasColumnName(VersionNoColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1);
             entity.Property(e => e.SubtotalAmount).HasColumnName(SubtotalAmountColumnName).HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.DiscountAmount).HasColumnName(DiscountAmountColumnName).HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.TaxAmount).HasColumnName("tax_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
-            entity.Property(e => e.ServiceFee).HasColumnName("service_fee").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
-            entity.Property(e => e.CustomizationFee).HasColumnName(CustomizationFeeColumnName).HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
-            entity.Property(e => e.DeliveryFee).HasColumnName("delivery_fee").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.TotalAmount).HasColumnName("total_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(QuotationStatusColumnType).HasDefaultValueSql("'DRAFT'::quotation_status");
             entity.Property(e => e.ValidUntil).HasColumnName("valid_until").HasColumnType(DateColumnType);
             entity.Property(e => e.CustomerNote).HasColumnName("customer_note").HasColumnType(TextColumnType);
             entity.Property(e => e.SalesNote).HasColumnName("sales_note").HasColumnType(TextColumnType);
+            entity.Property(e => e.RevisionReason).HasColumnName("revision_reason").HasColumnType(TextColumnType);
+            entity.Property(e => e.RejectReason).HasColumnName("reject_reason").HasColumnType(TextColumnType);
             entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.SentAt).HasColumnName("sent_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.AcceptedAt).HasColumnName("accepted_at").HasColumnType(TimestampWithTimeZoneColumnType);
@@ -702,17 +709,22 @@ public class AppDbContext : DbContext
             entity.ToTable("quotation_items");
             entity.HasKey(e => e.QuotationItemId);
             entity.Property(e => e.QuotationItemId).HasColumnName("quotation_item_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.QuotationId).HasColumnName(QuotationIdColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.QuotationId).HasColumnName(QuotationIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ItemType).HasColumnName("item_type").HasColumnType(QuotationItemTypeColumnType).HasDefaultValueSql("'PRODUCT_ITEM'::quotation_item_type");
             entity.Property(e => e.ProposalItemId).HasColumnName(ProposalItemIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductNameSnapshot).HasColumnName(ProductNameSnapshotColumnName).HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.ProductVersionNameSnapshot).HasColumnName(ProductVersionNameSnapshotColumnName).HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.ProductVersionCodeSnapshot).HasColumnName("product_version_code_snapshot").HasColumnType(Varchar50ColumnType);
+            entity.Property(e => e.ItemName).HasColumnName("item_name").HasColumnType(Varchar150ColumnType);
+            entity.Property(e => e.Description).HasColumnName(DescriptionColumnName).HasColumnType(TextColumnType);
             entity.Property(e => e.Quantity).HasColumnName(QuantityColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1);
             entity.Property(e => e.UnitPrice).HasColumnName("unit_price").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
-            entity.Property(e => e.CustomizationFee).HasColumnName(CustomizationFeeColumnName).HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
+            entity.Property(e => e.CustomizationAdditionalCost).HasColumnName("customization_additional_cost").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.DiscountAmount).HasColumnName(DiscountAmountColumnName).HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.SubtotalAmount).HasColumnName(SubtotalAmountColumnName).HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
+            entity.Property(e => e.IsCustomized).HasColumnName("is_customized").HasColumnType(BooleanColumnType).HasDefaultValue(false);
+            entity.Property(e => e.CustomizationNote).HasColumnName("customization_note").HasColumnType(TextColumnType);
             entity.Property(e => e.Note).HasColumnName(NoteColumnName).HasColumnType(TextColumnType);
             entity.HasOne<Quotation>().WithMany().HasForeignKey(e => e.QuotationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProposalItem>().WithMany().HasForeignKey(e => e.ProposalItemId).OnDelete(DeleteBehavior.Restrict);

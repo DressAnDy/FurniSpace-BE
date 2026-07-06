@@ -36,6 +36,7 @@ public sealed class CustomizationRequestsControllerTests
     [InlineData(nameof(CustomizationRequestsController.Submit), "CUSTOMER")]
     [InlineData(nameof(CustomizationRequestsController.DesignerReview), "DESIGNER,ADMIN")]
     [InlineData(nameof(CustomizationRequestsController.ProductionReview), "PRODUCTION,ADMIN")]
+    [InlineData(nameof(CustomizationRequestsController.CustomerDecision), "CUSTOMER")]
     public void Actions_UseExpectedRoles(string actionName, string expectedRoles)
     {
         var authorize = typeof(CustomizationRequestsController)
@@ -146,6 +147,24 @@ public sealed class CustomizationRequestsControllerTests
     }
 
     [Fact]
+    public async Task CustomerDecision_ReturnsServiceResultAndPassesRequest()
+    {
+        var requestId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" };
+        var service = new FakeCustomizationRequestService();
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.CustomerDecision(requestId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(requestId, service.CustomizationRequestId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.Same(request, service.CustomerDecisionRequest);
+    }
+
+    [Fact]
     public async Task GetByProject_WithoutUserClaim_ReturnsUnauthorized()
     {
         var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
@@ -175,6 +194,18 @@ public sealed class CustomizationRequestsControllerTests
         var actionResult = await controller.ProductionReview(
             Guid.NewGuid(),
             new ProductionReviewCustomizationRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
+    public async Task CustomerDecision_WithoutUserClaim_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
+
+        var actionResult = await controller.CustomerDecision(
+            Guid.NewGuid(),
+            new CustomerDecisionCustomizationRequestDto());
 
         Assert.IsType<UnauthorizedResult>(actionResult);
     }
@@ -220,6 +251,7 @@ public sealed class CustomizationRequestsControllerTests
         public SubmitCustomizationRequestDto? SubmitRequest { get; private set; }
         public DesignerReviewCustomizationRequestDto? DesignerReviewRequest { get; private set; }
         public ProductionReviewCustomizationRequestDto? ProductionReviewRequest { get; private set; }
+        public CustomerDecisionCustomizationRequestDto? CustomerDecisionRequest { get; private set; }
 
         public Task<ServiceResult<CustomizationRequestListResponseDto>> GetByProjectAsync(
             Guid projectId,
@@ -276,6 +308,18 @@ public sealed class CustomizationRequestsControllerTests
             CustomizationRequestId = customizationRequestId;
             CurrentUserId = currentUserId;
             ProductionReviewRequest = request;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<ServiceResult<CustomizationRequestDetailDto>> CustomerDecisionAsync(
+            Guid customizationRequestId,
+            Guid currentUserId,
+            CustomerDecisionCustomizationRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            CustomizationRequestId = customizationRequestId;
+            CurrentUserId = currentUserId;
+            CustomerDecisionRequest = request;
             return Task.FromResult(DetailResult);
         }
     }

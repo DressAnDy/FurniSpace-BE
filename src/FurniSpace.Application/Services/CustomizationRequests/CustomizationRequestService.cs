@@ -23,6 +23,8 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     private const string CustomizationReferenceType = "CUSTOMIZATION_REQUEST";
     private const string FeasibleResult = "FEASIBLE";
     private const string NotFeasibleResult = "NOT_FEASIBLE";
+    private const string AcceptDecision = "ACCEPT";
+    private const string RejectDecision = "REJECT";
 
     private static readonly CustomizationStatus[] ProductionVisibleStatuses =
     [
@@ -288,6 +290,64 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             cancellationToken);
     }
 
+    public async Task<ServiceResult<CustomizationRequestDetailDto>> CustomerDecisionAsync(
+        Guid customizationRequestId,
+        Guid currentUserId,
+        CustomerDecisionCustomizationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+        }
+
+        var context = await GetUpdateContextAsync(customizationRequestId, cancellationToken);
+        if (context.Error is not null)
+        {
+            return context.Error;
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != CustomerRole || context.Detail!.CustomerId != currentUserId)
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+                "You can only decide customization requests for your own project.");
+        }
+
+        var validationError = ValidateCustomerDecision(context.Entity!, request);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        if (IsDecision(request.Decision, AcceptDecision))
+        {
+            var proposalItem = await _proposals.GetItemEntityAsync(
+                context.Entity!.ProposalItemId,
+                cancellationToken);
+            if (proposalItem is null)
+            {
+                return NotFoundDetail(
+                    CustomizationRequestErrorCodes.ProposalItemNotFound,
+                    "Proposal item not found.");
+            }
+
+            ApplyAcceptedCustomization(context.Entity, proposalItem);
+        }
+        else
+        {
+            ApplyRejectedCustomization(context.Entity!, request);
+        }
+
+        _customizationRequests.Update(context.Entity!);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return await ReloadUpdatedDetailAsync(
+            customizationRequestId,
+            "Customization request customer decision submitted successfully.",
+            cancellationToken);
+    }
+
     private async Task<ServiceResult<CustomizationRequestListResponseDto>?> ValidateProjectAccessAsync(
         string? role,
         ProposalProjectAccessReadModel project,
@@ -464,6 +524,77 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         entity.UpdatedAt = DateTime.UtcNow;
     }
 
+    private static ServiceResult<CustomizationRequestDetailDto>? ValidateCustomerDecision(
+        CustomizationRequest entity,
+        CustomerDecisionCustomizationRequestDto request)
+    {
+        if (entity.Status == CustomizationStatus.NOT_FEASIBLE && IsDecision(request.Decision, AcceptDecision))
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.CustomizationNotFeasible,
+                "Not feasible customization requests cannot be accepted.");
+        }
+
+        if (entity.Status != CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.CustomizationNotReadyForFinalApproval,
+                "Customization request is not ready for final approval.");
+        }
+
+        if (IsDecision(request.Decision, AcceptDecision))
+        {
+            return entity.EstimatedAdditionalCost.HasValue
+                ? null
+                : BadRequestDetail(
+                    CustomizationRequestErrorCodes.CustomizationCostNotApproved,
+                    "Customization cost has not been approved by Production.");
+        }
+
+        if (IsDecision(request.Decision, RejectDecision))
+        {
+            return string.IsNullOrWhiteSpace(request.RejectReason)
+                ? BadRequestDetail(
+                    CustomizationRequestErrorCodes.InvalidCustomizationDecision,
+                    "Reject reason is required.")
+                : null;
+        }
+
+        return BadRequestDetail(
+            CustomizationRequestErrorCodes.InvalidCustomizationDecision,
+            "Decision must be ACCEPT or REJECT.");
+    }
+
+    private static void ApplyAcceptedCustomization(
+        CustomizationRequest request,
+        ProposalItem proposalItem)
+    {
+        var originalUnitPrice = proposalItem.UnitPriceSnapshot ?? 0m;
+        var additionalCost = request.EstimatedAdditionalCost ?? 0m;
+        var customizedUnitPrice = originalUnitPrice + additionalCost;
+        var quantity = proposalItem.Quantity ?? 0;
+        proposalItem.UnitPriceSnapshot = customizedUnitPrice;
+        proposalItem.TotalPriceSnapshot = customizedUnitPrice * quantity;
+        proposalItem.IsCustomized = true;
+        proposalItem.UpdatedAt = DateTime.UtcNow;
+
+        request.Status = CustomizationStatus.ACCEPTED;
+        request.CustomerAcceptedAt = DateTime.UtcNow;
+        request.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static void ApplyRejectedCustomization(
+        CustomizationRequest request,
+        CustomerDecisionCustomizationRequestDto decision)
+    {
+        request.Status = CustomizationStatus.REJECTED_BY_CUSTOMER;
+        request.CustomerRejectedAt = DateTime.UtcNow;
+        request.ProductionRiskNote = string.IsNullOrWhiteSpace(decision.RejectReason)
+            ? request.ProductionRiskNote
+            : decision.RejectReason.Trim();
+        request.UpdatedAt = DateTime.UtcNow;
+    }
+
     private async Task<ServiceResult<CustomizationRequestDetailDto>> ReloadUpdatedDetailAsync(
         Guid customizationRequestId,
         string message,
@@ -620,6 +751,11 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     private static bool IsResult(string? value, string expected)
     {
         return string.Equals(value, expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDecision(string? value, string expected)
+    {
+        return string.Equals(value?.Trim(), expected, StringComparison.OrdinalIgnoreCase);
     }
 
     private static List<Guid> BuildReceivers(Guid? first, Guid? second)

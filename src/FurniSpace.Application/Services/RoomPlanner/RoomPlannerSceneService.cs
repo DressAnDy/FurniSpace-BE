@@ -43,7 +43,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
     public async Task<ServiceResult<RoomPlannerSceneSaveResponseDto>> SaveSceneAsync(
         Guid sceneId,
-        SaveRoomPlannerSceneRequestDto request,
+        RoomPlannerScenePayloadDto request,
         Guid currentUserId,
         string currentUserRole,
         CancellationToken cancellationToken = default)
@@ -163,7 +163,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
     private static RoomPlannerSceneDocument BuildDocument(
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
-        SaveRoomPlannerSceneRequestDto request,
+        RoomPlannerScenePayloadDto request,
         Guid currentUserId,
         DateTime now)
     {
@@ -289,7 +289,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     }
 
     private async Task<Error?> ValidateSceneReferencesAsync(
-        SaveRoomPlannerSceneRequestDto request,
+        RoomPlannerScenePayloadDto request,
         Guid projectId,
         CancellationToken cancellationToken)
     {
@@ -322,7 +322,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     }
 
     private async Task<Error?> ValidateModelFileLinksAsync(
-        SaveRoomPlannerSceneRequestDto request,
+        RoomPlannerScenePayloadDto request,
         CancellationToken cancellationToken)
     {
         var objectsWithModelFiles = request.Objects

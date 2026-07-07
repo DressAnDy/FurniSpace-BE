@@ -43,7 +43,7 @@ public sealed class RoomPlannerScenesController : BaseApiController
     [HttpPut("{sceneId:guid}/room-planner")]
     public async Task<IActionResult> SaveScene(
         Guid sceneId,
-        [FromBody] SaveRoomPlannerSceneRequestDto request,
+        [FromBody] RoomPlannerScenePayloadDto request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUser(out var currentUserId, out var roleName))

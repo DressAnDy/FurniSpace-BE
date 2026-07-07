@@ -8,6 +8,10 @@ namespace FurniSpace.Infrastructure.Migrations
     /// <inheritdoc />
     public partial class AlignPaymentSchemaWithDbDiagram : Migration
     {
+        private static readonly string[] PaymentsOrderTypeIndexColumns = ["order_id", "payment_type"];
+        private static readonly string[] PaymentsProjectTimeIndexColumns = ["project_id", "created_at"];
+        private static readonly string[] PaymentTransactionsProviderTxnColumns = ["payment_provider", "provider_transaction_id"];
+
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -97,12 +101,12 @@ namespace FurniSpace.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "idx_payments_order_type",
                 table: "payments",
-                columns: new[] { "order_id", "payment_type" });
+                columns: PaymentsOrderTypeIndexColumns);
 
             migrationBuilder.CreateIndex(
                 name: "idx_payments_project_time",
                 table: "payments",
-                columns: new[] { "project_id", "created_at" });
+                columns: PaymentsProjectTimeIndexColumns);
 
             migrationBuilder.CreateIndex(
                 name: "uq_payments_payment_code",
@@ -118,7 +122,7 @@ namespace FurniSpace.Infrastructure.Migrations
             migrationBuilder.CreateIndex(
                 name: "uq_payment_transactions_provider_txn",
                 table: "payment_transactions",
-                columns: new[] { "payment_provider", "provider_transaction_id" },
+                columns: PaymentTransactionsProviderTxnColumns,
                 unique: true);
         }
 

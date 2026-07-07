@@ -2,7 +2,6 @@ using Serilog;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Security.Claims;
-using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FurniSpace.API.Cli;
@@ -72,7 +71,6 @@ var app = builder.Build();
 await MigrateAndSeedDatabaseAsync(app);
 UseDevelopmentSwagger(app);
 app.UseForwardedHeaders();
-// UseProductionHttps(app);
 app.UseHttpsRedirection();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseRateLimiter();
@@ -338,11 +336,6 @@ static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSet
 
 static void UseDevelopmentSwagger(WebApplication app)
 {
-    // if (!app.Environment.IsDevelopment())
-    // {
-    //     return;
-    // }
-
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {
@@ -350,14 +343,6 @@ static void UseDevelopmentSwagger(WebApplication app)
         options.RoutePrefix = string.Empty;
     });
 }
-
-// static void UseProductionHttps(WebApplication app)
-// {
-//     if (!app.Environment.IsDevelopment())
-//     {
-//         app.UseHsts();
-//     }
-// }
 
 static void MapRedisDebugHealth(WebApplication app)
 {
@@ -394,7 +379,7 @@ static void MapRedisDebugHealth(WebApplication app)
                 pingMs = ping.TotalMilliseconds,
                 writeReadOk = value == "ok",
                 endpoints = redis.GetEndPoints().Select(endpoint => endpoint.ToString()),
-                configuredConnection = MaskRedisConnection(configuredConnection)
+                configuredConnection = RedisConnectionMasker.Mask(configuredConnection)
             });
         }
         catch (Exception exception)
@@ -407,25 +392,11 @@ static void MapRedisDebugHealth(WebApplication app)
                 {
                     ["redisConnected"] = redis.IsConnected,
                     ["endpoints"] = redis.GetEndPoints().Select(endpoint => endpoint.ToString()),
-                    ["configuredConnection"] = MaskRedisConnection(configuredConnection),
+                    ["configuredConnection"] = RedisConnectionMasker.Mask(configuredConnection),
                     ["exceptionType"] = exception.GetType().FullName
                 });
         }
     });
-}
-
-static string MaskRedisConnection(string connectionString)
-{
-    if (string.IsNullOrWhiteSpace(connectionString))
-    {
-        return connectionString;
-    }
-
-    return Regex.Replace(
-        connectionString,
-        "(password=)[^,]+",
-        "$1***",
-        RegexOptions.IgnoreCase);
 }
 
 static bool TryGetReindexModule(string[] args, out string module)

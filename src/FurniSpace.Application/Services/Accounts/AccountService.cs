@@ -22,6 +22,7 @@ public sealed class AccountService : IAccountService
     private const string AccountItemCachePrefix = "furnispace:accounts:item:";
     private const string AccountListCachePrefix = "furnispace:accounts:list:";
     private const string AccountNotFoundCode = "ACCOUNT_NOT_FOUND";
+    private const string AccountNotFoundMessage = "Account not found.";
     private const string AccountDetailRetrievedMessage = "Account detail retrieved successfully.";
     private const string ProfileUpdatedMessage = "Profile updated successfully.";
     private const string AvailableDesignersRetrievedMessage = "Available designers retrieved successfully.";
@@ -103,7 +104,7 @@ public sealed class AccountService : IAccountService
         var account = await _accounts.GetByIdAsync(accountId, cancellationToken);
         if (account is null || account.DeletedAt is not null)
         {
-            return ServiceResult<AccountDto>.NotFound("Account not found.");
+            return ServiceResult<AccountDto>.NotFound(AccountNotFoundMessage);
         }
 
         var dto = account.Adapt<AccountDto>();
@@ -144,7 +145,7 @@ public sealed class AccountService : IAccountService
         var account = await _accounts.GetByIdAsync(currentUserId, cancellationToken);
         if (account is null || account.DeletedAt is not null)
         {
-            return ServiceResult<MyProfileDto>.NotFound("Account not found.");
+            return ServiceResult<MyProfileDto>.NotFound(AccountNotFoundMessage);
         }
 
         account.FullName = request.FullName.Trim();
@@ -331,7 +332,7 @@ public sealed class AccountService : IAccountService
         var account = await _accounts.GetByIdAsync(accountId, cancellationToken);
         if (account is null || account.DeletedAt is not null)
         {
-            return ServiceResult<AccountDto>.NotFound("Account not found.");
+            return ServiceResult<AccountDto>.NotFound(AccountNotFoundMessage);
         }
 
         var email = NormalizeEmail(request.Email);
@@ -372,7 +373,7 @@ public sealed class AccountService : IAccountService
         var account = await _accounts.GetByIdAsync(accountId, cancellationToken);
         if (account is null || account.DeletedAt is not null)
         {
-            return ServiceResult.NotFound("Account not found.");
+            return ServiceResult.NotFound(AccountNotFoundMessage);
         }
 
         account.DeletedAt = DateTime.UtcNow;

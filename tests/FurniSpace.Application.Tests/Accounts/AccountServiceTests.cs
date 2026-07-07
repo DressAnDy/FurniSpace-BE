@@ -29,6 +29,55 @@ public sealed class AccountServiceTests
     }
 
     [Fact]
+    public async Task GetByIdAsync_WithMissingAccount_ReturnsNotFound()
+    {
+        var repository = new FakeAccountRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetByIdAsync(Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Account not found.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithMissingAccount_ReturnsNotFound()
+    {
+        var repository = new FakeAccountRepository();
+        var service = CreateService(repository);
+
+        var result = await service.UpdateAsync(
+            Guid.NewGuid(),
+            new UpdateAccountRequestDto
+            {
+                RoleId = Guid.NewGuid(),
+                Email = "missing@furnispace.com",
+                FullName = "Missing User",
+                Status = "ACTIVE"
+            });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Account not found.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(1, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WithMissingAccount_ReturnsNotFound()
+    {
+        var repository = new FakeAccountRepository();
+        var service = CreateService(repository);
+
+        var result = await service.DeleteAsync(Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Account not found.", result.Message);
+        Assert.Equal(1, repository.GetByIdCallCount);
+    }
+
+    [Fact]
     public async Task GetAdminDetailAsync_WithExistingAccount_ReturnsRoleAndProfileWithoutPassword()
     {
         var accountId = Guid.NewGuid();

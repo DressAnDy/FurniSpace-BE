@@ -312,7 +312,7 @@ public sealed class RoomPlannerSceneServiceTests
             AssignedDesignerId = DesignerId
         };
 
-    private static SaveRoomPlannerSceneRequestDto CreateSaveRequest() =>
+    private static RoomPlannerScenePayloadDto CreateSaveRequest() =>
         new()
         {
             SchemaVersion = 2,

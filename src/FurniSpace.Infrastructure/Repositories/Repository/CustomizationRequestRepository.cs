@@ -11,6 +11,14 @@ namespace FurniSpace.Infrastructure.Repositories.Repository;
 public sealed class CustomizationRequestRepository
     : GenericRepository<CustomizationRequest>, ICustomizationRequestRepository
 {
+    private static readonly CustomizationStatus[] PendingFinalSelectionStatuses =
+    [
+        CustomizationStatus.SUBMITTED,
+        CustomizationStatus.DESIGN_REVIEWING,
+        CustomizationStatus.PRODUCTION_REVIEWING,
+        CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL
+    ];
+
     public CustomizationRequestRepository(AppDbContext dbContext) : base(dbContext)
     {
     }
@@ -83,7 +91,19 @@ public sealed class CustomizationRequestRepository
             request =>
                 request.ProjectId == projectId &&
                 (request.Status == CustomizationStatus.PRODUCTION_REVIEWING ||
-                 request.ProductionReviewBy == productionUserId),
+                request.ProductionReviewBy == productionUserId),
+            cancellationToken);
+    }
+
+    public Task<bool> HasPendingForProposalAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.CustomizationRequestSet.AnyAsync(
+            request =>
+                request.ProposalId == proposalId &&
+                request.Status.HasValue &&
+                PendingFinalSelectionStatuses.Contains(request.Status.Value),
             cancellationToken);
     }
 

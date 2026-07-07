@@ -1067,6 +1067,157 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(CustomizationRequestErrorCodes.ProposalItemNotFound, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task CancelAsync_CustomerOwnerCancelsSubmittedRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var repo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = CreateDetail(ids, entity.CustomizationRequestId)
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CancelCustomizationRequestDto { CancelReason = "No longer needed." });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.CANCELLED, entity.Status);
+        Assert.Equal("No longer needed.", entity.ProductionRiskNote);
+        Assert.Equal(1, repo.UpdateCallCount);
+        Assert.Equal(1, repo.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task CancelAsync_AssignedDesignerCancelsRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CancelCustomizationRequestDto { CancelReason = "Invalid request." });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.CANCELLED, entity.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CancelAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_MissingRequestReturnsNotFound()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.CancelAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAsync_UnassignedStaffReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(SalesRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            Guid.NewGuid(),
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_AcceptedRequestReturnsAlreadyAccepted()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.ACCEPTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.ACCEPTED)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationAlreadyAccepted, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAsync_AlreadyCancelledReturnsInvalidTransition()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.CANCELLED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.CANCELLED)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationTransition, result.ErrorCode);
+    }
+
     private static CustomizationRequestService CreateService(
         FakeCustomizationRequestRepository customizationRequests,
         FakeProposalRepository proposals,
@@ -1197,6 +1348,7 @@ public sealed class CustomizationRequestServiceTests
 
     private const string AdminRole = "ADMIN";
     private const string CustomerRole = "CUSTOMER";
+    private const string SalesRole = "SALES";
     private const string DesignerRole = "DESIGNER";
     private const string ProductionRole = "PRODUCTION";
 
@@ -1267,6 +1419,11 @@ public sealed class CustomizationRequestServiceTests
             Guid productionUserId,
             CancellationToken cancellationToken = default)
             => Task.FromResult(HasProductionVisibleRequest);
+
+        public Task<bool> HasPendingForProposalAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
 
         public Task AddAsync(CustomizationRequest entity, CancellationToken cancellationToken = default)
         {

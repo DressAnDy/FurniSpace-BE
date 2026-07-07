@@ -26,4 +26,8 @@ public interface ICustomizationRequestRepository : IGenericRepository<Customizat
         Guid projectId,
         Guid productionUserId,
         CancellationToken cancellationToken = default);
+
+    Task<bool> HasPendingForProposalAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default);
 }

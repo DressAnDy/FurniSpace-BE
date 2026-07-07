@@ -39,4 +39,10 @@ public interface ICustomizationRequestService
         Guid currentUserId,
         CustomerDecisionCustomizationRequestDto request,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<CustomizationRequestDetailDto>> CancelAsync(
+        Guid customizationRequestId,
+        Guid currentUserId,
+        CancelCustomizationRequestDto request,
+        CancellationToken cancellationToken = default);
 }

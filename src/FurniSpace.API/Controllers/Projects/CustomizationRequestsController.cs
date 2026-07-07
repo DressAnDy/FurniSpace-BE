@@ -146,6 +146,26 @@ public sealed class CustomizationRequestsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [HttpPatch("customization-requests/{customizationRequestId:guid}/cancel")]
+    public async Task<IActionResult> Cancel(
+        Guid customizationRequestId,
+        [FromBody] CancelCustomizationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _customizationRequests.CancelAsync(
+            customizationRequestId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

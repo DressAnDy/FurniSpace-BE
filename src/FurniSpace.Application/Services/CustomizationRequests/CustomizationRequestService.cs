@@ -348,6 +348,46 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             cancellationToken);
     }
 
+    public async Task<ServiceResult<CustomizationRequestDetailDto>> CancelAsync(
+        Guid customizationRequestId,
+        Guid currentUserId,
+        CancelCustomizationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+        }
+
+        var context = await GetUpdateContextAsync(customizationRequestId, cancellationToken);
+        if (context.Error is not null)
+        {
+            return context.Error;
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanCancelRequest(role, context.Detail!, currentUserId))
+        {
+            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+                "You do not have permission to cancel this customization request.");
+        }
+
+        var validationError = ValidateCancellation(context.Entity!);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        ApplyCancellation(context.Entity!, request);
+        _customizationRequests.Update(context.Entity!);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return await ReloadUpdatedDetailAsync(
+            customizationRequestId,
+            "Customization request cancelled successfully.",
+            cancellationToken);
+    }
+
     private async Task<ServiceResult<CustomizationRequestListResponseDto>?> ValidateProjectAccessAsync(
         string? role,
         ProposalProjectAccessReadModel project,
@@ -565,6 +605,21 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             "Decision must be ACCEPT or REJECT.");
     }
 
+    private static ServiceResult<CustomizationRequestDetailDto>? ValidateCancellation(
+        CustomizationRequest entity)
+    {
+        if (entity.Status == CustomizationStatus.ACCEPTED)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.CustomizationAlreadyAccepted,
+                "Accepted customization requests cannot be cancelled.");
+        }
+
+        return entity.Status == CustomizationStatus.CANCELLED
+            ? InvalidTransition("Customization request has already been cancelled.")
+            : null;
+    }
+
     private static void ApplyAcceptedCustomization(
         CustomizationRequest request,
         ProposalItem proposalItem)
@@ -580,6 +635,17 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
 
         request.Status = CustomizationStatus.ACCEPTED;
         request.CustomerAcceptedAt = DateTime.UtcNow;
+        request.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static void ApplyCancellation(
+        CustomizationRequest request,
+        CancelCustomizationRequestDto cancellation)
+    {
+        request.Status = CustomizationStatus.CANCELLED;
+        request.ProductionRiskNote = string.IsNullOrWhiteSpace(cancellation.CancelReason)
+            ? request.ProductionRiskNote
+            : cancellation.CancelReason.Trim();
         request.UpdatedAt = DateTime.UtcNow;
     }
 
@@ -721,6 +787,15 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             DesignerRole => request.AssignedDesignerId == currentUserId,
             _ => false
         };
+    }
+
+    private static bool CanCancelRequest(
+        string? role,
+        CustomizationRequestReadModel request,
+        Guid currentUserId)
+    {
+        return role is CustomerRole or SalesRole or DesignerRole or AdminRole &&
+            CanAccessRequest(role, request, currentUserId);
     }
 
     private static IEnumerable<CustomizationRequestReadModel> FilterListByRole(

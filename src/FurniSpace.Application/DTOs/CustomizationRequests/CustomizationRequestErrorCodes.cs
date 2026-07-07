@@ -16,4 +16,6 @@ public static class CustomizationRequestErrorCodes
     public const string CustomizationCostNotApproved = "CUSTOMIZATION_COST_NOT_APPROVED";
     public const string CustomizationNotFeasible = "CUSTOMIZATION_NOT_FEASIBLE";
     public const string InvalidCustomizationDecision = "INVALID_CUSTOMIZATION_DECISION";
+    public const string CustomizationAlreadyAccepted = "CUSTOMIZATION_ALREADY_ACCEPTED";
+    public const string CustomizationRequestPending = "CUSTOMIZATION_REQUEST_PENDING";
 }

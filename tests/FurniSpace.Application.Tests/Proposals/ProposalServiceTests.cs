@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Proposals;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Common.Notifications;
@@ -13,6 +14,7 @@ using FurniSpace.Application.Services.Proposals;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.ReadModels.Proposals;
@@ -1132,6 +1134,63 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
+    public async Task SelectFinalAsync_WithPendingCustomizationRequest_ReturnsCustomizationRequestPending()
+    {
+        var customerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var detail = CreateDetail(proposalId, customerId: customerId);
+        detail.ProjectId = projectId;
+        detail.Status = ProposalStatus.PUBLISHED;
+        var repository = new FakeProposalRepository(detail: detail);
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = proposalId,
+            ProjectId = projectId,
+            ProposalName = "Selected",
+            Status = ProposalStatus.PUBLISHED
+        });
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("CUSTOMER", new Project
+            {
+                ProjectId = projectId,
+                CustomerId = customerId
+            }),
+            customizationRequests: new FakeCustomizationRequestRepository(hasPending: true));
+
+        var result = await service.SelectFinalAsync(
+            proposalId,
+            customerId,
+            new SelectFinalProposalRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestPending, result.ErrorCode);
+        Assert.Equal(0, repository.RejectOtherActiveProposalsCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task SelectFinalAsync_WithAlreadySelectedProposal_ReturnsProposalAlreadySelected()
+    {
+        var customerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var detail = CreateDetail(proposalId, customerId: customerId);
+        detail.Status = ProposalStatus.SELECTED;
+        var service = CreateService(
+            new FakeProposalRepository(detail: detail),
+            new FakeProjectRepository("CUSTOMER"));
+
+        var result = await service.SelectFinalAsync(
+            proposalId,
+            customerId,
+            new SelectFinalProposalRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProposalAlreadySelected, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task RequestRevisionAsync_WithPublishedOwner_UpdatesStatusAndNotifiesStaff()
     {
         var customerId = Guid.NewGuid();
@@ -1440,7 +1499,8 @@ public sealed class ProposalServiceTests
         FakeProductVersionRepository? productVersions = null,
         IUnitOfWork? unitOfWork = null,
         ApplicationRoomPlannerSceneRepository? roomPlannerScenes = null,
-        INotificationDispatcher? notifications = null)
+        INotificationDispatcher? notifications = null,
+        ICustomizationRequestRepository? customizationRequests = null)
     {
         return new ProposalService(
             proposals,
@@ -1448,7 +1508,8 @@ public sealed class ProposalServiceTests
             productVersions ?? new FakeProductVersionRepository(),
             unitOfWork ?? TestUnitOfWork.ForSaveChanges(proposals.SaveChangesAsync),
             roomPlannerScenes,
-            notifications);
+            notifications,
+            customizationRequests: customizationRequests);
     }
 
     private static CreateProposalRequestDto ValidCreateRequest()
@@ -1719,6 +1780,53 @@ public sealed class ProposalServiceTests
             TotalPriceSnapshot = 4800000m,
             Note = "Use brown wood version."
         };
+    }
+
+    private sealed class FakeCustomizationRequestRepository : ICustomizationRequestRepository
+    {
+        private readonly bool _hasPending;
+
+        public FakeCustomizationRequestRepository(bool hasPending = false)
+        {
+            _hasPending = hasPending;
+        }
+
+        public Task<bool> HasPendingForProposalAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default) => Task.FromResult(_hasPending);
+
+        public Task<IReadOnlyList<CustomizationRequestReadModel>> GetByProjectAsync(
+            CustomizationRequestQueryReadModel query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<CustomizationRequestReadModel>>([]);
+
+        public Task<CustomizationRequestDetailReadModel?> GetDetailAsync(
+            Guid customizationRequestId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<CustomizationRequestDetailReadModel?>(null);
+
+        public Task<CustomizationSubmitContextReadModel?> GetSubmitContextAsync(
+            Guid proposalItemId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<CustomizationSubmitContextReadModel?>(null);
+
+        public Task<bool> HasQuotationForProposalAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public Task<bool> HasProductionVisibleRequestAsync(
+            Guid projectId,
+            Guid productionUserId,
+            CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public IQueryable<CustomizationRequest> Query() => Enumerable.Empty<CustomizationRequest>().AsQueryable();
+        public Task<CustomizationRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<CustomizationRequest?>(null);
+        public Task<IReadOnlyList<CustomizationRequest>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CustomizationRequest>>([]);
+        public Task AddAsync(CustomizationRequest entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddRangeAsync(IEnumerable<CustomizationRequest> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Update(CustomizationRequest entity) { }
+        public void Remove(CustomizationRequest entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
     }
 
     private sealed class FakeProposalRepository : IProposalRepository

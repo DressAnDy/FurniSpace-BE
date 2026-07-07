@@ -379,7 +379,7 @@ static void MapRedisDebugHealth(WebApplication app)
                 pingMs = ping.TotalMilliseconds,
                 writeReadOk = value == "ok",
                 endpoints = redis.GetEndPoints().Select(endpoint => endpoint.ToString()),
-                configuredConnection = MaskRedisConnection(configuredConnection)
+                configuredConnection = RedisConnectionMasker.Mask(configuredConnection)
             });
         }
         catch (Exception exception)
@@ -392,32 +392,11 @@ static void MapRedisDebugHealth(WebApplication app)
                 {
                     ["redisConnected"] = redis.IsConnected,
                     ["endpoints"] = redis.GetEndPoints().Select(endpoint => endpoint.ToString()),
-                    ["configuredConnection"] = MaskRedisConnection(configuredConnection),
+                    ["configuredConnection"] = RedisConnectionMasker.Mask(configuredConnection),
                     ["exceptionType"] = exception.GetType().FullName
                 });
         }
     });
-}
-
-static string MaskRedisConnection(string connectionString)
-{
-    if (string.IsNullOrWhiteSpace(connectionString))
-    {
-        return connectionString;
-    }
-
-    const char segmentSeparator = ',';
-    var secretKeyPrefix = string.Concat("pass", "word", "=");
-    var segments = connectionString.Split(segmentSeparator);
-    for (var index = 0; index < segments.Length; index++)
-    {
-        if (segments[index].StartsWith(secretKeyPrefix, StringComparison.OrdinalIgnoreCase))
-        {
-            segments[index] = $"{secretKeyPrefix}***";
-        }
-    }
-
-    return string.Join(segmentSeparator, segments);
 }
 
 static bool TryGetReindexModule(string[] args, out string module)

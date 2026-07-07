@@ -10,6 +10,7 @@ using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
 using FurniSpace.Application.Interfaces.Proposals;
+using FurniSpace.Application.Interfaces.Quotations;
 using FurniSpace.Application.Interfaces.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
@@ -27,6 +28,7 @@ using FurniSpace.Application.Services.Notifications;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Services.Proposals;
+using FurniSpace.Application.Services.Quotations;
 using FurniSpace.Application.Services.ProjectFiles;
 using FurniSpace.Application.Services.ProjectChats;
 using FurniSpace.Application.Services.ProjectChatMessages;
@@ -71,6 +73,7 @@ public static class DependencyInjection
         services.AddScoped<IProductPreviewImageService, ProductPreviewImageService>();
         services.AddScoped<IProductVersionService, ProductVersionService>();
         services.AddScoped<IProposalService, ProposalService>();
+        services.AddScoped<IQuotationService, QuotationService>();
         services.AddScoped<ICustomizationRequestService, CustomizationRequestService>();
         services.AddScoped<IFileUploadValidator, FileUploadValidator>();
         services.AddScoped<ProjectChatFileUploadDependencies>(sp =>

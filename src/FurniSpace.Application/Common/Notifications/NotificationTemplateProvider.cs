@@ -65,6 +65,18 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "proposal.final.selected"),
 
+            NotificationType.QuotationSent => new NotificationTemplate(
+                "Quotation ready for review",
+                "Quotation \"{QuotationCode}\" is ready for your review.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "quotation.sent"),
+
+            NotificationType.QuotationAccepted => new NotificationTemplate(
+                "Quotation accepted",
+                "Customer accepted quotation \"{QuotationCode}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "quotation.accepted"),
+
             NotificationType.CustomizationRequestSubmitted => new NotificationTemplate(
                 "Customization request submitted",
                 "Customer submitted customization request \"{RequestTitle}\" for proposal \"{ProposalName}\".",

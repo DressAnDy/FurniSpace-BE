@@ -907,32 +907,15 @@ public sealed class QuotationService : IQuotationService
         QuotationDetailReadModel quotation,
         CancellationToken cancellationToken)
     {
-        if (_notifications is null || quotation.AssignedSalesId is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _notifications.DispatchAsync(
-                NotificationType.QuotationAccepted,
-                new Dictionary<string, string>
-                {
-                    ["QuotationCode"] = quotation.QuotationCode
-                },
-                [quotation.AssignedSalesId.Value],
-                projectId: quotation.ProjectId,
-                referenceType: "QUOTATION",
-                referenceId: quotation.QuotationId,
-                cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger?.LogWarning(
-                exception,
-                "Failed to dispatch quotation accepted notification for quotation {QuotationId}",
-                quotation.QuotationId);
-        }
+        await DispatchQuotationStaffNotificationAsync(
+            quotation,
+            NotificationType.QuotationAccepted,
+            new Dictionary<string, string>
+            {
+                ["QuotationCode"] = quotation.QuotationCode
+            },
+            "accepted",
+            cancellationToken);
     }
 
     private async Task DispatchQuotationRevisionRequestedNotificationAsync(
@@ -940,38 +923,40 @@ public sealed class QuotationService : IQuotationService
         string revisionReason,
         CancellationToken cancellationToken)
     {
-        if (_notifications is null || quotation.AssignedSalesId is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _notifications.DispatchAsync(
-                NotificationType.QuotationRevisionRequested,
-                new Dictionary<string, string>
-                {
-                    ["QuotationCode"] = quotation.QuotationCode,
-                    ["RevisionReason"] = revisionReason
-                },
-                [quotation.AssignedSalesId.Value],
-                projectId: quotation.ProjectId,
-                referenceType: "QUOTATION",
-                referenceId: quotation.QuotationId,
-                cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger?.LogWarning(
-                exception,
-                "Failed to dispatch quotation revision requested notification for quotation {QuotationId}",
-                quotation.QuotationId);
-        }
+        await DispatchQuotationStaffNotificationAsync(
+            quotation,
+            NotificationType.QuotationRevisionRequested,
+            new Dictionary<string, string>
+            {
+                ["QuotationCode"] = quotation.QuotationCode,
+                ["RevisionReason"] = revisionReason
+            },
+            "revision requested",
+            cancellationToken);
     }
 
     private async Task DispatchQuotationRejectedNotificationAsync(
         QuotationDetailReadModel quotation,
         string rejectReason,
+        CancellationToken cancellationToken)
+    {
+        await DispatchQuotationStaffNotificationAsync(
+            quotation,
+            NotificationType.QuotationRejected,
+            new Dictionary<string, string>
+            {
+                ["QuotationCode"] = quotation.QuotationCode,
+                ["RejectReason"] = rejectReason
+            },
+            "rejected",
+            cancellationToken);
+    }
+
+    private async Task DispatchQuotationStaffNotificationAsync(
+        QuotationDetailReadModel quotation,
+        NotificationType notificationType,
+        IReadOnlyDictionary<string, string> parameters,
+        string actionName,
         CancellationToken cancellationToken)
     {
         if (_notifications is null || quotation.AssignedSalesId is null)
@@ -982,12 +967,8 @@ public sealed class QuotationService : IQuotationService
         try
         {
             await _notifications.DispatchAsync(
-                NotificationType.QuotationRejected,
-                new Dictionary<string, string>
-                {
-                    ["QuotationCode"] = quotation.QuotationCode,
-                    ["RejectReason"] = rejectReason
-                },
+                notificationType,
+                parameters,
                 [quotation.AssignedSalesId.Value],
                 projectId: quotation.ProjectId,
                 referenceType: "QUOTATION",
@@ -998,7 +979,8 @@ public sealed class QuotationService : IQuotationService
         {
             _logger?.LogWarning(
                 exception,
-                "Failed to dispatch quotation rejected notification for quotation {QuotationId}",
+                "Failed to dispatch quotation {ActionName} notification for quotation {QuotationId}",
+                actionName,
                 quotation.QuotationId);
         }
     }

@@ -16,10 +16,6 @@ namespace FurniSpace.Application.Services.Quotations;
 
 public sealed class QuotationService : IQuotationService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string SalesRole = "SALES";
-    private const string DesignerRole = "DESIGNER";
     private const string ProjectNotFoundMessage = "Project not found.";
     private const string QuotationNotFoundMessage = "Quotation not found.";
     private const string QuotationCodeParameter = "QuotationCode";
@@ -89,7 +85,12 @@ public sealed class QuotationService : IQuotationService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanAccessProject(role, project.CustomerId, project.AssignedSalesId, project.AssignedDesignerId, currentUserId))
+        if (!ProjectAssignmentAccessEvaluator.CanAccessProjectAssignment(
+                role,
+                project.CustomerId,
+                project.AssignedSalesId,
+                project.AssignedDesignerId,
+                currentUserId))
         {
             return ServiceResult<QuotationListResponseDto>.Forbidden("You do not have access to this project's quotations.");
         }
@@ -125,14 +126,19 @@ public sealed class QuotationService : IQuotationService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanAccessProject(role, quotation.CustomerId, quotation.AssignedSalesId, quotation.AssignedDesignerId, currentUserId))
+        if (!ProjectAssignmentAccessEvaluator.CanAccessProjectAssignment(
+                role,
+                quotation.CustomerId,
+                quotation.AssignedSalesId,
+                quotation.AssignedDesignerId,
+                currentUserId))
         {
             return ServiceResult<QuotationDetailDto>.Forbidden("You do not have access to this quotation.");
         }
 
         await ExpireIfNeededAsync(quotation, cancellationToken);
 
-        if (role == CustomerRole && !IsCustomerVisible(quotation.Status))
+        if (role == ProjectAssignmentAccessEvaluator.CustomerRole && !IsCustomerVisible(quotation.Status))
         {
             return ServiceResult<QuotationDetailDto>.Failure(Error.Forbidden(
                 QuotationErrorCodes.QuotationNotAvailable,
@@ -161,7 +167,7 @@ public sealed class QuotationService : IQuotationService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanCreateDraft(role, project.AssignedSalesId, currentUserId))
+        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(role, project.AssignedSalesId, currentUserId))
         {
             return ServiceResult<QuotationDetailDto>.Forbidden("You do not have permission to create this quotation.");
         }
@@ -778,11 +784,6 @@ public sealed class QuotationService : IQuotationService
         };
     }
 
-    private static bool CanCreateDraft(string? role, Guid? assignedSalesId, Guid currentUserId)
-    {
-        return role == AdminRole || role == SalesRole && assignedSalesId == currentUserId;
-    }
-
     private static ServiceResult<QuotationDetailDto>? ValidateSendState(QuotationDetailReadModel quotation)
     {
         if (quotation.Status is not (QuotationStatus.DRAFT or QuotationStatus.REVISED) ||
@@ -988,11 +989,6 @@ public sealed class QuotationService : IQuotationService
         }
     }
 
-    private static bool CanManageQuotation(string? role, Guid? assignedSalesId, Guid currentUserId)
-    {
-        return role == AdminRole || role == SalesRole && assignedSalesId == currentUserId;
-    }
-
     private async Task<QuotationMutationContext> GetMutationContextAsync(
         Guid quotationId,
         Guid currentUserId,
@@ -1010,7 +1006,7 @@ public sealed class QuotationService : IQuotationService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageQuotation(role, detail.AssignedSalesId, currentUserId))
+        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(role, detail.AssignedSalesId, currentUserId))
         {
             return new QuotationMutationContext(ServiceResult<QuotationDetailDto>.Forbidden("You do not have permission to update this quotation."));
         }
@@ -1038,7 +1034,7 @@ public sealed class QuotationService : IQuotationService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role != CustomerRole || detail.CustomerId != currentUserId)
+        if (role != ProjectAssignmentAccessEvaluator.CustomerRole || detail.CustomerId != currentUserId)
         {
             return new QuotationMutationContext(ServiceResult<QuotationDetailDto>.Forbidden("You do not have permission to accept this quotation."));
         }
@@ -1171,28 +1167,11 @@ public sealed class QuotationService : IQuotationService
         }
     }
 
-    private static bool CanAccessProject(
-        string? role,
-        Guid customerId,
-        Guid? assignedSalesId,
-        Guid? assignedDesignerId,
-        Guid currentUserId)
-    {
-        return role switch
-        {
-            AdminRole => true,
-            CustomerRole => customerId == currentUserId,
-            SalesRole => assignedSalesId == currentUserId,
-            DesignerRole => assignedDesignerId == currentUserId,
-            _ => false
-        };
-    }
-
     private static IEnumerable<QuotationReadModel> FilterByRole(
         IEnumerable<QuotationReadModel> items,
         string? role)
     {
-        return role == CustomerRole
+        return role == ProjectAssignmentAccessEvaluator.CustomerRole
             ? items.Where(item => IsCustomerVisible(item.Status))
             : items;
     }

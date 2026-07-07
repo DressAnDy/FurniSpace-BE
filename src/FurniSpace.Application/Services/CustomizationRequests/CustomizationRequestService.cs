@@ -406,7 +406,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                     "You do not have access to this project's customization requests.");
         }
 
-        return CanAccessProject(role, project, currentUserId)
+        return ProjectAssignmentAccessEvaluator.CanAccessProjectAssignment(role, project, currentUserId)
             ? null
             : ServiceResult<CustomizationRequestListResponseDto>.Forbidden(
                 "You do not have access to this project's customization requests.");
@@ -752,21 +752,6 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             CustomizationReferenceType,
             request.CustomizationRequestId,
             cancellationToken);
-    }
-
-    private static bool CanAccessProject(
-        string? role,
-        ProposalProjectAccessReadModel project,
-        Guid currentUserId)
-    {
-        return role switch
-        {
-            AdminRole => true,
-            CustomerRole => project.CustomerId == currentUserId,
-            SalesRole => project.AssignedSalesId == currentUserId,
-            DesignerRole => project.AssignedDesignerId == currentUserId,
-            _ => false
-        };
     }
 
     private static bool CanAccessRequest(

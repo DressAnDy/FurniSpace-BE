@@ -42,6 +42,8 @@ public class AppDbContext : DbContext
     private const string OrderItemStatusColumnType = "order_item_status";
     private const string PaymentStatusColumnType = "payment_status";
     private const string PaymentTypeColumnType = "payment_type";
+    private const string PaymentProviderColumnType = "payment_provider";
+    private const string PaymentMethodColumnType = "payment_method";
     private const string PaymentTransactionTypeColumnType = "payment_transaction_type";
     private const string PaymentTransactionStatusColumnType = "payment_transaction_status";
     private const string ProductionRequestStatusColumnType = "production_request_status";
@@ -128,8 +130,10 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:quotation_item_type", "PRODUCT_ITEM,MANUAL_ITEM");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_status", "CREATED,DEPOSIT_PENDING,DEPOSIT_PAID,IN_PRODUCTION,PRODUCTION_PARTIALLY_FAILED,PRODUCTION_COMPLETED,READY_FOR_DELIVERY,DELIVERY_SCHEDULED,DELIVERING,DELIVERED,FINAL_PAYMENT_PENDING,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_item_status", "PENDING,IN_PRODUCTION,READY,UNAVAILABLE,DELIVERED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:payment_status", "PENDING,PROCESSING,PAID,PARTIALLY_PAID,FAILED,CANCELLED,REFUNDED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:payment_type", "DEPOSIT,REMAINING_PAYMENT,FULL_PAYMENT,MEASUREMENT_FEE,DESIGN_FEE,CUSTOMIZATION_FEE,DELIVERY_FEE,CANCELLATION_FEE,REFUND,OTHER");
+        modelBuilder.HasAnnotation("Npgsql:Enum:payment_status", "PENDING,PROCESSING,PARTIALLY_PAID,PAID,FAILED,CANCELLED,EXPIRED,REFUNDED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:payment_type", "PROJECT_START_FEE,DEPOSIT,REMAINING_PAYMENT,FULL_PAYMENT,REFUND,OTHER");
+        modelBuilder.HasAnnotation("Npgsql:Enum:payment_provider", "PAYOS,SEPAY,CASH,MANUAL_BANK_TRANSFER,OTHER");
+        modelBuilder.HasAnnotation("Npgsql:Enum:payment_method", "PAYMENT_LINK,QR_CODE,BANK_TRANSFER,CASH,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_transaction_type", "CHARGE,REFUND,ADJUSTMENT");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_transaction_status", "PENDING,SUCCESS,FAILED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:production_request_status", "PENDING_REVIEW,FEASIBLE,IN_PRODUCTION,COMPLETED,BLOCKED,CANCELLED");
@@ -820,6 +824,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.OrderId).HasColumnName(OrderIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.QuotationId).HasColumnName(QuotationIdColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.PaymentCode).HasColumnName("payment_code").HasColumnType(Varchar100ColumnType).IsRequired();
             entity.Property(e => e.PaidBy).HasColumnName("paid_by").HasColumnType(UuidColumnType);
             entity.Property(e => e.PaymentType).HasColumnName("payment_type").HasColumnType(PaymentTypeColumnType).HasDefaultValueSql("'OTHER'::payment_type");
             entity.Property(e => e.Amount).HasColumnName("amount").HasColumnType(Decimal12ColumnType).IsRequired();
@@ -827,7 +832,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.RemainingAmount).HasColumnName("remaining_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.Currency).HasColumnName("currency").HasColumnType(Varchar10ColumnType).HasDefaultValue("VND").IsRequired();
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(PaymentStatusColumnType).HasDefaultValueSql("'PENDING'::payment_status");
-            entity.Property(e => e.DueDate).HasColumnName("due_date").HasColumnType(DateColumnType);
+            entity.Property(e => e.ExpiredAt).HasColumnName("expired_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.PaidAt).HasColumnName("paid_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.Note).HasColumnName(NoteColumnName).HasColumnType(TextColumnType);
@@ -837,6 +842,9 @@ public class AppDbContext : DbContext
             entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Quotation>().WithMany().HasForeignKey(e => e.QuotationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.PaidBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => e.PaymentCode).IsUnique().HasDatabaseName("uq_payments_payment_code");
+            entity.HasIndex(e => new { e.ProjectId, e.CreatedAt }).HasDatabaseName("idx_payments_project_time");
+            entity.HasIndex(e => new { e.OrderId, e.PaymentType }).HasDatabaseName("idx_payments_order_type");
         });
     }
 
@@ -881,8 +889,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.TransactionType).HasColumnName("transaction_type").HasColumnType(PaymentTransactionTypeColumnType).HasDefaultValueSql("'CHARGE'::payment_transaction_type").IsRequired();
             entity.Property(e => e.Amount).HasColumnName("amount").HasColumnType(Decimal12ColumnType).IsRequired();
             entity.Property(e => e.Currency).HasColumnName("currency").HasColumnType(Varchar10ColumnType).HasDefaultValue("VND").IsRequired();
-            entity.Property(e => e.PaymentMethod).HasColumnName("payment_method").HasColumnType(Varchar50ColumnType);
+            entity.Property(e => e.PaymentProvider).HasColumnName("payment_provider").HasColumnType(PaymentProviderColumnType);
+            entity.Property(e => e.PaymentMethod).HasColumnName("payment_method").HasColumnType(PaymentMethodColumnType);
             entity.Property(e => e.ProviderTransactionId).HasColumnName("provider_transaction_id").HasColumnType(Varchar255ColumnType);
+            entity.Property(e => e.ProviderReferenceCode).HasColumnName("provider_reference_code").HasColumnType(Varchar255ColumnType);
             entity.Property(e => e.Status).HasColumnName("status").HasColumnType(PaymentTransactionStatusColumnType).HasDefaultValueSql("'PENDING'::payment_transaction_status").IsRequired();
             entity.Property(e => e.TransactionTime).HasColumnName("transaction_time").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.ConfirmedBy).HasColumnName("confirmed_by").HasColumnType(UuidColumnType);
@@ -895,6 +905,10 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.ProjectId, e.CreatedAt }).HasDatabaseName("idx_payment_transactions_project_time");
             entity.HasIndex(e => new { e.OrderId, e.CreatedAt }).HasDatabaseName("idx_payment_transactions_order_time");
             entity.HasIndex(e => e.ProviderTransactionId).HasDatabaseName("idx_payment_transactions_provider_transaction_id");
+            entity.HasIndex(e => e.ProviderReferenceCode).HasDatabaseName("idx_payment_transactions_provider_reference_code");
+            entity.HasIndex(e => new { e.PaymentProvider, e.ProviderTransactionId })
+                .IsUnique()
+                .HasDatabaseName("uq_payment_transactions_provider_txn");
             entity.HasOne<Payment>().WithMany().HasForeignKey(e => e.PaymentId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);

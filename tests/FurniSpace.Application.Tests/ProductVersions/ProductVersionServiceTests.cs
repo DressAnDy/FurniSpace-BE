@@ -688,6 +688,25 @@ public sealed class ProductVersionServiceTests
     }
 
     [Fact]
+    public async Task UploadFileAsync_WithPreviewDisplayOrderBeyondCount_NormalizesToEnd()
+    {
+        var productVersionId = Guid.NewGuid();
+        var firstId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository();
+        repository.SeedPreview(productVersionId, 1, firstId);
+        var service = CreateVersionUploadService(productVersionId, repository);
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            Guid.NewGuid(),
+            CreateVersionUploadRequest("tail.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 99));
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(2, result.Data!.DisplayOrder);
+        Assert.False(result.Data.IsPrimary);
+    }
+
+    [Fact]
     public async Task UploadFileAsync_WithInvalidPreviewDisplayOrder_ReturnsBadRequest()
     {
         var productVersionId = Guid.NewGuid();
@@ -696,7 +715,7 @@ public sealed class ProductVersionServiceTests
         var result = await service.UploadFileAsync(
             productVersionId,
             Guid.NewGuid(),
-            CreateVersionUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 99));
+            CreateVersionUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 0));
 
         Assert.Equal(400, result.Status);
         Assert.Equal(ProductVersionPreviewErrorCodes.InvalidDisplayOrder, result.ErrorCode);

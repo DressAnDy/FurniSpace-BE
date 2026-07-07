@@ -1507,9 +1507,10 @@ public sealed class ProposalServiceTests
             projects ?? new FakeProjectRepository("ADMIN"),
             productVersions ?? new FakeProductVersionRepository(),
             unitOfWork ?? TestUnitOfWork.ForSaveChanges(proposals.SaveChangesAsync),
-            roomPlannerScenes,
-            notifications,
-            customizationRequests: customizationRequests);
+            new ProposalServiceDependencies(
+                roomPlannerScenes,
+                notifications,
+                customizationRequests: customizationRequests));
     }
 
     private static CreateProposalRequestDto ValidCreateRequest()

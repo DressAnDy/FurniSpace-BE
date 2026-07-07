@@ -20,6 +20,10 @@ public sealed class QuotationService : IQuotationService
     private const string CustomerRole = "CUSTOMER";
     private const string SalesRole = "SALES";
     private const string DesignerRole = "DESIGNER";
+    private const string ProjectNotFoundMessage = "Project not found.";
+    private const string QuotationNotFoundMessage = "Quotation not found.";
+    private const string QuotationCodeParameter = "QuotationCode";
+    private const string QuotationReferenceType = "QUOTATION";
 
     private static readonly QuotationStatus[] CustomerVisibleStatuses =
     [
@@ -81,7 +85,7 @@ public sealed class QuotationService : IQuotationService
         var project = await _projects.GetDetailAsync(projectId, cancellationToken);
         if (project is null)
         {
-            return NotFoundList(QuotationErrorCodes.ProjectNotFound, "Project not found.");
+            return NotFoundList(QuotationErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -117,7 +121,7 @@ public sealed class QuotationService : IQuotationService
         var quotation = await _quotations.GetDetailAsync(quotationId, cancellationToken);
         if (quotation is null)
         {
-            return NotFoundDetail(QuotationErrorCodes.QuotationNotFound, "Quotation not found.");
+            return NotFoundDetail(QuotationErrorCodes.QuotationNotFound, QuotationNotFoundMessage);
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -153,7 +157,7 @@ public sealed class QuotationService : IQuotationService
         var project = await _projects.GetDetailAsync(projectId, cancellationToken);
         if (project is null)
         {
-            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, "Project not found.");
+            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -386,7 +390,7 @@ public sealed class QuotationService : IQuotationService
         var project = await _projects.GetByIdAsync(quotation.ProjectId, cancellationToken);
         if (project is null)
         {
-            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, "Project not found.");
+            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
         var now = DateTime.UtcNow;
@@ -467,7 +471,7 @@ public sealed class QuotationService : IQuotationService
         var project = await _projects.GetByIdAsync(context.Quotation!.ProjectId, cancellationToken);
         if (project is null)
         {
-            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, "Project not found.");
+            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
         var now = DateTime.UtcNow;
@@ -529,7 +533,7 @@ public sealed class QuotationService : IQuotationService
         var project = await _projects.GetByIdAsync(context.Quotation!.ProjectId, cancellationToken);
         if (project is null)
         {
-            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, "Project not found.");
+            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
         var now = DateTime.UtcNow;
@@ -623,7 +627,7 @@ public sealed class QuotationService : IQuotationService
         var project = await _projects.GetByIdAsync(context.Quotation!.ProjectId, cancellationToken);
         if (project is null)
         {
-            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, "Project not found.");
+            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
         var now = DateTime.UtcNow;
@@ -885,11 +889,11 @@ public sealed class QuotationService : IQuotationService
                 NotificationType.QuotationSent,
                 new Dictionary<string, string>
                 {
-                    ["QuotationCode"] = quotation.QuotationCode
+                    [QuotationCodeParameter] = quotation.QuotationCode
                 },
                 [quotation.CustomerId],
                 projectId: quotation.ProjectId,
-                referenceType: "QUOTATION",
+                referenceType: QuotationReferenceType,
                 referenceId: quotation.QuotationId,
                 cancellationToken);
         }
@@ -911,7 +915,7 @@ public sealed class QuotationService : IQuotationService
             NotificationType.QuotationAccepted,
             new Dictionary<string, string>
             {
-                ["QuotationCode"] = quotation.QuotationCode
+                [QuotationCodeParameter] = quotation.QuotationCode
             },
             "accepted",
             cancellationToken);
@@ -927,7 +931,7 @@ public sealed class QuotationService : IQuotationService
             NotificationType.QuotationRevisionRequested,
             new Dictionary<string, string>
             {
-                ["QuotationCode"] = quotation.QuotationCode,
+                [QuotationCodeParameter] = quotation.QuotationCode,
                 ["RevisionReason"] = revisionReason
             },
             "revision requested",
@@ -944,7 +948,7 @@ public sealed class QuotationService : IQuotationService
             NotificationType.QuotationRejected,
             new Dictionary<string, string>
             {
-                ["QuotationCode"] = quotation.QuotationCode,
+                [QuotationCodeParameter] = quotation.QuotationCode,
                 ["RejectReason"] = rejectReason
             },
             "rejected",
@@ -970,7 +974,7 @@ public sealed class QuotationService : IQuotationService
                 parameters,
                 [quotation.AssignedSalesId.Value],
                 projectId: quotation.ProjectId,
-                referenceType: "QUOTATION",
+                referenceType: QuotationReferenceType,
                 referenceId: quotation.QuotationId,
                 cancellationToken);
         }
@@ -1002,7 +1006,7 @@ public sealed class QuotationService : IQuotationService
         var detail = await _quotations.GetDetailAsync(quotationId, cancellationToken);
         if (detail is null)
         {
-            return new QuotationMutationContext(NotFoundDetail(QuotationErrorCodes.QuotationNotFound, "Quotation not found."));
+            return new QuotationMutationContext(NotFoundDetail(QuotationErrorCodes.QuotationNotFound, QuotationNotFoundMessage));
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -1013,7 +1017,7 @@ public sealed class QuotationService : IQuotationService
 
         var quotation = await _quotations.GetByIdAsync(quotationId, cancellationToken);
         return quotation is null
-            ? new QuotationMutationContext(NotFoundDetail(QuotationErrorCodes.QuotationNotFound, "Quotation not found."))
+            ? new QuotationMutationContext(NotFoundDetail(QuotationErrorCodes.QuotationNotFound, QuotationNotFoundMessage))
             : new QuotationMutationContext(detail, quotation);
     }
 
@@ -1030,7 +1034,7 @@ public sealed class QuotationService : IQuotationService
         var detail = await _quotations.GetDetailAsync(quotationId, cancellationToken);
         if (detail is null)
         {
-            return new QuotationMutationContext(NotFoundDetail(QuotationErrorCodes.QuotationNotFound, "Quotation not found."));
+            return new QuotationMutationContext(NotFoundDetail(QuotationErrorCodes.QuotationNotFound, QuotationNotFoundMessage));
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -1041,7 +1045,7 @@ public sealed class QuotationService : IQuotationService
 
         var quotation = await _quotations.GetByIdAsync(quotationId, cancellationToken);
         return quotation is null
-            ? new QuotationMutationContext(NotFoundDetail(QuotationErrorCodes.QuotationNotFound, "Quotation not found."))
+            ? new QuotationMutationContext(NotFoundDetail(QuotationErrorCodes.QuotationNotFound, QuotationNotFoundMessage))
             : new QuotationMutationContext(detail, quotation);
     }
 
@@ -1098,7 +1102,7 @@ public sealed class QuotationService : IQuotationService
     {
         var detail = await _quotations.GetDetailAsync(quotationId, cancellationToken);
         return detail is null
-            ? NotFoundDetail(QuotationErrorCodes.QuotationNotFound, "Quotation not found.")
+            ? NotFoundDetail(QuotationErrorCodes.QuotationNotFound, QuotationNotFoundMessage)
             : ServiceResult<QuotationDetailDto>.Success(ToDetailDto(detail), message);
     }
 

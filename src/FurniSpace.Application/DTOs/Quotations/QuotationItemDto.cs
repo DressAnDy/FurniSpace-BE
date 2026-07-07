@@ -4,4 +4,5 @@ namespace FurniSpace.Application.DTOs.Quotations;
 
 public sealed class QuotationItemDto : QuotationItem
 {
+    public const string ResourceName = "quotationItem";
 }

@@ -72,6 +72,14 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductPreviewImageService, ProductPreviewImageService>();
         services.AddScoped<IProductVersionService, ProductVersionService>();
+        services.AddScoped<ProposalServiceDependencies>(sp =>
+        {
+            return new ProposalServiceDependencies(
+                sp.GetService<IRoomPlannerSceneRepository>(),
+                sp.GetService<INotificationDispatcher>(),
+                sp.GetService<ILogger<ProposalService>>(),
+                sp.GetService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>());
+        });
         services.AddScoped<IProposalService, ProposalService>();
         services.AddScoped<IQuotationService, QuotationService>();
         services.AddScoped<ICustomizationRequestService, CustomizationRequestService>();

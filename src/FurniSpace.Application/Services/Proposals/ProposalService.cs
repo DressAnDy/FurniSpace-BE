@@ -65,19 +65,16 @@ public sealed class ProposalService : IProposalService
         IProjectRepository projects,
         IProductVersionRepository productVersions,
         IUnitOfWork unitOfWork,
-        RoomPlannerSceneRepository? roomPlannerScenes = null,
-        INotificationDispatcher? notifications = null,
-        ILogger<ProposalService>? logger = null,
-        ICustomizationRequestRepository? customizationRequests = null)
+        ProposalServiceDependencies? dependencies = null)
     {
         _proposals = proposals;
-        _customizationRequests = customizationRequests;
+        _customizationRequests = dependencies?.CustomizationRequests;
         _projects = projects;
         _productVersions = productVersions;
-        _roomPlannerScenes = roomPlannerScenes;
+        _roomPlannerScenes = dependencies?.RoomPlannerScenes;
         _unitOfWork = unitOfWork;
-        _notifications = notifications;
-        _logger = logger;
+        _notifications = dependencies?.Notifications;
+        _logger = dependencies?.Logger;
     }
 
     public async Task<ServiceResult<ProposalDto>> CreateAsync(

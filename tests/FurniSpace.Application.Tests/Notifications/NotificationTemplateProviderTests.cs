@@ -86,4 +86,24 @@ public sealed class NotificationTemplateProviderTests
         Assert.Equal("proposal.revision.requested", template.SignalREventName);
         Assert.Equal("Proposal revision requested", template.TitleTemplate);
     }
+
+    [Fact]
+    public void Get_QuotationRevisionRequested_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.QuotationRevisionRequested);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("quotation.revision.requested", template.SignalREventName);
+        Assert.Equal("Quotation revision requested", template.TitleTemplate);
+    }
+
+    [Fact]
+    public void Get_QuotationRejected_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.QuotationRejected);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("quotation.rejected", template.SignalREventName);
+        Assert.Equal("Quotation rejected", template.TitleTemplate);
+    }
 }

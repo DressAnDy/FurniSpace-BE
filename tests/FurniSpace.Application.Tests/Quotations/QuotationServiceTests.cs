@@ -119,6 +119,23 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task GetDetailAsync_WhenQuotationExpired_MarksAsExpired()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var detail = MakeAcceptReadyDetail(quotation);
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.GetDetailAsync(quotation.QuotationId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.EXPIRED, quotation.Status);
+        Assert.Equal(QuotationStatus.EXPIRED, result.Data!.Status);
+    }
+
+    [Fact]
     public async Task CreateDraftAsync_WhenValid_CreatesQuotationAndItems()
     {
         var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
@@ -547,6 +564,21 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task AcceptAsync_WhenRevisedButNotSentAgain_ReturnsInvalidStatus()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISED);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task AcceptAsync_WhenSaveFails_RollsBackAndDoesNotNotify()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.SENT);
@@ -573,6 +605,188 @@ public sealed class QuotationServiceTests
 
         Assert.True(rollbackCalled);
         Assert.Null(dispatcher.LastType);
+    }
+
+    [Fact]
+    public async Task RequestRevisionAsync_WhenValid_UpdatesQuotationProjectAndNotifiesSales()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(quotations, role: "CUSTOMER", notifications: dispatcher);
+
+        var result = await service.RequestRevisionAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RequestQuotationRevisionDto { RevisionReason = " Update delivery date. " });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.REVISION_REQUESTED, quotation.Status);
+        Assert.Equal("Update delivery date.", quotation.RevisionReason);
+        Assert.Equal(ProjectStatus.QUOTATION_REVISION_REQUESTED, ProjectEntity!.Status);
+        Assert.Equal(NotificationType.QuotationRevisionRequested, dispatcher.LastType);
+        Assert.Contains(_salesId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task RequestRevisionAsync_WhenReasonMissing_ReturnsInvalidReason()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.RequestRevisionAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RequestQuotationRevisionDto { RevisionReason = " " });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationRevisionReason, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RequestRevisionAsync_WhenExpired_ReturnsQuotationExpired()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.RequestRevisionAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RequestQuotationRevisionDto { RevisionReason = "Too high." });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationExpired, result.ErrorCode);
+        Assert.Equal(QuotationStatus.EXPIRED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task ReviseAsync_WhenRevisionRequested_IncrementsVersionAndMarksRevised()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        quotation.VersionNo = 2;
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(3, quotation.VersionNo);
+        Assert.Equal(QuotationStatus.REVISED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task ReviseAsync_WhenStatusInvalid_ReturnsInvalidStatus()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenRevised_MarksQuotationCancelled()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISED);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISED) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.CancelAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.CANCELLED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenSent_ReturnsInvalidStatus()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.CancelAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenValid_RejectsQuotationAndNotifiesSales()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(quotations, role: "CUSTOMER", notifications: dispatcher);
+
+        var result = await service.RejectAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RejectQuotationRequestDto { RejectReason = " Price is too high. " });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.REJECTED, quotation.Status);
+        Assert.Equal("Price is too high.", quotation.RejectReason);
+        Assert.NotNull(quotation.RejectedAt);
+        Assert.Equal(ProjectStatus.PROPOSAL_SELECTED, ProjectEntity!.Status);
+        Assert.Empty(quotations.AddedOrders);
+        Assert.Equal(NotificationType.QuotationRejected, dispatcher.LastType);
+        Assert.Contains(_salesId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenReasonMissing_ReturnsInvalidReason()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.RejectAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RejectQuotationRequestDto { RejectReason = " " });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationRejectReason, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenExpired_ReturnsQuotationExpired()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.RejectAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RejectQuotationRequestDto { RejectReason = "No longer needed." });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationExpired, result.ErrorCode);
+        Assert.Equal(QuotationStatus.EXPIRED, quotation.Status);
     }
 
     private QuotationService BuildService(

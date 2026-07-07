@@ -15,4 +15,6 @@ public static class QuotationErrorCodes
     public const string QuotationItemNotEditable = "QUOTATION_ITEM_NOT_EDITABLE";
     public const string QuotationNotReadyToSend = "QUOTATION_NOT_READY_TO_SEND";
     public const string QuotationExpired = "QUOTATION_EXPIRED";
+    public const string InvalidQuotationRevisionReason = "INVALID_QUOTATION_REVISION_REASON";
+    public const string InvalidQuotationRejectReason = "INVALID_QUOTATION_REJECT_REASON";
 }

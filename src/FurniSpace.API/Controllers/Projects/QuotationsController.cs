@@ -195,6 +195,82 @@ public sealed class QuotationsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPatch("quotations/{quotationId:guid}/request-revision")]
+    public async Task<IActionResult> RequestRevision(
+        Guid quotationId,
+        [FromBody] RequestQuotationRevisionDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _quotations.RequestRevisionAsync(
+            quotationId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("quotations/{quotationId:guid}/revise")]
+    public async Task<IActionResult> Revise(
+        Guid quotationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _quotations.ReviseAsync(
+            quotationId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("quotations/{quotationId:guid}/cancel")]
+    public async Task<IActionResult> Cancel(
+        Guid quotationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _quotations.CancelAsync(
+            quotationId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPatch("quotations/{quotationId:guid}/reject")]
+    public async Task<IActionResult> Reject(
+        Guid quotationId,
+        [FromBody] RejectQuotationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _quotations.RejectAsync(
+            quotationId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

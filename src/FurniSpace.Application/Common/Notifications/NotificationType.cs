@@ -14,6 +14,8 @@ public enum NotificationType
     ProposalFinalSelected,
     QuotationSent,
     QuotationAccepted,
+    QuotationRevisionRequested,
+    QuotationRejected,
     CustomizationRequestSubmitted,
     CustomizationDesignerReviewed,
     ProjectFileUploaded,

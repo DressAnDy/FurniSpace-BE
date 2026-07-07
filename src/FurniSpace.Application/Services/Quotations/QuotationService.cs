@@ -126,6 +126,8 @@ public sealed class QuotationService : IQuotationService
             return ServiceResult<QuotationDetailDto>.Forbidden("You do not have access to this quotation.");
         }
 
+        await ExpireIfNeededAsync(quotation, cancellationToken);
+
         if (role == CustomerRole && !IsCustomerVisible(quotation.Status))
         {
             return ServiceResult<QuotationDetailDto>.Failure(Error.Forbidden(
@@ -455,6 +457,7 @@ public sealed class QuotationService : IQuotationService
             return context.Result;
         }
 
+        await ExpireIfNeededAsync(context.Detail!, cancellationToken);
         var validation = ValidateAcceptState(context.Detail!);
         if (validation is not null)
         {
@@ -501,6 +504,142 @@ public sealed class QuotationService : IQuotationService
 
         await DispatchQuotationAcceptedNotificationAsync(context.Detail, cancellationToken);
         return await LoadDetailResultAsync(quotationId, "Quotation accepted successfully.", cancellationToken);
+    }
+
+    public async Task<ServiceResult<QuotationDetailDto>> RequestRevisionAsync(
+        Guid quotationId,
+        Guid currentUserId,
+        RequestQuotationRevisionDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var context = await GetCustomerContextAsync(quotationId, currentUserId, cancellationToken);
+        if (context.Result is not null)
+        {
+            return context.Result;
+        }
+
+        await ExpireIfNeededAsync(context.Detail!, cancellationToken);
+        var revisionReason = request.RevisionReason?.Trim();
+        var validation = ValidateRevisionRequestState(context.Detail!, revisionReason);
+        if (validation is not null)
+        {
+            return validation;
+        }
+
+        var project = await _projects.GetByIdAsync(context.Quotation!.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, "Project not found.");
+        }
+
+        var now = DateTime.UtcNow;
+        context.Quotation.Status = QuotationStatus.REVISION_REQUESTED;
+        context.Quotation.RevisionReason = revisionReason;
+        context.Quotation.UpdatedAt = now;
+        project.Status = ProjectStatus.QUOTATION_REVISION_REQUESTED;
+        project.UpdatedAt = now;
+
+        _quotations.Update(context.Quotation);
+        _projects.Update(project);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchQuotationRevisionRequestedNotificationAsync(context.Detail!, revisionReason!, cancellationToken);
+
+        return await LoadDetailResultAsync(quotationId, "Quotation revision requested successfully.", cancellationToken);
+    }
+
+    public async Task<ServiceResult<QuotationDetailDto>> ReviseAsync(
+        Guid quotationId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
+        if (context.Result is not null)
+        {
+            return context.Result;
+        }
+
+        if (context.Detail!.Status != QuotationStatus.REVISION_REQUESTED)
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidQuotationStatus,
+                "Only revision-requested quotations can be revised.");
+        }
+
+        context.Quotation!.VersionNo = (context.Quotation.VersionNo ?? 0) + 1;
+        context.Quotation.Status = QuotationStatus.REVISED;
+        context.Quotation.UpdatedAt = DateTime.UtcNow;
+        _quotations.Update(context.Quotation);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return await LoadDetailResultAsync(quotationId, "Quotation revised successfully.", cancellationToken);
+    }
+
+    public async Task<ServiceResult<QuotationDetailDto>> CancelAsync(
+        Guid quotationId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
+        if (context.Result is not null)
+        {
+            return context.Result;
+        }
+
+        if (!CanCancelQuotation(context.Detail!.Status))
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidQuotationStatus,
+                "Quotation cannot be cancelled in its current status.");
+        }
+
+        context.Quotation!.Status = QuotationStatus.CANCELLED;
+        context.Quotation.UpdatedAt = DateTime.UtcNow;
+        _quotations.Update(context.Quotation);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return await LoadDetailResultAsync(quotationId, "Quotation cancelled successfully.", cancellationToken);
+    }
+
+    public async Task<ServiceResult<QuotationDetailDto>> RejectAsync(
+        Guid quotationId,
+        Guid currentUserId,
+        RejectQuotationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var context = await GetCustomerContextAsync(quotationId, currentUserId, cancellationToken);
+        if (context.Result is not null)
+        {
+            return context.Result;
+        }
+
+        await ExpireIfNeededAsync(context.Detail!, cancellationToken);
+        var rejectReason = request.RejectReason?.Trim();
+        var validation = ValidateRejectState(context.Detail!, rejectReason);
+        if (validation is not null)
+        {
+            return validation;
+        }
+
+        var project = await _projects.GetByIdAsync(context.Quotation!.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, "Project not found.");
+        }
+
+        var now = DateTime.UtcNow;
+        context.Quotation.Status = QuotationStatus.REJECTED;
+        context.Quotation.RejectReason = rejectReason;
+        context.Quotation.RejectedAt = now;
+        context.Quotation.UpdatedAt = now;
+        project.Status = ProjectStatus.PROPOSAL_SELECTED;
+        project.UpdatedAt = now;
+
+        _quotations.Update(context.Quotation);
+        _projects.Update(project);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchQuotationRejectedNotificationAsync(context.Detail!, rejectReason!, cancellationToken);
+
+        return await LoadDetailResultAsync(quotationId, "Quotation rejected successfully.", cancellationToken);
     }
 
     private async Task<ServiceResult<QuotationDetailDto>?> ValidateCreateStateAsync(
@@ -657,18 +796,76 @@ public sealed class QuotationService : IQuotationService
 
     private static ServiceResult<QuotationDetailDto>? ValidateAcceptState(QuotationDetailReadModel quotation)
     {
-        if (quotation.Status is not (QuotationStatus.SENT or QuotationStatus.REVISED))
+        if (quotation.Status == QuotationStatus.EXPIRED ||
+            quotation.ValidUntil is null ||
+            quotation.ValidUntil < DateOnly.FromDateTime(DateTime.UtcNow))
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.QuotationExpired,
+                "Quotation has expired.");
+        }
+
+        if (quotation.Status != QuotationStatus.SENT)
         {
             return BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationStatus,
                 "Quotation cannot be accepted in its current status.");
         }
 
-        if (quotation.ValidUntil is null || quotation.ValidUntil < DateOnly.FromDateTime(DateTime.UtcNow))
+        return null;
+    }
+
+    private static ServiceResult<QuotationDetailDto>? ValidateRevisionRequestState(
+        QuotationDetailReadModel quotation,
+        string? revisionReason)
+    {
+        if (quotation.Status == QuotationStatus.EXPIRED)
         {
             return BadRequestDetail(
                 QuotationErrorCodes.QuotationExpired,
                 "Quotation has expired.");
+        }
+
+        if (quotation.Status is not (QuotationStatus.SENT or QuotationStatus.REVISED))
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidQuotationStatus,
+                "Quotation cannot be revision-requested in its current status.");
+        }
+
+        if (string.IsNullOrWhiteSpace(revisionReason))
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidQuotationRevisionReason,
+                "Revision reason is required.");
+        }
+
+        return null;
+    }
+
+    private static ServiceResult<QuotationDetailDto>? ValidateRejectState(
+        QuotationDetailReadModel quotation,
+        string? rejectReason)
+    {
+        if (quotation.Status == QuotationStatus.EXPIRED)
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.QuotationExpired,
+                "Quotation has expired.");
+        }
+
+        if (quotation.Status is not (QuotationStatus.SENT or QuotationStatus.REVISED))
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidQuotationStatus,
+                "Quotation cannot be rejected in its current status.");
+        }
+
+        if (string.IsNullOrWhiteSpace(rejectReason))
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidQuotationRejectReason,
+                "Reject reason is required.");
         }
 
         return null;
@@ -738,6 +935,74 @@ public sealed class QuotationService : IQuotationService
         }
     }
 
+    private async Task DispatchQuotationRevisionRequestedNotificationAsync(
+        QuotationDetailReadModel quotation,
+        string revisionReason,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || quotation.AssignedSalesId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.QuotationRevisionRequested,
+                new Dictionary<string, string>
+                {
+                    ["QuotationCode"] = quotation.QuotationCode,
+                    ["RevisionReason"] = revisionReason
+                },
+                [quotation.AssignedSalesId.Value],
+                projectId: quotation.ProjectId,
+                referenceType: "QUOTATION",
+                referenceId: quotation.QuotationId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch quotation revision requested notification for quotation {QuotationId}",
+                quotation.QuotationId);
+        }
+    }
+
+    private async Task DispatchQuotationRejectedNotificationAsync(
+        QuotationDetailReadModel quotation,
+        string rejectReason,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || quotation.AssignedSalesId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.QuotationRejected,
+                new Dictionary<string, string>
+                {
+                    ["QuotationCode"] = quotation.QuotationCode,
+                    ["RejectReason"] = rejectReason
+                },
+                [quotation.AssignedSalesId.Value],
+                projectId: quotation.ProjectId,
+                referenceType: "QUOTATION",
+                referenceId: quotation.QuotationId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch quotation rejected notification for quotation {QuotationId}",
+                quotation.QuotationId);
+        }
+    }
+
     private static bool CanManageQuotation(string? role, Guid? assignedSalesId, Guid currentUserId)
     {
         return role == AdminRole || role == SalesRole && assignedSalesId == currentUserId;
@@ -797,6 +1062,38 @@ public sealed class QuotationService : IQuotationService
         return quotation is null
             ? new QuotationMutationContext(NotFoundDetail(QuotationErrorCodes.QuotationNotFound, "Quotation not found."))
             : new QuotationMutationContext(detail, quotation);
+    }
+
+    private async Task ExpireIfNeededAsync(
+        QuotationDetailReadModel quotation,
+        CancellationToken cancellationToken)
+    {
+        if (!ShouldExpire(quotation.Status, quotation.ValidUntil))
+        {
+            return;
+        }
+
+        var entity = await _quotations.GetByIdAsync(quotation.QuotationId, cancellationToken);
+        if (entity is null)
+        {
+            return;
+        }
+
+        entity.Status = QuotationStatus.EXPIRED;
+        entity.UpdatedAt = DateTime.UtcNow;
+        quotation.Status = QuotationStatus.EXPIRED;
+        quotation.UpdatedAt = entity.UpdatedAt;
+        _quotations.Update(entity);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    private static bool ShouldExpire(
+        QuotationStatus? status,
+        DateOnly? validUntil)
+    {
+        return status is QuotationStatus.SENT or QuotationStatus.REVISED &&
+            validUntil.HasValue &&
+            validUntil.Value < DateOnly.FromDateTime(DateTime.UtcNow);
     }
 
     private async Task RecalculateQuotationTotalsAsync(
@@ -866,6 +1163,11 @@ public sealed class QuotationService : IQuotationService
     private static bool IsManualItemEditable(QuotationStatus? status)
     {
         return status.HasValue && ManualItemEditableStatuses.Contains(status.Value);
+    }
+
+    private static bool CanCancelQuotation(QuotationStatus? status)
+    {
+        return status is QuotationStatus.DRAFT or QuotationStatus.REVISION_REQUESTED or QuotationStatus.REVISED;
     }
 
     private sealed record QuotationMutationContext(

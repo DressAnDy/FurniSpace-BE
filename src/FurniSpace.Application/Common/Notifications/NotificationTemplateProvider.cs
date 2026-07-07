@@ -77,6 +77,18 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "quotation.accepted"),
 
+            NotificationType.QuotationRevisionRequested => new NotificationTemplate(
+                "Quotation revision requested",
+                "Customer requested revision for quotation \"{QuotationCode}\". Reason: {RevisionReason}",
+                NotificationDeliveryLevel.InAppRealtime,
+                "quotation.revision.requested"),
+
+            NotificationType.QuotationRejected => new NotificationTemplate(
+                "Quotation rejected",
+                "Customer rejected quotation \"{QuotationCode}\". Reason: {RejectReason}",
+                NotificationDeliveryLevel.InAppRealtime,
+                "quotation.rejected"),
+
             NotificationType.CustomizationRequestSubmitted => new NotificationTemplate(
                 "Customization request submitted",
                 "Customer submitted customization request \"{RequestTitle}\" for proposal \"{ProposalName}\".",

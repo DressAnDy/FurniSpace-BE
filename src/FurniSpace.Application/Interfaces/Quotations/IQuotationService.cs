@@ -55,4 +55,26 @@ public interface IQuotationService
         Guid quotationId,
         Guid currentUserId,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<QuotationDetailDto>> RequestRevisionAsync(
+        Guid quotationId,
+        Guid currentUserId,
+        RequestQuotationRevisionDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<QuotationDetailDto>> ReviseAsync(
+        Guid quotationId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<QuotationDetailDto>> CancelAsync(
+        Guid quotationId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<QuotationDetailDto>> RejectAsync(
+        Guid quotationId,
+        Guid currentUserId,
+        RejectQuotationRequestDto request,
+        CancellationToken cancellationToken = default);
 }

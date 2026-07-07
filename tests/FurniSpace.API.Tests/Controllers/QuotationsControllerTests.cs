@@ -40,6 +40,10 @@ public sealed class QuotationsControllerTests
     [InlineData(nameof(QuotationsController.Send), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.DeleteManualItem), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.Accept), "CUSTOMER")]
+    [InlineData(nameof(QuotationsController.RequestRevision), "CUSTOMER")]
+    [InlineData(nameof(QuotationsController.Revise), "SALES,ADMIN")]
+    [InlineData(nameof(QuotationsController.Cancel), "SALES,ADMIN")]
+    [InlineData(nameof(QuotationsController.Reject), "CUSTOMER")]
     public void Actions_UseExpectedRoles(string actionName, string expectedRoles)
     {
         var authorize = typeof(QuotationsController)
@@ -207,6 +211,74 @@ public sealed class QuotationsControllerTests
         Assert.Equal(userId, service.CurrentUserId);
     }
 
+    [Fact]
+    public async Task RequestRevision_ReturnsServiceResultAndPassesRequest()
+    {
+        var quotationId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new RequestQuotationRevisionDto { RevisionReason = "Update warranty." };
+        var service = new FakeQuotationService();
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.RequestRevision(quotationId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(quotationId, service.QuotationId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.Same(request, service.RevisionRequest);
+    }
+
+    [Fact]
+    public async Task Revise_ReturnsServiceResultAndPassesId()
+    {
+        var quotationId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakeQuotationService();
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.Revise(quotationId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(quotationId, service.QuotationId);
+        Assert.Equal(userId, service.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task Cancel_ReturnsServiceResultAndPassesId()
+    {
+        var quotationId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakeQuotationService();
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.Cancel(quotationId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(quotationId, service.QuotationId);
+        Assert.Equal(userId, service.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task Reject_ReturnsServiceResultAndPassesRequest()
+    {
+        var quotationId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new RejectQuotationRequestDto { RejectReason = "Too expensive." };
+        var service = new FakeQuotationService();
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.Reject(quotationId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(quotationId, service.QuotationId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.Same(request, service.RejectRequest);
+    }
+
     [Theory]
     [InlineData(nameof(QuotationsController.GetByProject))]
     [InlineData(nameof(QuotationsController.GetDetail))]
@@ -217,6 +289,10 @@ public sealed class QuotationsControllerTests
     [InlineData(nameof(QuotationsController.Send))]
     [InlineData(nameof(QuotationsController.DeleteManualItem))]
     [InlineData(nameof(QuotationsController.Accept))]
+    [InlineData(nameof(QuotationsController.RequestRevision))]
+    [InlineData(nameof(QuotationsController.Revise))]
+    [InlineData(nameof(QuotationsController.Cancel))]
+    [InlineData(nameof(QuotationsController.Reject))]
     public async Task Actions_WithoutUserClaim_ReturnUnauthorized(string actionName)
     {
         var controller = BuildController(new FakeQuotationService(), userId: null);
@@ -231,7 +307,11 @@ public sealed class QuotationsControllerTests
             nameof(QuotationsController.UpdateManualItem) => await controller.UpdateManualItem(Guid.NewGuid(), Guid.NewGuid(), new UpdateManualQuotationItemRequestDto()),
             nameof(QuotationsController.Send) => await controller.Send(Guid.NewGuid()),
             nameof(QuotationsController.DeleteManualItem) => await controller.DeleteManualItem(Guid.NewGuid(), Guid.NewGuid()),
-            _ => await controller.Accept(Guid.NewGuid())
+            nameof(QuotationsController.Accept) => await controller.Accept(Guid.NewGuid()),
+            nameof(QuotationsController.RequestRevision) => await controller.RequestRevision(Guid.NewGuid(), new RequestQuotationRevisionDto()),
+            nameof(QuotationsController.Revise) => await controller.Revise(Guid.NewGuid()),
+            nameof(QuotationsController.Cancel) => await controller.Cancel(Guid.NewGuid()),
+            _ => await controller.Reject(Guid.NewGuid(), new RejectQuotationRequestDto())
         };
 
         Assert.IsType<UnauthorizedResult>(actionResult);
@@ -278,6 +358,8 @@ public sealed class QuotationsControllerTests
         public UpdateQuotationRequestDto? UpdateRequest { get; private set; }
         public CreateManualQuotationItemRequestDto? CreateItemRequest { get; private set; }
         public UpdateManualQuotationItemRequestDto? UpdateItemRequest { get; private set; }
+        public RequestQuotationRevisionDto? RevisionRequest { get; private set; }
+        public RejectQuotationRequestDto? RejectRequest { get; private set; }
 
         public Task<ServiceResult<QuotationListResponseDto>> GetByProjectAsync(
             Guid projectId,
@@ -378,6 +460,50 @@ public sealed class QuotationsControllerTests
         {
             QuotationId = quotationId;
             CurrentUserId = currentUserId;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<ServiceResult<QuotationDetailDto>> RequestRevisionAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            RequestQuotationRevisionDto request,
+            CancellationToken cancellationToken = default)
+        {
+            QuotationId = quotationId;
+            CurrentUserId = currentUserId;
+            RevisionRequest = request;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<ServiceResult<QuotationDetailDto>> ReviseAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            QuotationId = quotationId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<ServiceResult<QuotationDetailDto>> CancelAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            QuotationId = quotationId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<ServiceResult<QuotationDetailDto>> RejectAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            RejectQuotationRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            QuotationId = quotationId;
+            CurrentUserId = currentUserId;
+            RejectRequest = request;
             return Task.FromResult(DetailResult);
         }
     }

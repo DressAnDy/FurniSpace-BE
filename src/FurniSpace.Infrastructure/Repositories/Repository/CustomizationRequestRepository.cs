@@ -199,18 +199,7 @@ public sealed class CustomizationRequestRepository
                     ProjectName = joined.project.ProjectName,
                     AssignedSalesId = joined.project.AssignedSalesId,
                     AssignedDesignerId = joined.project.AssignedDesignerId,
-                    ProductVersionId = item.ProductVersionId,
-                    ItemName = item.ItemName,
-                    ItemType = item.ItemType,
-                    Quantity = item.Quantity,
-                    Width = item.Width,
-                    Height = item.Height,
-                    Depth = item.Depth,
-                    Material = item.Material,
-                    Color = item.Color,
-                    UnitPriceSnapshot = item.UnitPriceSnapshot,
-                    TotalPriceSnapshot = item.TotalPriceSnapshot,
-                    ItemNote = item.Note
+                    ProposalItem = item
                 });
     }
 

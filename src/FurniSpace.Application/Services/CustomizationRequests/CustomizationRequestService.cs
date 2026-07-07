@@ -853,22 +853,23 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         CustomizationRequestDetailReadModel detail)
     {
         var dto = detail.Adapt<CustomizationRequestDetailDto>();
+        var item = detail.ProposalItem;
         dto.ProposalItem = new CustomizationRequestItemSnapshotDto
         {
-            ProposalItemId = detail.ProposalItemId,
-            ProposalId = detail.ProposalId,
-            ProductVersionId = detail.ProductVersionId,
-            ItemName = detail.ItemName,
-            ItemType = detail.ItemType,
-            Quantity = detail.Quantity,
-            Width = detail.Width,
-            Height = detail.Height,
-            Depth = detail.Depth,
-            Material = detail.Material,
-            Color = detail.Color,
-            UnitPriceSnapshot = detail.UnitPriceSnapshot,
-            TotalPriceSnapshot = detail.TotalPriceSnapshot,
-            Note = detail.ItemNote
+            ProposalItemId = item.ProposalItemId,
+            ProposalId = item.ProposalId,
+            ProductVersionId = item.ProductVersionId,
+            ItemName = item.ItemName,
+            ItemType = item.ItemType,
+            Quantity = item.Quantity,
+            Width = item.Width,
+            Height = item.Height,
+            Depth = item.Depth,
+            Material = item.Material,
+            Color = item.Color,
+            UnitPriceSnapshot = item.UnitPriceSnapshot,
+            TotalPriceSnapshot = item.TotalPriceSnapshot,
+            Note = item.Note
         };
         return dto;
     }

@@ -819,33 +819,32 @@ public sealed class QuotationService : IQuotationService
         QuotationDetailReadModel quotation,
         string? revisionReason)
     {
-        if (quotation.Status == QuotationStatus.EXPIRED)
-        {
-            return BadRequestDetail(
-                QuotationErrorCodes.QuotationExpired,
-                "Quotation has expired.");
-        }
-
-        if (quotation.Status is not (QuotationStatus.SENT or QuotationStatus.REVISED))
-        {
-            return BadRequestDetail(
-                QuotationErrorCodes.InvalidQuotationStatus,
-                "Quotation cannot be revision-requested in its current status.");
-        }
-
-        if (string.IsNullOrWhiteSpace(revisionReason))
-        {
-            return BadRequestDetail(
-                QuotationErrorCodes.InvalidQuotationRevisionReason,
-                "Revision reason is required.");
-        }
-
-        return null;
+        return ValidateCustomerDecisionState(
+            quotation,
+            revisionReason,
+            "Quotation cannot be revision-requested in its current status.",
+            QuotationErrorCodes.InvalidQuotationRevisionReason,
+            "Revision reason is required.");
     }
 
     private static ServiceResult<QuotationDetailDto>? ValidateRejectState(
         QuotationDetailReadModel quotation,
         string? rejectReason)
+    {
+        return ValidateCustomerDecisionState(
+            quotation,
+            rejectReason,
+            "Quotation cannot be rejected in its current status.",
+            QuotationErrorCodes.InvalidQuotationRejectReason,
+            "Reject reason is required.");
+    }
+
+    private static ServiceResult<QuotationDetailDto>? ValidateCustomerDecisionState(
+        QuotationDetailReadModel quotation,
+        string? reason,
+        string invalidStatusMessage,
+        string invalidReasonCode,
+        string invalidReasonMessage)
     {
         if (quotation.Status == QuotationStatus.EXPIRED)
         {
@@ -858,14 +857,14 @@ public sealed class QuotationService : IQuotationService
         {
             return BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationStatus,
-                "Quotation cannot be rejected in its current status.");
+                invalidStatusMessage);
         }
 
-        if (string.IsNullOrWhiteSpace(rejectReason))
+        if (string.IsNullOrWhiteSpace(reason))
         {
             return BadRequestDetail(
-                QuotationErrorCodes.InvalidQuotationRejectReason,
-                "Reject reason is required.");
+                invalidReasonCode,
+                invalidReasonMessage);
         }
 
         return null;

@@ -147,7 +147,7 @@ public sealed class CustomizationRequestServiceTests
         var result = await service.GetDetailAsync(detail.CustomizationRequestId, ids.CustomerId);
 
         Assert.Equal(200, result.Status);
-        Assert.Equal(detail.ItemName, result.Data!.ProposalItem.ItemName);
+        Assert.Equal(detail.ProposalItem.ItemName, result.Data!.ProposalItem.ItemName);
     }
 
     [Fact]
@@ -1283,9 +1283,14 @@ public sealed class CustomizationRequestServiceTests
             AssignedDesignerId = request.AssignedDesignerId,
             RequestTitle = request.RequestTitle,
             Status = status,
-            ItemName = "Chair",
-            Quantity = 2,
-            Material = "Oak"
+            ProposalItem = new ProposalItem
+            {
+                ProposalItemId = request.ProposalItemId,
+                ProposalId = request.ProposalId,
+                ItemName = "Chair",
+                Quantity = 2,
+                Material = "Oak"
+            }
         };
     }
 

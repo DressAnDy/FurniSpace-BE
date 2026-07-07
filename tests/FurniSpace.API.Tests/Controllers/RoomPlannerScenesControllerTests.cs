@@ -73,7 +73,7 @@ public sealed class RoomPlannerScenesControllerTests
     {
         var sceneId = Guid.NewGuid();
         var currentUserId = Guid.NewGuid();
-        var request = new SaveRoomPlannerSceneRequestDto { SchemaVersion = 2 };
+        var request = new RoomPlannerScenePayloadDto { SchemaVersion = 2 };
         var response = new RoomPlannerSceneSaveResponseDto { SceneId = sceneId, MongoSceneId = "mongo-id" };
         var service = new FakeRoomPlannerSceneService(
             saveResult: ServiceResult<RoomPlannerSceneSaveResponseDto>.Success(
@@ -100,7 +100,7 @@ public sealed class RoomPlannerScenesControllerTests
         var controller = BuildController(service);
 
         Assert.IsType<UnauthorizedResult>(await controller.GetScene(Guid.NewGuid()));
-        Assert.IsType<UnauthorizedResult>(await controller.SaveScene(Guid.NewGuid(), new SaveRoomPlannerSceneRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.SaveScene(Guid.NewGuid(), new RoomPlannerScenePayloadDto()));
         Assert.Equal(0, service.CallCount);
     }
 
@@ -146,11 +146,11 @@ public sealed class RoomPlannerScenesControllerTests
         public Guid SceneId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public string? CurrentUserRole { get; private set; }
-        public SaveRoomPlannerSceneRequestDto? SaveRequest { get; private set; }
+        public RoomPlannerScenePayloadDto? SaveRequest { get; private set; }
 
         public Task<ServiceResult<RoomPlannerSceneSaveResponseDto>> SaveSceneAsync(
             Guid sceneId,
-            SaveRoomPlannerSceneRequestDto request,
+            RoomPlannerScenePayloadDto request,
             Guid currentUserId,
             string currentUserRole,
             CancellationToken cancellationToken = default)

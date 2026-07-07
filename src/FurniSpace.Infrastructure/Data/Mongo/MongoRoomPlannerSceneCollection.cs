@@ -99,7 +99,7 @@ public sealed class MongoRoomPlannerSceneCollection : IRoomPlannerSceneCollectio
         return await cursor.FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private Task ReplaceAsync(
+    private Task<ReplaceOneResult> ReplaceAsync(
         FilterDefinition<RoomPlannerSceneDocument> filter,
         RoomPlannerSceneDocument document,
         CancellationToken cancellationToken) =>

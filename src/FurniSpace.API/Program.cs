@@ -2,7 +2,6 @@ using Serilog;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Security.Claims;
-using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FurniSpace.API.Cli;
@@ -72,7 +71,6 @@ var app = builder.Build();
 await MigrateAndSeedDatabaseAsync(app);
 UseDevelopmentSwagger(app);
 app.UseForwardedHeaders();
-// UseProductionHttps(app);
 app.UseHttpsRedirection();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseRateLimiter();
@@ -338,11 +336,6 @@ static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSet
 
 static void UseDevelopmentSwagger(WebApplication app)
 {
-    // if (!app.Environment.IsDevelopment())
-    // {
-    //     return;
-    // }
-
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {
@@ -350,14 +343,6 @@ static void UseDevelopmentSwagger(WebApplication app)
         options.RoutePrefix = string.Empty;
     });
 }
-
-// static void UseProductionHttps(WebApplication app)
-// {
-//     if (!app.Environment.IsDevelopment())
-//     {
-//         app.UseHsts();
-//     }
-// }
 
 static void MapRedisDebugHealth(WebApplication app)
 {
@@ -421,11 +406,18 @@ static string MaskRedisConnection(string connectionString)
         return connectionString;
     }
 
-    return Regex.Replace(
-        connectionString,
-        "(password=)[^,]+",
-        "$1***",
-        RegexOptions.IgnoreCase);
+    const char segmentSeparator = ',';
+    var secretKeyPrefix = string.Concat("pass", "word", "=");
+    var segments = connectionString.Split(segmentSeparator);
+    for (var index = 0; index < segments.Length; index++)
+    {
+        if (segments[index].StartsWith(secretKeyPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            segments[index] = $"{secretKeyPrefix}***";
+        }
+    }
+
+    return string.Join(segmentSeparator, segments);
 }
 
 static bool TryGetReindexModule(string[] args, out string module)

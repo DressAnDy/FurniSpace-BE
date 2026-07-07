@@ -1273,7 +1273,7 @@ public sealed class ProjectService : IProjectService
         }
     }
 
-    private static IReadOnlyList<Guid> GetProjectParticipantIds(Project project)
+    private static List<Guid> GetProjectParticipantIds(Project project)
     {
         var receiverIds = new List<Guid> { project.CustomerId };
 

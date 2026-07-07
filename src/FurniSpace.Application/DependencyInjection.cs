@@ -1,5 +1,6 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.Identity;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Interfaces.Accounts;
@@ -147,6 +148,10 @@ public static class DependencyInjection
                 sp.GetService<IProjectSearchIndexer>());
         });
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped(static sp => new IdentityVerificationStores(
+            sp.GetRequiredService<IPasswordResetStore>(),
+            sp.GetRequiredService<IEmailOtpStore>(),
+            sp.GetRequiredService<IRefreshTokenStore>()));
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IRefreshTokenStore, RefreshTokenStore>();

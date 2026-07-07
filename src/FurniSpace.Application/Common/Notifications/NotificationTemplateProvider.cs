@@ -65,6 +65,42 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "proposal.final.selected"),
 
+            NotificationType.QuotationSent => new NotificationTemplate(
+                "Quotation ready for review",
+                "Quotation \"{QuotationCode}\" is ready for your review.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "quotation.sent"),
+
+            NotificationType.QuotationAccepted => new NotificationTemplate(
+                "Quotation accepted",
+                "Customer accepted quotation \"{QuotationCode}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "quotation.accepted"),
+
+            NotificationType.QuotationRevisionRequested => new NotificationTemplate(
+                "Quotation revision requested",
+                "Customer requested revision for quotation \"{QuotationCode}\". Reason: {RevisionReason}",
+                NotificationDeliveryLevel.InAppRealtime,
+                "quotation.revision.requested"),
+
+            NotificationType.QuotationRejected => new NotificationTemplate(
+                "Quotation rejected",
+                "Customer rejected quotation \"{QuotationCode}\". Reason: {RejectReason}",
+                NotificationDeliveryLevel.InAppRealtime,
+                "quotation.rejected"),
+
+            NotificationType.CustomizationRequestSubmitted => new NotificationTemplate(
+                "Customization request submitted",
+                "Customer submitted customization request \"{RequestTitle}\" for proposal \"{ProposalName}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "customization_request.submitted"),
+
+            NotificationType.CustomizationDesignerReviewed => new NotificationTemplate(
+                "Customization request ready for production review",
+                "Designer reviewed customization request \"{RequestTitle}\" for project \"{ProjectName}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "customization_request.designer_reviewed"),
+
             NotificationType.ProjectFileUploaded => new NotificationTemplate(
                 "Project file uploaded",
                 "A new file has been uploaded to project \"{ProjectName}\".",

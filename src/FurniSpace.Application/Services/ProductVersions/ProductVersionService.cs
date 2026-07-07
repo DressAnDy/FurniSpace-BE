@@ -520,7 +520,7 @@ public sealed class ProductVersionService : IProductVersionService
 
         var existingLinks = (await _files.GetProductVersionPreviewFileLinkEntitiesAsync(productVersionId, cancellationToken))
             .ToList();
-        var displayOrder = PreviewImageFileLinkOrdering.ResolveDisplayOrder(
+        var displayOrder = PreviewImageFileLinkOrdering.ResolveInsertDisplayOrder(
             request.DisplayOrder,
             existingLinks,
             existingCount);
@@ -583,13 +583,14 @@ public sealed class ProductVersionService : IProductVersionService
                     await _files.AddAsync(storedFile, ct);
                     await _files.AddFileLinkAsync(fileLink, ct);
 
-                    var allPreviewLinks = (await _files.GetProductVersionPreviewFileLinkEntitiesAsync(productVersionId, ct))
-                        .ToList();
+                    var allPreviewLinks = PreviewImageFileLinkOrdering.MergePendingPreviewLink(
+                        await _files.GetProductVersionPreviewFileLinkEntitiesAsync(productVersionId, ct),
+                        fileLink);
                     PreviewImageFileLinkOrdering.NormalizeDisplayOrdersAndPrimary(allPreviewLinks);
                     PreviewImageFileLinkOrdering.EnsureUniquePositiveDisplayOrders(allPreviewLinks);
                     await _unitOfWork.SaveChangesAsync(ct);
 
-                    var uploadedLink = allPreviewLinks.Single(link => link.FileId == fileId);
+                    var uploadedLink = allPreviewLinks.First(link => link.FileId == fileId);
                     return ServiceResult<CatalogFileUploadResponseDto>.Created(
                         CatalogFileUploadResponseMapper.FromUpload(new CatalogFileUploadResponseContext
                         {
@@ -701,9 +702,8 @@ public sealed class ProductVersionService : IProductVersionService
             return validationError;
         }
 
-        return CatalogPreviewUploadValidation.ValidateDisplayOrderInRange(
+        return CatalogPreviewUploadValidation.ValidateDisplayOrderGreaterThanZero(
             request.DisplayOrder,
-            _previewSettings.MaxCount,
             ProductVersionPreviewErrorCodes.InvalidDisplayOrder);
     }
 

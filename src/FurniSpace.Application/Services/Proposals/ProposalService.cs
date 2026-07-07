@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Proposals;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -51,6 +52,7 @@ public sealed class ProposalService : IProposalService
     ];
 
     private readonly IProposalRepository _proposals;
+    private readonly ICustomizationRequestRepository? _customizationRequests;
     private readonly IProjectRepository _projects;
     private readonly IProductVersionRepository _productVersions;
     private readonly RoomPlannerSceneRepository? _roomPlannerScenes;
@@ -63,17 +65,16 @@ public sealed class ProposalService : IProposalService
         IProjectRepository projects,
         IProductVersionRepository productVersions,
         IUnitOfWork unitOfWork,
-        RoomPlannerSceneRepository? roomPlannerScenes = null,
-        INotificationDispatcher? notifications = null,
-        ILogger<ProposalService>? logger = null)
+        ProposalServiceDependencies? dependencies = null)
     {
         _proposals = proposals;
+        _customizationRequests = dependencies?.CustomizationRequests;
         _projects = projects;
         _productVersions = productVersions;
-        _roomPlannerScenes = roomPlannerScenes;
+        _roomPlannerScenes = dependencies?.RoomPlannerScenes;
         _unitOfWork = unitOfWork;
-        _notifications = notifications;
-        _logger = logger;
+        _notifications = dependencies?.Notifications;
+        _logger = dependencies?.Logger;
     }
 
     public async Task<ServiceResult<ProposalDto>> CreateAsync(
@@ -788,9 +789,23 @@ public sealed class ProposalService : IProposalService
 
         if (!IsSelectableFinalProposal(proposal.Status))
         {
+            if (proposal.Status == ProposalStatus.SELECTED)
+            {
+                return ServiceResult<SelectFinalProposalResponseDto>.Failure(Error.BadRequest(
+                    CustomizationRequestErrorCodes.ProposalAlreadySelected,
+                    "Proposal has already been selected."));
+            }
+
             return ServiceResult<SelectFinalProposalResponseDto>.Failure(Error.BadRequest(
                 InvalidProposalStatusCode,
                 "Only published proposals can be selected as final."));
+        }
+
+        if (await HasPendingCustomizationRequestsAsync(proposalId, cancellationToken))
+        {
+            return ServiceResult<SelectFinalProposalResponseDto>.Failure(Error.BadRequest(
+                CustomizationRequestErrorCodes.CustomizationRequestPending,
+                "Proposal has unresolved customization requests."));
         }
 
         var proposalEntity = await _proposals.GetProposalEntityAsync(proposalId, cancellationToken);
@@ -1793,6 +1808,14 @@ public sealed class ProposalService : IProposalService
     private static bool IsSelectableFinalProposal(ProposalStatus? status)
     {
         return status is ProposalStatus.PUBLISHED or ProposalStatus.VIEWED;
+    }
+
+    private Task<bool> HasPendingCustomizationRequestsAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken)
+    {
+        return _customizationRequests?.HasPendingForProposalAsync(proposalId, cancellationToken)
+            ?? Task.FromResult(false);
     }
 
     private static PublishedProposalDto ToPublishedProposalDto(ProposalDetailReadModel proposal)

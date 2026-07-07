@@ -7,8 +7,8 @@ public class CustomizationRequest
 {
     public Guid CustomizationRequestId { get; set; }
     public Guid ProjectId { get; set; }
-    public Guid? ProposalId { get; set; }
-    public Guid? ProposalItemId { get; set; }
+    public Guid ProposalId { get; set; }
+    public Guid ProposalItemId { get; set; }
     public Guid? RequestedByCustomerId { get; set; }
     public string RequestTitle { get; set; } = null!;
     public string? RequestDescription { get; set; }
@@ -24,6 +24,7 @@ public class CustomizationRequest
     public string? FeasibilityNote { get; set; }
     public int? EstimatedProductionDays { get; set; }
     public decimal? EstimatedAdditionalCost { get; set; }
+    public string? AdditionalCostReason { get; set; }
     public bool? MaterialAvailable { get; set; }
     public string? ProductionRiskNote { get; set; }
     public Guid? SalesReviewBy { get; set; }

@@ -101,6 +101,28 @@ public sealed class PreviewImageFileLinkOrderingTests
         Assert.False(PreviewImageFileLinkOrdering.HasDuplicatePositiveDisplayOrders(links));
     }
 
+    [Fact]
+    public void MergePendingPreviewLink_AddsPendingLinkWhenQueryMissesIt()
+    {
+        var existing = CreateLink(displayOrder: 1);
+        var pending = CreateLink(displayOrder: 2);
+
+        var merged = PreviewImageFileLinkOrdering.MergePendingPreviewLink([existing], pending);
+
+        Assert.Equal(2, merged.Count);
+        Assert.Contains(pending, merged);
+    }
+
+    [Fact]
+    public void MergePendingPreviewLink_DoesNotDuplicateExistingLink()
+    {
+        var existing = CreateLink(displayOrder: 1);
+
+        var merged = PreviewImageFileLinkOrdering.MergePendingPreviewLink([existing], existing);
+
+        Assert.Single(merged);
+    }
+
     private static FileLink CreateLink(int? displayOrder)
     {
         return new FileLink

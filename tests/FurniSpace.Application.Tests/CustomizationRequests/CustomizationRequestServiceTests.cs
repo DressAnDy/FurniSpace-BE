@@ -1,0 +1,1586 @@
+#nullable enable
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.DTOs.CustomizationRequests;
+using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Services.CustomizationRequests;
+using FurniSpace.Application.Tests.TestDoubles;
+using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
+using FurniSpace.Infrastructure.ReadModels.Proposals;
+using FurniSpace.Infrastructure.ReadModels.Projects;
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using Xunit;
+
+namespace FurniSpace.Application.Tests.CustomizationRequests;
+
+public sealed class CustomizationRequestServiceTests
+{
+    [Fact]
+    public async Task GetByProjectAsync_CustomerOwnerGetsRequests()
+    {
+        var ids = CreateIds();
+        var repo = new FakeCustomizationRequestRepository
+        {
+            Items = [CreateRequest(ids)]
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(project: CreateProject(ids)),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetByProjectAsync(ids.ProjectId, ids.CustomerId, new CustomizationRequestQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetByProjectAsync(Guid.NewGuid(), Guid.Empty, new CustomizationRequestQueryDto());
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_AdminGetsRequests()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Items = [CreateRequest(ids)] },
+            new FakeProposalRepository(project: CreateProject(ids)),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.GetByProjectAsync(ids.ProjectId, Guid.NewGuid(), new CustomizationRequestQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_AssignedDesignerGetsRequests()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Items = [CreateRequest(ids)] },
+            new FakeProposalRepository(project: CreateProject(ids)),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.GetByProjectAsync(ids.ProjectId, ids.DesignerId, new CustomizationRequestQueryDto());
+
+        Assert.Equal(200, result.Status);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_UnassignedUserReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(project: CreateProject(ids)),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetByProjectAsync(ids.ProjectId, Guid.NewGuid(), new CustomizationRequestQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_MissingProjectReturnsProjectNotFound()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.GetByProjectAsync(Guid.NewGuid(), Guid.NewGuid(), new CustomizationRequestQueryDto());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProjectNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_ProductionFiltersInvisibleRequests()
+    {
+        var ids = CreateIds();
+        var visible = CreateRequest(ids, status: CustomizationStatus.PRODUCTION_REVIEWING);
+        var hidden = CreateRequest(ids, status: CustomizationStatus.SUBMITTED);
+        var repo = new FakeCustomizationRequestRepository
+        {
+            Items = [visible, hidden],
+            HasProductionVisibleRequest = true
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(project: CreateProject(ids)),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetByProjectAsync(ids.ProjectId, ids.ProductionId, new CustomizationRequestQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(visible.CustomizationRequestId, result.Data.Items[0].CustomizationRequestId);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_AuthorizedUserGetsSnapshot()
+    {
+        var ids = CreateIds();
+        var detail = CreateDetail(ids);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Detail = detail },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetDetailAsync(detail.CustomizationRequestId, ids.CustomerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(detail.ProposalItem.ItemName, result.Data!.ProposalItem.ItemName);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetDetailAsync(Guid.NewGuid(), Guid.Empty);
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_ProductionReviewerGetsRequest()
+    {
+        var ids = CreateIds();
+        var detail = CreateDetail(ids);
+        detail.Status = CustomizationStatus.SUBMITTED;
+        detail.ProductionReviewBy = ids.ProductionId;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Detail = detail },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetDetailAsync(detail.CustomizationRequestId, ids.ProductionId);
+
+        Assert.Equal(200, result.Status);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_CustomerNotOwnerReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var detail = CreateDetail(ids);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Detail = detail },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetDetailAsync(detail.CustomizationRequestId, Guid.NewGuid());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_MissingRequestReturnsNotFound()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.GetDetailAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_CustomerOwnsPublishedProposal_CreatesSubmittedRequestAndNotifies()
+    {
+        var ids = CreateIds();
+        var dispatcher = new FakeNotificationDispatcher();
+        var repo = new FakeCustomizationRequestRepository
+        {
+            SubmitContext = CreateSubmitContext(ids),
+            DetailFactory = entity => CreateDetail(ids, entity.CustomizationRequestId)
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole),
+            dispatcher);
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, ids.CustomerId, ValidSubmitRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(CustomizationStatus.SUBMITTED, repo.AddedRequest!.Status);
+        Assert.Equal(ids.ProjectId, repo.AddedRequest.ProjectId);
+        Assert.Equal(1, repo.SaveChangesCallCount);
+        Assert.Equal(NotificationType.CustomizationRequestSubmitted, dispatcher.LastType);
+        Assert.Contains(ids.SalesId, dispatcher.LastReceivers);
+        Assert.Contains(ids.DesignerId, dispatcher.LastReceivers);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.SubmitAsync(Guid.NewGuid(), Guid.Empty, ValidSubmitRequest());
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_NonCustomerReturnsForbidden()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.SubmitAsync(Guid.NewGuid(), Guid.NewGuid(), ValidSubmitRequest());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_InvalidRequestReturnsInvalidCustomizationRequest()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.SubmitAsync(Guid.NewGuid(), Guid.NewGuid(), new SubmitCustomizationRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationRequest, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ProposalItemMissingReturnsNotFound()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.SubmitAsync(Guid.NewGuid(), Guid.NewGuid(), ValidSubmitRequest());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProposalItemNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_CustomerDoesNotOwnProjectReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { SubmitContext = CreateSubmitContext(ids) },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, Guid.NewGuid(), ValidSubmitRequest());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ProposalAlreadySelectedReturnsBusinessError()
+    {
+        var ids = CreateIds();
+        var context = CreateSubmitContext(ids);
+        context.ProjectStatus = ProjectStatus.PROPOSAL_SELECTED;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { SubmitContext = context },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, ids.CustomerId, ValidSubmitRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProposalAlreadySelected, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_SelectedProposalStatusReturnsBusinessError()
+    {
+        var ids = CreateIds();
+        var context = CreateSubmitContext(ids);
+        context.ProposalStatus = ProposalStatus.SELECTED;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { SubmitContext = context },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, ids.CustomerId, ValidSubmitRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProposalAlreadySelected, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_DraftProposalReturnsInvalidCustomizationRequest()
+    {
+        var ids = CreateIds();
+        var context = CreateSubmitContext(ids);
+        context.ProposalStatus = ProposalStatus.DRAFT;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { SubmitContext = context },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, ids.CustomerId, ValidSubmitRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationRequest, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_QuotationExistsReturnsBusinessError()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                SubmitContext = CreateSubmitContext(ids),
+                HasQuotation = true
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, ids.CustomerId, ValidSubmitRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.QuotationAlreadyCreated, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DesignerReviewAsync_AssignedDesignerMovesRequestToProductionReviewAndNotifies()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var dispatcher = new FakeNotificationDispatcher();
+        var repo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = CreateDetail(ids, entity.CustomizationRequestId)
+        };
+        var productionReceiver = Guid.NewGuid();
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, [productionReceiver]),
+            dispatcher);
+
+        var result = await service.DesignerReviewAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new DesignerReviewCustomizationRequestDto { DesignerSpecNote = "Possible with dark oak." });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.PRODUCTION_REVIEWING, entity.Status);
+        Assert.Equal(ids.DesignerId, entity.DesignerId);
+        Assert.Equal("Possible with dark oak.", entity.DesignerSpecNote);
+        Assert.Equal(1, repo.UpdateCallCount);
+        Assert.Equal(1, repo.SaveChangesCallCount);
+        Assert.Equal(NotificationType.CustomizationDesignerReviewed, dispatcher.LastType);
+        Assert.Contains(productionReceiver, dispatcher.LastReceivers);
+    }
+
+    [Fact]
+    public async Task DesignerReviewAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.DesignerReviewAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            new DesignerReviewCustomizationRequestDto { DesignerSpecNote = "Possible." });
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task DesignerReviewAsync_AdminReviewsDesignReviewingRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        var repo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.DesignerReviewAsync(
+            entity.CustomizationRequestId,
+            Guid.NewGuid(),
+            new DesignerReviewCustomizationRequestDto { DesignerSpecNote = "Possible." });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.PRODUCTION_REVIEWING, entity.Status);
+    }
+
+    [Fact]
+    public async Task DesignerReviewAsync_BlankNoteReturnsInvalidCustomizationRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.DesignerReviewAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new DesignerReviewCustomizationRequestDto { DesignerSpecNote = " " });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationRequest, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DesignerReviewAsync_UnassignedDesignerReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.DesignerReviewAsync(
+            entity.CustomizationRequestId,
+            Guid.NewGuid(),
+            new DesignerReviewCustomizationRequestDto { DesignerSpecNote = "Possible." });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task DesignerReviewAsync_AcceptedRequestReturnsInvalidTransition()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.ACCEPTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.ACCEPTED)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.DesignerReviewAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new DesignerReviewCustomizationRequestDto { DesignerSpecNote = "Possible." });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationTransition, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DesignerReviewAsync_MissingRequestReturnsNotFound()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.DesignerReviewAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new DesignerReviewCustomizationRequestDto { DesignerSpecNote = "Possible." });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_FeasibleRequestMovesToCustomerApproval()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var repo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(
+            entity.CustomizationRequestId,
+            ids.ProductionId,
+            FeasibleProductionReview());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL, entity.Status);
+        Assert.Equal(ids.ProductionId, entity.ProductionReviewBy);
+        Assert.Equal(5, entity.EstimatedProductionDays);
+        Assert.Equal(1500000, entity.EstimatedAdditionalCost);
+        Assert.Equal(1, repo.UpdateCallCount);
+        Assert.Equal(1, repo.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            FeasibleProductionReview());
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_MissingRequestReturnsNotFound()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            FeasibleProductionReview());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_AdminCanReview()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.ProductionReviewAsync(
+            entity.CustomizationRequestId,
+            Guid.NewGuid(),
+            FeasibleProductionReview());
+
+        Assert.Equal(200, result.Status);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_CostWithoutReasonReturnsAdditionalCostReasonRequired()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var request = FeasibleProductionReview();
+        request.AdditionalCostReason = null;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(entity.CustomizationRequestId, ids.ProductionId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.AdditionalCostReasonRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_NotFeasibleMovesToNotFeasible()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(
+            entity.CustomizationRequestId,
+            ids.ProductionId,
+            new ProductionReviewCustomizationRequestDto
+            {
+                Result = "NOT_FEASIBLE",
+                MaterialAvailable = false,
+                FeasibilityNote = "Material unavailable."
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.NOT_FEASIBLE, entity.Status);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_InvalidResultReturnsInvalidTransition()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(
+            entity.CustomizationRequestId,
+            ids.ProductionId,
+            new ProductionReviewCustomizationRequestDto { Result = "UNKNOWN" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationTransition, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_FeasibleMissingCostReturnsCustomizationCostRequired()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var request = FeasibleProductionReview();
+        request.EstimatedAdditionalCost = null;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(entity.CustomizationRequestId, ids.ProductionId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationCostRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_NotFeasibleWithMaterialAvailableReturnsMaterialNotAvailable()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(
+            entity.CustomizationRequestId,
+            ids.ProductionId,
+            new ProductionReviewCustomizationRequestDto
+            {
+                Result = "NOT_FEASIBLE",
+                MaterialAvailable = true
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.MaterialNotAvailable, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_WrongRoleReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.ProductionReviewAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            FeasibleProductionReview());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_InvalidStatusReturnsInvalidTransition()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(
+            entity.CustomizationRequestId,
+            ids.ProductionId,
+            FeasibleProductionReview());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationTransition, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ProductionReviewAsync_FeasibleWithoutMaterialReturnsMaterialNotAvailable()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var request = FeasibleProductionReview();
+        request.MaterialAvailable = false;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ProductionReviewAsync(entity.CustomizationRequestId, ids.ProductionId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.MaterialNotAvailable, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_AcceptUpdatesProposalItemPriceAndStatus()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
+        entity.EstimatedAdditionalCost = 250000m;
+        var proposalItem = CreateProposalItem(ids);
+        var repo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = CreateDetail(
+                ids,
+                entity.CustomizationRequestId,
+                CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(proposalItem: proposalItem),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.ACCEPTED, entity.Status);
+        Assert.Equal(1250000m, proposalItem.UnitPriceSnapshot);
+        Assert.Equal(2500000m, proposalItem.TotalPriceSnapshot);
+        Assert.True(proposalItem.IsCustomized);
+        Assert.NotNull(entity.CustomerAcceptedAt);
+        Assert.Equal(1, repo.UpdateCallCount);
+        Assert.Equal(1, repo.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_RejectDoesNotUpdateProposalItem()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
+        entity.EstimatedAdditionalCost = 250000m;
+        var proposalItem = CreateProposalItem(ids);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(
+                    ids,
+                    entity.CustomizationRequestId,
+                    CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+            },
+            new FakeProposalRepository(proposalItem: proposalItem),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto
+            {
+                Decision = "REJECT",
+                RejectReason = "Cost is too high."
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.REJECTED_BY_CUSTOMER, entity.Status);
+        Assert.Equal(1000000m, proposalItem.UnitPriceSnapshot);
+        Assert.Equal(2000000m, proposalItem.TotalPriceSnapshot);
+        Assert.NotNull(entity.CustomerRejectedAt);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_NotOwnerReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(
+                    ids,
+                    entity.CustomizationRequestId,
+                    CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+            },
+            new FakeProposalRepository(proposalItem: CreateProposalItem(ids)),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            Guid.NewGuid(),
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_NotReadyReturnsCustomizationNotReady()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(proposalItem: CreateProposalItem(ids)),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationNotReadyForFinalApproval, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_AcceptNotFeasibleReturnsCustomizationNotFeasible()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.NOT_FEASIBLE);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.NOT_FEASIBLE)
+            },
+            new FakeProposalRepository(proposalItem: CreateProposalItem(ids)),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationNotFeasible, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_AcceptWithoutCostReturnsCustomizationCostNotApproved()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(
+                    ids,
+                    entity.CustomizationRequestId,
+                    CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+            },
+            new FakeProposalRepository(proposalItem: CreateProposalItem(ids)),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationCostNotApproved, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_InvalidDecisionReturnsInvalidCustomizationDecision()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(
+                    ids,
+                    entity.CustomizationRequestId,
+                    CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+            },
+            new FakeProposalRepository(proposalItem: CreateProposalItem(ids)),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "MAYBE" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationDecision, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_RejectWithoutReasonReturnsInvalidCustomizationDecision()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(
+                    ids,
+                    entity.CustomizationRequestId,
+                    CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+            },
+            new FakeProposalRepository(proposalItem: CreateProposalItem(ids)),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "REJECT" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationDecision, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_MissingProposalItemReturnsNotFound()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
+        entity.EstimatedAdditionalCost = 250000m;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(
+                    ids,
+                    entity.CustomizationRequestId,
+                    CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProposalItemNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAsync_CustomerOwnerCancelsSubmittedRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var repo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = CreateDetail(ids, entity.CustomizationRequestId)
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CancelCustomizationRequestDto { CancelReason = "No longer needed." });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.CANCELLED, entity.Status);
+        Assert.Equal("No longer needed.", entity.ProductionRiskNote);
+        Assert.Equal(1, repo.UpdateCallCount);
+        Assert.Equal(1, repo.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task CancelAsync_AssignedDesignerCancelsRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.PRODUCTION_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CancelCustomizationRequestDto { CancelReason = "Invalid request." });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.CANCELLED, entity.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CancelAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_MissingRequestReturnsNotFound()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.CancelAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAsync_UnassignedStaffReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(SalesRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            Guid.NewGuid(),
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_AcceptedRequestReturnsAlreadyAccepted()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.ACCEPTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.ACCEPTED)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationAlreadyAccepted, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAsync_AlreadyCancelledReturnsInvalidTransition()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.CANCELLED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.CANCELLED)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationTransition, result.ErrorCode);
+    }
+
+    private static CustomizationRequestService CreateService(
+        FakeCustomizationRequestRepository customizationRequests,
+        FakeProposalRepository proposals,
+        FakeProjectRepository projects,
+        FakeNotificationDispatcher? dispatcher = null)
+    {
+        return new CustomizationRequestService(
+            customizationRequests,
+            proposals,
+            projects,
+            dispatcher ?? new FakeNotificationDispatcher(),
+            TestUnitOfWork.ForSaveChanges(customizationRequests.SaveChangesAsync));
+    }
+
+    private static TestIds CreateIds() => new(
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        Guid.NewGuid(),
+        Guid.NewGuid());
+
+    private static ProposalProjectAccessReadModel CreateProject(TestIds ids) => new()
+    {
+        ProjectId = ids.ProjectId,
+        CustomerId = ids.CustomerId,
+        AssignedSalesId = ids.SalesId,
+        AssignedDesignerId = ids.DesignerId,
+        ProjectStatus = ProjectStatus.PROPOSAL_DRAFTING
+    };
+
+    private static CustomizationRequestReadModel CreateRequest(
+        TestIds ids,
+        CustomizationStatus status = CustomizationStatus.SUBMITTED) => new()
+    {
+        CustomizationRequestId = Guid.NewGuid(),
+        ProjectId = ids.ProjectId,
+        ProposalId = ids.ProposalId,
+        ProposalItemId = ids.ProposalItemId,
+        CustomerId = ids.CustomerId,
+        AssignedSalesId = ids.SalesId,
+        AssignedDesignerId = ids.DesignerId,
+        ProjectName = "Cafe",
+        RequestTitle = "Change chair material",
+        Status = status
+    };
+
+    private static CustomizationRequestDetailReadModel CreateDetail(
+        TestIds ids,
+        Guid? customizationRequestId = null,
+        CustomizationStatus status = CustomizationStatus.SUBMITTED)
+    {
+        var request = CreateRequest(ids, status);
+        return new CustomizationRequestDetailReadModel
+        {
+            CustomizationRequestId = customizationRequestId ?? request.CustomizationRequestId,
+            ProjectId = request.ProjectId,
+            ProposalId = request.ProposalId,
+            ProposalItemId = request.ProposalItemId,
+            CustomerId = request.CustomerId,
+            AssignedSalesId = request.AssignedSalesId,
+            AssignedDesignerId = request.AssignedDesignerId,
+            RequestTitle = request.RequestTitle,
+            Status = status,
+            ProposalItem = new ProposalItem
+            {
+                ProposalItemId = request.ProposalItemId,
+                ProposalId = request.ProposalId,
+                ItemName = "Chair",
+                Quantity = 2,
+                Material = "Oak"
+            }
+        };
+    }
+
+    private static CustomizationRequest CreateEntity(
+        TestIds ids,
+        CustomizationStatus status) => new()
+    {
+        CustomizationRequestId = Guid.NewGuid(),
+        ProjectId = ids.ProjectId,
+        ProposalId = ids.ProposalId,
+        ProposalItemId = ids.ProposalItemId,
+        RequestedByCustomerId = ids.CustomerId,
+        RequestTitle = "Change chair material",
+        RequestedMaterial = "Dark oak wood",
+        Status = status
+    };
+
+    private static ProposalItem CreateProposalItem(TestIds ids) => new()
+    {
+        ProposalItemId = ids.ProposalItemId,
+        ProposalId = ids.ProposalId,
+        ItemName = "Chair",
+        Quantity = 2,
+        UnitPriceSnapshot = 1000000m,
+        TotalPriceSnapshot = 2000000m,
+        IsCustomized = false
+    };
+
+    private static CustomizationSubmitContextReadModel CreateSubmitContext(TestIds ids) => new()
+    {
+        ProposalItemId = ids.ProposalItemId,
+        ProposalId = ids.ProposalId,
+        ProjectId = ids.ProjectId,
+        CustomerId = ids.CustomerId,
+        AssignedSalesId = ids.SalesId,
+        AssignedDesignerId = ids.DesignerId,
+        ProposalStatus = ProposalStatus.PUBLISHED,
+        ProjectStatus = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
+        ProjectName = "Cafe",
+        ProposalName = "Cafe Proposal"
+    };
+
+    private static SubmitCustomizationRequestDto ValidSubmitRequest() => new()
+    {
+        RequestTitle = "Change chair material",
+        RequestedMaterial = "Dark oak wood",
+        RequestedColor = "Dark brown"
+    };
+
+    private static ProductionReviewCustomizationRequestDto FeasibleProductionReview() => new()
+    {
+        Result = "FEASIBLE",
+        MaterialAvailable = true,
+        EstimatedProductionDays = 5,
+        EstimatedAdditionalCost = 1500000,
+        AdditionalCostReason = "Custom finishing requires extra cost.",
+        FeasibilityNote = "Material is available.",
+        ProductionRiskNote = "Adds five days."
+    };
+
+    private const string AdminRole = "ADMIN";
+    private const string CustomerRole = "CUSTOMER";
+    private const string SalesRole = "SALES";
+    private const string DesignerRole = "DESIGNER";
+    private const string ProductionRole = "PRODUCTION";
+
+    private sealed record TestIds(
+        Guid ProjectId,
+        Guid ProposalId,
+        Guid ProposalItemId,
+        Guid CustomerId,
+        Guid SalesId,
+        Guid DesignerId,
+        Guid ProductionId);
+
+    private sealed class FakeCustomizationRequestRepository : ICustomizationRequestRepository
+    {
+        public IReadOnlyList<CustomizationRequestReadModel> Items { get; init; } = [];
+        public CustomizationRequestDetailReadModel? Detail { get; init; }
+        public Func<CustomizationRequest, CustomizationRequestDetailReadModel>? DetailFactory { get; init; }
+        public CustomizationSubmitContextReadModel? SubmitContext { get; init; }
+        public bool HasQuotation { get; init; }
+        public bool HasProductionVisibleRequest { get; init; }
+        public CustomizationRequest? ExistingEntity { get; init; }
+        public CustomizationRequest? AddedRequest { get; private set; }
+        public int SaveChangesCallCount { get; private set; }
+        public int UpdateCallCount { get; private set; }
+
+        public Task<IReadOnlyList<CustomizationRequestReadModel>> GetByProjectAsync(
+            CustomizationRequestQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            var result = Items
+                .Where(item => item.ProjectId == query.ProjectId)
+                .Where(item => !query.ProposalId.HasValue || item.ProposalId == query.ProposalId)
+                .Where(item => !query.ProposalItemId.HasValue || item.ProposalItemId == query.ProposalItemId)
+                .Where(item => !query.Status.HasValue || item.Status == query.Status)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<CustomizationRequestReadModel>>(result);
+        }
+
+        public Task<CustomizationRequestDetailReadModel?> GetDetailAsync(
+            Guid customizationRequestId,
+            CancellationToken cancellationToken = default)
+        {
+            var detail = DetailFactory is not null && AddedRequest is not null
+                ? DetailFactory(AddedRequest)
+                : Detail;
+            if (detail is not null && ExistingEntity?.CustomizationRequestId == customizationRequestId)
+            {
+                CopyEntityState(ExistingEntity, detail);
+            }
+
+            return Task.FromResult(detail?.CustomizationRequestId == customizationRequestId ? detail : null);
+        }
+
+        public Task<CustomizationSubmitContextReadModel?> GetSubmitContextAsync(
+            Guid proposalItemId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(SubmitContext?.ProposalItemId == proposalItemId ? SubmitContext : null);
+        }
+
+        public Task<bool> HasQuotationForProposalAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(HasQuotation);
+
+        public Task<bool> HasProductionVisibleRequestAsync(
+            Guid projectId,
+            Guid productionUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(HasProductionVisibleRequest);
+
+        public Task<bool> HasPendingForProposalAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task AddAsync(CustomizationRequest entity, CancellationToken cancellationToken = default)
+        {
+            AddedRequest = entity;
+            return Task.CompletedTask;
+        }
+
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            SaveChangesCallCount++;
+            return Task.FromResult(1);
+        }
+
+        public IQueryable<CustomizationRequest> Query() => Enumerable.Empty<CustomizationRequest>().AsQueryable();
+        public Task<CustomizationRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult(ExistingEntity?.CustomizationRequestId == id ? ExistingEntity : null);
+        public Task<IReadOnlyList<CustomizationRequest>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CustomizationRequest>>([]);
+        public Task AddRangeAsync(IEnumerable<CustomizationRequest> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Update(CustomizationRequest entity)
+        {
+            UpdateCallCount++;
+        }
+        public void Remove(CustomizationRequest entity) { }
+
+        private static void CopyEntityState(
+            CustomizationRequest entity,
+            CustomizationRequestDetailReadModel detail)
+        {
+            detail.DesignerId = entity.DesignerId;
+            detail.DesignerSpecNote = entity.DesignerSpecNote;
+            detail.ProductionReviewBy = entity.ProductionReviewBy;
+            detail.FeasibilityNote = entity.FeasibilityNote;
+            detail.EstimatedProductionDays = entity.EstimatedProductionDays;
+            detail.EstimatedAdditionalCost = entity.EstimatedAdditionalCost;
+            detail.AdditionalCostReason = entity.AdditionalCostReason;
+            detail.MaterialAvailable = entity.MaterialAvailable;
+            detail.ProductionRiskNote = entity.ProductionRiskNote;
+            detail.Status = entity.Status;
+            detail.CustomerAcceptedAt = entity.CustomerAcceptedAt;
+            detail.CustomerRejectedAt = entity.CustomerRejectedAt;
+            detail.UpdatedAt = entity.UpdatedAt;
+        }
+    }
+
+    private sealed class FakeProposalRepository : IProposalRepository
+    {
+        private readonly ProposalProjectAccessReadModel? _project;
+        private readonly ProposalItem? _proposalItem;
+
+        public FakeProposalRepository(
+            ProposalProjectAccessReadModel? project = null,
+            ProposalItem? proposalItem = null)
+        {
+            _project = project;
+            _proposalItem = proposalItem;
+        }
+
+        public Task<ProposalProjectAccessReadModel?> GetProjectAccessAsync(Guid projectId, CancellationToken cancellationToken = default)
+            => Task.FromResult(_project?.ProjectId == projectId ? _project : null);
+
+        public IQueryable<Proposal> Query() => Enumerable.Empty<Proposal>().AsQueryable();
+        public Task<Proposal?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<Proposal?>(null);
+        public Task<IReadOnlyList<Proposal>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Proposal>>([]);
+        public Task AddAsync(Proposal entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddRangeAsync(IEnumerable<Proposal> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Update(Proposal entity) { }
+        public void Remove(Proposal entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+
+        public Task<ProposalContextReadModel?> GetProposalContextAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalContextReadModel?>(null);
+        public Task<int> CountByProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<ProposalReadModel>> GetListAsync(ProposalListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProposalReadModel>>([]);
+        public Task<int> CountListAsync(ProposalListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<int> CountScenesAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<int> CountScenesAsync(ProposalSceneListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task AddSceneAsync(ProposalScene scene, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<ProposalDetailReadModel?> GetDetailAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalDetailReadModel?>(null);
+        public Task<ProposalDetailReadModel?> GetLatestPublishedByProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalDetailReadModel?>(null);
+        public Task<IReadOnlyList<ProposalSceneReadModel>> GetScenesAsync(ProposalSceneListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProposalSceneReadModel>>([]);
+        public Task<ProposalSceneDetailReadModel?> GetSceneDetailAsync(Guid sceneId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalSceneDetailReadModel?>(null);
+        public Task<ProposalSceneContextReadModel?> GetSceneContextAsync(Guid proposalId, Guid sceneId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalSceneContextReadModel?>(null);
+        public Task<ProposalSceneContextReadModel?> GetSceneContextBySceneIdAsync(Guid sceneId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalSceneContextReadModel?>(null);
+        public Task<ProposalScene?> GetSceneEntityAsync(Guid sceneId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalScene?>(null);
+        public Task<IReadOnlyList<ProposalItem>> GetItemsBySceneAsync(Guid proposalId, Guid sceneId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProposalItem>>([]);
+        public Task<IReadOnlyList<ProposalItemReadModel>> GetItemsAsync(ProposalItemListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProposalItemReadModel>>([]);
+        public Task<int> CountItemsAsync(ProposalItemListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<ProposalItemDetailReadModel?> GetItemDetailAsync(Guid proposalItemId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalItemDetailReadModel?>(null);
+        public Task<ProposalItem?> GetItemEntityAsync(Guid proposalItemId, CancellationToken cancellationToken = default)
+            => Task.FromResult(_proposalItem?.ProposalItemId == proposalItemId ? _proposalItem : null);
+        public Task AddItemAsync(ProposalItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void RemoveItem(ProposalItem item) { }
+        public Task<Proposal?> GetProposalEntityAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult<Proposal?>(null);
+        public Task RejectOtherActiveProposalsAsync(Guid projectId, Guid selectedProposalId, DateTime rejectedAt, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<bool> HasProposalWithActiveSceneAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> HasSelectedFinalProposalAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> HasActiveSceneAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> FileExistsAsync(Guid fileId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> ProjectAreaBelongsToProjectAsync(Guid projectAreaId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    }
+
+    private sealed class FakeProjectRepository : IProjectRepository
+    {
+        private readonly string? _role;
+        private readonly IReadOnlyList<Guid> _activeAccountIds;
+
+        public FakeProjectRepository(string? role, IReadOnlyList<Guid>? activeAccountIds = null)
+        {
+            _role = role;
+            _activeAccountIds = activeAccountIds ?? [];
+        }
+
+        public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
+            => Task.FromResult(_role);
+
+        public IQueryable<Project> Query() => Enumerable.Empty<Project>().AsQueryable();
+        public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<Project?>(null);
+        public Task<IReadOnlyList<Project>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>([]);
+        public Task AddAsync(Project entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddRangeAsync(IEnumerable<Project> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Update(Project entity) { }
+        public void Remove(Project entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
+        public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(IReadOnlyCollection<string> roleNames, CancellationToken cancellationToken = default) => Task.FromResult(_activeAccountIds);
+        public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<ProjectDetailReadModel?> GetDetailAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectDetailReadModel?>(null);
+        public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) => Task.FromResult<DesignerAccountReadModel?>(null);
+        public Task<IReadOnlyList<ProjectListItemReadModel>> GetListAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectListItemReadModel>>([]);
+        public Task<int> CountAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectByUserItemReadModel>>([]);
+        public Task<int> CountByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
+        public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
+    }
+
+    private sealed class FakeNotificationDispatcher : INotificationDispatcher
+    {
+        public NotificationType? LastType { get; private set; }
+        public IReadOnlyList<Guid> LastReceivers { get; private set; } = [];
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            Guid? projectId = null,
+            string? referenceType = null,
+            Guid? referenceId = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastType = type;
+            LastReceivers = receiverIds.ToList();
+            return Task.CompletedTask;
+        }
+    }
+}

@@ -1,0 +1,1112 @@
+#nullable enable
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.DTOs.CustomizationRequests;
+using FurniSpace.Application.DTOs.Quotations;
+using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Services.Quotations;
+using FurniSpace.Application.Tests.TestDoubles;
+using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
+using FurniSpace.Infrastructure.ReadModels.Projects;
+using FurniSpace.Infrastructure.ReadModels.Quotations;
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using Xunit;
+
+namespace FurniSpace.Application.Tests.Quotations;
+
+public sealed class QuotationServiceTests
+{
+    private readonly Guid _projectId = Guid.NewGuid();
+    private readonly Guid _customerId = Guid.NewGuid();
+    private readonly Guid _salesId = Guid.NewGuid();
+    private readonly Guid _designerId = Guid.NewGuid();
+    private readonly Guid _proposalId = Guid.NewGuid();
+
+    [Fact]
+    public async Task GetByProjectAsync_CustomerSeesOnlyAvailableQuotations()
+    {
+        var quotations = new FakeQuotationRepository();
+        quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.DRAFT));
+        quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.SENT));
+        quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.CANCELLED));
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.GetByProjectAsync(_projectId, _customerId, new QuotationQueryDto());
+
+        Assert.Equal(200, result.Status);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(QuotationStatus.SENT, item.Status);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_SalesSeesAllQuotations()
+    {
+        var quotations = new FakeQuotationRepository();
+        quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.DRAFT));
+        quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.SENT));
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.GetByProjectAsync(_projectId, _salesId, new QuotationQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, result.Data!.Items.Count);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_WhenProjectMissing_ReturnsProjectNotFound()
+    {
+        var service = BuildService(projectExists: false);
+
+        var result = await service.GetByProjectAsync(_projectId, _salesId, new QuotationQueryDto());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(QuotationErrorCodes.ProjectNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_WhenUserHasNoAccess_ReturnsForbidden()
+    {
+        var service = BuildService(role: "DESIGNER");
+
+        var result = await service.GetByProjectAsync(_projectId, Guid.NewGuid(), new QuotationQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_WhenAuthorized_ReturnsItems()
+    {
+        var detail = MakeDetail(QuotationStatus.SENT);
+        detail.Items = [new QuotationItemReadModel { QuotationItemId = Guid.NewGuid(), ItemName = "Counter" }];
+        var service = BuildService(new FakeQuotationRepository { Detail = detail }, role: "SALES");
+
+        var result = await service.GetDetailAsync(detail.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_WhenCustomerViewsDraft_ReturnsQuotationNotAvailable()
+    {
+        var service = BuildService(
+            new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) },
+            role: "CUSTOMER");
+
+        var result = await service.GetDetailAsync(Guid.NewGuid(), _customerId);
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationNotAvailable, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_WhenMissing_ReturnsQuotationNotFound()
+    {
+        var service = BuildService(new FakeQuotationRepository(), role: "ADMIN");
+
+        var result = await service.GetDetailAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_WhenQuotationExpired_MarksAsExpired()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var detail = MakeAcceptReadyDetail(quotation);
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.GetDetailAsync(quotation.QuotationId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.EXPIRED, quotation.Status);
+        Assert.Equal(QuotationStatus.EXPIRED, result.Data!.Status);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenValid_CreatesQuotationAndItems()
+    {
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = Guid.NewGuid(),
+            ItemName = "Coffee Counter",
+            Quantity = 2,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 200m,
+            IsCustomized = true,
+            Note = "Wood"
+        });
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        Assert.Single(quotations.AddedQuotations);
+        Assert.Single(quotations.AddedItems);
+        Assert.Equal(QuotationStatus.DRAFT, quotations.AddedQuotations[0].Status);
+        Assert.Equal(200m, quotations.AddedQuotations[0].TotalAmount);
+        Assert.Equal(QuotationItemType.PRODUCT_ITEM, quotations.AddedItems[0].ItemType);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenProjectStatusInvalid_ReturnsProjectNotReady()
+    {
+        var project = MakeProject();
+        project.Status = ProjectStatus.IN_CONSULTATION;
+        var service = BuildService(project: project, role: "SALES");
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.ProjectNotReadyForQuotation, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenProposalNotSelected_ReturnsProposalNotSelected()
+    {
+        var service = BuildService(new FakeQuotationRepository(), role: "SALES");
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.ProposalNotSelected, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenPendingCustomization_ReturnsPendingError()
+    {
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        var service = BuildService(quotations, role: "SALES", hasPendingCustomization: true);
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestPending, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenQuotationExists_ReturnsAlreadyExists()
+    {
+        var quotations = new FakeQuotationRepository
+        {
+            SelectedProposal = MakeSelectedProposal(),
+            HasExistingQuotation = true
+        };
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationAlreadyExists, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenSalesUnassigned_ReturnsForbidden()
+    {
+        var service = BuildService(role: "SALES");
+
+        var result = await service.CreateDraftAsync(_projectId, Guid.NewGuid());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenSaveFails_RollsBack()
+    {
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        var rollbackCalled = false;
+        var service = BuildService(
+            quotations,
+            role: "SALES",
+            unitOfWork: TestUnitOfWork.ForTransaction(
+                _ => Task.CompletedTask,
+                _ => throw new InvalidOperationException("save failed"),
+                _ => Task.CompletedTask,
+                _ =>
+                {
+                    rollbackCalled = true;
+                    return Task.CompletedTask;
+                }));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CreateDraftAsync(_projectId, _salesId));
+        Assert.True(rollbackCalled);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenDraft_RecalculatesTotalsAndUpdatesNotes()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 200m));
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.UpdateAsync(
+            quotation.QuotationId,
+            _salesId,
+            new UpdateQuotationRequestDto
+            {
+                DiscountAmount = 10m,
+                TaxAmount = 5m,
+                SalesNote = " Ready "
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Ready", quotation.SalesNote);
+        Assert.Equal(195m, quotation.TotalAmount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenSent_ReturnsInvalidStatus()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.UpdateAsync(quotation.QuotationId, _salesId, new UpdateQuotationRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AddManualItemAsync_WhenValid_AddsManualItemAndRecalculatesTotals()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISED);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISED) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 200m));
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.AddManualItemAsync(
+            quotation.QuotationId,
+            _salesId,
+            new CreateManualQuotationItemRequestDto
+            {
+                ItemName = " Delivery ",
+                Quantity = 2,
+                UnitPrice = 30m,
+                DiscountAmount = 5m
+            });
+
+        Assert.Equal(200, result.Status);
+        var item = Assert.Single(quotations.AddedItems.Where(added => added.ItemType == QuotationItemType.MANUAL_ITEM));
+        Assert.Equal("Delivery", item.ItemName);
+        Assert.Equal(55m, item.SubtotalAmount);
+        Assert.Equal(255m, quotation.TotalAmount);
+    }
+
+    [Fact]
+    public async Task AddManualItemAsync_WhenInvalidRequest_ReturnsInvalidItem()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.AddManualItemAsync(
+            quotation.QuotationId,
+            _salesId,
+            new CreateManualQuotationItemRequestDto { ItemName = " ", Quantity = 0, UnitPrice = 10m });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationItem, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateManualItemAsync_WhenProductItem_ReturnsNotEditable()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var item = MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 100m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.UpdateManualItemAsync(
+            quotation.QuotationId,
+            item.QuotationItemId,
+            _salesId,
+            new UpdateManualQuotationItemRequestDto { ItemName = "Delivery" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationItemNotEditable, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateManualItemAsync_WhenValid_UpdatesItemAndTotals()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var item = MakeQuotationItem(quotation.QuotationId, QuotationItemType.MANUAL_ITEM, subtotal: 50m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.UpdateManualItemAsync(
+            quotation.QuotationId,
+            item.QuotationItemId,
+            _salesId,
+            new UpdateManualQuotationItemRequestDto
+            {
+                ItemName = "Installation",
+                Quantity = 3,
+                UnitPrice = 20m,
+                DiscountAmount = 10m
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Installation", item.ItemName);
+        Assert.Equal(50m, item.SubtotalAmount);
+        Assert.Equal(50m, quotation.TotalAmount);
+    }
+
+    [Fact]
+    public async Task UpdateManualItemAsync_WhenItemMissing_ReturnsItemNotFound()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.UpdateManualItemAsync(
+            quotation.QuotationId,
+            Guid.NewGuid(),
+            _salesId,
+            new UpdateManualQuotationItemRequestDto { ItemName = "Delivery" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationItemNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenReady_SendsQuotationAndNotifiesCustomer()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        quotation.TotalAmount = 250m;
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
+        var detail = MakeDetail(QuotationStatus.DRAFT);
+        detail.QuotationId = quotation.QuotationId;
+        detail.QuotationCode = quotation.QuotationCode;
+        detail.TotalAmount = quotation.TotalAmount;
+        detail.ValidUntil = quotation.ValidUntil;
+        detail.Items = [new QuotationItemReadModel { QuotationItemId = Guid.NewGuid(), QuotationId = quotation.QuotationId }];
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(quotations, role: "SALES", notifications: dispatcher);
+
+        var result = await service.SendAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.SENT, quotation.Status);
+        Assert.Equal(ProjectStatus.QUOTATION_SENT, ProjectEntity!.Status);
+        Assert.Equal(NotificationType.QuotationSent, dispatcher.LastType);
+        Assert.Contains(_customerId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenQuotationIncomplete_ReturnsNotReady()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var detail = MakeDetail(QuotationStatus.DRAFT);
+        detail.QuotationId = quotation.QuotationId;
+        detail.TotalAmount = 0m;
+        detail.Items = [];
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.SendAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationNotReadyToSend, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DeleteManualItemAsync_WhenValid_RemovesItemAndRecalculatesTotals()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var manualItem = MakeQuotationItem(quotation.QuotationId, QuotationItemType.MANUAL_ITEM, subtotal: 50m);
+        var productItem = MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 200m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.AddRange([manualItem, productItem]);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.DeleteManualItemAsync(quotation.QuotationId, manualItem.QuotationItemId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.DoesNotContain(quotations.AddedItems, item => item.QuotationItemId == manualItem.QuotationItemId);
+        Assert.Equal(200m, quotation.TotalAmount);
+    }
+
+    [Fact]
+    public async Task DeleteManualItemAsync_WhenProductItem_ReturnsNotEditable()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var productItem = MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 200m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(productItem);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.DeleteManualItemAsync(quotation.QuotationId, productItem.QuotationItemId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationItemNotEditable, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task DeleteManualItemAsync_WhenSent_ReturnsInvalidStatus()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var manualItem = MakeQuotationItem(quotation.QuotationId, QuotationItemType.MANUAL_ITEM, subtotal: 50m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(manualItem);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.DeleteManualItemAsync(quotation.QuotationId, manualItem.QuotationItemId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenValid_CreatesOrderItemsAndNotifiesSales()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.TotalAmount = 250m;
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        var detail = MakeAcceptReadyDetail(quotation);
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(quotations, role: "CUSTOMER", notifications: dispatcher);
+
+        var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.ACCEPTED, quotation.Status);
+        Assert.Equal(ProjectStatus.ORDER_CONFIRMED, ProjectEntity!.Status);
+        var order = Assert.Single(quotations.AddedOrders);
+        Assert.Equal(OrderStatus.DEPOSIT_PENDING, order.Status);
+        Assert.Equal(250m, order.FinalTotalAmount);
+        Assert.Equal(_customerId, order.ConfirmedBy);
+        Assert.Equal(2, quotations.AddedOrderItems.Count);
+        Assert.All(quotations.AddedOrderItems, item => Assert.Equal(OrderItemStatus.PENDING, item.Status));
+        Assert.Equal(NotificationType.QuotationAccepted, dispatcher.LastType);
+        Assert.Contains(_salesId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenUserIsNotOwnerCustomer_ReturnsForbidden()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.AcceptAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(403, result.Status);
+        Assert.Empty(quotations.AddedOrders);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenStatusInvalid_ReturnsInvalidStatus()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var detail = MakeAcceptReadyDetail(quotation);
+        detail.Status = QuotationStatus.DRAFT;
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenExpired_ReturnsQuotationExpired()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISED);
+        var detail = MakeAcceptReadyDetail(quotation);
+        detail.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationExpired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenRevisedButNotSentAgain_ReturnsInvalidStatus()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISED);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenSaveFails_RollsBackAndDoesNotNotify()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var dispatcher = new FakeNotificationDispatcher();
+        var rollbackCalled = false;
+        var service = BuildService(
+            quotations,
+            role: "CUSTOMER",
+            unitOfWork: TestUnitOfWork.ForTransaction(
+                _ => Task.CompletedTask,
+                _ => throw new InvalidOperationException("save failed"),
+                _ => Task.CompletedTask,
+                _ =>
+                {
+                    rollbackCalled = true;
+                    return Task.CompletedTask;
+                }),
+            notifications: dispatcher);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.AcceptAsync(quotation.QuotationId, _customerId));
+
+        Assert.True(rollbackCalled);
+        Assert.Null(dispatcher.LastType);
+    }
+
+    [Fact]
+    public async Task RequestRevisionAsync_WhenValid_UpdatesQuotationProjectAndNotifiesSales()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(quotations, role: "CUSTOMER", notifications: dispatcher);
+
+        var result = await service.RequestRevisionAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RequestQuotationRevisionDto { RevisionReason = " Update delivery date. " });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.REVISION_REQUESTED, quotation.Status);
+        Assert.Equal("Update delivery date.", quotation.RevisionReason);
+        Assert.Equal(ProjectStatus.QUOTATION_REVISION_REQUESTED, ProjectEntity!.Status);
+        Assert.Equal(NotificationType.QuotationRevisionRequested, dispatcher.LastType);
+        Assert.Contains(_salesId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task RequestRevisionAsync_WhenReasonMissing_ReturnsInvalidReason()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.RequestRevisionAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RequestQuotationRevisionDto { RevisionReason = " " });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationRevisionReason, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RequestRevisionAsync_WhenExpired_ReturnsQuotationExpired()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.RequestRevisionAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RequestQuotationRevisionDto { RevisionReason = "Too high." });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationExpired, result.ErrorCode);
+        Assert.Equal(QuotationStatus.EXPIRED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task ReviseAsync_WhenRevisionRequested_IncrementsVersionAndMarksRevised()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        quotation.VersionNo = 2;
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(3, quotation.VersionNo);
+        Assert.Equal(QuotationStatus.REVISED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task ReviseAsync_WhenStatusInvalid_ReturnsInvalidStatus()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenRevised_MarksQuotationCancelled()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISED);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISED) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.CancelAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.CANCELLED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_WhenSent_ReturnsInvalidStatus()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "SALES");
+
+        var result = await service.CancelAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenValid_RejectsQuotationAndNotifiesSales()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(quotations, role: "CUSTOMER", notifications: dispatcher);
+
+        var result = await service.RejectAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RejectQuotationRequestDto { RejectReason = " Price is too high. " });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.REJECTED, quotation.Status);
+        Assert.Equal("Price is too high.", quotation.RejectReason);
+        Assert.NotNull(quotation.RejectedAt);
+        Assert.Equal(ProjectStatus.PROPOSAL_SELECTED, ProjectEntity!.Status);
+        Assert.Empty(quotations.AddedOrders);
+        Assert.Equal(NotificationType.QuotationRejected, dispatcher.LastType);
+        Assert.Contains(_salesId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenReasonMissing_ReturnsInvalidReason()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.RejectAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RejectQuotationRequestDto { RejectReason = " " });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationRejectReason, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WhenExpired_ReturnsQuotationExpired()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(quotations, role: "CUSTOMER");
+
+        var result = await service.RejectAsync(
+            quotation.QuotationId,
+            _customerId,
+            new RejectQuotationRequestDto { RejectReason = "No longer needed." });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationExpired, result.ErrorCode);
+        Assert.Equal(QuotationStatus.EXPIRED, quotation.Status);
+    }
+
+    private QuotationService BuildService(
+        FakeQuotationRepository? quotations = null,
+        string role = "ADMIN",
+        ProjectDetailReadModel? project = null,
+        bool projectExists = true,
+        bool hasPendingCustomization = false,
+        FurniSpace.Infrastructure.Persistence.IUnitOfWork? unitOfWork = null,
+        INotificationDispatcher? notifications = null)
+    {
+        var projectRepository = new FakeProjectRepository(projectExists ? project ?? MakeProject() : null, role);
+        ProjectEntity = projectRepository.ProjectEntity;
+        return new QuotationService(
+            quotations ?? new FakeQuotationRepository(),
+            projectRepository,
+            new FakeCustomizationRequestRepository(hasPendingCustomization),
+            unitOfWork ?? TestUnitOfWork.Instance,
+            notifications);
+    }
+
+    private Project? ProjectEntity { get; set; }
+
+    private ProjectDetailReadModel MakeProject()
+    {
+        return new ProjectDetailReadModel
+        {
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            AssignedDesignerId = _designerId,
+            Status = ProjectStatus.PROPOSAL_SELECTED
+        };
+    }
+
+    private QuotationReadModel MakeQuotation(QuotationStatus status)
+    {
+        return new QuotationReadModel
+        {
+            QuotationId = Guid.NewGuid(),
+            ProjectId = _projectId,
+            ProposalId = _proposalId,
+            Status = status,
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            AssignedDesignerId = _designerId
+        };
+    }
+
+    private QuotationDetailReadModel MakeDetail(QuotationStatus status)
+    {
+        var quotation = MakeQuotation(status);
+        return new QuotationDetailReadModel
+        {
+            QuotationId = quotation.QuotationId,
+            ProjectId = quotation.ProjectId,
+            ProposalId = quotation.ProposalId,
+            Status = quotation.Status,
+            CustomerId = quotation.CustomerId,
+            AssignedSalesId = quotation.AssignedSalesId,
+            AssignedDesignerId = quotation.AssignedDesignerId
+        };
+    }
+
+    private QuotationDetailReadModel MakeAcceptReadyDetail(Quotation quotation)
+    {
+        return new QuotationDetailReadModel
+        {
+            QuotationId = quotation.QuotationId,
+            ProjectId = quotation.ProjectId,
+            ProposalId = quotation.ProposalId,
+            QuotationCode = quotation.QuotationCode,
+            TotalAmount = quotation.TotalAmount ?? 250m,
+            Status = quotation.Status,
+            ValidUntil = quotation.ValidUntil ?? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            AssignedDesignerId = _designerId,
+            Items =
+            [
+                new QuotationItemReadModel
+                {
+                    QuotationItemId = Guid.NewGuid(),
+                    QuotationId = quotation.QuotationId,
+                    ItemName = "Counter",
+                    ProductNameSnapshot = "Counter",
+                    Quantity = 1,
+                    UnitPrice = 100m,
+                    SubtotalAmount = 100m
+                },
+                new QuotationItemReadModel
+                {
+                    QuotationItemId = Guid.NewGuid(),
+                    QuotationId = quotation.QuotationId,
+                    ItemName = "Lighting",
+                    Quantity = 1,
+                    UnitPrice = 150m,
+                    SubtotalAmount = 150m
+                }
+            ]
+        };
+    }
+
+    private Quotation MakeEntityQuotation(QuotationStatus status)
+    {
+        return new Quotation
+        {
+            QuotationId = Guid.NewGuid(),
+            ProjectId = _projectId,
+            ProposalId = _proposalId,
+            QuotationCode = "QTN-TEST",
+            Status = status,
+            DiscountAmount = 0m,
+            TaxAmount = 0m
+        };
+    }
+
+    private static QuotationItem MakeQuotationItem(
+        Guid quotationId,
+        QuotationItemType itemType,
+        decimal subtotal)
+    {
+        return new QuotationItem
+        {
+            QuotationItemId = Guid.NewGuid(),
+            QuotationId = quotationId,
+            ItemType = itemType,
+            ItemName = "Item",
+            Quantity = 1,
+            UnitPrice = subtotal,
+            DiscountAmount = 0m,
+            CustomizationAdditionalCost = 0m,
+            SubtotalAmount = subtotal
+        };
+    }
+
+    private SelectedProposalForQuotationReadModel MakeSelectedProposal()
+    {
+        return new SelectedProposalForQuotationReadModel
+        {
+            ProjectId = _projectId,
+            ProposalId = _proposalId,
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            AssignedDesignerId = _designerId,
+            ProjectStatus = ProjectStatus.PROPOSAL_SELECTED,
+            ProposalStatus = ProposalStatus.SELECTED
+        };
+    }
+
+    private sealed class FakeQuotationRepository : IQuotationRepository
+    {
+        public List<QuotationReadModel> ProjectQuotations { get; } = [];
+        public List<ProposalItem> ProposalItems { get; } = [];
+        public List<Quotation> AddedQuotations { get; } = [];
+        public List<QuotationItem> AddedItems { get; } = [];
+        public List<Order> AddedOrders { get; } = [];
+        public List<OrderItem> AddedOrderItems { get; } = [];
+        public QuotationDetailReadModel? Detail { get; init; }
+        public SelectedProposalForQuotationReadModel? SelectedProposal { get; init; }
+        public bool HasExistingQuotation { get; init; }
+
+        public IQueryable<Quotation> Query() => AddedQuotations.AsQueryable();
+        public Task<Quotation?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(AddedQuotations.FirstOrDefault(item => item.QuotationId == id));
+        public Task<IReadOnlyList<Quotation>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Quotation>>(AddedQuotations);
+        public Task AddAsync(Quotation entity, CancellationToken cancellationToken = default)
+        {
+            AddedQuotations.Add(entity);
+            return Task.CompletedTask;
+        }
+        public Task AddRangeAsync(IEnumerable<Quotation> entities, CancellationToken cancellationToken = default)
+        {
+            AddedQuotations.AddRange(entities);
+            return Task.CompletedTask;
+        }
+        public void Update(Quotation entity) { }
+        public void Remove(Quotation entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<QuotationReadModel>> GetByProjectAsync(QuotationQueryReadModel query, CancellationToken cancellationToken = default)
+        {
+            var items = ProjectQuotations
+                .Where(item => item.ProjectId == query.ProjectId)
+                .Where(item => !query.Status.HasValue || item.Status == query.Status)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<QuotationReadModel>>(items);
+        }
+        public Task<QuotationDetailReadModel?> GetDetailAsync(Guid quotationId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Detail ?? AddedQuotations
+                .Where(item => item.QuotationId == quotationId)
+                .Select(item => new QuotationDetailReadModel
+                {
+                    QuotationId = item.QuotationId,
+                    ProjectId = item.ProjectId,
+                    ProposalId = item.ProposalId,
+                    QuotationCode = item.QuotationCode,
+                    VersionNo = item.VersionNo,
+                    TotalAmount = item.TotalAmount,
+                    Status = item.Status,
+                    Items = AddedItems.Select(added => new QuotationItemReadModel
+                    {
+                        QuotationItemId = added.QuotationItemId,
+                        QuotationId = added.QuotationId,
+                        ItemType = added.ItemType,
+                        ProposalItemId = added.ProposalItemId,
+                        ProductVersionId = added.ProductVersionId,
+                        ItemName = added.ItemName,
+                        Quantity = added.Quantity,
+                        UnitPrice = added.UnitPrice,
+                        SubtotalAmount = added.SubtotalAmount
+                    }).ToList()
+                })
+                .FirstOrDefault());
+        }
+        public Task<SelectedProposalForQuotationReadModel?> GetSelectedProposalAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(SelectedProposal);
+        public Task<bool> HasQuotationForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(HasExistingQuotation);
+        public Task<IReadOnlyList<ProposalItem>> GetProposalItemsAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProposalItem>>(ProposalItems);
+        public Task<IReadOnlyList<QuotationItem>> GetItemsByQuotationAsync(Guid quotationId, CancellationToken cancellationToken = default)
+        {
+            var items = AddedItems.Where(item => item.QuotationId == quotationId).ToList();
+            return Task.FromResult<IReadOnlyList<QuotationItem>>(items);
+        }
+        public Task<QuotationItem?> GetItemAsync(Guid quotationItemId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(AddedItems.FirstOrDefault(item => item.QuotationItemId == quotationItemId));
+        }
+        public Task AddItemAsync(QuotationItem item, CancellationToken cancellationToken = default)
+        {
+            AddedItems.Add(item);
+            return Task.CompletedTask;
+        }
+        public void UpdateItem(QuotationItem item) { }
+        public void RemoveItem(QuotationItem item)
+        {
+            AddedItems.Remove(item);
+        }
+        public Task AddOrderAsync(Order order, CancellationToken cancellationToken = default)
+        {
+            AddedOrders.Add(order);
+            return Task.CompletedTask;
+        }
+        public Task AddOrderItemAsync(OrderItem item, CancellationToken cancellationToken = default)
+        {
+            AddedOrderItems.Add(item);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeProjectRepository(ProjectDetailReadModel? project, string role) : IProjectRepository
+    {
+        public Project? ProjectEntity { get; } = project is null
+            ? null
+            : new Project
+            {
+                ProjectId = project.ProjectId,
+                CustomerId = project.CustomerId,
+                AssignedSalesId = project.AssignedSalesId,
+                AssignedDesignerId = project.AssignedDesignerId,
+                ProjectName = project.ProjectName,
+                Status = project.Status
+            };
+
+        public IQueryable<Project> Query() => Enumerable.Empty<Project>().AsQueryable();
+        public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(ProjectEntity?.ProjectId == id ? ProjectEntity : null);
+        public Task<IReadOnlyList<Project>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>([]);
+        public Task AddAsync(Project entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddRangeAsync(IEnumerable<Project> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Update(Project entity) { }
+        public void Remove(Project entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(role);
+        public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(IReadOnlyCollection<string> roleNames, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Guid>>([]);
+        public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<ProjectDetailReadModel?> GetDetailAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(project);
+        public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) => Task.FromResult<DesignerAccountReadModel?>(null);
+        public Task<IReadOnlyList<ProjectListItemReadModel>> GetListAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectListItemReadModel>>([]);
+        public Task<int> CountAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectByUserItemReadModel>>([]);
+        public Task<int> CountByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
+        public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
+    }
+
+    private sealed class FakeCustomizationRequestRepository(bool hasPending) : ICustomizationRequestRepository
+    {
+        public IQueryable<CustomizationRequest> Query() => Enumerable.Empty<CustomizationRequest>().AsQueryable();
+        public Task<CustomizationRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<CustomizationRequest?>(null);
+        public Task<IReadOnlyList<CustomizationRequest>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CustomizationRequest>>([]);
+        public Task AddAsync(CustomizationRequest entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddRangeAsync(IEnumerable<CustomizationRequest> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public void Update(CustomizationRequest entity) { }
+        public void Remove(CustomizationRequest entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<CustomizationRequestReadModel>> GetByProjectAsync(CustomizationRequestQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CustomizationRequestReadModel>>([]);
+        public Task<CustomizationRequestDetailReadModel?> GetDetailAsync(Guid customizationRequestId, CancellationToken cancellationToken = default) => Task.FromResult<CustomizationRequestDetailReadModel?>(null);
+        public Task<CustomizationSubmitContextReadModel?> GetSubmitContextAsync(Guid proposalItemId, CancellationToken cancellationToken = default) => Task.FromResult<CustomizationSubmitContextReadModel?>(null);
+        public Task<bool> HasQuotationForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> HasProductionVisibleRequestAsync(Guid projectId, Guid productionUserId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> HasPendingForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(hasPending);
+    }
+
+    private sealed class FakeNotificationDispatcher : INotificationDispatcher
+    {
+        public NotificationType? LastType { get; private set; }
+        public List<Guid> LastReceiverIds { get; } = [];
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            Guid? projectId = null,
+            string? referenceType = null,
+            Guid? referenceId = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastType = type;
+            LastReceiverIds.Clear();
+            LastReceiverIds.AddRange(receiverIds);
+            return Task.CompletedTask;
+        }
+    }
+}

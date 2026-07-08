@@ -86,6 +86,7 @@ app.MapHub<NotificationsHub>(RealtimeGroupNames.HubPath);
 app.MapHub<ProjectChatHub>(ProjectChatRealtimeConstants.HubPath);
 app.MapHub<PaymentHub>(PaymentRealtimeConstants.HubPath);
 app.MapGet("/", () => "FurniSpace API");
+MapRedisDebugHealth(app);
 await app.RunAsync();
 await Log.CloseAndFlushAsync();
 

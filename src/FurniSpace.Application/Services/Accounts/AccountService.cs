@@ -9,8 +9,6 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Persistence;
 using Mapster;
-using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using InfrastructureCacheService = FurniSpace.Infrastructure.Interfaces.ICacheService;
@@ -29,7 +27,6 @@ public sealed class AccountService : IAccountService
     private const string ProfileUpdatedMessage = "Profile updated successfully.";
     private const string AvailableDesignersRetrievedMessage = "Available designers retrieved successfully.";
     private const int MaxActiveDesignerProjects = 2;
-    private const long PerfLogThresholdMs = 200;
     private static readonly TimeSpan AccountItemCacheTtl = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(5);
 
@@ -38,22 +35,19 @@ public sealed class AccountService : IAccountService
     private readonly IUnitOfWork _unitOfWork;
     private readonly InfrastructureCacheService _cache;
     private readonly InfrastructureSearchIndexService _search;
-    private readonly ILogger<AccountService> _logger;
 
     public AccountService(
         IAccountRepository accounts,
         IAuthService auth,
         InfrastructureCacheService cache,
         InfrastructureSearchIndexService search,
-        IUnitOfWork unitOfWork,
-        ILogger<AccountService> logger)
+        IUnitOfWork unitOfWork)
     {
         _accounts = accounts;
         _auth = auth;
         _unitOfWork = unitOfWork;
         _cache = cache;
         _search = search;
-        _logger = logger;
     }
 
     public async Task<ServiceResult<AccountDto>> CreateAsync(CreateAccountRequestDto request, CancellationToken cancellationToken = default)
@@ -230,66 +224,26 @@ public sealed class AccountService : IAccountService
         var normalizedSearch = NormalizeOptional(search);
         var cacheKey = AccountListCacheKey(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted);
 
-        var swTotal = Stopwatch.StartNew();
-
-        var swRedisGet = Stopwatch.StartNew();
         var cached = await TryGetCacheAsync<PagedResult<AccountDto>>(cacheKey, cancellationToken);
-        swRedisGet.Stop();
-
         if (cached is not null)
         {
-            swTotal.Stop();
-            if (swTotal.ElapsedMilliseconds >= PerfLogThresholdMs)
-            {
-                _logger.LogWarning(
-                    "[PERF] GetPagedAccounts cache=HIT redisGetMs={RedisGetMs} totalMs={TotalMs}",
-                    swRedisGet.Elapsed.TotalMilliseconds,
-                    swTotal.Elapsed.TotalMilliseconds);
-            }
-
             return ServiceResult<PagedResult<AccountDto>>.Success(cached);
         }
 
-        long dbConnectMs = 0, dbListMs = 0, dbCountMs = 0, redisSetMs = 0;
         PagedResult<AccountDto> result;
 
         if (!string.IsNullOrWhiteSpace(normalizedSearch))
         {
-            var swDb = Stopwatch.StartNew();
             result = await SearchAccountsAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
-            swDb.Stop();
-            dbListMs = swDb.ElapsedMilliseconds;
         }
         else
         {
-            var swConnect = Stopwatch.StartNew();
-            await _accounts.EnsureConnectionOpenAsync(cancellationToken);
-            swConnect.Stop();
-            dbConnectMs = swConnect.ElapsedMilliseconds;
-
-            (result, dbListMs, dbCountMs) = await GetPagedAccountsFromDatabaseAsync(
+            result = await GetPagedAccountsFromDatabaseAsync(
                 page, pageSize, normalizedSearch, normalizedStatus, includeDeleted,
                 cancellationToken);
         }
 
-        var swRedisSet = Stopwatch.StartNew();
         await TrySetCacheAsync(cacheKey, result, AccountListCacheTtl, cancellationToken);
-        swRedisSet.Stop();
-        redisSetMs = swRedisSet.ElapsedMilliseconds;
-
-        swTotal.Stop();
-
-        if (swTotal.ElapsedMilliseconds >= PerfLogThresholdMs)
-        {
-            _logger.LogWarning(
-                "[PERF] GetPagedAccounts cache=MISS redisGetMs={RedisGetMs} dbConnectMs={DbConnectMs} dbListMs={DbListMs} dbCountMs={DbCountMs} redisSetMs={RedisSetMs} totalMs={TotalMs}",
-                swRedisGet.Elapsed.TotalMilliseconds,
-                dbConnectMs,
-                dbListMs,
-                dbCountMs,
-                redisSetMs,
-                swTotal.Elapsed.TotalMilliseconds);
-        }
 
         return ServiceResult<PagedResult<AccountDto>>.Success(result);
     }
@@ -361,7 +315,7 @@ public sealed class AccountService : IAccountService
         }
         catch
         {
-            var (fallbackResult, _, _) = await GetPagedAccountsFromDatabaseAsync(1, limit, query.Trim(), null, includeDeleted: false, cancellationToken);
+            var fallbackResult = await GetPagedAccountsFromDatabaseAsync(1, limit, query.Trim(), null, includeDeleted: false, cancellationToken);
             items = fallbackResult.Items
                 .Select(account => new AccountSuggestItemDto
                 {
@@ -444,7 +398,7 @@ public sealed class AccountService : IAccountService
         return ServiceResult.Success("Account deleted successfully.");
     }
 
-    private async Task<(PagedResult<AccountDto> Result, long DbListMs, long DbCountMs)> GetPagedAccountsFromDatabaseAsync(
+    private async Task<PagedResult<AccountDto>> GetPagedAccountsFromDatabaseAsync(
         int page,
         int pageSize,
         string? normalizedSearch,
@@ -452,16 +406,9 @@ public sealed class AccountService : IAccountService
         bool includeDeleted,
         CancellationToken cancellationToken)
     {
-        var swList = Stopwatch.StartNew();
         var accounts = await _accounts.GetPagedAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
-        swList.Stop();
-
-        var swCount = Stopwatch.StartNew();
         var totalItems = await _accounts.CountAsync(normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
-        swCount.Stop();
-
-        var result = PagedResult<AccountDto>.Create(accounts.Adapt<List<AccountDto>>(), page, pageSize, totalItems);
-        return (result, swList.ElapsedMilliseconds, swCount.ElapsedMilliseconds);
+        return PagedResult<AccountDto>.Create(accounts.Adapt<List<AccountDto>>(), page, pageSize, totalItems);
     }
 
     private async Task<PagedResult<AccountDto>> SearchAccountsAsync(
@@ -491,7 +438,7 @@ public sealed class AccountService : IAccountService
         }
         catch
         {
-            var (fallback, _, _) = await GetPagedAccountsFromDatabaseAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+            var fallback = await GetPagedAccountsFromDatabaseAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
             return fallback;
         }
     }

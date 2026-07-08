@@ -20,12 +20,6 @@ using FurniSpace.API.Middleware;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Logging;
-using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
-using FurniSpace.Infrastructure.ReadModels.ProjectChats;
-using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
-using FurniSpace.Infrastructure.ReadModels.Projects;
-using FurniSpace.Infrastructure.ReadModels.Proposals;
-using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Shared.Helpers;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
@@ -77,7 +71,6 @@ builder.Services.AddScoped<IPaymentRealtimeService, SignalRPaymentRealtimeServic
 var app = builder.Build();
 
 await MigrateAndSeedDatabaseAsync(app);
-await WarmUpQueryPlansAsync(app);
 UseDevelopmentSwagger(app);
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
@@ -151,90 +144,6 @@ static async Task MigrateAndSeedDatabaseAsync(WebApplication app)
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to apply database migrations during startup.");
-    }
-}
-
-static async Task WarmUpQueryPlansAsync(WebApplication app)
-{
-    // Forces EF Core to translate & cache the SQL for the hottest paged/list query shapes,
-    // and JITs the underlying Npgsql/EF code paths, before any real user request pays that
-    // one-time cost. Runs sequentially against a single scoped DbContext (EF Core DbContext
-    // is not safe for concurrent use), so failures are isolated per-endpoint and never block
-    // application startup.
-    var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-    using var scope = app.Services.CreateScope();
-    var services = scope.ServiceProvider;
-    var cancellationToken = CancellationToken.None;
-    var probeId = Guid.Empty;
-
-    await WarmUpStepAsync("Accounts.GetPaged", async () =>
-    {
-        var repo = services.GetRequiredService<IAccountRepository>();
-        await repo.GetPagedAsync(1, 1, null, null, includeDeleted: false, cancellationToken);
-        await repo.CountAsync(null, null, includeDeleted: false, cancellationToken);
-    });
-
-    await WarmUpStepAsync("Categories.GetPaged", async () =>
-    {
-        var repo = services.GetRequiredService<ICategoryRepository>();
-        await repo.GetPagedAsync(1, 1, cancellationToken);
-        await repo.CountAsync(cancellationToken);
-    });
-
-    await WarmUpStepAsync("Products.GetPublicList", async () =>
-    {
-        var repo = services.GetRequiredService<IProductRepository>();
-        await repo.GetPublicListAsync(1, 1, cancellationToken);
-        await repo.CountAsync(cancellationToken);
-    });
-
-    await WarmUpStepAsync("Projects.GetList", async () =>
-    {
-        var repo = services.GetRequiredService<IProjectRepository>();
-        var query = new ProjectListQueryReadModel { Limit = 1 };
-        await repo.GetListAsync(query, cancellationToken);
-        await repo.CountAsync(query, cancellationToken);
-    });
-
-    await WarmUpStepAsync("Proposals.GetList", async () =>
-    {
-        var repo = services.GetRequiredService<IProposalRepository>();
-        var query = new ProposalListQueryReadModel { ProjectId = probeId, Limit = 1 };
-        await repo.GetListAsync(query, cancellationToken);
-        await repo.CountListAsync(query, cancellationToken);
-    });
-
-    await WarmUpStepAsync("ProjectChats.GetList", async () =>
-    {
-        var repo = services.GetRequiredService<IProjectChatRepository>();
-        await repo.GetListAsync(probeId, new ProjectChatListQueryReadModel { Limit = 1 }, cancellationToken);
-    });
-
-    await WarmUpStepAsync("ProjectChatMessages.GetMessages", async () =>
-    {
-        var repo = services.GetRequiredService<IProjectChatMessageRepository>();
-        await repo.GetMessagesAsync(probeId, new ProjectChatMessageQueryReadModel { Page = 1, Limit = 1 }, cancellationToken);
-    });
-
-    await WarmUpStepAsync("ProjectSchedules.GetMyAssigned", async () =>
-    {
-        var repo = services.GetRequiredService<IProjectScheduleRepository>();
-        await repo.GetMyAssignedAsync(null, new ProjectScheduleListQueryReadModel { Limit = 1 }, cancellationToken);
-    });
-
-    stopwatch.Stop();
-    Log.Information("Database query warm-up completed in {ElapsedMs} ms.", stopwatch.ElapsedMilliseconds);
-}
-
-static async Task WarmUpStepAsync(string step, Func<Task> action)
-{
-    try
-    {
-        await action();
-    }
-    catch (Exception exception)
-    {
-        Log.Warning(exception, "Database query warm-up step {Step} failed; its first real request may be slower than usual.", step);
     }
 }
 

@@ -48,7 +48,7 @@ public sealed class CustomizationRequestRepositoryProductionQueueTests
         Assert.Contains(items, item => item.CustomizationRequestId == older.CustomizationRequestId);
         Assert.True(items[0].UpdatedAt >= items[1].UpdatedAt);
         Assert.Equal("Cafe Proposal", items[0].ProposalName);
-        Assert.Equal("Dining Chair", items[0].ItemName);
+        Assert.Equal("Dining Chair", items[0].ProposalItem.ItemName);
         Assert.Equal(data.Project.ProjectName, items[0].ProjectName);
     }
 

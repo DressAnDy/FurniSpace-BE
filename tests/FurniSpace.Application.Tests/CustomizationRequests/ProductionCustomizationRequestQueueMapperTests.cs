@@ -36,16 +36,21 @@ public sealed class ProductionCustomizationRequestQueueMapperTests
             CustomerId = Guid.NewGuid(),
             ProposalName = "Cafe Proposal",
             ProposalStatus = ProposalStatus.PUBLISHED,
-            ItemName = "Dining Chair",
-            ItemType = "PRODUCT_ITEM",
-            Quantity = 2,
-            ItemWidth = 45m,
-            ItemHeight = 90m,
-            ItemDepth = 50m,
-            ItemMaterial = "Oak",
-            ItemColor = "Natural",
-            UnitPriceSnapshot = 1000000m,
-            TotalPriceSnapshot = 2000000m
+            ProposalItem = new()
+            {
+                ProposalItemId = proposalItemId,
+                ProposalId = proposalId,
+                ItemName = "Dining Chair",
+                ItemType = "PRODUCT_ITEM",
+                Quantity = 2,
+                Width = 45m,
+                Height = 90m,
+                Depth = 50m,
+                Material = "Oak",
+                Color = "Natural",
+                UnitPriceSnapshot = 1000000m,
+                TotalPriceSnapshot = 2000000m
+            }
         };
 
         var dto = ProductionCustomizationRequestQueueMapper.ToDto(readModel);

@@ -24,20 +24,7 @@ internal static class ProductionCustomizationRequestQueueMapper
             ProposalName = item.ProposalName,
             Status = item.ProposalStatus
         };
-        dto.ProposalItem = new ProductionCustomizationProposalItemSummaryDto
-        {
-            ProposalItemId = item.ProposalItemId,
-            ItemName = item.ItemName,
-            ItemType = item.ItemType,
-            Quantity = item.Quantity,
-            Width = item.ItemWidth,
-            Height = item.ItemHeight,
-            Depth = item.ItemDepth,
-            Material = item.ItemMaterial,
-            Color = item.ItemColor,
-            UnitPriceSnapshot = item.UnitPriceSnapshot,
-            TotalPriceSnapshot = item.TotalPriceSnapshot
-        };
+        dto.ProposalItem = CustomizationRequestItemSnapshotMapper.ToDto(item.ProposalItem);
         return dto;
     }
 }

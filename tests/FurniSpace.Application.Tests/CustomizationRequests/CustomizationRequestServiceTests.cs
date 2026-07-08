@@ -1475,8 +1475,13 @@ public sealed class CustomizationRequestServiceTests
         AssignedDesignerId = ids.DesignerId,
         ProposalName = "Cafe Proposal",
         ProposalStatus = ProposalStatus.PUBLISHED,
-        ItemName = "Dining Chair",
-        Quantity = 2,
+        ProposalItem = new ProposalItem
+        {
+            ProposalItemId = ids.ProposalItemId,
+            ProposalId = ids.ProposalId,
+            ItemName = "Dining Chair",
+            Quantity = 2
+        },
         UpdatedAt = DateTime.UtcNow
     };
 

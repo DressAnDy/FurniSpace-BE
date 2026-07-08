@@ -45,7 +45,7 @@ public sealed class OrderService : IOrderService
         return ServiceResult<OrderListResponseDto>.Success(
             new OrderListResponseDto
             {
-                Items = filtered.Select(item => item.Adapt<OrderListItemDto>()).ToList()
+                Items = filtered.ConvertAll(item => item.Adapt<OrderListItemDto>())
             },
             "Orders retrieved successfully.");
     }
@@ -83,7 +83,7 @@ public sealed class OrderService : IOrderService
             "Order detail retrieved successfully.");
     }
 
-    private static IReadOnlyList<OrderListItemReadModel> FilterByAccess(
+    private static List<OrderListItemReadModel> FilterByAccess(
         IReadOnlyList<OrderListItemReadModel> items,
         string? role,
         Guid currentUserId)

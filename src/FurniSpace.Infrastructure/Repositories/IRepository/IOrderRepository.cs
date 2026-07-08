@@ -23,9 +23,9 @@ public interface IOrderRepository : IGenericRepository<Order>
         Guid quotationId,
         CancellationToken cancellationToken = default);
 
-    Task AddAsync(Order order, CancellationToken cancellationToken = default);
+    new Task AddAsync(Order order, CancellationToken cancellationToken = default);
 
     Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default);
 
-    void Update(Order order);
+    new void Update(Order order);
 }

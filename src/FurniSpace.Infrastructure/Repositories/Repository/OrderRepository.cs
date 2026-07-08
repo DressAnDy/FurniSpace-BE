@@ -83,7 +83,7 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
         return DbContext.OrderItemSet.AddAsync(item, cancellationToken).AsTask();
     }
 
-    public void Update(Order order)
+    public new void Update(Order order)
     {
         DbContext.OrderSet.Update(order);
     }

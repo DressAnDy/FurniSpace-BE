@@ -51,4 +51,19 @@ public sealed class ProjectStartFeeRulesTests
         Assert.Equal(PaymentStatus.PAID, status.ProjectStartFeeStatus);
         Assert.Equal(paymentId, status.PaymentId);
     }
+
+    [Theory]
+    [InlineData(ProjectStatus.SUBMITTED, true)]
+    [InlineData(ProjectStatus.IN_CONSULTATION, true)]
+    [InlineData(ProjectStatus.PROPOSAL_DRAFTING, false)]
+    public void IsProjectStatusEligibleForPaymentCreation_ReturnsExpected(ProjectStatus status, bool expected)
+    {
+        Assert.Equal(expected, ProjectStartFeeRules.IsProjectStatusEligibleForPaymentCreation(status));
+    }
+
+    [Fact]
+    public void IsPaid_ReturnsFalse_WhenPaymentIsNull()
+    {
+        Assert.False(ProjectStartFeeRules.IsPaid(null));
+    }
 }

@@ -16,8 +16,12 @@ public static class PaymentCodeGenerator
             throw new ArgumentOutOfRangeException(nameof(randomDigits), "Random digits must be between 8 and 10.");
         }
 
-        var maxValue = (int)Math.Pow(10, randomDigits);
-        var suffix = RandomNumberGenerator.GetInt32(0, maxValue).ToString($"D{randomDigits}");
-        return $"{prefix}{suffix}";
+        Span<char> suffix = stackalloc char[randomDigits];
+        for (var i = 0; i < randomDigits; i++)
+        {
+            suffix[i] = (char)('0' + RandomNumberGenerator.GetInt32(0, 10));
+        }
+
+        return string.Concat(prefix, new string(suffix));
     }
 }

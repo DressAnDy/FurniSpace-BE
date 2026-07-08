@@ -1,6 +1,5 @@
 using FurniSpace.API.Controllers.Payments;
 using Microsoft.AspNetCore.Authorization;
-using System.Linq;
 using Xunit;
 
 namespace FurniSpace.API.Tests.Controllers.Payments;
@@ -11,9 +10,8 @@ public sealed class PayOsWebhookControllerTests
     public void Controller_AllowsAnonymousAccess()
     {
         var authorize = typeof(PayOsWebhookController)
-            .GetCustomAttributes(typeof(AllowAnonymousAttribute), inherit: true)
-            .Any();
+            .GetCustomAttributes(typeof(AllowAnonymousAttribute), inherit: true);
 
-        Assert.True(authorize);
+        Assert.True(authorize.Length > 0);
     }
 }

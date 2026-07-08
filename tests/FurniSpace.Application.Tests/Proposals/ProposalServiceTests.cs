@@ -1820,6 +1820,15 @@ public sealed class ProposalServiceTests
             Guid productionUserId,
             CancellationToken cancellationToken = default) => Task.FromResult(false);
 
+        public Task<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>> GetProductionQueueAsync(
+            ProductionCustomizationRequestQueueQueryReadModel query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>>([]);
+
+        public Task<int> CountProductionQueueAsync(
+            ProductionCustomizationRequestQueueQueryReadModel query,
+            CancellationToken cancellationToken = default) => Task.FromResult(0);
+
         public IQueryable<CustomizationRequest> Query() => Enumerable.Empty<CustomizationRequest>().AsQueryable();
         public Task<CustomizationRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<CustomizationRequest?>(null);
         public Task<IReadOnlyList<CustomizationRequest>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CustomizationRequest>>([]);

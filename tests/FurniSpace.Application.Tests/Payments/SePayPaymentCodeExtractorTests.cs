@@ -26,6 +26,22 @@ public sealed class SePayPaymentCodeExtractorTests
     }
 
     [Fact]
+    public void Extract_WithRawBodyFallback_ReturnsMatchedCode()
+    {
+        var result = SePayPaymentCodeExtractor.Extract(null, null, "Transfer FS99887766", Pattern);
+
+        Assert.Equal("FS99887766", result);
+    }
+
+    [Fact]
+    public void Extract_WithInvalidPrimaryCode_FallsBackToContent()
+    {
+        var result = SePayPaymentCodeExtractor.Extract("INVALID", "Payment FS11223344", null, Pattern);
+
+        Assert.Equal("FS11223344", result);
+    }
+
+    [Fact]
     public void Extract_WithNoMatch_ReturnsNull()
     {
         var result = SePayPaymentCodeExtractor.Extract(null, "Chuyen tien khong co ma", null, Pattern);

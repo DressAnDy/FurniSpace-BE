@@ -1,9 +1,12 @@
+using System;
 using System.Text.RegularExpressions;
 
 namespace FurniSpace.Application.Common.Payments;
 
 public static class SePayPaymentCodeExtractor
 {
+    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
+
     public static string? Extract(string? primaryCode, string? content, string? rawBody, string paymentCodePattern)
     {
         var regex = CreateRegex(paymentCodePattern);
@@ -28,7 +31,10 @@ public static class SePayPaymentCodeExtractor
 
     private static Regex CreateRegex(string paymentCodePattern)
     {
-        return new Regex(paymentCodePattern, RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        return new Regex(
+            paymentCodePattern,
+            RegexOptions.CultureInvariant | RegexOptions.Compiled,
+            RegexMatchTimeout);
     }
 
     private static string? FindFirstMatch(string? value, Regex regex)

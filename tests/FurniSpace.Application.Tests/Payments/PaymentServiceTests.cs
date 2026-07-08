@@ -8,9 +8,11 @@ using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
+using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Application.Services.Payments;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.Orders;
 using FurniSpace.Infrastructure.ReadModels.Payments;
@@ -441,6 +443,354 @@ public sealed class PaymentServiceTests
         Assert.Single(repository.NewPayments);
     }
 
+    [Fact]
+    public async Task GetByIdAsync_WhenForbidden_ReturnsForbidden()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(
+            CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m),
+            CreatePaymentDetail(paymentId, customerId: Guid.NewGuid()));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository
+        });
+
+        var result = await service.GetByIdAsync(paymentId, _customerId);
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CreatePayOsPaymentLinkAsync_WhenDisabled_ReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(
+            CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m),
+            CreatePaymentDetail(paymentId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            PayOsEnabled = false
+        });
+
+        var result = await service.CreatePayOsPaymentLinkAsync(
+            paymentId,
+            _customerId,
+            new CreatePayOsPaymentLinkRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.PayOsDisabled, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmPayOsWebhookAsync_WhenDisabled_ReturnsBadRequest()
+    {
+        var service = BuildService(new PaymentServiceTestOptions { PayOsEnabled = false });
+
+        var result = await service.ConfirmPayOsWebhookAsync(new PayOsConfirmWebhookRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.PayOsDisabled, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateDepositPaymentForOrderAsync_WhenInvalidStatus_ReturnsBadRequest()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            OrderDetail = CreateOrderDetail(OrderStatus.DEPOSIT_PAID)
+        });
+
+        var result = await service.CreateDepositPaymentForOrderAsync(
+            _orderId,
+            _customerId,
+            new CreateOrderDepositPaymentRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.InvalidOrderStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CanAccessPaymentAsync_WhenUnauthorized_ReturnsFalse()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(
+            CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m),
+            CreatePaymentDetail(paymentId, customerId: Guid.NewGuid()));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository
+        });
+
+        var canAccess = await service.CanAccessPaymentAsync(paymentId, _customerId);
+
+        Assert.False(canAccess);
+    }
+
+    [Fact]
+    public async Task GetListAsync_WhenProjectForbidden_ReturnsForbidden()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            ProjectDetail = CreateProjectDetail()
+        });
+
+        var result = await service.GetListAsync(
+            Guid.NewGuid(),
+            new PaymentQueryDto { ProjectId = _projectId });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CreatePayOsPaymentLinkAsync_WhenPayOsFails_RollsBackAndReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(
+            CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m),
+            CreatePaymentDetail(paymentId));
+        var rollbackCalled = false;
+        var payOsClient = new PaymentServiceFakePayOsClient { ShouldFail = true };
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            PayOsEnabled = true,
+            PayOsClient = payOsClient,
+            UnitOfWork = TestUnitOfWork.ForTransaction(
+                _ => Task.CompletedTask,
+                _ => Task.FromResult(1),
+                _ => Task.CompletedTask,
+                _ =>
+                {
+                    rollbackCalled = true;
+                    return Task.CompletedTask;
+                })
+        });
+
+        var result = await service.CreatePayOsPaymentLinkAsync(
+            paymentId,
+            _customerId,
+            new CreatePayOsPaymentLinkRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.PayOsCreateLinkFailed, result.ErrorCode);
+        Assert.True(rollbackCalled);
+    }
+
+    [Fact]
+    public async Task CreatePayOsPaymentLinkAsync_WhenCheckoutUrlMissing_RollsBackAndReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(
+            CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m),
+            CreatePaymentDetail(paymentId));
+        var payOsClient = new PaymentServiceFakePayOsClient
+        {
+            Result = new PayOsCreatePaymentLinkResult { CheckoutUrl = string.Empty, PaymentLinkId = "plink-001" }
+        };
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            PayOsEnabled = true,
+            PayOsClient = payOsClient,
+            UnitOfWork = TestUnitOfWork.ForTransaction(
+                _ => Task.CompletedTask,
+                _ => Task.FromResult(1),
+                _ => Task.CompletedTask,
+                _ => Task.CompletedTask)
+        });
+
+        var result = await service.CreatePayOsPaymentLinkAsync(
+            paymentId,
+            _customerId,
+            new CreatePayOsPaymentLinkRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.PayOsCreateLinkFailed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreatePayOsPaymentLinkAsync_WhenAmountExceedsRemaining_ReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(
+            CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m),
+            CreatePaymentDetail(paymentId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            PayOsEnabled = true
+        });
+
+        var result = await service.CreatePayOsPaymentLinkAsync(
+            paymentId,
+            _customerId,
+            new CreatePayOsPaymentLinkRequestDto { Amount = 100m });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.PaymentAmountExceedsRemaining, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmPayOsWebhookAsync_WhenValid_ReturnsConfirmedUrl()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            PayOsEnabled = true,
+            PayOsClient = new PaymentServiceFakePayOsClient()
+        });
+
+        var result = await service.ConfirmPayOsWebhookAsync(new PayOsConfirmWebhookRequestDto
+        {
+            WebhookUrl = "https://example.com/webhook"
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.True(result.Data!.Success);
+        Assert.Equal("https://example.com/webhook", result.Data.WebhookUrl);
+    }
+
+    [Fact]
+    public async Task ConfirmPayOsWebhookAsync_WhenConfirmFails_ReturnsBadRequest()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            PayOsEnabled = true,
+            PayOsClient = new FailingConfirmPayOsClient()
+        });
+
+        var result = await service.ConfirmPayOsWebhookAsync(new PayOsConfirmWebhookRequestDto
+        {
+            WebhookUrl = "https://example.com/webhook"
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.PayOsCreateLinkFailed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateTestPaymentAsync_WhenProjectMissing_ReturnsNotFound()
+    {
+        var service = BuildService(new PaymentServiceTestOptions { Role = "ADMIN" });
+
+        var result = await service.CreateTestPaymentAsync(
+            _salesId,
+            new CreateTestPaymentRequestDto
+            {
+                ProjectId = _projectId,
+                Amount = 10000m,
+                PaymentType = PaymentType.PROJECT_START_FEE
+            });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(PaymentErrorCodes.ProjectNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateTestPaymentAsync_WhenAmountInvalid_ReturnsBadRequest()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "ADMIN",
+            ProjectDetail = CreateProjectDetail()
+        });
+
+        var result = await service.CreateTestPaymentAsync(
+            _salesId,
+            new CreateTestPaymentRequestDto
+            {
+                ProjectId = _projectId,
+                Amount = 0m,
+                PaymentType = PaymentType.PROJECT_START_FEE
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.InvalidPaymentAmount, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GenerateSePayVietQrAsync_WhenPaymentPaid_ReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(
+            CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PAID, 30m),
+            CreatePaymentDetail(paymentId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            SePayEnabled = true,
+            VietQrEnabled = true
+        });
+
+        var result = await service.GenerateSePayVietQrAsync(paymentId, _customerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.InvalidPaymentStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateDepositPaymentForOrderAsync_WhenDepositAlreadyPaid_ReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(CreatePayment(
+            paymentId,
+            PaymentType.DEPOSIT,
+            PaymentStatus.PAID,
+            30m,
+            orderId: _orderId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            OrderDetail = CreateOrderDetail(OrderStatus.DEPOSIT_PENDING),
+            Payments = repository
+        });
+
+        var result = await service.CreateDepositPaymentForOrderAsync(
+            _orderId,
+            _customerId,
+            new CreateOrderDepositPaymentRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.DepositAlreadyPaid, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetStatusByCodeAsync_WhenCodeMissing_ReturnsBadRequest()
+    {
+        var service = BuildService(new PaymentServiceTestOptions { Role = "CUSTOMER" });
+
+        var result = await service.GetStatusByCodeAsync("  ", _customerId);
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task CanAccessPaymentAsync_WhenPaymentMissing_ReturnsFalse()
+    {
+        var service = BuildService(new PaymentServiceTestOptions { Role = "CUSTOMER" });
+
+        var canAccess = await service.CanAccessPaymentAsync(Guid.NewGuid(), _customerId);
+
+        Assert.False(canAccess);
+    }
+
     private static PaymentService BuildService(PaymentServiceTestOptions? options = null)
     {
         options ??= new PaymentServiceTestOptions();
@@ -454,9 +804,9 @@ public sealed class PaymentServiceTests
         {
             OrderDetail = options.OrderDetail
         };
-        var payOsClient = new PaymentServiceFakePayOsClient();
+        var payOsClient = options.PayOsClient ?? new PaymentServiceFakePayOsClient();
         var saveChangesCount = 0;
-        var unitOfWork = TestUnitOfWork.ForSaveChanges(_ =>
+        var unitOfWork = options.UnitOfWork ?? TestUnitOfWork.ForSaveChanges(_ =>
         {
             saveChangesCount++;
             return Task.FromResult(1);
@@ -533,7 +883,7 @@ public sealed class PaymentServiceTests
         };
     }
 
-    private PaymentDetailReadModel CreatePaymentDetail(Guid paymentId, string paymentCode = "FS12345678")
+    private PaymentDetailReadModel CreatePaymentDetail(Guid paymentId, string paymentCode = "FS12345678", Guid? customerId = null)
     {
         return new PaymentDetailReadModel
         {
@@ -545,7 +895,7 @@ public sealed class PaymentServiceTests
             RemainingAmount = 30m,
             Currency = "VND",
             Status = PaymentStatus.PENDING,
-            CustomerId = _customerId,
+            CustomerId = customerId ?? _customerId,
             AssignedSalesId = _salesId
         };
     }
@@ -582,9 +932,27 @@ public sealed class PaymentServiceTests
         public ProjectDetailReadModel? ProjectDetail { get; init; }
         public OrderDetailReadModel? OrderDetail { get; init; }
         public PaymentServiceFakeRepository? Payments { get; init; }
+        public IPayOsClient? PayOsClient { get; init; }
+        public IUnitOfWork? UnitOfWork { get; init; }
         public bool SePayEnabled { get; init; }
         public bool VietQrEnabled { get; init; }
         public bool PayOsEnabled { get; init; } = true;
         public decimal DefaultProjectStartFeeAmount { get; init; } = 500000m;
+    }
+
+    private sealed class FailingConfirmPayOsClient : IPayOsClient
+    {
+        public Task<PayOsCreatePaymentLinkResult> CreatePaymentLinkAsync(
+            PayOsCreatePaymentLinkRequest request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new PayOsCreatePaymentLinkResult());
+
+        public Task<PayOsVerifiedWebhookData> VerifyWebhookAsync(
+            string rawBody,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new PayOsVerifiedWebhookData());
+
+        public Task<string> ConfirmWebhookAsync(string webhookUrl, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Confirm failed.");
     }
 }

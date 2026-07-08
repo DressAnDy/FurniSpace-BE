@@ -124,6 +124,50 @@ public sealed class SePayWebhookHandlerTests
         Assert.Equal("Webhook signature is invalid.", result.ErrorMessage);
     }
 
+    [Fact]
+    public async Task ProcessAsync_WithInvalidPayload_ReturnsBadRequest()
+    {
+        var handler = CreateHandler(new FakePaymentRepository(), new FakePaymentRealtimeService());
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        const string rawBody = "{ invalid json";
+        var signature = ComputeSignature(WebhookSecret, timestamp, rawBody);
+
+        var result = await handler.ProcessAsync(rawBody, signature, timestamp);
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal("Invalid webhook payload.", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithOutgoingTransfer_ReturnsSuccessWithoutUpdating()
+    {
+        var handler = CreateHandler(new FakePaymentRepository(), new FakePaymentRealtimeService());
+        var rawBody = CreateWebhookPayload(
+            id: 92706,
+            transferAmount: 10000m,
+            paymentCode: PaymentCode,
+            transferType: "out");
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        var signature = ComputeSignature(WebhookSecret, timestamp, rawBody);
+
+        var result = await handler.ProcessAsync(rawBody, signature, timestamp);
+
+        Assert.Equal(200, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithMissingPaymentCode_ReturnsSuccessWithoutUpdating()
+    {
+        var handler = CreateHandler(new FakePaymentRepository(), new FakePaymentRealtimeService());
+        var rawBody = CreateWebhookPayload(id: 92707, transferAmount: 10000m, paymentCode: null);
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+        var signature = ComputeSignature(WebhookSecret, timestamp, rawBody);
+
+        var result = await handler.ProcessAsync(rawBody, signature, timestamp);
+
+        Assert.Equal(200, result.StatusCode);
+    }
+
     private static SePayWebhookHandler CreateHandler(
         FakePaymentRepository repository,
         FakePaymentRealtimeService paymentRealtime)
@@ -194,15 +238,19 @@ public sealed class SePayWebhookHandlerTests
         };
     }
 
-    private static string CreateWebhookPayload(long id, decimal transferAmount, string paymentCode)
+    private static string CreateWebhookPayload(
+        long id,
+        decimal transferAmount,
+        string? paymentCode,
+        string transferType = "in")
     {
         var payload = new SePayWebhookPayloadDto
         {
             Id = id,
             AccountNumber = "1017588888",
             Code = paymentCode,
-            Content = $"{paymentCode} chuyen tien",
-            TransferType = "in",
+            Content = paymentCode is null ? "Chuyen tien khong co ma" : $"{paymentCode} chuyen tien",
+            TransferType = transferType,
             TransferAmount = transferAmount,
             ReferenceCode = "FT24012345678",
             TransactionDate = "2024-07-02 11:08:33"

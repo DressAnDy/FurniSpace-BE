@@ -84,6 +84,99 @@ public sealed class PaymentRepositoryTests
         Assert.Equal(data.PaymentId, items[0].PaymentId);
     }
 
+    [Fact]
+    public async Task GetDetailAsync_ReturnsPaymentDetail()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new PaymentRepository(context);
+
+        var detail = await repository.GetDetailAsync(data.PaymentId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(data.PaymentCode, detail!.PaymentCode);
+    }
+
+    [Fact]
+    public async Task GetStatusByPaymentCodeAsync_ReturnsStatus()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new PaymentRepository(context);
+
+        var status = await repository.GetStatusByPaymentCodeAsync(data.PaymentCode);
+
+        Assert.NotNull(status);
+        Assert.Equal(PaymentStatus.PAID, status!.Status);
+    }
+
+    [Fact]
+    public async Task PaymentCodeExistsAsync_WhenCodeExists_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new PaymentRepository(context);
+
+        var exists = await repository.PaymentCodeExistsAsync(data.PaymentCode);
+
+        Assert.True(exists);
+    }
+
+    [Fact]
+    public async Task GetByProjectAndTypeAsync_ReturnsProjectStartFeePayment()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var paymentId = Guid.NewGuid();
+        context.PaymentSet.Add(new Payment
+        {
+            PaymentId = paymentId,
+            ProjectId = data.ProjectId,
+            PaymentCode = "FS99999999",
+            PaymentType = PaymentType.PROJECT_START_FEE,
+            Amount = 500000m,
+            PaidAmount = 0m,
+            RemainingAmount = 500000m,
+            Status = PaymentStatus.PENDING,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new PaymentRepository(context);
+
+        var payment = await repository.GetByProjectAndTypeAsync(
+            data.ProjectId,
+            PaymentType.PROJECT_START_FEE);
+
+        Assert.NotNull(payment);
+        Assert.Equal(paymentId, payment!.PaymentId);
+    }
+
+    [Fact]
+    public async Task GetTransactionsByPaymentIdAsync_ReturnsTransactions()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        context.PaymentTransactionSet.Add(new PaymentTransaction
+        {
+            PaymentTransactionId = Guid.NewGuid(),
+            PaymentId = data.PaymentId,
+            ProjectId = data.ProjectId,
+            TransactionCode = "TXN-001",
+            TransactionType = PaymentTransactionType.CHARGE,
+            Amount = 30m,
+            Currency = "VND",
+            Status = PaymentTransactionStatus.SUCCESS,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new PaymentRepository(context);
+
+        var transactions = await repository.GetTransactionsByPaymentIdAsync(data.PaymentId);
+
+        Assert.Single(transactions);
+        Assert.Equal("TXN-001", transactions[0].TransactionCode);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

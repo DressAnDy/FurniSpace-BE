@@ -85,6 +85,52 @@ public sealed class OrdersControllerTests
         Assert.Equal(201, objectResult.StatusCode);
     }
 
+    [Fact]
+    public async Task GetDetail_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(new FakeOrderService(), new FakePaymentService(), userId: null);
+
+        var result = await controller.GetDetail(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task GetDetail_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var orderService = new FakeOrderService(
+            getDetailResult: ServiceResult<OrderDetailDto>.Success(
+                new OrderDetailDto { OrderId = orderId },
+                "ok"));
+        var controller = CreateController(orderService, new FakePaymentService(), userId);
+
+        var result = await controller.GetDetail(orderId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateRemainingPayment_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var paymentService = new FakePaymentService(
+            createRemainingResult: ServiceResult<PaymentDetailDto>.Created(
+                new PaymentDetailDto { PaymentType = PaymentType.REMAINING_PAYMENT },
+                "created"));
+        var controller = CreateController(new FakeOrderService(), paymentService, userId);
+
+        var result = await controller.CreateRemainingPayment(
+            orderId,
+            new CreateOrderRemainingPaymentRequestDto());
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(201, objectResult.StatusCode);
+    }
+
     private static AuthorizeAttribute? GetMethodAuthorizeAttribute(string methodName)
     {
         var method = typeof(OrdersController)
@@ -154,10 +200,14 @@ public sealed class OrdersControllerTests
     private sealed class FakePaymentService : IPaymentService
     {
         private readonly ServiceResult<PaymentDetailDto>? _createDepositResult;
+        private readonly ServiceResult<PaymentDetailDto>? _createRemainingResult;
 
-        public FakePaymentService(ServiceResult<PaymentDetailDto>? createDepositResult = null)
+        public FakePaymentService(
+            ServiceResult<PaymentDetailDto>? createDepositResult = null,
+            ServiceResult<PaymentDetailDto>? createRemainingResult = null)
         {
             _createDepositResult = createDepositResult;
+            _createRemainingResult = createRemainingResult;
         }
 
         public Task<ServiceResult<PaymentDetailDto>> CreateDepositPaymentForOrderAsync(
@@ -175,7 +225,10 @@ public sealed class OrdersControllerTests
             Guid currentUserId,
             CreateOrderRemainingPaymentRequestDto request,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<PaymentDetailDto>.Unauthorized());
+        {
+            return Task.FromResult(
+                _createRemainingResult ?? ServiceResult<PaymentDetailDto>.Unauthorized());
+        }
 
         public Task<ServiceResult<PaymentDetailDto>> CreateProjectStartFeePaymentAsync(
             Guid projectId,

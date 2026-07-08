@@ -103,6 +103,136 @@ public sealed class PayOsWebhookHandlerTests
         Assert.Equal(401, result.StatusCode);
     }
 
+    [Fact]
+    public async Task ProcessAsync_WithMissingOrderCode_ReturnsBadRequest()
+    {
+        var handler = CreateHandler(
+            new FakePayOsPaymentRepository(),
+            new FakePayOsClient
+            {
+                VerifiedWebhook = new PayOsVerifiedWebhookData { OrderCode = 0, Code = "00" }
+            },
+            new FakePaymentRealtimeService());
+
+        var result = await handler.ProcessAsync("{}");
+
+        Assert.Equal(400, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithNonSuccessCode_ReturnsSuccessWithoutUpdating()
+    {
+        var handler = CreateHandler(
+            new FakePayOsPaymentRepository(),
+            new FakePayOsClient
+            {
+                VerifiedWebhook = new PayOsVerifiedWebhookData { OrderCode = 123, Code = "01" }
+            },
+            new FakePaymentRealtimeService());
+
+        var result = await handler.ProcessAsync("{}");
+
+        Assert.Equal(200, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithAmountMismatch_ReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        const long orderCode = 202607080003L;
+        var payment = CreatePayment(paymentId, projectId, 10000m);
+        var transaction = CreatePendingTransaction(paymentId, projectId, orderCode, 10000m);
+        var repository = new FakePayOsPaymentRepository
+        {
+            Payment = payment,
+            Transaction = transaction
+        };
+        var handler = CreateHandler(
+            repository,
+            new FakePayOsClient
+            {
+                VerifiedWebhook = new PayOsVerifiedWebhookData
+                {
+                    OrderCode = orderCode,
+                    Amount = 5000,
+                    Code = "00"
+                }
+            },
+            new FakePaymentRealtimeService());
+
+        var result = await handler.ProcessAsync("{}");
+
+        Assert.Equal(400, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithCancelledPayment_ReturnsSuccessWithoutUpdating()
+    {
+        var paymentId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        const long orderCode = 202607080004L;
+        var payment = CreatePayment(paymentId, projectId, 10000m);
+        payment.Status = PaymentStatus.CANCELLED;
+        var transaction = CreatePendingTransaction(paymentId, projectId, orderCode, 10000m);
+        var repository = new FakePayOsPaymentRepository
+        {
+            Payment = payment,
+            Transaction = transaction
+        };
+        var handler = CreateHandler(
+            repository,
+            new FakePayOsClient
+            {
+                VerifiedWebhook = new PayOsVerifiedWebhookData
+                {
+                    OrderCode = orderCode,
+                    Amount = 10000,
+                    Code = "00"
+                }
+            },
+            new FakePaymentRealtimeService());
+
+        var result = await handler.ProcessAsync("{}");
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(PaymentStatus.CANCELLED, repository.Payment!.Status);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithDuplicateProviderTransaction_ReturnsSuccessWithoutUpdating()
+    {
+        var paymentId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        const long orderCode = 202607080005L;
+        var payment = CreatePayment(paymentId, projectId, 10000m);
+        var transaction = CreatePendingTransaction(paymentId, projectId, orderCode, 10000m);
+        var repository = new FakePayOsPaymentRepository
+        {
+            Payment = payment,
+            Transaction = transaction,
+            ProviderTransactionExists = true
+        };
+        var handler = CreateHandler(
+            repository,
+            new FakePayOsClient
+            {
+                VerifiedWebhook = new PayOsVerifiedWebhookData
+                {
+                    OrderCode = orderCode,
+                    Amount = 10000,
+                    Code = "00",
+                    Reference = "FT24012345678"
+                }
+            },
+            new FakePaymentRealtimeService());
+
+        var result = await handler.ProcessAsync("{}");
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(0m, repository.Payment!.PaidAmount);
+    }
+
     private static PayOsWebhookHandler CreateHandler(
         FakePayOsPaymentRepository repository,
         FakePayOsClient payOsClient,
@@ -171,6 +301,7 @@ public sealed class PayOsWebhookHandlerTests
     {
         public Payment? Payment { get; set; }
         public PaymentTransaction? Transaction { get; set; }
+        public bool ProviderTransactionExists { get; set; }
 
         public Task<Payment?> GetByIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
         {
@@ -214,7 +345,7 @@ public sealed class PayOsWebhookHandlerTests
 
         public Task<bool> ProviderTransactionExistsAsync(PaymentProvider provider, string providerTransactionId, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(false);
+            return Task.FromResult(ProviderTransactionExists);
         }
 
         public Task<bool> PayOsOrderCodeExistsAsync(string orderCode, CancellationToken cancellationToken = default)

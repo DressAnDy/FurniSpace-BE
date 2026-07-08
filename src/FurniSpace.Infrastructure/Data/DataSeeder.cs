@@ -26,7 +26,7 @@ public static class DataSeeder
                 ('22222222-2222-2222-2222-222222222222', 'SALES', 'Sales consultant', now(), now()),
                 ('33333333-3333-3333-3333-333333333333', 'DESIGNER', 'Interior designer', now(), now()),
                 ('44444444-4444-4444-4444-444444444444', 'CUSTOMER', 'Customer account', now(), now()),
-                ('55555555-5555-5555-5555-555555555555', 'PRODUCTION', 'Production staff', now(), now())
+                ('55555555-5555-5555-5555-555555555555', 'PRODUCTION', 'Production account', now(), now())
             ON CONFLICT (role_name) DO NOTHING;
             """,
             cancellationToken);
@@ -42,7 +42,7 @@ public static class DataSeeder
                 ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'sales@furnispace.local', {SeedPasswordHash}, 'Sales Consultant', '0900000002', 'ACTIVE'::account_status, now(), now()),
                 ('cccccccc-cccc-cccc-cccc-cccccccccccc', '33333333-3333-3333-3333-333333333333', 'designer@furnispace.local', {SeedPasswordHash}, 'Design Specialist', '0900000003', 'ACTIVE'::account_status, now(), now()),
                 ('dddddddd-dddd-dddd-dddd-dddddddddddd', '44444444-4444-4444-4444-444444444444', 'customer@furnispace.local', {SeedPasswordHash}, 'Demo Customer', '0900000004', 'ACTIVE'::account_status, now(), now()),
-                ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '55555555-5555-5555-5555-555555555555', 'production@furnispace.local', {SeedPasswordHash}, 'Production Staff', '0900000005', 'ACTIVE'::account_status, now(), now())
+                ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', '55555555-5555-5555-5555-555555555555', 'production@furnispace.local', {SeedPasswordHash}, 'Demo Production', '0900000005', 'ACTIVE'::account_status, now(), now())
             ON CONFLICT (email) DO UPDATE
             SET password_hash = EXCLUDED.password_hash,
                 updated_at = now()

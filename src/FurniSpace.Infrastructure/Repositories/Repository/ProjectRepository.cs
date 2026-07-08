@@ -10,6 +10,8 @@ namespace FurniSpace.Infrastructure.Repositories.Repository;
 
 public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepository
 {
+    private const string DesignerRoleName = "DESIGNER";
+
     public ProjectRepository(AppDbContext dbContext) : base(dbContext)
     {
     }
@@ -120,7 +122,7 @@ public sealed class ProjectRepository : GenericRepository<Project>, IProjectRepo
                 account => account.RoleId,
                 role => role.RoleId,
                 (account, role) => new { account, role })
-            .Where(joined => string.Equals(joined.role.RoleName, "DESIGNER", StringComparison.OrdinalIgnoreCase))
+            .Where(joined => joined.role.RoleName == DesignerRoleName)
             .Select(joined => new DesignerAccountReadModel
             {
                 AccountId = joined.account.AccountId,

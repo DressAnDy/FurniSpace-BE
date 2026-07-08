@@ -7,6 +7,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Quotations;
+using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Quotations;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -37,7 +39,7 @@ public sealed class QuotationServiceTests
         quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.DRAFT));
         quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.SENT));
         quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.CANCELLED));
-        var service = BuildService(quotations, role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER" });
 
         var result = await service.GetByProjectAsync(_projectId, _customerId, new QuotationQueryDto());
 
@@ -52,7 +54,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository();
         quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.DRAFT));
         quotations.ProjectQuotations.Add(MakeQuotation(QuotationStatus.SENT));
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.GetByProjectAsync(_projectId, _salesId, new QuotationQueryDto());
 
@@ -63,7 +65,7 @@ public sealed class QuotationServiceTests
     [Fact]
     public async Task GetByProjectAsync_WhenProjectMissing_ReturnsProjectNotFound()
     {
-        var service = BuildService(projectExists: false);
+        var service = BuildService(new() { ProjectExists = false });
 
         var result = await service.GetByProjectAsync(_projectId, _salesId, new QuotationQueryDto());
 
@@ -74,7 +76,7 @@ public sealed class QuotationServiceTests
     [Fact]
     public async Task GetByProjectAsync_WhenUserHasNoAccess_ReturnsForbidden()
     {
-        var service = BuildService(role: "DESIGNER");
+        var service = BuildService(new() { Role = "DESIGNER" });
 
         var result = await service.GetByProjectAsync(_projectId, Guid.NewGuid(), new QuotationQueryDto());
 
@@ -86,7 +88,7 @@ public sealed class QuotationServiceTests
     {
         var detail = MakeDetail(QuotationStatus.SENT);
         detail.Items = [new QuotationItemReadModel { QuotationItemId = Guid.NewGuid(), ItemName = "Counter" }];
-        var service = BuildService(new FakeQuotationRepository { Detail = detail }, role: "SALES");
+        var service = BuildService(new() { Quotations = new FakeQuotationRepository { Detail = detail }, Role = "SALES" });
 
         var result = await service.GetDetailAsync(detail.QuotationId, _salesId);
 
@@ -97,9 +99,7 @@ public sealed class QuotationServiceTests
     [Fact]
     public async Task GetDetailAsync_WhenCustomerViewsDraft_ReturnsQuotationNotAvailable()
     {
-        var service = BuildService(
-            new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) },
-            role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) }, Role = "CUSTOMER" });
 
         var result = await service.GetDetailAsync(Guid.NewGuid(), _customerId);
 
@@ -110,7 +110,7 @@ public sealed class QuotationServiceTests
     [Fact]
     public async Task GetDetailAsync_WhenMissing_ReturnsQuotationNotFound()
     {
-        var service = BuildService(new FakeQuotationRepository(), role: "ADMIN");
+        var service = BuildService(new() { Role = "ADMIN" });
 
         var result = await service.GetDetailAsync(Guid.NewGuid(), Guid.NewGuid());
 
@@ -126,7 +126,7 @@ public sealed class QuotationServiceTests
         var detail = MakeAcceptReadyDetail(quotation);
         var quotations = new FakeQuotationRepository { Detail = detail };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER" });
 
         var result = await service.GetDetailAsync(quotation.QuotationId, _customerId);
 
@@ -151,7 +151,7 @@ public sealed class QuotationServiceTests
             IsCustomized = true,
             Note = "Wood"
         });
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.CreateDraftAsync(_projectId, _salesId);
 
@@ -168,7 +168,7 @@ public sealed class QuotationServiceTests
     {
         var project = MakeProject();
         project.Status = ProjectStatus.IN_CONSULTATION;
-        var service = BuildService(project: project, role: "SALES");
+        var service = BuildService(new() { Project = project, Role = "SALES" });
 
         var result = await service.CreateDraftAsync(_projectId, _salesId);
 
@@ -179,7 +179,7 @@ public sealed class QuotationServiceTests
     [Fact]
     public async Task CreateDraftAsync_WhenProposalNotSelected_ReturnsProposalNotSelected()
     {
-        var service = BuildService(new FakeQuotationRepository(), role: "SALES");
+        var service = BuildService(new() { Role = "SALES" });
 
         var result = await service.CreateDraftAsync(_projectId, _salesId);
 
@@ -191,7 +191,7 @@ public sealed class QuotationServiceTests
     public async Task CreateDraftAsync_WhenPendingCustomization_ReturnsPendingError()
     {
         var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
-        var service = BuildService(quotations, role: "SALES", hasPendingCustomization: true);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES", HasPendingCustomization = true });
 
         var result = await service.CreateDraftAsync(_projectId, _salesId);
 
@@ -207,7 +207,7 @@ public sealed class QuotationServiceTests
             SelectedProposal = MakeSelectedProposal(),
             HasExistingQuotation = true
         };
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.CreateDraftAsync(_projectId, _salesId);
 
@@ -218,7 +218,7 @@ public sealed class QuotationServiceTests
     [Fact]
     public async Task CreateDraftAsync_WhenSalesUnassigned_ReturnsForbidden()
     {
-        var service = BuildService(role: "SALES");
+        var service = BuildService(new() { Role = "SALES" });
 
         var result = await service.CreateDraftAsync(_projectId, Guid.NewGuid());
 
@@ -230,10 +230,7 @@ public sealed class QuotationServiceTests
     {
         var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
         var rollbackCalled = false;
-        var service = BuildService(
-            quotations,
-            role: "SALES",
-            unitOfWork: TestUnitOfWork.ForTransaction(
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES", UnitOfWork = TestUnitOfWork.ForTransaction(
                 _ => Task.CompletedTask,
                 _ => throw new InvalidOperationException("save failed"),
                 _ => Task.CompletedTask,
@@ -241,7 +238,7 @@ public sealed class QuotationServiceTests
                 {
                     rollbackCalled = true;
                     return Task.CompletedTask;
-                }));
+                }) });
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.CreateDraftAsync(_projectId, _salesId));
@@ -255,7 +252,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
         quotations.AddedQuotations.Add(quotation);
         quotations.AddedItems.Add(MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 200m));
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.UpdateAsync(
             quotation.QuotationId,
@@ -278,7 +275,7 @@ public sealed class QuotationServiceTests
         var quotation = MakeEntityQuotation(QuotationStatus.SENT);
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.UpdateAsync(quotation.QuotationId, _salesId, new UpdateQuotationRequestDto());
 
@@ -293,7 +290,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISED) };
         quotations.AddedQuotations.Add(quotation);
         quotations.AddedItems.Add(MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 200m));
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.AddManualItemAsync(
             quotation.QuotationId,
@@ -319,7 +316,7 @@ public sealed class QuotationServiceTests
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.AddManualItemAsync(
             quotation.QuotationId,
@@ -338,7 +335,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
         quotations.AddedQuotations.Add(quotation);
         quotations.AddedItems.Add(item);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.UpdateManualItemAsync(
             quotation.QuotationId,
@@ -358,7 +355,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
         quotations.AddedQuotations.Add(quotation);
         quotations.AddedItems.Add(item);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.UpdateManualItemAsync(
             quotation.QuotationId,
@@ -384,7 +381,7 @@ public sealed class QuotationServiceTests
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.UpdateManualItemAsync(
             quotation.QuotationId,
@@ -411,7 +408,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = detail };
         quotations.AddedQuotations.Add(quotation);
         var dispatcher = new FakeNotificationDispatcher();
-        var service = BuildService(quotations, role: "SALES", notifications: dispatcher);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES", Notifications = dispatcher });
 
         var result = await service.SendAsync(quotation.QuotationId, _salesId);
 
@@ -432,7 +429,7 @@ public sealed class QuotationServiceTests
         detail.Items = [];
         var quotations = new FakeQuotationRepository { Detail = detail };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.SendAsync(quotation.QuotationId, _salesId);
 
@@ -449,7 +446,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
         quotations.AddedQuotations.Add(quotation);
         quotations.AddedItems.AddRange([manualItem, productItem]);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.DeleteManualItemAsync(quotation.QuotationId, manualItem.QuotationItemId, _salesId);
 
@@ -466,7 +463,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
         quotations.AddedQuotations.Add(quotation);
         quotations.AddedItems.Add(productItem);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.DeleteManualItemAsync(quotation.QuotationId, productItem.QuotationItemId, _salesId);
 
@@ -482,7 +479,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
         quotations.AddedQuotations.Add(quotation);
         quotations.AddedItems.Add(manualItem);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.DeleteManualItemAsync(quotation.QuotationId, manualItem.QuotationItemId, _salesId);
 
@@ -499,20 +496,22 @@ public sealed class QuotationServiceTests
         var detail = MakeAcceptReadyDetail(quotation);
         var quotations = new FakeQuotationRepository { Detail = detail };
         quotations.AddedQuotations.Add(quotation);
+        var orders = new FakeOrderRepository();
         var dispatcher = new FakeNotificationDispatcher();
-        var service = BuildService(quotations, role: "CUSTOMER", notifications: dispatcher);
+        var service = BuildService(new() { Quotations = quotations, Orders = orders, Role = "CUSTOMER", Notifications = dispatcher });
 
         var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
 
         Assert.Equal(200, result.Status);
         Assert.Equal(QuotationStatus.ACCEPTED, quotation.Status);
         Assert.Equal(ProjectStatus.ORDER_CONFIRMED, ProjectEntity!.Status);
-        var order = Assert.Single(quotations.AddedOrders);
+        var order = Assert.Single(orders.AddedOrders);
         Assert.Equal(OrderStatus.DEPOSIT_PENDING, order.Status);
         Assert.Equal(250m, order.FinalTotalAmount);
+        Assert.Equal(75m, order.DepositAmount);
         Assert.Equal(_customerId, order.ConfirmedBy);
-        Assert.Equal(2, quotations.AddedOrderItems.Count);
-        Assert.All(quotations.AddedOrderItems, item => Assert.Equal(OrderItemStatus.PENDING, item.Status));
+        Assert.Equal(2, orders.AddedOrderItems.Count);
+        Assert.All(orders.AddedOrderItems, item => Assert.Equal(OrderItemStatus.PENDING, item.Status));
         Assert.Equal(NotificationType.QuotationAccepted, dispatcher.LastType);
         Assert.Contains(_salesId, dispatcher.LastReceiverIds);
     }
@@ -521,14 +520,15 @@ public sealed class QuotationServiceTests
     public async Task AcceptAsync_WhenUserIsNotOwnerCustomer_ReturnsForbidden()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var orders = new FakeOrderRepository();
         var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Orders = orders, Role = "SALES" });
 
         var result = await service.AcceptAsync(quotation.QuotationId, _salesId);
 
         Assert.Equal(403, result.Status);
-        Assert.Empty(quotations.AddedOrders);
+        Assert.Empty(orders.AddedOrders);
     }
 
     [Fact]
@@ -539,7 +539,7 @@ public sealed class QuotationServiceTests
         detail.Status = QuotationStatus.DRAFT;
         var quotations = new FakeQuotationRepository { Detail = detail };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER" });
 
         var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
 
@@ -555,7 +555,7 @@ public sealed class QuotationServiceTests
         detail.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
         var quotations = new FakeQuotationRepository { Detail = detail };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER" });
 
         var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
 
@@ -564,18 +564,34 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
-    public async Task AcceptAsync_WhenRevisedButNotSentAgain_ReturnsInvalidStatus()
+    public async Task AcceptAsync_WhenRevised_AllowsAcceptAndCreatesOrder()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.REVISED);
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        var orders = new FakeOrderRepository();
         var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = quotations, Orders = orders, Role = "CUSTOMER" });
+
+        var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(orders.AddedOrders);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenOrderAlreadyExists_ReturnsOrderAlreadyCreated()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var orders = new FakeOrderRepository { OrderExistsForQuotation = true };
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(new() { Quotations = quotations, Orders = orders, Role = "CUSTOMER" });
 
         var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
 
         Assert.Equal(400, result.Status);
-        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+        Assert.Equal(QuotationErrorCodes.OrderAlreadyCreated, result.ErrorCode);
     }
 
     [Fact]
@@ -586,10 +602,7 @@ public sealed class QuotationServiceTests
         quotations.AddedQuotations.Add(quotation);
         var dispatcher = new FakeNotificationDispatcher();
         var rollbackCalled = false;
-        var service = BuildService(
-            quotations,
-            role: "CUSTOMER",
-            unitOfWork: TestUnitOfWork.ForTransaction(
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER", UnitOfWork = TestUnitOfWork.ForTransaction(
                 _ => Task.CompletedTask,
                 _ => throw new InvalidOperationException("save failed"),
                 _ => Task.CompletedTask,
@@ -597,8 +610,7 @@ public sealed class QuotationServiceTests
                 {
                     rollbackCalled = true;
                     return Task.CompletedTask;
-                }),
-            notifications: dispatcher);
+                }), Notifications = dispatcher });
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.AcceptAsync(quotation.QuotationId, _customerId));
@@ -615,7 +627,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
         quotations.AddedQuotations.Add(quotation);
         var dispatcher = new FakeNotificationDispatcher();
-        var service = BuildService(quotations, role: "CUSTOMER", notifications: dispatcher);
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER", Notifications = dispatcher });
 
         var result = await service.RequestRevisionAsync(
             quotation.QuotationId,
@@ -636,7 +648,7 @@ public sealed class QuotationServiceTests
         var quotation = MakeEntityQuotation(QuotationStatus.SENT);
         var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER" });
 
         var result = await service.RequestRevisionAsync(
             quotation.QuotationId,
@@ -654,7 +666,7 @@ public sealed class QuotationServiceTests
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
         var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER" });
 
         var result = await service.RequestRevisionAsync(
             quotation.QuotationId,
@@ -674,7 +686,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
         quotations.Detail!.QuotationId = quotation.QuotationId;
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
 
@@ -690,7 +702,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
         quotations.Detail!.QuotationId = quotation.QuotationId;
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
 
@@ -705,7 +717,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISED) };
         quotations.Detail!.QuotationId = quotation.QuotationId;
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.CancelAsync(quotation.QuotationId, _salesId);
 
@@ -720,7 +732,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.SENT) };
         quotations.Detail!.QuotationId = quotation.QuotationId;
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "SALES");
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.CancelAsync(quotation.QuotationId, _salesId);
 
@@ -736,7 +748,7 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
         quotations.AddedQuotations.Add(quotation);
         var dispatcher = new FakeNotificationDispatcher();
-        var service = BuildService(quotations, role: "CUSTOMER", notifications: dispatcher);
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER", Notifications = dispatcher });
 
         var result = await service.RejectAsync(
             quotation.QuotationId,
@@ -759,7 +771,7 @@ public sealed class QuotationServiceTests
         var quotation = MakeEntityQuotation(QuotationStatus.SENT);
         var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER" });
 
         var result = await service.RejectAsync(
             quotation.QuotationId,
@@ -777,7 +789,7 @@ public sealed class QuotationServiceTests
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
         var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
         quotations.AddedQuotations.Add(quotation);
-        var service = BuildService(quotations, role: "CUSTOMER");
+        var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER" });
 
         var result = await service.RejectAsync(
             quotation.QuotationId,
@@ -789,23 +801,48 @@ public sealed class QuotationServiceTests
         Assert.Equal(QuotationStatus.EXPIRED, quotation.Status);
     }
 
-    private QuotationService BuildService(
-        FakeQuotationRepository? quotations = null,
-        string role = "ADMIN",
-        ProjectDetailReadModel? project = null,
-        bool projectExists = true,
-        bool hasPendingCustomization = false,
-        FurniSpace.Infrastructure.Persistence.IUnitOfWork? unitOfWork = null,
-        INotificationDispatcher? notifications = null)
+    private sealed class QuotationServiceTestOptions
     {
-        var projectRepository = new FakeProjectRepository(projectExists ? project ?? MakeProject() : null, role);
+        public FakeQuotationRepository Quotations { get; init; } = new();
+
+        public FakeOrderRepository? Orders { get; init; }
+
+        public string Role { get; init; } = "ADMIN";
+
+        public ProjectDetailReadModel? Project { get; init; }
+
+        public bool ProjectExists { get; init; } = true;
+
+        public bool HasPendingCustomization { get; init; }
+
+        public bool OrderExistsForQuotation { get; init; }
+
+        public FurniSpace.Infrastructure.Persistence.IUnitOfWork? UnitOfWork { get; init; }
+
+        public INotificationDispatcher? Notifications { get; init; }
+    }
+
+    private QuotationService BuildService(QuotationServiceTestOptions? options = null)
+    {
+        options ??= new QuotationServiceTestOptions();
+        var orderRepository = options.Orders ?? new FakeOrderRepository
+        {
+            OrderExistsForQuotation = options.OrderExistsForQuotation
+        };
+        var projectRepository = new FakeProjectRepository(
+            options.ProjectExists ? options.Project ?? MakeProject() : null,
+            options.Role);
         ProjectEntity = projectRepository.ProjectEntity;
         return new QuotationService(
-            quotations ?? new FakeQuotationRepository(),
+            options.Quotations,
             projectRepository,
-            new FakeCustomizationRequestRepository(hasPendingCustomization),
-            unitOfWork ?? TestUnitOfWork.Instance,
-            notifications);
+            orderRepository,
+            new FakeCustomizationRequestRepository(options.HasPendingCustomization),
+            new QuotationServiceDependencies(
+                options.UnitOfWork ?? TestUnitOfWork.Instance,
+                new OrderWorkflowSettings { DepositPercent = 30 },
+                options.Notifications,
+                Logger: null));
     }
 
     private Project? ProjectEntity { get; set; }
@@ -1029,6 +1066,47 @@ public sealed class QuotationServiceTests
             return Task.CompletedTask;
         }
         public Task AddOrderItemAsync(OrderItem item, CancellationToken cancellationToken = default)
+        {
+            AddedOrderItems.Add(item);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeOrderRepository : IOrderRepository
+    {
+        public List<Order> AddedOrders { get; } = [];
+        public List<OrderItem> AddedOrderItems { get; } = [];
+        public bool OrderExistsForQuotation { get; set; }
+
+        public IQueryable<Order> Query() => AddedOrders.AsQueryable();
+        public Task<Order?> GetByIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+            => Task.FromResult(AddedOrders.FirstOrDefault(item => item.OrderId == orderId));
+        public Task<IReadOnlyList<Order>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Order>>(AddedOrders);
+        public Task AddAsync(Order order, CancellationToken cancellationToken = default)
+        {
+            AddedOrders.Add(order);
+            return Task.CompletedTask;
+        }
+        public Task AddRangeAsync(IEnumerable<Order> entities, CancellationToken cancellationToken = default)
+        {
+            AddedOrders.AddRange(entities);
+            return Task.CompletedTask;
+        }
+        public void Update(Order order) { }
+        public void Remove(Order order) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel>> GetByProjectAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel>>([]);
+        public Task<Infrastructure.ReadModels.Orders.OrderDetailReadModel?> GetDetailAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Infrastructure.ReadModels.Orders.OrderDetailReadModel?>(null);
+        public Task<bool> ExistsForQuotationAsync(Guid quotationId, CancellationToken cancellationToken = default)
+            => Task.FromResult(OrderExistsForQuotation);
+        public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default)
         {
             AddedOrderItems.Add(item);
             return Task.CompletedTask;

@@ -1,5 +1,7 @@
+using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 
 namespace FurniSpace.API.Cli;
@@ -54,6 +56,17 @@ internal sealed class NoOpProjectChatRealtimeService : IProjectChatRealtimeServi
         _ = projectId;
         _ = chatId;
         _ = message;
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class NoOpPaymentRealtimeService : IPaymentRealtimeService
+{
+    public Task SendPaymentUpdatedAsync(
+        PaymentUpdatedRealtimeDto payload,
+        CancellationToken cancellationToken = default)
+    {
+        _ = payload;
         return Task.CompletedTask;
     }
 }

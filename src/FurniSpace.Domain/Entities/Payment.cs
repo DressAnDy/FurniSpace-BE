@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;

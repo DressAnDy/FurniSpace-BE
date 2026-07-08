@@ -77,6 +77,8 @@ public static class DependencyInjection
         services.AddScoped<IProjectAreaRepository, ProjectAreaRepository>();
         services.AddScoped<IProposalRepository, ProposalRepository>();
         services.AddScoped<IQuotationRepository, QuotationRepository>();
+        services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddScoped<ICustomizationRequestRepository, CustomizationRequestRepository>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepository>();
         services.AddScoped<IRoomPlannerProposalSceneRepository, RoomPlannerProposalSceneRepository>();
@@ -154,7 +156,7 @@ public static class DependencyInjection
         builder.MapEnum<ProductVersionType>("product_version_type", translator);
     }
 
-    private static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
+    private static void AddRedis(this IServiceCollection services, IConfiguration configuration)
     {
         var redisConnection = configuration.GetSection(RedisSettings.SectionName)["ConnectionString"]
             ?? configuration["REDIS_CONNECTION"];
@@ -170,8 +172,6 @@ public static class DependencyInjection
             ConnectionMultiplexer.Connect(redisConnection));
 
         services.AddScoped<ICacheService, RedisCacheService>();
-
-        return services;
     }
 
     private static void AddElasticsearch(this IServiceCollection services, IConfiguration configuration)

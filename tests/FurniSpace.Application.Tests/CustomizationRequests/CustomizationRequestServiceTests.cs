@@ -135,6 +135,131 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
+    public async Task GetProductionQueueAsync_ProductionUserGetsDefaultProductionReviewingQueue()
+    {
+        var ids = CreateIds();
+        var queueItem = CreateQueueItem(ids, CustomizationStatus.PRODUCTION_REVIEWING);
+        var repo = new FakeCustomizationRequestRepository { QueueItems = [queueItem] };
+        var service = CreateService(repo, new FakeProposalRepository(), new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetProductionQueueAsync(
+            ids.ProductionId,
+            new ProductionCustomizationRequestQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(CustomizationStatus.PRODUCTION_REVIEWING, result.Data.Items[0].Status);
+        Assert.Equal("Cafe Project", result.Data.Items[0].Project.ProjectName);
+        Assert.Equal("Cafe Proposal", result.Data.Items[0].Proposal.ProposalName);
+        Assert.Equal("Dining Chair", result.Data.Items[0].ProposalItem.ItemName);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_ProductionUserCanFilterAcceptedRequests()
+    {
+        var ids = CreateIds();
+        var repo = new FakeCustomizationRequestRepository
+        {
+            QueueItems =
+            [
+                CreateQueueItem(ids, CustomizationStatus.PRODUCTION_REVIEWING),
+                CreateQueueItem(ids, CustomizationStatus.ACCEPTED)
+            ]
+        };
+        var service = CreateService(repo, new FakeProposalRepository(), new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetProductionQueueAsync(
+            ids.ProductionId,
+            new ProductionCustomizationRequestQueryDto { Status = "ACCEPTED" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(CustomizationStatus.ACCEPTED, result.Data.Items[0].Status);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_CustomerReturnsForbidden()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new ProductionCustomizationRequestQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_SalesReturnsForbidden()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(SalesRole));
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new ProductionCustomizationRequestQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_DesignerReturnsForbidden()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new ProductionCustomizationRequestQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_AdminWithAllStatusesReturnsAllItems()
+    {
+        var ids = CreateIds();
+        var repo = new FakeCustomizationRequestRepository
+        {
+            QueueItems =
+            [
+                CreateQueueItem(ids, CustomizationStatus.PRODUCTION_REVIEWING),
+                CreateQueueItem(ids, CustomizationStatus.SUBMITTED)
+            ]
+        };
+        var service = CreateService(repo, new FakeProposalRepository(), new FakeProjectRepository(AdminRole));
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new ProductionCustomizationRequestQueryDto { Status = "ALL" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, result.Data!.Items.Count);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_ProductionInvalidStatusReturnsBadRequest()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new ProductionCustomizationRequestQueryDto { Status = "SUBMITTED" });
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
     public async Task GetDetailAsync_AuthorizedUserGetsSnapshot()
     {
         var ids = CreateIds();
@@ -1266,6 +1391,27 @@ public sealed class CustomizationRequestServiceTests
         Status = status
     };
 
+    private static ProductionCustomizationRequestQueueReadModel CreateQueueItem(
+        TestIds ids,
+        CustomizationStatus status) => new()
+    {
+        CustomizationRequestId = Guid.NewGuid(),
+        ProjectId = ids.ProjectId,
+        ProposalId = ids.ProposalId,
+        ProposalItemId = ids.ProposalItemId,
+        RequestTitle = "Change chair material",
+        Status = status,
+        ProjectName = "Cafe Project",
+        CustomerId = ids.CustomerId,
+        AssignedSalesId = ids.SalesId,
+        AssignedDesignerId = ids.DesignerId,
+        ProposalName = "Cafe Proposal",
+        ProposalStatus = ProposalStatus.PUBLISHED,
+        ItemName = "Dining Chair",
+        Quantity = 2,
+        UpdatedAt = DateTime.UtcNow
+    };
+
     private static CustomizationRequestDetailReadModel CreateDetail(
         TestIds ids,
         Guid? customizationRequestId = null,
@@ -1369,6 +1515,7 @@ public sealed class CustomizationRequestServiceTests
     private sealed class FakeCustomizationRequestRepository : ICustomizationRequestRepository
     {
         public IReadOnlyList<CustomizationRequestReadModel> Items { get; init; } = [];
+        public IReadOnlyList<ProductionCustomizationRequestQueueReadModel> QueueItems { get; init; } = [];
         public CustomizationRequestDetailReadModel? Detail { get; init; }
         public Func<CustomizationRequest, CustomizationRequestDetailReadModel>? DetailFactory { get; init; }
         public CustomizationSubmitContextReadModel? SubmitContext { get; init; }
@@ -1429,6 +1576,69 @@ public sealed class CustomizationRequestServiceTests
             Guid proposalId,
             CancellationToken cancellationToken = default)
             => Task.FromResult(false);
+
+        public Task<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>> GetProductionQueueAsync(
+            ProductionCustomizationRequestQueueQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            var result = QueueItems.AsEnumerable();
+            if (query.Statuses is { Count: > 0 })
+            {
+                result = result.Where(
+                    item => item.Status.HasValue && query.Statuses.Contains(item.Status.Value));
+            }
+
+            if (query.ProjectId.HasValue)
+            {
+                result = result.Where(item => item.ProjectId == query.ProjectId.Value);
+            }
+
+            if (query.ProposalId.HasValue)
+            {
+                result = result.Where(item => item.ProposalId == query.ProposalId.Value);
+            }
+
+            if (query.MaterialAvailable.HasValue)
+            {
+                result = result.Where(item => item.MaterialAvailable == query.MaterialAvailable.Value);
+            }
+
+            var items = result
+                .OrderByDescending(item => item.UpdatedAt)
+                .Skip((query.Page - 1) * query.PageSize)
+                .Take(query.PageSize)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>>(items);
+        }
+
+        public Task<int> CountProductionQueueAsync(
+            ProductionCustomizationRequestQueueQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            var result = QueueItems.AsEnumerable();
+            if (query.Statuses is { Count: > 0 })
+            {
+                result = result.Where(
+                    item => item.Status.HasValue && query.Statuses.Contains(item.Status.Value));
+            }
+
+            if (query.ProjectId.HasValue)
+            {
+                result = result.Where(item => item.ProjectId == query.ProjectId.Value);
+            }
+
+            if (query.ProposalId.HasValue)
+            {
+                result = result.Where(item => item.ProposalId == query.ProposalId.Value);
+            }
+
+            if (query.MaterialAvailable.HasValue)
+            {
+                result = result.Where(item => item.MaterialAvailable == query.MaterialAvailable.Value);
+            }
+
+            return Task.FromResult(result.Count());
+        }
 
         public Task AddAsync(CustomizationRequest entity, CancellationToken cancellationToken = default)
         {

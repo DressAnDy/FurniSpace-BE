@@ -20,6 +20,8 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     private const string SalesRole = "SALES";
     private const string DesignerRole = "DESIGNER";
     private const string ProductionRole = "PRODUCTION";
+    private const string AllStatusesFilter = "ALL";
+    private const int MaxProductionQueuePageSize = 100;
     private const string CustomizationReferenceType = "CUSTOMIZATION_REQUEST";
     private const string FeasibleResult = "FEASIBLE";
     private const string NotFeasibleResult = "NOT_FEASIBLE";
@@ -104,6 +106,61 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                     .ToList()
             },
             "Customization requests retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProductionCustomizationRequestListResponseDto>> GetProductionQueueAsync(
+        Guid currentUserId,
+        ProductionCustomizationRequestQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProductionCustomizationRequestListResponseDto>.Unauthorized();
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role is not (ProductionRole or AdminRole))
+        {
+            return ServiceResult<ProductionCustomizationRequestListResponseDto>.Forbidden(
+                "You do not have permission to view the production customization queue.");
+        }
+
+        var paginationError = ValidateProductionQueuePagination(query.Page, query.PageSize);
+        if (paginationError is not null)
+        {
+            return ServiceResult<ProductionCustomizationRequestListResponseDto>.BadRequest(paginationError);
+        }
+
+        var statusFilterError = ResolveProductionQueueStatuses(role, query.Status, out var statuses);
+        if (statusFilterError is not null)
+        {
+            return statusFilterError;
+        }
+
+        var readQuery = new ProductionCustomizationRequestQueueQueryReadModel
+        {
+            Statuses = statuses,
+            ProjectId = query.ProjectId,
+            ProposalId = query.ProposalId,
+            MaterialAvailable = query.MaterialAvailable,
+            FromDate = query.FromDate,
+            ToDate = query.ToDate,
+            Page = query.Page,
+            PageSize = query.PageSize
+        };
+
+        var items = await _customizationRequests.GetProductionQueueAsync(readQuery, cancellationToken);
+        var total = await _customizationRequests.CountProductionQueueAsync(readQuery, cancellationToken);
+
+        return ServiceResult<ProductionCustomizationRequestListResponseDto>.Success(
+            new ProductionCustomizationRequestListResponseDto
+            {
+                Items = items.Select(ToProductionQueueItemDto).ToList(),
+                Page = query.Page,
+                PageSize = query.PageSize,
+                Total = total
+            },
+            "Production customization requests retrieved successfully.");
     }
 
     public async Task<ServiceResult<CustomizationRequestDetailDto>> GetDetailAsync(
@@ -832,6 +889,128 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         return receivers;
+    }
+
+    private static ProductionCustomizationRequestQueueItemDto ToProductionQueueItemDto(
+        ProductionCustomizationRequestQueueReadModel item)
+    {
+        return new ProductionCustomizationRequestQueueItemDto
+        {
+            CustomizationRequestId = item.CustomizationRequestId,
+            ProjectId = item.ProjectId,
+            ProposalId = item.ProposalId,
+            ProposalItemId = item.ProposalItemId,
+            RequestTitle = item.RequestTitle,
+            RequestDescription = item.RequestDescription,
+            RequestedWidth = item.RequestedWidth,
+            RequestedHeight = item.RequestedHeight,
+            RequestedDepth = item.RequestedDepth,
+            RequestedMaterial = item.RequestedMaterial,
+            RequestedColor = item.RequestedColor,
+            RequestedChangeNote = item.RequestedChangeNote,
+            DesignerId = item.DesignerId,
+            DesignerSpecNote = item.DesignerSpecNote,
+            ProductionReviewBy = item.ProductionReviewBy,
+            FeasibilityNote = item.FeasibilityNote,
+            EstimatedProductionDays = item.EstimatedProductionDays,
+            EstimatedAdditionalCost = item.EstimatedAdditionalCost,
+            AdditionalCostReason = item.AdditionalCostReason,
+            MaterialAvailable = item.MaterialAvailable,
+            ProductionRiskNote = item.ProductionRiskNote,
+            Status = item.Status,
+            CustomerAcceptedAt = item.CustomerAcceptedAt,
+            CustomerRejectedAt = item.CustomerRejectedAt,
+            CreatedAt = item.CreatedAt,
+            UpdatedAt = item.UpdatedAt,
+            Project = new ProductionCustomizationProjectSummaryDto
+            {
+                ProjectId = item.ProjectId,
+                ProjectName = item.ProjectName,
+                CustomerId = item.CustomerId,
+                AssignedSalesId = item.AssignedSalesId,
+                AssignedDesignerId = item.AssignedDesignerId
+            },
+            Proposal = new ProductionCustomizationProposalSummaryDto
+            {
+                ProposalId = item.ProposalId,
+                ProposalName = item.ProposalName,
+                Status = item.ProposalStatus
+            },
+            ProposalItem = new ProductionCustomizationProposalItemSummaryDto
+            {
+                ProposalItemId = item.ProposalItemId,
+                ItemName = item.ItemName,
+                ItemType = item.ItemType,
+                Quantity = item.Quantity,
+                Width = item.ItemWidth,
+                Height = item.ItemHeight,
+                Depth = item.ItemDepth,
+                Material = item.ItemMaterial,
+                Color = item.ItemColor,
+                UnitPriceSnapshot = item.UnitPriceSnapshot,
+                TotalPriceSnapshot = item.TotalPriceSnapshot
+            }
+        };
+    }
+
+    private static ServiceResult<ProductionCustomizationRequestListResponseDto>? ResolveProductionQueueStatuses(
+        string? role,
+        string? status,
+        out IReadOnlyList<CustomizationStatus>? statuses)
+    {
+        statuses = null;
+        var normalizedStatus = status?.Trim();
+
+        if (role == ProductionRole)
+        {
+            if (string.IsNullOrWhiteSpace(normalizedStatus))
+            {
+                statuses = [CustomizationStatus.PRODUCTION_REVIEWING];
+                return null;
+            }
+
+            if (!TryParseCustomizationStatus(normalizedStatus, out var parsedStatus) ||
+                !ProductionVisibleStatuses.Contains(parsedStatus))
+            {
+                return ServiceResult<ProductionCustomizationRequestListResponseDto>.BadRequest(
+                    "Status filter is not allowed for production queue.");
+            }
+
+            statuses = [parsedStatus];
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedStatus) ||
+            string.Equals(normalizedStatus, AllStatusesFilter, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (!TryParseCustomizationStatus(normalizedStatus, out var adminStatus))
+        {
+            return ServiceResult<ProductionCustomizationRequestListResponseDto>.BadRequest(
+                "Status filter is invalid.");
+        }
+
+        statuses = [adminStatus];
+        return null;
+    }
+
+    private static bool TryParseCustomizationStatus(string value, out CustomizationStatus status)
+    {
+        return Enum.TryParse(value, true, out status);
+    }
+
+    private static string? ValidateProductionQueuePagination(int page, int pageSize)
+    {
+        if (page <= 0)
+        {
+            return "Page must be greater than zero.";
+        }
+
+        return pageSize is < 1 or > MaxProductionQueuePageSize
+            ? $"Page size must be between 1 and {MaxProductionQueuePageSize}."
+            : null;
     }
 
     private static CustomizationRequestDetailDto ToDetailDto(

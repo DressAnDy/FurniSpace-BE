@@ -107,6 +107,130 @@ public sealed class CustomizationRequestRepository
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>> GetProductionQueueAsync(
+        ProductionCustomizationRequestQueueQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return await ApplyProductionQueueFilters(BuildProductionQueueQuery(), query)
+            .OrderByDescending(request => request.UpdatedAt)
+            .ThenByDescending(request => request.CustomizationRequestId)
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountProductionQueueAsync(
+        ProductionCustomizationRequestQueueQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return ApplyProductionQueueFilters(BuildProductionQueueQuery(), query)
+            .CountAsync(cancellationToken);
+    }
+
+    private IQueryable<ProductionCustomizationRequestQueueReadModel> BuildProductionQueueQuery()
+    {
+        return DbContext.CustomizationRequestSet
+            .Join(
+                DbContext.ProjectSet,
+                request => request.ProjectId,
+                project => project.ProjectId,
+                (request, project) => new { request, project })
+            .Join(
+                DbContext.ProposalSet,
+                joined => joined.request.ProposalId,
+                proposal => proposal.ProposalId,
+                (joined, proposal) => new { joined.request, joined.project, proposal })
+            .Join(
+                DbContext.ProposalItemSet,
+                joined => joined.request.ProposalItemId,
+                item => item.ProposalItemId,
+                (joined, item) => new ProductionCustomizationRequestQueueReadModel
+                {
+                    CustomizationRequestId = joined.request.CustomizationRequestId,
+                    ProjectId = joined.request.ProjectId,
+                    ProposalId = joined.request.ProposalId,
+                    ProposalItemId = joined.request.ProposalItemId,
+                    RequestTitle = joined.request.RequestTitle,
+                    RequestDescription = joined.request.RequestDescription,
+                    RequestedWidth = joined.request.RequestedWidth,
+                    RequestedHeight = joined.request.RequestedHeight,
+                    RequestedDepth = joined.request.RequestedDepth,
+                    RequestedMaterial = joined.request.RequestedMaterial,
+                    RequestedColor = joined.request.RequestedColor,
+                    RequestedChangeNote = joined.request.RequestedChangeNote,
+                    DesignerId = joined.request.DesignerId,
+                    DesignerSpecNote = joined.request.DesignerSpecNote,
+                    ProductionReviewBy = joined.request.ProductionReviewBy,
+                    FeasibilityNote = joined.request.FeasibilityNote,
+                    EstimatedProductionDays = joined.request.EstimatedProductionDays,
+                    EstimatedAdditionalCost = joined.request.EstimatedAdditionalCost,
+                    AdditionalCostReason = joined.request.AdditionalCostReason,
+                    MaterialAvailable = joined.request.MaterialAvailable,
+                    ProductionRiskNote = joined.request.ProductionRiskNote,
+                    Status = joined.request.Status,
+                    CustomerAcceptedAt = joined.request.CustomerAcceptedAt,
+                    CustomerRejectedAt = joined.request.CustomerRejectedAt,
+                    CreatedAt = joined.request.CreatedAt,
+                    UpdatedAt = joined.request.UpdatedAt,
+                    ProjectName = joined.project.ProjectName,
+                    CustomerId = joined.project.CustomerId,
+                    AssignedSalesId = joined.project.AssignedSalesId,
+                    AssignedDesignerId = joined.project.AssignedDesignerId,
+                    ProposalName = joined.proposal.ProposalName,
+                    ProposalStatus = joined.proposal.Status,
+                    ItemName = item.ItemName,
+                    ItemType = item.ItemType,
+                    Quantity = item.Quantity,
+                    ItemWidth = item.Width,
+                    ItemHeight = item.Height,
+                    ItemDepth = item.Depth,
+                    ItemMaterial = item.Material,
+                    ItemColor = item.Color,
+                    UnitPriceSnapshot = item.UnitPriceSnapshot,
+                    TotalPriceSnapshot = item.TotalPriceSnapshot
+                });
+    }
+
+    private static IQueryable<ProductionCustomizationRequestQueueReadModel> ApplyProductionQueueFilters(
+        IQueryable<ProductionCustomizationRequestQueueReadModel> query,
+        ProductionCustomizationRequestQueueQueryReadModel filter)
+    {
+        if (filter.Statuses is { Count: > 0 })
+        {
+            query = query.Where(
+                request => request.Status.HasValue && filter.Statuses.Contains(request.Status.Value));
+        }
+
+        if (filter.ProjectId.HasValue)
+        {
+            query = query.Where(request => request.ProjectId == filter.ProjectId.Value);
+        }
+
+        if (filter.ProposalId.HasValue)
+        {
+            query = query.Where(request => request.ProposalId == filter.ProposalId.Value);
+        }
+
+        if (filter.MaterialAvailable.HasValue)
+        {
+            query = query.Where(request => request.MaterialAvailable == filter.MaterialAvailable.Value);
+        }
+
+        if (filter.FromDate.HasValue)
+        {
+            query = query.Where(
+                request => request.UpdatedAt.HasValue && request.UpdatedAt.Value >= filter.FromDate.Value);
+        }
+
+        if (filter.ToDate.HasValue)
+        {
+            query = query.Where(
+                request => request.UpdatedAt.HasValue && request.UpdatedAt.Value <= filter.ToDate.Value);
+        }
+
+        return query;
+    }
+
     private IQueryable<CustomizationRequestReadModel> BuildListQuery()
     {
         return DbContext.CustomizationRequestSet

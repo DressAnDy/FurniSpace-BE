@@ -297,6 +297,12 @@ public sealed class CustomizationRequestsControllerTests
             return Task.FromResult(ListResult);
         }
 
+        public Task<ServiceResult<ProductionCustomizationRequestListResponseDto>> GetProductionQueueAsync(
+            Guid currentUserId,
+            ProductionCustomizationRequestQueryDto query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductionCustomizationRequestListResponseDto>.Unauthorized());
+
         public Task<ServiceResult<CustomizationRequestDetailDto>> GetDetailAsync(
             Guid customizationRequestId,
             Guid currentUserId,

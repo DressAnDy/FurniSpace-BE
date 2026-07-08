@@ -74,7 +74,12 @@ public static class DependencyInjection
         services.AddScoped<IProjectRepository, ProjectRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IProjectScheduleRepository, ProjectScheduleRepository>();
+        services.AddScoped<IProjectAreaRepository, ProjectAreaRepository>();
         services.AddScoped<IProposalRepository, ProposalRepository>();
+        services.AddScoped<IQuotationRepository, QuotationRepository>();
+        services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IPaymentRepository, PaymentRepository>();
+        services.AddScoped<ICustomizationRequestRepository, CustomizationRequestRepository>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepository>();
         services.AddScoped<IRoomPlannerProposalSceneRepository, RoomPlannerProposalSceneRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -129,10 +134,13 @@ public static class DependencyInjection
         builder.MapEnum<ProposalSceneVariantType>("proposal_scene_variant_type", translator);
         builder.MapEnum<CustomizationStatus>("customization_status", translator);
         builder.MapEnum<QuotationStatus>("quotation_status", translator);
+        builder.MapEnum<QuotationItemType>("quotation_item_type", translator);
         builder.MapEnum<OrderStatus>("order_status", translator);
         builder.MapEnum<OrderItemStatus>("order_item_status", translator);
         builder.MapEnum<PaymentStatus>("payment_status", translator);
         builder.MapEnum<PaymentType>("payment_type", translator);
+        builder.MapEnum<PaymentProvider>("payment_provider", translator);
+        builder.MapEnum<PaymentMethod>("payment_method", translator);
         builder.MapEnum<PaymentTransactionType>("payment_transaction_type", translator);
         builder.MapEnum<PaymentTransactionStatus>("payment_transaction_status", translator);
         builder.MapEnum<ProductionRequestStatus>("production_request_status", translator);
@@ -148,7 +156,7 @@ public static class DependencyInjection
         builder.MapEnum<ProductVersionType>("product_version_type", translator);
     }
 
-    private static IServiceCollection AddRedis(this IServiceCollection services, IConfiguration configuration)
+    private static void AddRedis(this IServiceCollection services, IConfiguration configuration)
     {
         var redisConnection = configuration.GetSection(RedisSettings.SectionName)["ConnectionString"]
             ?? configuration["REDIS_CONNECTION"];
@@ -164,8 +172,6 @@ public static class DependencyInjection
             ConnectionMultiplexer.Connect(redisConnection));
 
         services.AddScoped<ICacheService, RedisCacheService>();
-
-        return services;
     }
 
     private static void AddElasticsearch(this IServiceCollection services, IConfiguration configuration)

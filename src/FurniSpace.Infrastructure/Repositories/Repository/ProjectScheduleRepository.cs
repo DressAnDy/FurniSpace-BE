@@ -179,4 +179,16 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
 
         return query.AnyAsync(cancellationToken);
     }
+
+    public Task<bool> HasAssignedScheduleAsync(
+        Guid projectId,
+        Guid staffId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProjectScheduleSet.AnyAsync(
+            schedule =>
+                schedule.ProjectId == projectId &&
+                schedule.AssignedStaffId == staffId,
+            cancellationToken);
+    }
 }

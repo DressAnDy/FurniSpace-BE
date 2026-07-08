@@ -12,10 +12,17 @@ public enum NotificationType
     ProposalPublished,
     ProposalRevisionRequested,
     ProposalFinalSelected,
+    QuotationSent,
+    QuotationAccepted,
+    QuotationRevisionRequested,
+    QuotationRejected,
+    CustomizationRequestSubmitted,
+    CustomizationDesignerReviewed,
     ProjectFileUploaded,
     ProjectScheduleCreated,
     ProjectScheduleUpdated,
     ProjectScheduleConfirmed,
     ProjectScheduleCompleted,
-    ProjectScheduleCancelled
+    ProjectScheduleCancelled,
+    OrderDepositPaid
 }

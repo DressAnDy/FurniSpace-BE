@@ -37,7 +37,7 @@ public sealed class ProposalsControllerTests
     [InlineData(nameof(ProposalsController.GetScenes), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.GetSceneDetail), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.GetDetail), "CUSTOMER,DESIGNER,SALES,ADMIN")]
-    [InlineData(nameof(ProposalsController.SyncItemsFromScene), "DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(ProposalsController.SyncItemsFromScene), "DESIGNER,ADMIN")]
     [InlineData(nameof(ProposalsController.GetItems), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.UpdateItem), "DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(ProposalsController.DeleteItem), "DESIGNER,SALES,ADMIN")]

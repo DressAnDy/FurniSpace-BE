@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Identity;
 using FurniSpace.Application.DTOs.Auth;
 using FurniSpace.Application.DTOs.Identity;
 using FurniSpace.Application.Interfaces.Identity;
@@ -22,9 +23,7 @@ public sealed class IdentityService : IIdentityService
     private readonly IAuthService _auth;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPasswordHasher<Account> _passwordHasher;
-    private readonly IPasswordResetStore _passwordResetStore;
-    private readonly IEmailOtpStore _emailOtpStore;
-    private readonly IRefreshTokenStore _refreshTokens;
+    private readonly IdentityVerificationStores _verificationStores;
     private readonly IEmailService _email;
     private readonly InfrastructureCacheService _cache;
 
@@ -32,9 +31,7 @@ public sealed class IdentityService : IIdentityService
         IAccountRepository accounts,
         IAuthService auth,
         IPasswordHasher<Account> passwordHasher,
-        IPasswordResetStore passwordResetStore,
-        IEmailOtpStore emailOtpStore,
-        IRefreshTokenStore refreshTokens,
+        IdentityVerificationStores verificationStores,
         IEmailService email,
         InfrastructureCacheService cache,
         IUnitOfWork unitOfWork)
@@ -43,9 +40,7 @@ public sealed class IdentityService : IIdentityService
         _auth = auth;
         _unitOfWork = unitOfWork;
         _passwordHasher = passwordHasher;
-        _passwordResetStore = passwordResetStore;
-        _emailOtpStore = emailOtpStore;
-        _refreshTokens = refreshTokens;
+        _verificationStores = verificationStores;
         _email = email;
         _cache = cache;
     }
@@ -126,7 +121,7 @@ public sealed class IdentityService : IIdentityService
             return ServiceResult<AuthResponseDto>.Conflict("Email is already verified.");
         }
 
-        if (!await _emailOtpStore.ConsumeAsync(email, request.OtpCode, cancellationToken))
+        if (!await _verificationStores.EmailOtpStore.ConsumeAsync(email, request.OtpCode, cancellationToken))
         {
             return ServiceResult<AuthResponseDto>.BadRequest("OTP code is invalid or expired.");
         }
@@ -235,7 +230,7 @@ public sealed class IdentityService : IIdentityService
             return ServiceResult<AuthResponseDto>.BadRequest("Refresh token is required.");
         }
 
-        var userId = await _refreshTokens.ResolveUserIdAsync(request.RefreshToken, cancellationToken);
+        var userId = await _verificationStores.RefreshTokens.ResolveUserIdAsync(request.RefreshToken, cancellationToken);
         if (!userId.HasValue)
         {
             return ServiceResult<AuthResponseDto>.Unauthorized("Refresh token is invalid or expired.");
@@ -279,7 +274,7 @@ public sealed class IdentityService : IIdentityService
         var account = await _accounts.GetByEmailAsync(email, cancellationToken);
         if (account is not null && account.DeletedAt is null)
         {
-            var token = await _passwordResetStore.CreateAsync(account.AccountId, cancellationToken);
+            var token = await _verificationStores.PasswordResetStore.CreateAsync(account.AccountId, cancellationToken);
             await _email.SendPasswordResetAsync(account.Email, account.FullName, token, cancellationToken);
         }
 
@@ -310,7 +305,7 @@ public sealed class IdentityService : IIdentityService
         var account = await _accounts.GetByEmailAsync(email, cancellationToken);
         if (account is null ||
             account.DeletedAt is not null ||
-            !await _passwordResetStore.ConsumeAsync(account.AccountId, request.Token, cancellationToken))
+            !await _verificationStores.PasswordResetStore.ConsumeAsync(account.AccountId, request.Token, cancellationToken))
         {
             return ServiceResult.BadRequest("Reset token is invalid or expired.");
         }
@@ -322,7 +317,7 @@ public sealed class IdentityService : IIdentityService
                 await _unitOfWork.SaveChangesAsync(ct);
             },
             cancellationToken);
-        await _refreshTokens.RevokeAllAsync(account.AccountId, cancellationToken);
+        await _verificationStores.RefreshTokens.RevokeAllAsync(account.AccountId, cancellationToken);
         await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
         return ServiceResult.Success("Password reset successfully.");
     }
@@ -409,7 +404,7 @@ public sealed class IdentityService : IIdentityService
                 await _unitOfWork.SaveChangesAsync(ct);
             },
             cancellationToken);
-        await _refreshTokens.RevokeAllAsync(account.AccountId, cancellationToken);
+        await _verificationStores.RefreshTokens.RevokeAllAsync(account.AccountId, cancellationToken);
         await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
         return ServiceResult.Success("Password changed successfully.");
     }
@@ -440,7 +435,7 @@ public sealed class IdentityService : IIdentityService
 
     private async Task SendVerificationOtpAsync(Account account, CancellationToken cancellationToken)
     {
-        var otpCode = await _emailOtpStore.CreateAsync(account.Email, cancellationToken);
+        var otpCode = await _verificationStores.EmailOtpStore.CreateAsync(account.Email, cancellationToken);
         await _email.SendEmailVerificationOtpAsync(account.Email, account.FullName, otpCode, cancellationToken);
     }
 

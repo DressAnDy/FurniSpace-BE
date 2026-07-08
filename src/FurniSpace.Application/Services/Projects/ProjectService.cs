@@ -1,8 +1,10 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.Projects;
@@ -69,6 +71,7 @@ public sealed class ProjectService : IProjectService
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<ProjectService>? _logger;
     private readonly IProjectChatService? _projectChats;
+    private readonly IPaymentRepository _payments;
 
     public ProjectService(
         IProjectRepository projects,
@@ -82,6 +85,7 @@ public sealed class ProjectService : IProjectService
         _projectChats = dependencies.ProjectChats;
         _search = dependencies.Search;
         _projectSearchIndexer = dependencies.ProjectSearchIndexer;
+        _payments = dependencies.Payments;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(
@@ -960,6 +964,18 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest("Project must have assigned sales before designer assignment.");
         }
 
+        var projectStartFee = await _payments.GetByProjectAndTypeAsync(
+            projectId,
+            PaymentType.PROJECT_START_FEE,
+            cancellationToken);
+        if (!ProjectStartFeeRules.IsEligibleForDesignerAssignment(projectStartFee))
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.Failure(
+                Error.BadRequest(
+                    PaymentErrorCodes.ProjectStartFeeRequired,
+                    "Project start fee must be paid before assigning a designer."));
+        }
+
         if (project.Status != ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT)
         {
             return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest("Project must be waiting for designer assignment.");
@@ -1273,7 +1289,7 @@ public sealed class ProjectService : IProjectService
         }
     }
 
-    private static IReadOnlyList<Guid> GetProjectParticipantIds(Project project)
+    private static List<Guid> GetProjectParticipantIds(Project project)
     {
         var receiverIds = new List<Guid> { project.CustomerId };
 

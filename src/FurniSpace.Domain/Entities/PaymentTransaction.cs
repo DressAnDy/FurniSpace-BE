@@ -13,8 +13,10 @@ public class PaymentTransaction
     public PaymentTransactionType? TransactionType { get; set; }
     public decimal Amount { get; set; }
     public string Currency { get; set; } = "VND";
-    public string? PaymentMethod { get; set; }
+    public PaymentProvider? PaymentProvider { get; set; }
+    public PaymentMethod? PaymentMethod { get; set; }
     public string? ProviderTransactionId { get; set; }
+    public string? ProviderReferenceCode { get; set; }
     public PaymentTransactionStatus? Status { get; set; }
     public DateTime? TransactionTime { get; set; }
     public Guid? ConfirmedBy { get; set; }

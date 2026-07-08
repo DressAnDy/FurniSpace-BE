@@ -7,7 +7,7 @@ public interface IRoomPlannerSceneService
 {
     Task<ServiceResult<RoomPlannerSceneSaveResponseDto>> SaveSceneAsync(
         Guid sceneId,
-        SaveRoomPlannerSceneRequestDto request,
+        RoomPlannerScenePayloadDto request,
         Guid currentUserId,
         string currentUserRole,
         CancellationToken cancellationToken = default);

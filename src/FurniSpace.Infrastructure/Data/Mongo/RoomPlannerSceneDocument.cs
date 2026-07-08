@@ -15,6 +15,9 @@ public sealed class RoomPlannerSceneDocument
     [BsonElement("schemaVersion")]
     public int SchemaVersion { get; set; } = 1;
 
+    [BsonElement("editorVersion")]
+    public string? EditorVersion { get; set; }
+
     [BsonElement("projectId")]
     public Guid? ProjectId { get; set; }
 

@@ -4,6 +4,8 @@ using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using ApplicationRoomPlannerSceneRepository = FurniSpace.Application.Interfaces.RoomPlanner.IRoomPlannerSceneRepository;
 using RoomPlannerSqlSceneRepository = FurniSpace.Infrastructure.Repositories.IRepository.IRoomPlannerProposalSceneRepository;
 
 namespace FurniSpace.Application.Services.RoomPlanner;
@@ -15,23 +17,33 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     private const string DesignerRole = "DESIGNER";
     private const string SalesRole = "SALES";
     private const string SceneNotFoundMessage = "Proposal scene not found.";
+    private const string InvalidSceneDataCode = "INVALID_SCENE_DATA";
+    private const string ProposalNotEditableCode = "PROPOSAL_NOT_EDITABLE";
+    private const string ProposalNotEditableMessage = "Room Planner scene can only be saved for editable proposal.";
+    private const string ProductVersionReferenceType = "PRODUCT_VERSION";
     private readonly RoomPlannerSqlSceneRepository _proposalScenes;
-    private readonly IRoomPlannerSceneRepository _sceneDocuments;
+    private readonly ApplicationRoomPlannerSceneRepository _sceneDocuments;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IProductVersionRepository? _productVersions;
+    private readonly IProjectFileRepository? _projectFiles;
 
     public RoomPlannerSceneService(
         RoomPlannerSqlSceneRepository proposalScenes,
-        IRoomPlannerSceneRepository sceneDocuments,
-        IUnitOfWork unitOfWork)
+        ApplicationRoomPlannerSceneRepository sceneDocuments,
+        IUnitOfWork unitOfWork,
+        IProductVersionRepository? productVersions = null,
+        IProjectFileRepository? projectFiles = null)
     {
         _proposalScenes = proposalScenes;
         _sceneDocuments = sceneDocuments;
         _unitOfWork = unitOfWork;
+        _productVersions = productVersions;
+        _projectFiles = projectFiles;
     }
 
     public async Task<ServiceResult<RoomPlannerSceneSaveResponseDto>> SaveSceneAsync(
         Guid sceneId,
-        SaveRoomPlannerSceneRequestDto request,
+        RoomPlannerScenePayloadDto request,
         Guid currentUserId,
         string currentUserRole,
         CancellationToken cancellationToken = default)
@@ -62,11 +74,17 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             return ServiceResult<RoomPlannerSceneSaveResponseDto>.Forbidden("You do not have access to save this room planner scene.");
         }
 
-        if (context.ProposalStatus != ProposalStatus.DRAFT)
+        if (!IsEditableProposal(context.ProposalStatus))
         {
             return ServiceResult<RoomPlannerSceneSaveResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROPOSAL_STATUS",
-                "Room Planner scene can only be saved for draft proposal."));
+                ProposalNotEditableCode,
+                ProposalNotEditableMessage));
+        }
+
+        var sceneReferenceError = await ValidateSceneReferencesAsync(request, context.ProjectId, cancellationToken);
+        if (sceneReferenceError is not null)
+        {
+            return ServiceResult<RoomPlannerSceneSaveResponseDto>.Failure(sceneReferenceError);
         }
 
         var now = DateTime.UtcNow;
@@ -145,13 +163,14 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
     private static RoomPlannerSceneDocument BuildDocument(
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
-        SaveRoomPlannerSceneRequestDto request,
+        RoomPlannerScenePayloadDto request,
         Guid currentUserId,
         DateTime now)
     {
         return new RoomPlannerSceneDocument
         {
             SchemaVersion = request.SchemaVersion,
+            EditorVersion = request.EditorVersion,
             SqlSceneId = context.SceneId,
             ProposalId = context.ProposalId,
             ProjectId = context.ProjectId,
@@ -182,7 +201,11 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         {
             SceneId = context.SceneId,
             MongoSceneId = null,
+            ProposalId = context.ProposalId,
+            ProjectId = context.ProjectId,
+            ProjectAreaId = context.ProjectAreaId,
             SchemaVersion = 2,
+            EditorVersion = "ROOM_PLANNER_BABYLON_V1",
             Unit = "meter",
             Layout = new RoomPlannerLayoutDocument(),
             Objects = [],
@@ -198,7 +221,11 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         {
             SceneId = sceneId,
             MongoSceneId = document.Id,
+            ProposalId = document.ProposalId,
+            ProjectId = document.ProjectId,
+            ProjectAreaId = document.ProjectAreaId,
             SchemaVersion = document.SchemaVersion,
+            EditorVersion = document.EditorVersion,
             Unit = document.Unit,
             Layout = document.Layout,
             Objects = document.Objects,
@@ -221,12 +248,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             return true;
         }
 
-        if (IsRole(role, CustomerRole))
-        {
-            return false;
-        }
-
-        return IsAssignedStaff(context, currentUserId, role);
+        return IsRole(role, DesignerRole) && context.AssignedDesignerId == currentUserId;
     }
 
     private static bool CanViewScene(
@@ -259,6 +281,75 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             or ProposalStatus.VIEWED
             or ProposalStatus.SELECTED
             or ProposalStatus.REVISION_REQUESTED;
+    }
+
+    private static bool IsEditableProposal(ProposalStatus? status)
+    {
+        return status is ProposalStatus.DRAFT or ProposalStatus.REVISION_REQUESTED;
+    }
+
+    private async Task<Error?> ValidateSceneReferencesAsync(
+        RoomPlannerScenePayloadDto request,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        if (_productVersions is null)
+        {
+            return null;
+        }
+
+        var productVersionIds = request.Objects
+            .Select(sceneObject => sceneObject.ProductVersionId)
+            .Distinct()
+            .ToList();
+
+        if (productVersionIds.Any(productVersionId => productVersionId == Guid.Empty))
+        {
+            return Error.BadRequest(InvalidSceneDataCode, "Scene object product version id is required.");
+        }
+
+        var validProductVersions = await _productVersions.GetValidDetailsAsync(
+            productVersionIds,
+            projectId,
+            cancellationToken);
+
+        if (validProductVersions.Count != productVersionIds.Count)
+        {
+            return Error.BadRequest(InvalidSceneDataCode, "One or more scene object product versions are invalid.");
+        }
+
+        return await ValidateModelFileLinksAsync(request, cancellationToken);
+    }
+
+    private async Task<Error?> ValidateModelFileLinksAsync(
+        RoomPlannerScenePayloadDto request,
+        CancellationToken cancellationToken)
+    {
+        var objectsWithModelFiles = request.Objects
+            .Where(sceneObject => sceneObject.ModelSnapshot?.ModelFileId.HasValue == true)
+            .ToList();
+        if (objectsWithModelFiles.Count == 0 || _projectFiles is null)
+        {
+            return null;
+        }
+
+        foreach (var sceneObject in objectsWithModelFiles)
+        {
+            var fileLinks = await _projectFiles.GetFileLinkEntitiesByFileIdAsync(
+                sceneObject.ModelSnapshot!.ModelFileId!.Value,
+                cancellationToken);
+            var hasValidModelLink = fileLinks.Any(link =>
+                string.Equals(link.ReferenceType, ProductVersionReferenceType, StringComparison.OrdinalIgnoreCase) &&
+                link.ReferenceId == sceneObject.ProductVersionId &&
+                link.FileType == FileType.MODEL_3D);
+
+            if (!hasValidModelLink)
+            {
+                return Error.BadRequest(InvalidSceneDataCode, "Scene object model file is invalid.");
+            }
+        }
+
+        return null;
     }
 
     private static bool IsRole(string role, string expectedRole) =>

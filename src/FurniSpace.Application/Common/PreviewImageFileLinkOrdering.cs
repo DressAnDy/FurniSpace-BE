@@ -1,5 +1,6 @@
 using FurniSpace.Application.DTOs.ProductVersions;
-using FurniSpace.Application.DTOs.Products;using FurniSpace.Domain.Entities;
+using FurniSpace.Application.DTOs.Products;
+using FurniSpace.Domain.Entities;
 
 namespace FurniSpace.Application.Common;
 
@@ -106,6 +107,19 @@ internal static class PreviewImageFileLinkOrdering
         {
             throw new InvalidOperationException(validationMessage);
         }
+    }
+
+    public static List<FileLink> MergePendingPreviewLink(
+        IReadOnlyList<FileLink> queriedLinks,
+        FileLink pendingLink)
+    {
+        var mergedLinks = queriedLinks.ToList();
+        if (mergedLinks.All(link => link.FileId != pendingLink.FileId))
+        {
+            mergedLinks.Add(pendingLink);
+        }
+
+        return mergedLinks;
     }
 
     public static bool TryBuildExactReorderMap(

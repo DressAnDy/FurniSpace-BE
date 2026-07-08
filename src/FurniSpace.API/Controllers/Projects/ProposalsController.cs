@@ -139,7 +139,7 @@ public sealed class ProposalsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [Authorize(Roles = "DESIGNER,ADMIN")]
     [HttpPost("proposals/{proposalId:guid}/items/sync-from-scene")]
     public async Task<IActionResult> SyncItemsFromScene(
         Guid proposalId,

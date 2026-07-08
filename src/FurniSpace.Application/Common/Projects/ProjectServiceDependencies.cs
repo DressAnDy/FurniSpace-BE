@@ -4,6 +4,7 @@ using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
+using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Logging;
 
 namespace FurniSpace.Application.Common.Projects;
@@ -15,4 +16,5 @@ public sealed record ProjectServiceDependencies(
     ILogger<ProjectService>? Logger,
     IProjectChatService? ProjectChats,
     ISearchIndexService? Search,
-    IProjectSearchIndexer? ProjectSearchIndexer);
+    IProjectSearchIndexer? ProjectSearchIndexer,
+    IPaymentRepository Payments);

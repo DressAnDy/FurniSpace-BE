@@ -4,6 +4,7 @@ public sealed class RoomPlannerSceneDocument
 {
     public string? Id { get; set; }
     public int SchemaVersion { get; set; } = 1;
+    public string? EditorVersion { get; set; }
     public Guid SqlSceneId { get; set; }
     public Guid ProposalId { get; set; }
     public Guid ProjectId { get; set; }

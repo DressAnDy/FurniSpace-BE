@@ -518,13 +518,14 @@ public sealed class ProductService : IProductService
                     await _files.AddAsync(storedFile, ct);
                     await _files.AddFileLinkAsync(fileLink, ct);
 
-                    var allPreviewLinks = (await _files.GetProductPreviewFileLinkEntitiesAsync(productId, ct))
-                        .ToList();
+                    var allPreviewLinks = PreviewImageFileLinkOrdering.MergePendingPreviewLink(
+                        await _files.GetProductPreviewFileLinkEntitiesAsync(productId, ct),
+                        fileLink);
                     PreviewImageFileLinkOrdering.NormalizeDisplayOrdersAndPrimary(allPreviewLinks);
                     PreviewImageFileLinkOrdering.EnsureUniquePositiveDisplayOrders(allPreviewLinks);
                     await _unitOfWork.SaveChangesAsync(ct);
 
-                    var uploadedLink = allPreviewLinks.Single(link => link.FileId == fileId);
+                    var uploadedLink = allPreviewLinks.First(link => link.FileId == fileId);
                     return ServiceResult<CatalogFileUploadResponseDto>.Created(
                         CatalogFileUploadResponseMapper.FromUpload(new CatalogFileUploadResponseContext
                         {

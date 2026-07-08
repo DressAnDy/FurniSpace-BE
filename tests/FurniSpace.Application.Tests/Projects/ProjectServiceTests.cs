@@ -9,6 +9,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.Search;
@@ -38,7 +39,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            projectChats: projectChats);
+            new() { ProjectChats = projectChats });
 
         var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
         {
@@ -80,7 +81,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.Instance,
-            projectChats: projectChats);
+            new() { ProjectChats = projectChats });
 
         var result = await service.AssignDesignerAsync(projectId, Guid.NewGuid(), new AssignProjectDesignerRequestDto
         {
@@ -225,6 +226,34 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task AssignDesignerAsync_WithoutPaidProjectStartFee_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var payments = new FakeProjectPaymentRepository
+        {
+            ProjectStartFeePayment = new Payment
+            {
+                PaymentId = Guid.NewGuid(),
+                PaymentType = PaymentType.PROJECT_START_FEE,
+                Status = PaymentStatus.PENDING
+            }
+        };
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: CreateDesigner());
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            new() { Payments = payments });
+
+        var result = await service.AssignDesignerAsync(projectId, salesId, ValidAssignDesignerRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.ProjectStartFeeRequired, result.ErrorCode);
+        Assert.Equal(0, repository.GetActiveDesignerCallCount);
+    }
+
+    [Fact]
     public async Task AssignDesignerAsync_WithInvalidProjectStatus_ReturnsBadRequest()
     {
         var salesId = Guid.NewGuid();
@@ -236,7 +265,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.Instance,
-            projectChats: projectChats);
+            new() { ProjectChats = projectChats });
 
         var result = await service.AssignDesignerAsync(projectId, salesId, ValidAssignDesignerRequest());
 
@@ -275,7 +304,7 @@ public sealed class ProjectServiceTests
         var dispatcher = new FakeNotificationDispatcher();
         var projectChats = new FakeProjectChatService();
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher, projectChats: projectChats);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher, ProjectChats = projectChats });
 
         var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
         {
@@ -305,7 +334,7 @@ public sealed class ProjectServiceTests
         var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
         var projectChats = new FakeProjectChatService();
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher, projectChats: projectChats);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher, ProjectChats = projectChats });
 
         var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
         {
@@ -355,7 +384,7 @@ public sealed class ProjectServiceTests
                 rollbackCallCount++;
                 return Task.CompletedTask;
             });
-        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, dispatcher, projectChats: projectChats);
+        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, new() { Dispatcher = dispatcher, ProjectChats = projectChats });
 
         var result = await service.AssignDesignerAsync(
             projectId,
@@ -398,7 +427,7 @@ public sealed class ProjectServiceTests
                 rollbackCallCount++;
                 return Task.CompletedTask;
             });
-        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, dispatcher, projectChats: projectChats);
+        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, new() { Dispatcher = dispatcher, ProjectChats = projectChats });
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.AssignDesignerAsync(
@@ -444,7 +473,7 @@ public sealed class ProjectServiceTests
                 rollbackCallCount++;
                 return Task.CompletedTask;
             });
-        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, dispatcher, projectChats: projectChats);
+        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, new() { Dispatcher = dispatcher, ProjectChats = projectChats });
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.AssignDesignerAsync(
@@ -670,7 +699,7 @@ public sealed class ProjectServiceTests
         project.AssignedDesignerId = designerId;
         var dispatcher = new FakeNotificationDispatcher();
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.UpdateStatusAsync(projectId, salesId, ValidStatusRequest());
 
@@ -698,7 +727,7 @@ public sealed class ProjectServiceTests
         project.AssignedDesignerId = sharedAccountId;
         var dispatcher = new FakeNotificationDispatcher();
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.UpdateStatusAsync(projectId, sharedAccountId, ValidStatusRequest());
 
@@ -715,7 +744,7 @@ public sealed class ProjectServiceTests
         var project = CreateQualifiedProject(projectId, salesId);
         var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.UpdateStatusAsync(projectId, salesId, ValidStatusRequest());
 
@@ -742,6 +771,134 @@ public sealed class ProjectServiceTests
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
         Assert.Equal(ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT, result.Data.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesigner_MovesDesignStatus()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.SPACE_VERIFIED;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.PROPOSAL_DRAFTING,
+            Note = "Designer starts drafting proposal after space verification."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, result.Data.OldStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, result.Data.NewStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithUnassignedDesigner_ReturnsForbidden()
+    {
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = Guid.NewGuid();
+        project.Status = ProjectStatus.SPACE_VERIFIED;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(projectId, Guid.NewGuid(), new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.PROPOSAL_DRAFTING
+        });
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.Forbidden, result.ErrorCode);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToSpaceVerified_Succeeds()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.MEASUREMENT_REQUIRED;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.SPACE_VERIFIED,
+            Note = "Measurement completed and space verified."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerResumingAfterRevision_Succeeds()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.REVISION_REQUESTED;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.PROPOSAL_DRAFTING,
+            Note = "Designer resumes drafting after customer revision request."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToQuotation_ReturnsForbidden()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.PROPOSAL_DRAFTING;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.QUOTATION_SENT
+        });
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatus, result.ErrorCode);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToInProduction_ReturnsForbidden()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        project.AssignedDesignerId = designerId;
+        project.Status = ProjectStatus.PROPOSAL_DRAFTING;
+        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
+        {
+            Status = ProjectStatus.IN_PRODUCTION
+        });
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatus, result.ErrorCode);
+        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
     }
 
     [Fact]
@@ -896,7 +1053,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            transitionFakes: transitionFakes);
+            new() { TransitionFakes = transitionFakes });
 
         var result = await service.UpdateStatusAsync(projectId, salesId, new UpdateProjectStatusRequestDto
         {
@@ -924,7 +1081,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.Instance,
-            transitionFakes: new ProjectServiceTransitionFakes());
+            new() { TransitionFakes = new ProjectServiceTransitionFakes() });
 
         var result = await service.UpdateStatusAsync(projectId, salesId, new UpdateProjectStatusRequestDto
         {
@@ -955,7 +1112,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.Instance,
-            transitionFakes: transitionFakes);
+            new() { TransitionFakes = transitionFakes });
 
         var result = await service.UpdateStatusAsync(projectId, salesId, new UpdateProjectStatusRequestDto
         {
@@ -982,7 +1139,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            transitionFakes: transitionFakes);
+            new() { TransitionFakes = transitionFakes });
 
         var result = await service.UpdateStatusAsync(projectId, salesId, new UpdateProjectStatusRequestDto
         {
@@ -1045,10 +1202,7 @@ public sealed class ProjectServiceTests
         project.Status = ProjectStatus.IN_CONSULTATION;
         var dispatcher = new FakeNotificationDispatcher();
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
-        var service = ProjectServiceTestFactory.Create(
-            repository,
-            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.RejectAsync(projectId, salesId, ValidRejectRequest());
 
@@ -1094,7 +1248,7 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.NEED_BASIC_INFORMATION
         };
         var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
         var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30);
 
         var result = await service.UpdateBasicInformationAsync(projectId, customerId, new UpdateProjectBasicInformationRequestDto
@@ -1181,7 +1335,7 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.NEED_BASIC_INFORMATION
         };
         var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.UpdateBasicInformationAsync(projectId, customerId, ValidBasicInformationRequest());
 
@@ -1205,7 +1359,7 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.NEED_BASIC_INFORMATION
         };
         var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.UpdateBasicInformationAsync(projectId, customerId, ValidBasicInformationRequest());
 
@@ -1619,7 +1773,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            projectChats: projectChats);
+            new() { ProjectChats = projectChats });
 
         var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto
         {
@@ -1666,7 +1820,7 @@ public sealed class ProjectServiceTests
         };
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
         var projectChats = new FakeProjectChatService();
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher, projectChats: projectChats);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher, ProjectChats = projectChats });
 
         var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto());
 
@@ -1698,7 +1852,7 @@ public sealed class ProjectServiceTests
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
         var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
         var projectChats = new FakeProjectChatService();
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher, projectChats: projectChats);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher, ProjectChats = projectChats });
 
         var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto());
 
@@ -1747,7 +1901,7 @@ public sealed class ProjectServiceTests
                 rollbackCallCount++;
                 return Task.CompletedTask;
             });
-        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, dispatcher, projectChats: projectChats);
+        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, new() { Dispatcher = dispatcher, ProjectChats = projectChats });
 
         var result = await service.AssignSalesAsync(
             projectId,
@@ -1798,7 +1952,7 @@ public sealed class ProjectServiceTests
                 rollbackCallCount++;
                 return Task.CompletedTask;
             });
-        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, dispatcher, projectChats: projectChats);
+        var service = ProjectServiceTestFactory.Create(repository, unitOfWork, new() { Dispatcher = dispatcher, ProjectChats = projectChats });
 
         var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto()));
@@ -1828,7 +1982,7 @@ public sealed class ProjectServiceTests
             Status = ProjectStatus.IN_CONSULTATION
         };
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.RequestInformationAsync(projectId, salesId, new RequestProjectInformationRequestDto
         {
@@ -1862,7 +2016,7 @@ public sealed class ProjectServiceTests
         };
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
         var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.RequestInformationAsync(projectId, salesId, new RequestProjectInformationRequestDto
         {
@@ -1894,7 +2048,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
-            projectChats: projectChats);
+            new() { ProjectChats = projectChats });
 
         var result = await service.AssignSalesAsync(projectId, adminId, new AssignProjectSalesRequestDto());
 
@@ -1924,7 +2078,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.Instance,
-            projectChats: projectChats);
+            new() { ProjectChats = projectChats });
 
         var result = await service.AssignSalesAsync(projectId, salesId, new AssignProjectSalesRequestDto());
 
@@ -2033,7 +2187,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.Instance,
-            projectChats: projectChats);
+            new() { ProjectChats = projectChats });
 
         var result = await service.AssignSalesAsync(projectId, Guid.NewGuid(), new AssignProjectSalesRequestDto());
 
@@ -2254,7 +2408,7 @@ public sealed class ProjectServiceTests
         var service = ProjectServiceTestFactory.Create(
             repository,
             TestUnitOfWork.Instance,
-            search: new ThrowingSearchIndexService());
+            new() { Search = new ThrowingSearchIndexService() });
 
         var result = await service.GetListAsync(Guid.NewGuid(), new ProjectListQueryDto
         {
@@ -2503,7 +2657,7 @@ public sealed class ProjectServiceTests
             roleName: "CUSTOMER",
             receiverIds: [salesId, adminId],
             accountFullName: "Moc Owner");
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.CreateAsync(customerId, ValidRequest());
 
@@ -2531,7 +2685,7 @@ public sealed class ProjectServiceTests
             receiverIds: [Guid.NewGuid()],
             accountFullName: "Moc Owner");
         var dispatcher = new FakeNotificationDispatcher(throwOnDispatch: true);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), dispatcher);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync), new() { Dispatcher = dispatcher });
 
         var result = await service.CreateAsync(Guid.NewGuid(), ValidRequest());
 

@@ -35,12 +35,12 @@ public sealed class ProjectSchedulesControllerTests
     }
 
     [Fact]
-    public void Create_RequiresSalesAndAdminRoles()
+    public void Create_RequiresSalesProductionAndAdminRoles()
     {
         var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.Create));
 
         Assert.NotNull(attr);
-        Assert.Equal("SALES,ADMIN", attr.Roles);
+        Assert.Equal("SALES,PRODUCTION,ADMIN", attr.Roles);
     }
 
     [Fact]
@@ -49,16 +49,16 @@ public sealed class ProjectSchedulesControllerTests
         var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.GetList));
 
         Assert.NotNull(attr);
-        Assert.Equal("CUSTOMER,SALES,DESIGNER,ADMIN", attr.Roles);
+        Assert.Equal("CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN", attr.Roles);
     }
 
     [Fact]
-    public void GetMyAssigned_RequiresSalesDesignerAndAdminRoles()
+    public void GetMyAssigned_RequiresSalesDesignerProductionAndAdminRoles()
     {
         var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.GetMyAssigned));
 
         Assert.NotNull(attr);
-        Assert.Equal("SALES,DESIGNER,ADMIN", attr.Roles);
+        Assert.Equal("SALES,DESIGNER,PRODUCTION,ADMIN", attr.Roles);
     }
 
     [Fact]
@@ -67,25 +67,34 @@ public sealed class ProjectSchedulesControllerTests
         var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.GetDetail));
 
         Assert.NotNull(attr);
-        Assert.Equal("CUSTOMER,SALES,DESIGNER,ADMIN", attr.Roles);
+        Assert.Equal("CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN", attr.Roles);
     }
 
     [Fact]
-    public void Update_RequiresSalesAndAdminRoles()
+    public void Update_RequiresSalesProductionAndAdminRoles()
     {
         var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.Update));
 
         Assert.NotNull(attr);
-        Assert.Equal("SALES,ADMIN", attr.Roles);
+        Assert.Equal("SALES,PRODUCTION,ADMIN", attr.Roles);
     }
 
     [Fact]
-    public void UpdateStatus_RequiresCustomerSalesAndAdminRoles()
+    public void UpdateStatus_RequiresCustomerSalesProductionAndAdminRoles()
     {
         var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.UpdateStatus));
 
         Assert.NotNull(attr);
-        Assert.Equal("CUSTOMER,SALES,ADMIN", attr.Roles);
+        Assert.Equal("CUSTOMER,SALES,PRODUCTION,ADMIN", attr.Roles);
+    }
+
+    [Fact]
+    public void Delete_RequiresSalesProductionAndAdminRoles()
+    {
+        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.Delete));
+
+        Assert.NotNull(attr);
+        Assert.Equal("SALES,PRODUCTION,ADMIN", attr.Roles);
     }
 
     // ── Create endpoint ──────────────────────────────────────────────────────────
@@ -239,6 +248,22 @@ public sealed class ProjectSchedulesControllerTests
         Assert.IsType<UnauthorizedResult>(actionResult);
     }
 
+    [Fact]
+    public async Task Delete_PassesScheduleIdAndUserId_ToService()
+    {
+        var userId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var service = new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto()));
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.Delete(scheduleId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(scheduleId, service.LastScheduleId);
+        Assert.Equal(userId, service.LastCurrentUserId);
+    }
+
     // ── GetMyAssigned endpoint ───────────────────────────────────────────────────
 
     [Fact]
@@ -373,6 +398,16 @@ public sealed class ProjectSchedulesControllerTests
 
         public Task<ServiceResult<ProjectScheduleDto>> UpdateStatusAsync(
             Guid scheduleId, Guid currentUserId, UpdateProjectScheduleStatusRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            LastScheduleId = scheduleId;
+            LastCurrentUserId = currentUserId;
+            return Task.FromResult(_singleResult);
+        }
+
+        public Task<ServiceResult<ProjectScheduleDto>> DeleteAsync(
+            Guid scheduleId,
+            Guid currentUserId,
             CancellationToken cancellationToken = default)
         {
             LastScheduleId = scheduleId;

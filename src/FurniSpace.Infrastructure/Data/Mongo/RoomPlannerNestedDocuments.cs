@@ -17,7 +17,9 @@ public sealed class RoomPlannerLayoutDocument
 
 public sealed class RoomPlannerPoint2Document
 {
+    public string? PointId { get; set; }
     public decimal X { get; set; }
+    public decimal? Y { get; set; }
     public decimal Z { get; set; }
 }
 
@@ -38,18 +40,22 @@ public sealed class RoomPlannerOpeningDocument : RoomPlannerOpeningBase
 
 public sealed class RoomPlannerFloorDocument
 {
+    public string? MaterialId { get; set; }
     public string? Color { get; set; }
     public string? MaterialCode { get; set; }
     public Guid? TextureFileId { get; set; }
+    public string? TextureUrlSnapshot { get; set; }
     public decimal? Rotation { get; set; }
     public decimal? Scale { get; set; }
 }
 
 public sealed class RoomPlannerStyleDocument
 {
+    public string? MaterialId { get; set; }
     public string? Color { get; set; }
     public string? MaterialCode { get; set; }
     public Guid? TextureFileId { get; set; }
+    public string? TextureUrlSnapshot { get; set; }
     public decimal? TextureRotation { get; set; }
     public decimal? TextureScale { get; set; }
 }
@@ -64,8 +70,19 @@ public sealed class RoomPlannerObjectDocument
     public RoomPlannerObjectDocument()
     {
         Transform = new RoomPlannerTransformDocument();
+        Placement = new RoomPlannerPlacementDocument();
         DimensionsSnapshot = new RoomPlannerDimensionsSnapshotDocument();
     }
+
+    public RoomPlannerPlacementDocument Placement { get; set; }
+}
+
+public sealed class RoomPlannerPlacementDocument
+{
+    public string Mode { get; set; } = "FLOOR";
+    public decimal? HeightOffset { get; set; }
+    public string? SupportObjectId { get; set; }
+    public string? MountedWallId { get; set; }
 }
 
 public sealed class RoomPlannerTransformDocument
@@ -92,6 +109,8 @@ public sealed class RoomPlannerDimensionsSnapshotDocument
 
 public sealed class RoomPlannerVisualSnapshotDocument
 {
+    public Guid? ThumbnailFileId { get; set; }
+    public string? ThumbnailUrlSnapshot { get; set; }
     public string? Material { get; set; }
     public string? Color { get; set; }
     public string? Finish { get; set; }
@@ -101,6 +120,7 @@ public sealed class RoomPlannerModelSnapshotDocument
 {
     public Guid? ModelFileId { get; set; }
     public string? Format { get; set; }
+    public string? ModelUrlSnapshot { get; set; }
 }
 
 public sealed class RoomPlannerCameraDocument

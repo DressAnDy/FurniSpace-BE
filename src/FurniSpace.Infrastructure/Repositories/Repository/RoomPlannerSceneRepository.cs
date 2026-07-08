@@ -98,10 +98,6 @@ public sealed class RoomPlannerSceneRepository : IRoomPlannerSceneRepository
         {
             return await operation().ConfigureAwait(false);
         }
-        catch (MongoRoomPlannerException)
-        {
-            throw;
-        }
         catch (MongoWriteException exception) when (exception.WriteError.Category == ServerErrorCategory.DuplicateKey)
         {
             throw new MongoRoomPlannerException(

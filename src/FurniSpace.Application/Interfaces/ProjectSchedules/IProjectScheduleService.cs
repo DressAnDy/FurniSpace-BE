@@ -34,6 +34,11 @@ public interface IProjectScheduleService
         UpdateProjectScheduleStatusRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectScheduleDto>> DeleteAsync(
+        Guid scheduleId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectScheduleListResponseDto>> GetMyAssignedAsync(
         Guid currentUserId,
         ProjectScheduleListQueryDto query,

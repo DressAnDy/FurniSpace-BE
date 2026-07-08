@@ -7,4 +7,6 @@ public sealed class ProjectWorkflowSettings
     public bool RequireMeasurementFileOnScheduleComplete { get; set; }
 
     public bool RequireMeasurementFileOnProposalDrafting { get; set; }
+
+    public decimal DefaultProjectStartFeeAmount { get; set; } = 2_000_000m;
 }

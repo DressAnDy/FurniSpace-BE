@@ -1,33 +1,47 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.Identity;
+using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.Common.Quotations;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.Categories;
+using FurniSpace.Application.Interfaces.CustomizationRequests;
 using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
 using FurniSpace.Application.Interfaces.Proposals;
+using FurniSpace.Application.Interfaces.Quotations;
 using FurniSpace.Application.Interfaces.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
+using FurniSpace.Application.Interfaces.ProjectAreas;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
+using FurniSpace.Application.Interfaces.Orders;
+using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Accounts;
 using FurniSpace.Application.Services.Search;
 using FurniSpace.Application.Services.Categories;
+using FurniSpace.Application.Services.CustomizationRequests;
 using FurniSpace.Application.Services.Identity;
 using FurniSpace.Application.Services.Notifications;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Services.Proposals;
+using FurniSpace.Application.Services.Quotations;
 using FurniSpace.Application.Services.ProjectFiles;
 using FurniSpace.Application.Services.ProjectChats;
 using FurniSpace.Application.Services.ProjectChatMessages;
+using FurniSpace.Application.Services.ProjectAreas;
 using FurniSpace.Application.Services.ProjectSchedules;
+using FurniSpace.Application.Services.Orders;
+using FurniSpace.Application.Services.Payments;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Services.RoomPlanner;
 using FurniSpace.Domain.Entities;
@@ -41,6 +55,7 @@ using Microsoft.Extensions.Options;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
+using PaymentRepository = FurniSpace.Infrastructure.Repositories.IRepository.IPaymentRepository;
 
 namespace FurniSpace.Application;
 
@@ -51,6 +66,25 @@ public static class DependencyInjection
         TypeAdapterConfig.GlobalSettings.Scan(Assembly.GetExecutingAssembly());
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.Configure<ProjectWorkflowSettings>(configuration.GetSection(ProjectWorkflowSettings.SectionName));
+        services.Configure<OrderWorkflowSettings>(configuration.GetSection(OrderWorkflowSettings.SectionName));
+        services.PostConfigure<OrderWorkflowSettings>(settings =>
+        {
+            if (int.TryParse(configuration["ORDER_DEPOSIT_PERCENT"], out var depositPercent))
+            {
+                settings.DepositPercent = depositPercent;
+            }
+        });
+        services.PostConfigure<ProjectWorkflowSettings>(settings =>
+        {
+            if (decimal.TryParse(configuration["PROJECT_START_FEE_AMOUNT"], out var projectStartFeeAmount))
+            {
+                settings.DefaultProjectStartFeeAmount = projectStartFeeAmount;
+            }
+        });
+        services.Configure<SePayOptions>(configuration.GetSection(SePayOptions.SectionName));
+        services.PostConfigure<SePayOptions>(options => SePayOptionsConfiguration.ApplyEnvironmentOverrides(options, configuration));
+        services.Configure<PayOsOptions>(configuration.GetSection(PayOsOptions.SectionName));
+        services.PostConfigure<PayOsOptions>(options => PayOsOptionsConfiguration.ApplyEnvironmentOverrides(options, configuration));
         services.PostConfigure<JwtSettings>(settings =>
         {
             if (string.IsNullOrWhiteSpace(settings.SecretKey))
@@ -66,7 +100,25 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductPreviewImageService, ProductPreviewImageService>();
         services.AddScoped<IProductVersionService, ProductVersionService>();
+        services.AddScoped<ProposalServiceDependencies>(sp =>
+        {
+            return new ProposalServiceDependencies(
+                sp.GetService<IRoomPlannerSceneRepository>(),
+                sp.GetService<INotificationDispatcher>(),
+                sp.GetService<ILogger<ProposalService>>(),
+                sp.GetService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>());
+        });
         services.AddScoped<IProposalService, ProposalService>();
+        services.AddScoped<QuotationServiceDependencies>(sp =>
+        {
+            return new QuotationServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<IOptions<OrderWorkflowSettings>>().Value,
+                sp.GetService<INotificationDispatcher>(),
+                sp.GetService<ILogger<QuotationService>>());
+        });
+        services.AddScoped<IQuotationService, QuotationService>();
+        services.AddScoped<ICustomizationRequestService, CustomizationRequestService>();
         services.AddScoped<IFileUploadValidator, FileUploadValidator>();
         services.AddScoped<ProjectChatFileUploadDependencies>(sp =>
         {
@@ -128,9 +180,14 @@ public static class DependencyInjection
                 sp.GetService<ILogger<ProjectService>>(),
                 sp.GetService<IProjectChatService>(),
                 sp.GetService<ISearchIndexService>(),
-                sp.GetService<IProjectSearchIndexer>());
+                sp.GetService<IProjectSearchIndexer>(),
+                sp.GetRequiredService<PaymentRepository>());
         });
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped(static sp => new IdentityVerificationStores(
+            sp.GetRequiredService<IPasswordResetStore>(),
+            sp.GetRequiredService<IEmailOtpStore>(),
+            sp.GetRequiredService<IRefreshTokenStore>()));
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<IRefreshTokenStore, RefreshTokenStore>();
@@ -140,6 +197,7 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
+        services.AddScoped<IProjectAreaService, ProjectAreaService>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepositoryAdapter>();
         services.AddScoped<IRoomPlannerSceneService, RoomPlannerSceneService>();
         services.AddScoped<ISearchReindexService, SearchReindexService>();
@@ -147,6 +205,24 @@ public static class DependencyInjection
         services.AddScoped<IProjectSearchIndexer, ProjectSearchIndexer>();
         services.AddScoped<IChatMessageSearchIndexer, ChatMessageSearchIndexer>();
         services.AddScoped<IProjectFileSearchIndexer, ProjectFileSearchIndexer>();
+        services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<PaymentServiceDependencies>(sp =>
+        {
+            return new PaymentServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<IOptions<SePayOptions>>().Value,
+                sp.GetRequiredService<IOptions<PayOsOptions>>().Value,
+                sp.GetRequiredService<IOptions<ProjectWorkflowSettings>>().Value,
+                sp.GetRequiredService<SePayVietQrUrlBuilder>(),
+                sp.GetRequiredService<IPayOsClient>());
+        });
+        services.AddScoped<IPaymentBusinessEffectService, PaymentBusinessEffectService>();
+        services.AddScoped<IOrderService, OrderService>();
+        services.AddScoped<ISePayWebhookService, SePayWebhookHandler>();
+        services.AddScoped<IPayOsWebhookService, PayOsWebhookHandler>();
+        services.AddScoped<IPayOsClient, PayOsClientService>();
+        services.AddSingleton<SePayVietQrUrlBuilder>();
+        services.AddSingleton<SePayWebhookSignatureVerifier>();
 
         return services;
     }

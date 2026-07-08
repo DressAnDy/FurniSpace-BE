@@ -4,5 +4,8 @@ public sealed class RoomPlannerSceneResponseDto : RoomPlannerScenePayloadDto
 {
     public Guid SceneId { get; set; }
     public string? MongoSceneId { get; set; }
+    public Guid? ProposalId { get; set; }
+    public Guid? ProjectId { get; set; }
+    public Guid? ProjectAreaId { get; set; }
     public DateTime? LastSavedAt { get; set; }
 }

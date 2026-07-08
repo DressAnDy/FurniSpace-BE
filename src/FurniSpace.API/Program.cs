@@ -11,6 +11,7 @@ using FurniSpace.API.Hubs;
 using FurniSpace.API.Realtime;
 using FurniSpace.Application;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Common.Realtime;
@@ -64,13 +65,13 @@ builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IRealtimeNotificationService, SignalRRealtimeNotificationService>();
 builder.Services.AddScoped<IProjectChatRealtimeService, SignalRProjectChatRealtimeService>();
+builder.Services.AddScoped<IPaymentRealtimeService, SignalRPaymentRealtimeService>();
 
 var app = builder.Build();
 
 await MigrateAndSeedDatabaseAsync(app);
 UseDevelopmentSwagger(app);
 app.UseForwardedHeaders();
-// UseProductionHttps(app);
 app.UseHttpsRedirection();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseRateLimiter();
@@ -82,6 +83,7 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<NotificationsHub>(RealtimeGroupNames.HubPath);
 app.MapHub<ProjectChatHub>(ProjectChatRealtimeConstants.HubPath);
+app.MapHub<PaymentHub>(PaymentRealtimeConstants.HubPath);
 app.MapGet("/", () => "FurniSpace API");
 await app.RunAsync();
 await Log.CloseAndFlushAsync();
@@ -335,11 +337,6 @@ static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSet
 
 static void UseDevelopmentSwagger(WebApplication app)
 {
-    // if (!app.Environment.IsDevelopment())
-    // {
-    //     return;
-    // }
-
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {
@@ -348,13 +345,60 @@ static void UseDevelopmentSwagger(WebApplication app)
     });
 }
 
-// static void UseProductionHttps(WebApplication app)
-// {
-//     if (!app.Environment.IsDevelopment())
-//     {
-//         app.UseHsts();
-//     }
-// }
+static void MapRedisDebugHealth(WebApplication app)
+{
+    var enabled = app.Configuration.GetValue<bool>("REDIS_DEBUG_HEALTH")
+        || app.Configuration.GetValue<bool>("Redis:DebugHealth");
+
+    if (!enabled)
+    {
+        return;
+    }
+
+    app.MapGet("/health/redis", async (
+        IConnectionMultiplexer redis,
+        IConfiguration configuration,
+        CancellationToken cancellationToken) =>
+    {
+        var configuredConnection = configuration.GetSection("Redis")["ConnectionString"]
+            ?? configuration["REDIS_CONNECTION"]
+            ?? "<missing>";
+
+        var database = redis.GetDatabase();
+        var key = $"furnispace:health:{Guid.NewGuid():N}";
+
+        try
+        {
+            var ping = await database.PingAsync();
+            await database.StringSetAsync(key, "ok", TimeSpan.FromMinutes(1));
+            var value = await database.StringGetAsync(key);
+
+            return Results.Ok(new
+            {
+                status = "ok",
+                redis.IsConnected,
+                pingMs = ping.TotalMilliseconds,
+                writeReadOk = value == "ok",
+                endpoints = redis.GetEndPoints().Select(endpoint => endpoint.ToString()),
+                configuredConnection = RedisConnectionMasker.Mask(configuredConnection)
+            });
+        }
+        catch (Exception exception)
+        {
+            return Results.Problem(
+                title: "Redis health check failed.",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                extensions: new Dictionary<string, object>
+                {
+                    ["redisConnected"] = redis.IsConnected,
+                    ["endpoints"] = redis.GetEndPoints().Select(endpoint => endpoint.ToString()),
+                    ["configuredConnection"] = RedisConnectionMasker.Mask(configuredConnection),
+                    ["exceptionType"] = exception.GetType().FullName
+                });
+        }
+    });
+}
 
 static bool TryGetReindexModule(string[] args, out string module)
 {
@@ -382,6 +426,7 @@ static async Task RunReindexCommandAsync(string module)
     builder.Services.AddApplication(builder.Configuration);
     builder.Services.AddScoped<IRealtimeNotificationService, NoOpRealtimeNotificationService>();
     builder.Services.AddScoped<IProjectChatRealtimeService, NoOpProjectChatRealtimeService>();
+    builder.Services.AddScoped<IPaymentRealtimeService, NoOpPaymentRealtimeService>();
 
     var app = builder.Build();
 

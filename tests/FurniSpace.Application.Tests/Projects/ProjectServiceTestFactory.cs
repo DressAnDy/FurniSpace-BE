@@ -15,23 +15,36 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
+using FurniSpace.Infrastructure.ReadModels.Payments;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Tests.Projects;
+
+internal sealed class ProjectServiceFactoryOptions
+{
+    public INotificationDispatcher? Dispatcher { get; init; }
+
+    public IProjectChatService? ProjectChats { get; init; }
+
+    public ProjectServiceTransitionFakes? TransitionFakes { get; init; }
+
+    public ISearchIndexService? Search { get; init; }
+
+    public IProjectSearchIndexer? ProjectSearchIndexer { get; init; }
+
+    public IPaymentRepository? Payments { get; init; }
+}
 
 internal static class ProjectServiceTestFactory
 {
     internal static ProjectService Create(
         IProjectRepository repository,
         IUnitOfWork unitOfWork,
-        INotificationDispatcher? dispatcher = null,
-        IProjectChatService? projectChats = null,
-        ProjectServiceTransitionFakes? transitionFakes = null,
-        ISearchIndexService? search = null,
-        IProjectSearchIndexer? projectSearchIndexer = null)
+        ProjectServiceFactoryOptions? options = null)
     {
-        transitionFakes ??= new ProjectServiceTransitionFakes();
+        options ??= new ProjectServiceFactoryOptions();
+        var transitionFakes = options.TransitionFakes ?? new ProjectServiceTransitionFakes();
         var evaluator = new ProjectStatusTransitionEvaluator(
             transitionFakes.Schedules,
             transitionFakes.Files,
@@ -43,11 +56,99 @@ internal static class ProjectServiceTestFactory
             new ProjectServiceDependencies(
                 unitOfWork,
                 evaluator,
-                dispatcher,
+                options.Dispatcher,
                 Logger: null,
-                projectChats,
-                search,
-                projectSearchIndexer));
+                options.ProjectChats,
+                options.Search,
+                options.ProjectSearchIndexer,
+                options.Payments ?? new FakeProjectPaymentRepository()));
+    }
+}
+
+internal sealed class FakeProjectPaymentRepository : IPaymentRepository
+{
+    public Payment? ProjectStartFeePayment { get; set; } = CreatePaidProjectStartFee();
+
+    public Task<Payment?> GetByIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Payment?>(null);
+
+    public Task<PaymentDetailReadModel?> GetDetailAsync(Guid paymentId, CancellationToken cancellationToken = default)
+        => Task.FromResult<PaymentDetailReadModel?>(null);
+
+    public Task<PaymentDetailReadModel?> GetDetailByPaymentCodeAsync(string paymentCode, CancellationToken cancellationToken = default)
+        => Task.FromResult<PaymentDetailReadModel?>(null);
+
+    public Task<PaymentStatusByCodeReadModel?> GetStatusByPaymentCodeAsync(string paymentCode, CancellationToken cancellationToken = default)
+        => Task.FromResult<PaymentStatusByCodeReadModel?>(null);
+
+    public Task<IReadOnlyList<PaymentListItemReadModel>> GetListAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<PaymentListItemReadModel>>([]);
+
+    public Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<PaymentTransactionReadModel>>([]);
+
+    public Task<bool> PaymentCodeExistsAsync(string paymentCode, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> TransactionCodeExistsAsync(string transactionCode, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> ProviderTransactionExistsAsync(PaymentProvider provider, string providerTransactionId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<bool> PayOsOrderCodeExistsAsync(string orderCode, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<PaymentTransaction?> GetTransactionByProviderReferenceAsync(
+        PaymentProvider provider,
+        string providerReferenceCode,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<PaymentTransaction?>(null);
+
+    public Task AddPaymentAsync(Payment payment, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public Task<Payment?> GetByOrderAndTypeAsync(
+        Guid orderId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Payment?>(null);
+
+    public Task<Payment?> GetByProjectAndTypeAsync(
+        Guid projectId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+    {
+        if (paymentType == PaymentType.PROJECT_START_FEE)
+        {
+            return Task.FromResult(ProjectStartFeePayment);
+        }
+
+        return Task.FromResult<Payment?>(null);
+    }
+
+    public Task<decimal> SumOrderScopedPaidAmountAsync(Guid orderId, CancellationToken cancellationToken = default)
+        => Task.FromResult(0m);
+
+    public void UpdatePayment(Payment payment)
+    {
+    }
+
+    public void UpdateTransaction(PaymentTransaction transaction)
+    {
+    }
+
+    private static Payment CreatePaidProjectStartFee()
+    {
+        return new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            PaymentType = PaymentType.PROJECT_START_FEE,
+            Status = PaymentStatus.PAID
+        };
     }
 }
 
@@ -65,6 +166,7 @@ internal sealed class ProjectServiceTransitionFakes
 internal sealed class FakeProjectScheduleRepository : IProjectScheduleRepository
 {
     public bool HasCompletedMeasurement { get; set; }
+    public bool HasAssignedSchedule { get; set; }
 
     public Task<bool> HasCompletedMeasurementScheduleAsync(
         Guid projectId,
@@ -76,6 +178,12 @@ internal sealed class FakeProjectScheduleRepository : IProjectScheduleRepository
         ProjectScheduleStatus? status,
         CancellationToken cancellationToken = default)
         => Task.FromResult(HasCompletedMeasurement && status == ProjectScheduleStatus.COMPLETED);
+
+    public Task<bool> HasAssignedScheduleAsync(
+        Guid projectId,
+        Guid staffId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(HasAssignedSchedule);
 
     public Task<Infrastructure.ReadModels.ProjectSchedules.ProjectScheduleDetailReadModel?> GetDetailAsync(
         Guid scheduleId,
@@ -286,6 +394,11 @@ internal sealed class FakeProposalRepository : IProposalRepository
     public Task<int> CountScenesAsync(Guid proposalId, CancellationToken cancellationToken = default)
         => Task.FromResult(0);
 
+    public Task<int> CountScenesAsync(
+        Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
+
     public Task AddSceneAsync(ProposalScene scene, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
@@ -303,11 +416,6 @@ internal sealed class FakeProposalRepository : IProposalRepository
         Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
         CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalSceneReadModel>>([]);
-
-    public Task<int> CountScenesAsync(
-        Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query,
-        CancellationToken cancellationToken = default)
-        => Task.FromResult(0);
 
     public Task<Infrastructure.ReadModels.Proposals.ProposalSceneDetailReadModel?> GetSceneDetailAsync(
         Guid sceneId,

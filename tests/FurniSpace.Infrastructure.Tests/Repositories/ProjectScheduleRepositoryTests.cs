@@ -1,0 +1,202 @@
+#nullable enable
+
+using System;
+using System.Threading.Tasks;
+using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
+using FurniSpace.Infrastructure.Repositories.Repository;
+using Microsoft.EntityFrameworkCore;
+using Xunit;
+
+namespace FurniSpace.Infrastructure.Tests.Repositories;
+
+public sealed class ProjectScheduleRepositoryTests
+{
+    [Fact]
+    public async Task GetDetailAsync_ReturnsJoinedProjectData()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+
+        var detail = await repository.GetDetailAsync(data.DeliveryScheduleId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(data.ProjectId, detail.ProjectId);
+        Assert.Equal("Luxury Cafe", detail.ProjectName);
+        Assert.Equal(data.ProductionId, detail.AssignedStaffId);
+        Assert.Equal(ProjectScheduleType.DELIVERY, detail.ScheduleType);
+    }
+
+    [Fact]
+    public async Task GetListByProjectAsync_FiltersByScheduleType()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+
+        var (items, total) = await repository.GetListByProjectAsync(
+            data.ProjectId,
+            new ProjectScheduleListQueryReadModel
+            {
+                ScheduleType = ProjectScheduleType.DELIVERY,
+                Page = 1,
+                Limit = 10
+            });
+
+        Assert.Equal(1, total);
+        Assert.Single(items);
+        Assert.Equal(data.DeliveryScheduleId, items[0].ScheduleId);
+    }
+
+    [Fact]
+    public async Task GetMyAssignedAsync_ReturnsSchedulesForAssignedStaff()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+
+        var (items, total) = await repository.GetMyAssignedAsync(
+            data.ProductionId,
+            new ProjectScheduleListQueryReadModel { Page = 1, Limit = 10 });
+
+        Assert.Equal(1, total);
+        Assert.Single(items);
+        Assert.Equal(data.ProductionId, items[0].AssignedStaffId);
+    }
+
+    [Fact]
+    public async Task HasAssignedScheduleAsync_ReturnsTrueForMatchingAssignment()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+
+        var assigned = await repository.HasAssignedScheduleAsync(data.ProjectId, data.ProductionId);
+        var unassigned = await repository.HasAssignedScheduleAsync(data.ProjectId, Guid.NewGuid());
+
+        Assert.True(assigned);
+        Assert.False(unassigned);
+    }
+
+    [Fact]
+    public async Task HasCompletedMeasurementScheduleAsync_ReturnsTrueWhenCompletedMeasurementExists()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+
+        var hasCompleted = await repository.HasCompletedMeasurementScheduleAsync(data.ProjectId);
+        var existsCompleted = await repository.ExistsMeasurementScheduleAsync(
+            data.ProjectId,
+            ProjectScheduleStatus.COMPLETED);
+
+        Assert.True(hasCompleted);
+        Assert.True(existsCompleted);
+    }
+
+    [Fact]
+    public async Task ExistsMeasurementScheduleAsync_ReturnsFalseWhenOnlyCancelledMeasurementExists()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Luxury Cafe",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Tables",
+            Status = ProjectStatus.PROPOSAL_DRAFTING
+        });
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = Guid.NewGuid(),
+            ProjectId = projectId,
+            ScheduleType = ProjectScheduleType.MEASUREMENT,
+            Title = "Cancelled measurement",
+            ScheduledStart = DateTime.UtcNow.AddDays(-1),
+            Status = ProjectScheduleStatus.CANCELLED,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var repository = new ProjectScheduleRepository(context);
+        var existsAnyMeasurement = await repository.ExistsMeasurementScheduleAsync(projectId, status: null);
+
+        Assert.False(existsAnyMeasurement);
+    }
+
+    private static AppDbContext CreateContext()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        return new AppDbContext(options);
+    }
+
+    private static async Task<SeededData> SeedAsync(AppDbContext context)
+    {
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var productionId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var deliveryScheduleId = Guid.NewGuid();
+        var measurementScheduleId = Guid.NewGuid();
+
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            AssignedSalesId = salesId,
+            AssignedDesignerId = designerId,
+            ProjectName = "Luxury Cafe",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Tables",
+            Status = ProjectStatus.PROPOSAL_DRAFTING
+        });
+        context.ProjectScheduleSet.AddRange(
+            new ProjectSchedule
+            {
+                ScheduleId = deliveryScheduleId,
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.DELIVERY,
+                Title = "Delivery",
+                AssignedStaffId = productionId,
+                ScheduledStart = DateTime.UtcNow.AddDays(2),
+                Status = ProjectScheduleStatus.CONFIRMED,
+                CreatedAt = DateTime.UtcNow
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = measurementScheduleId,
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Measurement",
+                AssignedStaffId = designerId,
+                ScheduledStart = DateTime.UtcNow.AddDays(1),
+                Status = ProjectScheduleStatus.COMPLETED,
+                CreatedAt = DateTime.UtcNow
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Cancelled measurement",
+                AssignedStaffId = designerId,
+                ScheduledStart = DateTime.UtcNow.AddDays(-1),
+                Status = ProjectScheduleStatus.CANCELLED,
+                CreatedAt = DateTime.UtcNow
+            });
+
+        await context.SaveChangesAsync();
+
+        return new SeededData(projectId, productionId, deliveryScheduleId);
+    }
+
+    private sealed record SeededData(Guid ProjectId, Guid ProductionId, Guid DeliveryScheduleId);
+}

@@ -1,7 +1,11 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Identity;
+using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Payments;
+using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -18,9 +22,14 @@ public sealed class PaymentService : IPaymentService
 {
     private const string PaymentNotFoundMessage = "Payment not found.";
     private const string ProjectNotFoundMessage = "Project not found.";
+    private const string OrderNotFoundMessage = "Order not found.";
+    private const string ForbiddenMessage = "Forbidden.";
     private const int MaxPaymentCodeAttempts = 5;
     private const int MaxPayOsOrderCodeAttempts = 5;
     private const int MaxTransactionCodeAttempts = 5;
+
+    private static readonly PaymentStatus[] CollectableDepositStatuses =
+        ProjectStartFeeRules.CollectablePaymentStatuses;
 
     private static readonly PaymentStatus[] VietQrEligibleStatuses =
     [
@@ -31,28 +40,29 @@ public sealed class PaymentService : IPaymentService
 
     private readonly IPaymentRepository _payments;
     private readonly IProjectRepository _projects;
+    private readonly IOrderRepository _orders;
     private readonly IUnitOfWork _unitOfWork;
     private readonly SePayOptions _sePayOptions;
     private readonly PayOsOptions _payOsOptions;
     private readonly SePayVietQrUrlBuilder _vietQrUrlBuilder;
     private readonly IPayOsClient _payOsClient;
+    private readonly ProjectWorkflowSettings _projectWorkflowSettings;
 
     public PaymentService(
         IPaymentRepository payments,
         IProjectRepository projects,
-        IUnitOfWork unitOfWork,
-        IOptions<SePayOptions> sePayOptions,
-        IOptions<PayOsOptions> payOsOptions,
-        SePayVietQrUrlBuilder vietQrUrlBuilder,
-        IPayOsClient payOsClient)
+        IOrderRepository orders,
+        PaymentServiceDependencies dependencies)
     {
         _payments = payments;
         _projects = projects;
-        _unitOfWork = unitOfWork;
-        _sePayOptions = sePayOptions.Value;
-        _payOsOptions = payOsOptions.Value;
-        _vietQrUrlBuilder = vietQrUrlBuilder;
-        _payOsClient = payOsClient;
+        _orders = orders;
+        _unitOfWork = dependencies.UnitOfWork;
+        _sePayOptions = dependencies.SePayOptions;
+        _payOsOptions = dependencies.PayOsOptions;
+        _projectWorkflowSettings = dependencies.ProjectWorkflowSettings;
+        _vietQrUrlBuilder = dependencies.VietQrUrlBuilder;
+        _payOsClient = dependencies.PayOsClient;
     }
 
     public async Task<ServiceResult<PaymentDetailDto>> CreateTestPaymentAsync(
@@ -108,6 +118,320 @@ public sealed class PaymentService : IPaymentService
         return ServiceResult<PaymentDetailDto>.Created(
             detail?.Adapt<PaymentDetailDto>() ?? payment.Adapt<PaymentDetailDto>(),
             "Test payment created successfully.");
+    }
+
+    public async Task<ServiceResult<PaymentDetailDto>> CreateDepositPaymentForOrderAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CreateOrderDepositPaymentRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PaymentDetailDto>.Unauthorized();
+        }
+
+        var order = await _orders.GetDetailAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFoundDetail(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!OrderAccessEvaluator.CanManageDepositPayment(
+                role,
+                order.CustomerId,
+                order.AssignedSalesId,
+                currentUserId))
+        {
+            return ServiceResult<PaymentDetailDto>.Forbidden("You do not have permission to create this deposit payment.");
+        }
+
+        if (order.Status != OrderStatus.DEPOSIT_PENDING)
+        {
+            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, "Order is not pending deposit payment.");
+        }
+
+        var depositAmount = order.DepositAmount ?? 0m;
+        if (depositAmount <= 0m)
+        {
+            return BadRequestDetail(PaymentErrorCodes.InvalidPaymentAmount, "Deposit amount must be greater than zero.");
+        }
+
+        var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.Status == PaymentStatus.PAID)
+            {
+                return BadRequestDetail(OrderErrorCodes.DepositAlreadyPaid, "Deposit payment has already been paid.");
+            }
+
+            if (existing.Status.HasValue && CollectableDepositStatuses.Contains(existing.Status.Value))
+            {
+                var existingDetail = await _payments.GetDetailAsync(existing.PaymentId, cancellationToken);
+                return ServiceResult<PaymentDetailDto>.Success(
+                    existingDetail?.Adapt<PaymentDetailDto>() ?? existing.Adapt<PaymentDetailDto>(),
+                    "Existing deposit payment returned.");
+            }
+        }
+
+        var paymentCode = await GenerateUniquePaymentCodeAsync(cancellationToken);
+        var now = DateTime.UtcNow;
+        var payment = new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            ProjectId = order.ProjectId,
+            OrderId = order.OrderId,
+            QuotationId = order.QuotationId,
+            PaymentCode = paymentCode,
+            PaidBy = order.CustomerId,
+            PaymentType = PaymentType.DEPOSIT,
+            Amount = depositAmount,
+            PaidAmount = 0m,
+            RemainingAmount = depositAmount,
+            Currency = _sePayOptions.Currency,
+            Status = PaymentStatus.PENDING,
+            ExpiredAt = request.ExpiredAt,
+            Note = request.Note,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        await _payments.AddPaymentAsync(payment, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var detail = await _payments.GetDetailAsync(payment.PaymentId, cancellationToken);
+        return ServiceResult<PaymentDetailDto>.Created(
+            detail?.Adapt<PaymentDetailDto>() ?? payment.Adapt<PaymentDetailDto>(),
+            "Deposit payment created successfully.");
+    }
+
+    public async Task<ServiceResult<PaymentDetailDto>> CreateRemainingPaymentForOrderAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CreateOrderRemainingPaymentRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PaymentDetailDto>.Unauthorized();
+        }
+
+        var order = await _orders.GetDetailAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFoundDetail(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!OrderAccessEvaluator.CanManageDepositPayment(
+                role,
+                order.CustomerId,
+                order.AssignedSalesId,
+                currentUserId))
+        {
+            return ServiceResult<PaymentDetailDto>.Forbidden("You do not have permission to create this remaining payment.");
+        }
+
+        if (order.Status != OrderStatus.FINAL_PAYMENT_PENDING)
+        {
+            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, "Order is not pending final payment.");
+        }
+
+        var remainingAmount = order.RemainingAmount ?? 0m;
+        if (remainingAmount <= 0m)
+        {
+            return BadRequestDetail(PaymentErrorCodes.InvalidPaymentAmount, "Remaining amount must be greater than zero.");
+        }
+
+        var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.REMAINING_PAYMENT, cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.Status == PaymentStatus.PAID)
+            {
+                return BadRequestDetail(
+                    OrderErrorCodes.RemainingPaymentAlreadyPaid,
+                    "Remaining payment has already been paid.");
+            }
+
+            if (existing.Status.HasValue && CollectableDepositStatuses.Contains(existing.Status.Value))
+            {
+                var existingDetail = await _payments.GetDetailAsync(existing.PaymentId, cancellationToken);
+                return ServiceResult<PaymentDetailDto>.Success(
+                    existingDetail?.Adapt<PaymentDetailDto>() ?? existing.Adapt<PaymentDetailDto>(),
+                    "Existing remaining payment returned.");
+            }
+        }
+
+        var paymentCode = await GenerateUniquePaymentCodeAsync(cancellationToken);
+        var now = DateTime.UtcNow;
+        var payment = new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            ProjectId = order.ProjectId,
+            OrderId = order.OrderId,
+            QuotationId = order.QuotationId,
+            PaymentCode = paymentCode,
+            PaidBy = order.CustomerId,
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = remainingAmount,
+            PaidAmount = 0m,
+            RemainingAmount = remainingAmount,
+            Currency = _sePayOptions.Currency,
+            Status = PaymentStatus.PENDING,
+            ExpiredAt = request.ExpiredAt,
+            Note = request.Note,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        await _payments.AddPaymentAsync(payment, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var detail = await _payments.GetDetailAsync(payment.PaymentId, cancellationToken);
+        return ServiceResult<PaymentDetailDto>.Created(
+            detail?.Adapt<PaymentDetailDto>() ?? payment.Adapt<PaymentDetailDto>(),
+            "Remaining payment created successfully.");
+    }
+
+    public async Task<ServiceResult<PaymentDetailDto>> CreateProjectStartFeePaymentAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CreateProjectStartFeePaymentRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PaymentDetailDto>.Unauthorized();
+        }
+
+        if (projectId == Guid.Empty)
+        {
+            return BadRequestDetail(PaymentErrorCodes.ProjectNotFound, "Project id is required.");
+        }
+
+        var project = await _projects.GetDetailAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFoundDetail(PaymentErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!ProjectStartFeeAccessEvaluator.CanManage(role, project.AssignedSalesId, currentUserId))
+        {
+            return ServiceResult<PaymentDetailDto>.Forbidden("You do not have permission to create this project start fee payment.");
+        }
+
+        if (project.AssignedDesignerId.HasValue)
+        {
+            return BadRequestDetail(
+                PaymentErrorCodes.DesignerAlreadyAssigned,
+                "Designer has already been assigned to this project.");
+        }
+
+        if (!ProjectStartFeeRules.IsProjectStatusEligibleForPaymentCreation(project.Status))
+        {
+            return BadRequestDetail(
+                ProjectStatusErrorCodes.InvalidProjectStatus,
+                "Project status is not eligible for project start fee payment.");
+        }
+
+        var existing = await _payments.GetByProjectAndTypeAsync(
+            projectId,
+            PaymentType.PROJECT_START_FEE,
+            cancellationToken);
+        if (existing is not null)
+        {
+            if (existing.Status == PaymentStatus.PAID)
+            {
+                return BadRequestDetail(
+                    PaymentErrorCodes.ProjectStartFeeAlreadyPaid,
+                    "Project start fee has already been paid.");
+            }
+
+            if (existing.Status.HasValue &&
+                ProjectStartFeeRules.CollectablePaymentStatuses.Contains(existing.Status.Value))
+            {
+                var existingDetail = await _payments.GetDetailAsync(existing.PaymentId, cancellationToken);
+                return ServiceResult<PaymentDetailDto>.Success(
+                    existingDetail?.Adapt<PaymentDetailDto>() ?? existing.Adapt<PaymentDetailDto>(),
+                    "Existing project start fee payment returned.");
+            }
+        }
+
+        var amount = request.Amount ?? _projectWorkflowSettings.DefaultProjectStartFeeAmount;
+        if (amount <= 0m)
+        {
+            return BadRequestDetail(PaymentErrorCodes.InvalidPaymentAmount, "Amount must be greater than zero.");
+        }
+
+        var paymentCode = await GenerateUniquePaymentCodeAsync(cancellationToken);
+        var now = DateTime.UtcNow;
+        var payment = new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            ProjectId = project.ProjectId,
+            OrderId = null,
+            QuotationId = null,
+            PaymentCode = paymentCode,
+            PaidBy = project.CustomerId,
+            PaymentType = PaymentType.PROJECT_START_FEE,
+            Amount = amount,
+            PaidAmount = 0m,
+            RemainingAmount = amount,
+            Currency = _sePayOptions.Currency,
+            Status = PaymentStatus.PENDING,
+            ExpiredAt = request.ExpiredAt,
+            Note = request.Note,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        await _payments.AddPaymentAsync(payment, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var detail = await _payments.GetDetailAsync(payment.PaymentId, cancellationToken);
+        return ServiceResult<PaymentDetailDto>.Created(
+            detail?.Adapt<PaymentDetailDto>() ?? payment.Adapt<PaymentDetailDto>(),
+            "Project start fee payment created successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectStartFeeStatusDto>> GetProjectStartFeeStatusAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectStartFeeStatusDto>.Unauthorized();
+        }
+
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectStartFeeStatusDto>.BadRequest("Project id is required.");
+        }
+
+        var project = await _projects.GetDetailAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound<ProjectStartFeeStatusDto>(PaymentErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!ProjectStartFeeAccessEvaluator.CanManage(role, project.AssignedSalesId, currentUserId))
+        {
+            return ServiceResult<ProjectStartFeeStatusDto>.Forbidden(
+                "You do not have permission to view project start fee status.");
+        }
+
+        var payment = await _payments.GetByProjectAndTypeAsync(
+            projectId,
+            PaymentType.PROJECT_START_FEE,
+            cancellationToken);
+
+        return ServiceResult<ProjectStartFeeStatusDto>.Success(
+            ProjectStartFeeRules.BuildStatus(projectId, payment),
+            "Project start fee status retrieved successfully.");
     }
 
     public async Task<ServiceResult<PaymentDetailDto>> GetByIdAsync(
@@ -188,7 +512,7 @@ public sealed class PaymentService : IPaymentService
         var accessError = await ValidateAccessAsync(detail, currentUserId, cancellationToken);
         if (accessError is not null)
         {
-            return ServiceResult<PaymentTransactionListResponseDto>.Forbidden(accessError.Message ?? "Forbidden.");
+            return ServiceResult<PaymentTransactionListResponseDto>.Forbidden(accessError.Message ?? ForbiddenMessage);
         }
 
         var items = await _payments.GetTransactionsByPaymentIdAsync(paymentId, cancellationToken);
@@ -221,7 +545,7 @@ public sealed class PaymentService : IPaymentService
         var accessError = await ValidateAccessAsync(detail, currentUserId, cancellationToken);
         if (accessError is not null)
         {
-            return ServiceResult<PaymentStatusByCodeDto>.Forbidden(accessError.Message ?? "Forbidden.");
+            return ServiceResult<PaymentStatusByCodeDto>.Forbidden(accessError.Message ?? ForbiddenMessage);
         }
 
         var status = await _payments.GetStatusByPaymentCodeAsync(paymentCode.Trim(), cancellationToken);
@@ -257,7 +581,7 @@ public sealed class PaymentService : IPaymentService
         var accessError = await ValidateAccessAsync(detail, currentUserId, cancellationToken);
         if (accessError is not null)
         {
-            return ServiceResult<SePayVietQrResponseDto>.Forbidden(accessError.Message ?? "Forbidden.");
+            return ServiceResult<SePayVietQrResponseDto>.Forbidden(accessError.Message ?? ForbiddenMessage);
         }
 
         var payment = await _payments.GetByIdAsync(paymentId, cancellationToken);
@@ -336,7 +660,7 @@ public sealed class PaymentService : IPaymentService
         var accessError = await ValidateAccessAsync(detail, currentUserId, cancellationToken);
         if (accessError is not null)
         {
-            return ServiceResult<PayOsPaymentLinkResponseDto>.Forbidden(accessError.Message ?? "Forbidden.");
+            return ServiceResult<PayOsPaymentLinkResponseDto>.Forbidden(accessError.Message ?? ForbiddenMessage);
         }
 
         var payment = await _payments.GetByIdAsync(paymentId, cancellationToken);
@@ -621,7 +945,7 @@ public sealed class PaymentService : IPaymentService
             currentUserId);
     }
 
-    private ServiceResult<SePayVietQrResponseDto>? ValidateVietQrState(Payment payment)
+    private static ServiceResult<SePayVietQrResponseDto>? ValidateVietQrState(Payment payment)
     {
         if (payment.Status is PaymentStatus.CANCELLED or PaymentStatus.PAID or PaymentStatus.EXPIRED or PaymentStatus.REFUNDED)
         {

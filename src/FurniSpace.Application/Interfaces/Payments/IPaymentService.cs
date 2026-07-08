@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
 
 namespace FurniSpace.Application.Interfaces.Payments;
@@ -8,6 +9,29 @@ public interface IPaymentService
     Task<ServiceResult<PaymentDetailDto>> CreateTestPaymentAsync(
         Guid currentUserId,
         CreateTestPaymentRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<PaymentDetailDto>> CreateDepositPaymentForOrderAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CreateOrderDepositPaymentRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<PaymentDetailDto>> CreateRemainingPaymentForOrderAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CreateOrderRemainingPaymentRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<PaymentDetailDto>> CreateProjectStartFeePaymentAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CreateProjectStartFeePaymentRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectStartFeeStatusDto>> GetProjectStartFeeStatusAsync(
+        Guid projectId,
+        Guid currentUserId,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<PaymentDetailDto>> GetByIdAsync(

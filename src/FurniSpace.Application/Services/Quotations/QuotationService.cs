@@ -1,5 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Quotations;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Quotations;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -46,25 +48,28 @@ public sealed class QuotationService : IQuotationService
 
     private readonly IQuotationRepository _quotations;
     private readonly IProjectRepository _projects;
+    private readonly IOrderRepository _orders;
     private readonly ICustomizationRequestRepository _customizationRequests;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly OrderWorkflowSettings _orderWorkflowSettings;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<QuotationService>? _logger;
 
     public QuotationService(
         IQuotationRepository quotations,
         IProjectRepository projects,
+        IOrderRepository orders,
         ICustomizationRequestRepository customizationRequests,
-        IUnitOfWork unitOfWork,
-        INotificationDispatcher? notifications = null,
-        ILogger<QuotationService>? logger = null)
+        QuotationServiceDependencies dependencies)
     {
         _quotations = quotations;
         _projects = projects;
+        _orders = orders;
         _customizationRequests = customizationRequests;
-        _unitOfWork = unitOfWork;
-        _notifications = notifications;
-        _logger = logger;
+        _unitOfWork = dependencies.UnitOfWork;
+        _orderWorkflowSettings = dependencies.OrderWorkflowSettings;
+        _notifications = dependencies.Notifications;
+        _logger = dependencies.Logger;
     }
 
     public async Task<ServiceResult<QuotationListResponseDto>> GetByProjectAsync(
@@ -474,6 +479,20 @@ public sealed class QuotationService : IQuotationService
             return validation;
         }
 
+        if (await _orders.ExistsForQuotationAsync(context.Quotation!.QuotationId, cancellationToken))
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.OrderAlreadyCreated,
+                "Order has already been created for this quotation.");
+        }
+
+        if (await _customizationRequests.HasPendingForProposalAsync(context.Detail!.ProposalId, cancellationToken))
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.CustomizationRequestPending,
+                "Proposal has unresolved customization requests.");
+        }
+
         var project = await _projects.GetByIdAsync(context.Quotation!.ProjectId, cancellationToken);
         if (project is null)
         {
@@ -481,7 +500,7 @@ public sealed class QuotationService : IQuotationService
         }
 
         var now = DateTime.UtcNow;
-        var order = CreateOrder(context.Detail!, currentUserId, now);
+        var order = CreateOrder(context.Detail!, currentUserId, now, _orderWorkflowSettings.DepositPercent);
         var orderItems = context.Detail!.Items
             .Select(item => CreateOrderItem(order.OrderId, item))
             .ToList();
@@ -497,10 +516,10 @@ public sealed class QuotationService : IQuotationService
 
             _quotations.Update(context.Quotation);
             _projects.Update(project);
-            await _quotations.AddOrderAsync(order, cancellationToken);
+            await _orders.AddAsync(order, cancellationToken);
             foreach (var item in orderItems)
             {
-                await _quotations.AddOrderItemAsync(item, cancellationToken);
+                await _orders.AddItemAsync(item, cancellationToken);
             }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -712,9 +731,11 @@ public sealed class QuotationService : IQuotationService
     private static Order CreateOrder(
         QuotationDetailReadModel quotation,
         Guid currentUserId,
-        DateTime now)
+        DateTime now,
+        int depositPercent)
     {
         var total = quotation.TotalAmount ?? 0m;
+        var depositAmount = OrderDepositCalculator.CalculateDepositAmount(total, depositPercent);
         return new Order
         {
             OrderId = Guid.NewGuid(),
@@ -728,6 +749,7 @@ public sealed class QuotationService : IQuotationService
             ItemAdjustmentAmount = 0m,
             AdditionalDiscountAmount = 0m,
             FinalTotalAmount = total,
+            DepositAmount = depositAmount,
             PaidAmount = 0m,
             RemainingAmount = total,
             Status = OrderStatus.DEPOSIT_PENDING,
@@ -810,7 +832,7 @@ public sealed class QuotationService : IQuotationService
                 "Quotation has expired.");
         }
 
-        if (quotation.Status != QuotationStatus.SENT)
+        if (quotation.Status is not (QuotationStatus.SENT or QuotationStatus.REVISED))
         {
             return BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationStatus,

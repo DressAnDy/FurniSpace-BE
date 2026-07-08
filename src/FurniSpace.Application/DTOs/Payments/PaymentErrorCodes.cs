@@ -17,4 +17,7 @@ public static class PaymentErrorCodes
     public const string PayOsMissingOrderCode = "PAYOS_MISSING_ORDER_CODE";
     public const string PayOsAmountMismatch = "PAYOS_AMOUNT_MISMATCH";
     public const string WebhookInvalidSignature = "WEBHOOK_INVALID_SIGNATURE";
+    public const string ProjectStartFeeAlreadyPaid = "PROJECT_START_FEE_ALREADY_PAID";
+    public const string DesignerAlreadyAssigned = "DESIGNER_ALREADY_ASSIGNED";
+    public const string ProjectStartFeeRequired = "PROJECT_START_FEE_REQUIRED";
 }

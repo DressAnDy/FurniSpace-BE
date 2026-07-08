@@ -24,8 +24,6 @@ public class PaymentDto
     public DateTime? UpdatedAt { get; set; }
 }
 
-public sealed class PaymentDetailDto : PaymentDto;
-
 public sealed class PaymentListResponseDto
 {
     public IReadOnlyList<PaymentDto> Items { get; init; } = [];

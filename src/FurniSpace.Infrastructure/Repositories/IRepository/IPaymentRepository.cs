@@ -22,6 +22,17 @@ public interface IPaymentRepository
         CancellationToken cancellationToken = default);
     Task AddPaymentAsync(Payment payment, CancellationToken cancellationToken = default);
     Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default);
+    Task<Payment?> GetByOrderAndTypeAsync(
+        Guid orderId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default);
+    Task<Payment?> GetByProjectAndTypeAsync(
+        Guid projectId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default);
+    Task<decimal> SumOrderScopedPaidAmountAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default);
     void UpdatePayment(Payment payment);
     void UpdateTransaction(PaymentTransaction transaction);
 }

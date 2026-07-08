@@ -118,7 +118,16 @@ public sealed class PayOsWebhookHandlerTests
             repository,
             unitOfWork,
             payOsClient,
-            realtime);
+            realtime,
+            new NoOpPaymentBusinessEffectService());
+    }
+
+    private sealed class NoOpPaymentBusinessEffectService : IPaymentBusinessEffectService
+    {
+        public Task ApplyAsync(Payment payment, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private static Payment CreatePayment(Guid paymentId, Guid projectId, decimal amount)
@@ -244,6 +253,29 @@ public sealed class PayOsWebhookHandlerTests
         public void UpdateTransaction(PaymentTransaction transaction)
         {
             Transaction = transaction;
+        }
+
+        public Task<Payment?> GetByOrderAndTypeAsync(
+            Guid orderId,
+            PaymentType paymentType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Payment?>(null);
+        }
+
+        public Task<Payment?> GetByProjectAndTypeAsync(
+            Guid projectId,
+            PaymentType paymentType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Payment?>(null);
+        }
+
+        public Task<decimal> SumOrderScopedPaidAmountAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(0m);
         }
     }
 

@@ -169,6 +169,56 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
         DbContext.PaymentTransactionSet.Update(transaction);
     }
 
+    public Task<Payment?> GetByOrderAndTypeAsync(
+        Guid orderId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.PaymentSet
+            .Where(payment => payment.OrderId == orderId && payment.PaymentType == paymentType)
+            .OrderByDescending(payment => payment.CreatedAt)
+            .ThenByDescending(payment => payment.PaymentId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<Payment?> GetByProjectAndTypeAsync(
+        Guid projectId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.PaymentSet
+            .Where(payment => payment.ProjectId == projectId && payment.PaymentType == paymentType)
+            .OrderByDescending(payment => payment.CreatedAt)
+            .ThenByDescending(payment => payment.PaymentId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<decimal> SumOrderScopedPaidAmountAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var paymentTypes = new[]
+        {
+            PaymentType.DEPOSIT,
+            PaymentType.REMAINING_PAYMENT,
+            PaymentType.FULL_PAYMENT
+        };
+        var statuses = new[]
+        {
+            PaymentStatus.PAID,
+            PaymentStatus.PARTIALLY_PAID
+        };
+
+        return DbContext.PaymentSet
+            .Where(payment =>
+                payment.OrderId == orderId &&
+                payment.PaymentType.HasValue &&
+                paymentTypes.Contains(payment.PaymentType.Value) &&
+                payment.Status.HasValue &&
+                statuses.Contains(payment.Status.Value))
+            .SumAsync(payment => payment.PaidAmount, cancellationToken);
+    }
+
     private IQueryable<PaymentDetailReadModel> BuildDetailQuery()
     {
         return DbContext.PaymentSet

@@ -16,6 +16,7 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPayOsClient _payOsClient;
     private readonly IPaymentRealtimeService _paymentRealtime;
+    private readonly IPaymentBusinessEffectService _paymentBusinessEffects;
     private readonly ILogger<PayOsWebhookHandler>? _logger;
 
     public PayOsWebhookHandler(
@@ -23,12 +24,14 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
         IUnitOfWork unitOfWork,
         IPayOsClient payOsClient,
         IPaymentRealtimeService paymentRealtime,
+        IPaymentBusinessEffectService paymentBusinessEffects,
         ILogger<PayOsWebhookHandler>? logger = null)
     {
         _payments = payments;
         _unitOfWork = unitOfWork;
         _payOsClient = payOsClient;
         _paymentRealtime = paymentRealtime;
+        _paymentBusinessEffects = paymentBusinessEffects;
         _logger = logger;
     }
 
@@ -137,6 +140,7 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
         {
             _payments.UpdateTransaction(transaction);
             _payments.UpdatePayment(payment);
+            await _paymentBusinessEffects.ApplyAsync(payment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
         }

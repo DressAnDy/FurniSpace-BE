@@ -147,7 +147,16 @@ public sealed class SePayWebhookHandlerTests
             unitOfWork,
             options,
             new SePayWebhookSignatureVerifier(options),
-            paymentRealtime);
+            paymentRealtime,
+            new NoOpPaymentBusinessEffectService());
+    }
+
+    private sealed class NoOpPaymentBusinessEffectService : IPaymentBusinessEffectService
+    {
+        public Task ApplyAsync(Payment payment, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private static Payment CreatePayment(Guid paymentId, Guid projectId, string paymentCode, decimal amount)
@@ -297,6 +306,29 @@ public sealed class SePayWebhookHandlerTests
 
         public void UpdateTransaction(PaymentTransaction transaction)
         {
+        }
+
+        public Task<Payment?> GetByOrderAndTypeAsync(
+            Guid orderId,
+            PaymentType paymentType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Payment?>(null);
+        }
+
+        public Task<Payment?> GetByProjectAndTypeAsync(
+            Guid projectId,
+            PaymentType paymentType,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<Payment?>(null);
+        }
+
+        public Task<decimal> SumOrderScopedPaidAmountAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(0m);
         }
     }
 

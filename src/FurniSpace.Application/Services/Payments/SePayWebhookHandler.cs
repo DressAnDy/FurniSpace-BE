@@ -26,6 +26,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
     private readonly SePayOptions _options;
     private readonly SePayWebhookSignatureVerifier _signatureVerifier;
     private readonly IPaymentRealtimeService _paymentRealtime;
+    private readonly IPaymentBusinessEffectService _paymentBusinessEffects;
     private readonly ILogger<SePayWebhookHandler>? _logger;
 
     public SePayWebhookHandler(
@@ -34,6 +35,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
         IOptions<SePayOptions> options,
         SePayWebhookSignatureVerifier signatureVerifier,
         IPaymentRealtimeService paymentRealtime,
+        IPaymentBusinessEffectService paymentBusinessEffects,
         ILogger<SePayWebhookHandler>? logger = null)
     {
         _payments = payments;
@@ -41,6 +43,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
         _options = options.Value;
         _signatureVerifier = signatureVerifier;
         _paymentRealtime = paymentRealtime;
+        _paymentBusinessEffects = paymentBusinessEffects;
         _logger = logger;
     }
 
@@ -57,63 +60,121 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
             return new SePayWebhookProcessResult(401, null, verification.ErrorMessage);
         }
 
-        SePayWebhookPayloadDto? payload;
-        try
-        {
-            payload = JsonSerializer.Deserialize<SePayWebhookPayloadDto>(rawBody, PayloadSerializerOptions);
-        }
-        catch (JsonException exception)
-        {
-            _logger?.LogWarning(exception, "Failed to deserialize SePay webhook payload.");
-            return new SePayWebhookProcessResult(400, null, "Invalid webhook payload.");
-        }
-
+        var payload = DeserializePayload(rawBody);
         if (payload is null)
         {
             return new SePayWebhookProcessResult(400, null, "Invalid webhook payload.");
         }
 
         var providerTransactionId = payload.Id.ToString(CultureInfo.InvariantCulture);
+        if (!IsIncomingTransferForConfiguredAccount(payload, providerTransactionId))
+        {
+            return SuccessResult();
+        }
+
+        var paymentCode = ExtractPaymentCode(payload, rawBody);
+        if (string.IsNullOrWhiteSpace(paymentCode))
+        {
+            return SuccessResult();
+        }
+
+        if (await IsDuplicateProviderTransactionAsync(providerTransactionId, paymentCode, cancellationToken))
+        {
+            return SuccessResult();
+        }
+
+        var payment = await LoadCollectablePaymentAsync(paymentCode, providerTransactionId, cancellationToken);
+        if (payment is null || !CanApplyTransferAmount(payment, payload, providerTransactionId))
+        {
+            return SuccessResult();
+        }
+
+        await PersistSuccessfulTransferAsync(
+            payment,
+            payload,
+            rawBody,
+            providerTransactionId,
+            cancellationToken);
+
+        return SuccessResult();
+    }
+
+    private SePayWebhookPayloadDto? DeserializePayload(string rawBody)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<SePayWebhookPayloadDto>(rawBody, PayloadSerializerOptions);
+        }
+        catch (JsonException exception)
+        {
+            _logger?.LogWarning(exception, "Failed to deserialize SePay webhook payload.");
+            return null;
+        }
+    }
+
+    private bool IsIncomingTransferForConfiguredAccount(SePayWebhookPayloadDto payload, string providerTransactionId)
+    {
         if (!string.Equals(payload.TransferType, "in", StringComparison.OrdinalIgnoreCase))
         {
             _logger?.LogInformation(
                 "SePay webhook ignored: transfer type is not incoming. ProviderTransactionId={ProviderTransactionId}",
                 providerTransactionId);
-            return SuccessResult();
+            return false;
         }
 
-        if (!string.Equals(payload.AccountNumber, _options.BankAccountNo, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(payload.AccountNumber, _options.BankAccountNo, StringComparison.OrdinalIgnoreCase))
         {
-            _logger?.LogWarning(
-                "SePay webhook rejected: account number mismatch. ProviderTransactionId={ProviderTransactionId}, AccountNumber={AccountNumber}",
-                providerTransactionId,
-                payload.AccountNumber);
-            return SuccessResult();
+            return true;
         }
 
+        _logger?.LogWarning(
+            "SePay webhook rejected: account number mismatch. ProviderTransactionId={ProviderTransactionId}, AccountNumber={AccountNumber}",
+            providerTransactionId,
+            payload.AccountNumber);
+        return false;
+    }
+
+    private string? ExtractPaymentCode(SePayWebhookPayloadDto payload, string rawBody)
+    {
         var paymentCode = SePayPaymentCodeExtractor.Extract(
             payload.Code,
             payload.Content,
             rawBody,
             _options.PaymentCodeRegex);
 
-        if (string.IsNullOrWhiteSpace(paymentCode))
+        if (!string.IsNullOrWhiteSpace(paymentCode))
         {
-            _logger?.LogInformation(
-                "SePay webhook ignored: payment code not found. ProviderTransactionId={ProviderTransactionId}",
-                providerTransactionId);
-            return SuccessResult();
+            return paymentCode;
         }
 
-        if (await _payments.ProviderTransactionExistsAsync(PaymentProvider.SEPAY, providerTransactionId, cancellationToken))
+        _logger?.LogInformation(
+            "SePay webhook ignored: payment code not found. ProviderTransactionId={ProviderTransactionId}",
+            payload.Id);
+        return null;
+    }
+
+    private async Task<bool> IsDuplicateProviderTransactionAsync(
+        string providerTransactionId,
+        string paymentCode,
+        CancellationToken cancellationToken)
+    {
+        if (!await _payments.ProviderTransactionExistsAsync(PaymentProvider.SEPAY, providerTransactionId, cancellationToken))
         {
-            _logger?.LogInformation(
-                "SePay webhook duplicate ignored. ProviderTransactionId={ProviderTransactionId}, PaymentCode={PaymentCode}",
-                providerTransactionId,
-                paymentCode);
-            return SuccessResult();
+            return false;
         }
 
+        _logger?.LogInformation(
+            "SePay webhook duplicate ignored. ProviderTransactionId={ProviderTransactionId}, PaymentCode={PaymentCode}",
+            providerTransactionId,
+            paymentCode);
+        return true;
+    }
+
+    private async Task<Payment?> LoadCollectablePaymentAsync(
+        string paymentCode,
+        string providerTransactionId,
+        CancellationToken cancellationToken)
+    {
         var paymentDetail = await _payments.GetDetailByPaymentCodeAsync(paymentCode, cancellationToken);
         if (paymentDetail is null)
         {
@@ -121,22 +182,24 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
                 "SePay webhook failed: payment not found. ProviderTransactionId={ProviderTransactionId}, PaymentCode={PaymentCode}",
                 providerTransactionId,
                 paymentCode);
-            return SuccessResult();
+            return null;
         }
 
-        var payment = await _payments.GetByIdAsync(paymentDetail.PaymentId, cancellationToken);
-        if (payment is null)
-        {
-            return SuccessResult();
-        }
+        return await _payments.GetByIdAsync(paymentDetail.PaymentId, cancellationToken);
+    }
 
+    private bool CanApplyTransferAmount(
+        Payment payment,
+        SePayWebhookPayloadDto payload,
+        string providerTransactionId)
+    {
         if (payment.Status is PaymentStatus.CANCELLED or PaymentStatus.EXPIRED or PaymentStatus.REFUNDED)
         {
             _logger?.LogInformation(
                 "SePay webhook ignored: payment is not collectable. PaymentId={PaymentId}, Status={Status}",
                 payment.PaymentId,
                 payment.Status);
-            return SuccessResult();
+            return false;
         }
 
         if (payload.TransferAmount <= 0m)
@@ -145,7 +208,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
                 "SePay webhook failed: transfer amount must be greater than zero. PaymentId={PaymentId}, ProviderTransactionId={ProviderTransactionId}",
                 payment.PaymentId,
                 providerTransactionId);
-            return SuccessResult();
+            return false;
         }
 
         if (_options.StrictAmountCheck &&
@@ -157,9 +220,19 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
                 payment.PaymentId,
                 payload.TransferAmount,
                 payment.RemainingAmount);
-            return SuccessResult();
+            return false;
         }
 
+        return true;
+    }
+
+    private async Task PersistSuccessfulTransferAsync(
+        Payment payment,
+        SePayWebhookPayloadDto payload,
+        string rawBody,
+        string providerTransactionId,
+        CancellationToken cancellationToken)
+    {
         var transactionCode = await GenerateUniqueTransactionCodeAsync(cancellationToken);
         var transactionTime = ParseTransactionTime(payload.TransactionDate);
         var now = DateTime.UtcNow;
@@ -197,6 +270,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
         {
             await _payments.AddTransactionAsync(transaction, cancellationToken);
             _payments.UpdatePayment(payment);
+            await _paymentBusinessEffects.ApplyAsync(payment, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
         }
@@ -219,8 +293,6 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
             appliedAmount,
             now,
             cancellationToken);
-
-        return SuccessResult();
     }
 
     private async Task PushPaymentUpdatedAsync(

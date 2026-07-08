@@ -64,7 +64,9 @@ public sealed class PayOsClientService : IPayOsClient
                 "PayOS create payment link failed. OrderCode={OrderCode}, Amount={Amount}",
                 request.OrderCode,
                 request.Amount);
-            throw;
+            throw new InvalidOperationException(
+                $"PayOS create payment link failed for order code {request.OrderCode}.",
+                exception);
         }
     }
 

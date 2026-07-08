@@ -67,6 +67,7 @@ jobs:
             /o:"dressandy" `
             /d:sonar.token="$env:SONAR_TOKEN" `
             /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml" `
+            /d:sonar.exclusions="**/Migrations/**" `
             /d:sonar.coverage.exclusions="**/Migrations/**,**/*Tests/**"
 
           dotnet build FurniSpace.sln -c $env:BUILD_CONFIGURATION

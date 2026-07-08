@@ -28,7 +28,7 @@ public sealed class AccountService : IAccountService
     private const string AvailableDesignersRetrievedMessage = "Available designers retrieved successfully.";
     private const int MaxActiveDesignerProjects = 2;
     private static readonly TimeSpan AccountItemCacheTtl = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(5);
 
     private readonly IAccountRepository _accounts;
     private readonly IAuthService _auth;
@@ -223,15 +223,25 @@ public sealed class AccountService : IAccountService
 
         var normalizedSearch = NormalizeOptional(search);
         var cacheKey = AccountListCacheKey(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted);
+
         var cached = await TryGetCacheAsync<PagedResult<AccountDto>>(cacheKey, cancellationToken);
         if (cached is not null)
         {
             return ServiceResult<PagedResult<AccountDto>>.Success(cached);
         }
 
-        var result = !string.IsNullOrWhiteSpace(normalizedSearch)
-            ? await SearchAccountsAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken)
-            : await GetPagedAccountsFromDatabaseAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+        PagedResult<AccountDto> result;
+
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            result = await SearchAccountsAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+        }
+        else
+        {
+            result = await GetPagedAccountsFromDatabaseAsync(
+                page, pageSize, normalizedSearch, normalizedStatus, includeDeleted,
+                cancellationToken);
+        }
 
         await TrySetCacheAsync(cacheKey, result, AccountListCacheTtl, cancellationToken);
 
@@ -305,8 +315,8 @@ public sealed class AccountService : IAccountService
         }
         catch
         {
-            var fallback = await GetPagedAccountsFromDatabaseAsync(1, limit, query.Trim(), null, includeDeleted: false, cancellationToken);
-            items = fallback.Items
+            var fallbackResult = await GetPagedAccountsFromDatabaseAsync(1, limit, query.Trim(), null, includeDeleted: false, cancellationToken);
+            items = fallbackResult.Items
                 .Select(account => new AccountSuggestItemDto
                 {
                     AccountId = account.AccountId,
@@ -398,7 +408,6 @@ public sealed class AccountService : IAccountService
     {
         var accounts = await _accounts.GetPagedAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
         var totalItems = await _accounts.CountAsync(normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
-
         return PagedResult<AccountDto>.Create(accounts.Adapt<List<AccountDto>>(), page, pageSize, totalItems);
     }
 
@@ -429,7 +438,8 @@ public sealed class AccountService : IAccountService
         }
         catch
         {
-            return await GetPagedAccountsFromDatabaseAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+            var fallback = await GetPagedAccountsFromDatabaseAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+            return fallback;
         }
     }
 

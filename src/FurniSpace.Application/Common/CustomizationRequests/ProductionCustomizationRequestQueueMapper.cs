@@ -9,18 +9,19 @@ internal static class ProductionCustomizationRequestQueueMapper
     public static ProductionCustomizationRequestQueueItemDto ToDto(
         ProductionCustomizationRequestQueueReadModel item)
     {
-        var dto = item.Adapt<ProductionCustomizationRequestQueueItemDto>();
+        var request = item.Request;
+        var dto = request.Adapt<ProductionCustomizationRequestQueueItemDto>();
         dto.Project = new ProductionCustomizationProjectSummaryDto
         {
-            ProjectId = item.ProjectId,
-            ProjectName = item.ProjectName,
-            CustomerId = item.CustomerId,
-            AssignedSalesId = item.AssignedSalesId,
-            AssignedDesignerId = item.AssignedDesignerId
+            ProjectId = request.ProjectId,
+            ProjectName = request.ProjectName,
+            CustomerId = request.CustomerId,
+            AssignedSalesId = request.AssignedSalesId,
+            AssignedDesignerId = request.AssignedDesignerId
         };
         dto.Proposal = new ProductionCustomizationProposalSummaryDto
         {
-            ProposalId = item.ProposalId,
+            ProposalId = request.ProposalId,
             ProposalName = item.ProposalName,
             Status = item.ProposalStatus
         };

@@ -1463,16 +1463,20 @@ public sealed class CustomizationRequestServiceTests
         TestIds ids,
         CustomizationStatus status) => new()
     {
-        CustomizationRequestId = Guid.NewGuid(),
-        ProjectId = ids.ProjectId,
-        ProposalId = ids.ProposalId,
-        ProposalItemId = ids.ProposalItemId,
-        RequestTitle = "Change chair material",
-        Status = status,
-        ProjectName = "Cafe Project",
-        CustomerId = ids.CustomerId,
-        AssignedSalesId = ids.SalesId,
-        AssignedDesignerId = ids.DesignerId,
+        Request = new CustomizationRequestReadModel
+        {
+            CustomizationRequestId = Guid.NewGuid(),
+            ProjectId = ids.ProjectId,
+            ProposalId = ids.ProposalId,
+            ProposalItemId = ids.ProposalItemId,
+            RequestTitle = "Change chair material",
+            Status = status,
+            ProjectName = "Cafe Project",
+            CustomerId = ids.CustomerId,
+            AssignedSalesId = ids.SalesId,
+            AssignedDesignerId = ids.DesignerId,
+            UpdatedAt = DateTime.UtcNow
+        },
         ProposalName = "Cafe Proposal",
         ProposalStatus = ProposalStatus.PUBLISHED,
         ProposalItem = new ProposalItem
@@ -1481,8 +1485,7 @@ public sealed class CustomizationRequestServiceTests
             ProposalId = ids.ProposalId,
             ItemName = "Dining Chair",
             Quantity = 2
-        },
-        UpdatedAt = DateTime.UtcNow
+        }
     };
 
     private static CustomizationRequestDetailReadModel CreateDetail(
@@ -1658,26 +1661,28 @@ public sealed class CustomizationRequestServiceTests
             if (query.Statuses is { Count: > 0 })
             {
                 result = result.Where(
-                    item => item.Status.HasValue && query.Statuses.Contains(item.Status.Value));
+                    item =>
+                        item.Request.Status.HasValue &&
+                        query.Statuses.Contains(item.Request.Status.Value));
             }
 
             if (query.ProjectId.HasValue)
             {
-                result = result.Where(item => item.ProjectId == query.ProjectId.Value);
+                result = result.Where(item => item.Request.ProjectId == query.ProjectId.Value);
             }
 
             if (query.ProposalId.HasValue)
             {
-                result = result.Where(item => item.ProposalId == query.ProposalId.Value);
+                result = result.Where(item => item.Request.ProposalId == query.ProposalId.Value);
             }
 
             if (query.MaterialAvailable.HasValue)
             {
-                result = result.Where(item => item.MaterialAvailable == query.MaterialAvailable.Value);
+                result = result.Where(item => item.Request.MaterialAvailable == query.MaterialAvailable.Value);
             }
 
             var items = result
-                .OrderByDescending(item => item.UpdatedAt)
+                .OrderByDescending(item => item.Request.UpdatedAt)
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToList();
@@ -1692,22 +1697,24 @@ public sealed class CustomizationRequestServiceTests
             if (query.Statuses is { Count: > 0 })
             {
                 result = result.Where(
-                    item => item.Status.HasValue && query.Statuses.Contains(item.Status.Value));
+                    item =>
+                        item.Request.Status.HasValue &&
+                        query.Statuses.Contains(item.Request.Status.Value));
             }
 
             if (query.ProjectId.HasValue)
             {
-                result = result.Where(item => item.ProjectId == query.ProjectId.Value);
+                result = result.Where(item => item.Request.ProjectId == query.ProjectId.Value);
             }
 
             if (query.ProposalId.HasValue)
             {
-                result = result.Where(item => item.ProposalId == query.ProposalId.Value);
+                result = result.Where(item => item.Request.ProposalId == query.ProposalId.Value);
             }
 
             if (query.MaterialAvailable.HasValue)
             {
-                result = result.Where(item => item.MaterialAvailable == query.MaterialAvailable.Value);
+                result = result.Where(item => item.Request.MaterialAvailable == query.MaterialAvailable.Value);
             }
 
             return Task.FromResult(result.Count());

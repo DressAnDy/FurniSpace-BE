@@ -44,12 +44,12 @@ public sealed class CustomizationRequestRepositoryProductionQueueTests
         });
 
         Assert.Equal(2, items.Count);
-        Assert.Contains(items, item => item.CustomizationRequestId == newer.CustomizationRequestId);
-        Assert.Contains(items, item => item.CustomizationRequestId == older.CustomizationRequestId);
-        Assert.True(items[0].UpdatedAt >= items[1].UpdatedAt);
+        Assert.Contains(items, item => item.Request.CustomizationRequestId == newer.CustomizationRequestId);
+        Assert.Contains(items, item => item.Request.CustomizationRequestId == older.CustomizationRequestId);
+        Assert.True(items[0].Request.UpdatedAt >= items[1].Request.UpdatedAt);
         Assert.Equal("Cafe Proposal", items[0].ProposalName);
         Assert.Equal("Dining Chair", items[0].ProposalItem.ItemName);
-        Assert.Equal(data.Project.ProjectName, items[0].ProjectName);
+        Assert.Equal(data.Project.ProjectName, items[0].Request.ProjectName);
     }
 
     [Fact]

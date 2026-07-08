@@ -128,8 +128,8 @@ public sealed class CustomizationRequestRepository
         CancellationToken cancellationToken = default)
     {
         return await ApplyProductionQueueFilters(BuildProductionQueueQuery(), query)
-            .OrderByDescending(request => request.UpdatedAt)
-            .ThenByDescending(request => request.CustomizationRequestId)
+            .OrderByDescending(request => request.Request.UpdatedAt)
+            .ThenByDescending(request => request.Request.CustomizationRequestId)
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
             .ToListAsync(cancellationToken);
@@ -145,29 +145,23 @@ public sealed class CustomizationRequestRepository
 
     private IQueryable<ProductionCustomizationRequestQueueReadModel> BuildProductionQueueQuery()
     {
-        return DbContext.CustomizationRequestSet
-            .Join(
-                DbContext.ProjectSet,
-                request => request.ProjectId,
-                project => project.ProjectId,
-                (request, project) => new { request, project })
+        return BuildListQuery()
             .Join(
                 DbContext.ProposalSet,
-                joined => joined.request.ProposalId,
+                readModel => readModel.ProposalId,
                 proposal => proposal.ProposalId,
-                (joined, proposal) => new { joined.request, joined.project, proposal })
+                (readModel, proposal) => new { readModel, proposal })
             .Join(
                 DbContext.ProposalItemSet,
-                joined => joined.request.ProposalItemId,
+                joined => joined.readModel.ProposalItemId,
                 item => item.ProposalItemId,
-                (joined, item) => new CustomizationRequestRepositoryProjections.ProductionQueueJoin
+                (joined, item) => new ProductionCustomizationRequestQueueReadModel
                 {
-                    Request = joined.request,
-                    Project = joined.project,
-                    Proposal = joined.proposal,
-                    Item = item
-                })
-            .Select(CustomizationRequestRepositoryProjections.ProductionQueueReadModel);
+                    Request = joined.readModel,
+                    ProposalName = joined.proposal.ProposalName,
+                    ProposalStatus = joined.proposal.Status,
+                    ProposalItem = item
+                });
     }
 
     private static IQueryable<ProductionCustomizationRequestQueueReadModel> ApplyProductionQueueFilters(
@@ -177,34 +171,40 @@ public sealed class CustomizationRequestRepository
         if (filter.Statuses is { Count: > 0 })
         {
             query = query.Where(
-                request => request.Status.HasValue && filter.Statuses.Contains(request.Status.Value));
+                request =>
+                    request.Request.Status.HasValue &&
+                    filter.Statuses.Contains(request.Request.Status.Value));
         }
 
         if (filter.ProjectId.HasValue)
         {
-            query = query.Where(request => request.ProjectId == filter.ProjectId.Value);
+            query = query.Where(request => request.Request.ProjectId == filter.ProjectId.Value);
         }
 
         if (filter.ProposalId.HasValue)
         {
-            query = query.Where(request => request.ProposalId == filter.ProposalId.Value);
+            query = query.Where(request => request.Request.ProposalId == filter.ProposalId.Value);
         }
 
         if (filter.MaterialAvailable.HasValue)
         {
-            query = query.Where(request => request.MaterialAvailable == filter.MaterialAvailable.Value);
+            query = query.Where(request => request.Request.MaterialAvailable == filter.MaterialAvailable.Value);
         }
 
         if (filter.FromDate.HasValue)
         {
             query = query.Where(
-                request => request.UpdatedAt.HasValue && request.UpdatedAt.Value >= filter.FromDate.Value);
+                request =>
+                    request.Request.UpdatedAt.HasValue &&
+                    request.Request.UpdatedAt.Value >= filter.FromDate.Value);
         }
 
         if (filter.ToDate.HasValue)
         {
             query = query.Where(
-                request => request.UpdatedAt.HasValue && request.UpdatedAt.Value <= filter.ToDate.Value);
+                request =>
+                    request.Request.UpdatedAt.HasValue &&
+                    request.Request.UpdatedAt.Value <= filter.ToDate.Value);
         }
 
         return query;

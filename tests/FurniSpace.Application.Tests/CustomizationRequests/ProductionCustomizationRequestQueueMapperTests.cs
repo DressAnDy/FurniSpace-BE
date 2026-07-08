@@ -2,7 +2,6 @@
 
 using System;
 using FurniSpace.Application.Common.CustomizationRequests;
-using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
 using Xunit;
@@ -24,16 +23,19 @@ public sealed class ProductionCustomizationRequestQueueMapperTests
         var proposalItemId = Guid.NewGuid();
         var readModel = new ProductionCustomizationRequestQueueReadModel
         {
-            CustomizationRequestId = Guid.NewGuid(),
-            ProjectId = projectId,
-            ProposalId = proposalId,
-            ProposalItemId = proposalItemId,
-            RequestTitle = "Change material",
-            RequestDescription = "Use darker oak",
-            RequestedMaterial = "Dark oak",
-            Status = CustomizationStatus.PRODUCTION_REVIEWING,
-            ProjectName = "Cafe Project",
-            CustomerId = Guid.NewGuid(),
+            Request = new CustomizationRequestReadModel
+            {
+                CustomizationRequestId = Guid.NewGuid(),
+                ProjectId = projectId,
+                ProposalId = proposalId,
+                ProposalItemId = proposalItemId,
+                RequestTitle = "Change material",
+                RequestDescription = "Use darker oak",
+                RequestedMaterial = "Dark oak",
+                Status = CustomizationStatus.PRODUCTION_REVIEWING,
+                ProjectName = "Cafe Project",
+                CustomerId = Guid.NewGuid()
+            },
             ProposalName = "Cafe Proposal",
             ProposalStatus = ProposalStatus.PUBLISHED,
             ProposalItem = new()
@@ -55,9 +57,9 @@ public sealed class ProductionCustomizationRequestQueueMapperTests
 
         var dto = ProductionCustomizationRequestQueueMapper.ToDto(readModel);
 
-        Assert.Equal(readModel.RequestTitle, dto.RequestTitle);
-        Assert.Equal(readModel.RequestDescription, dto.RequestDescription);
-        Assert.Equal(readModel.RequestedMaterial, dto.RequestedMaterial);
+        Assert.Equal(readModel.Request.RequestTitle, dto.RequestTitle);
+        Assert.Equal(readModel.Request.RequestDescription, dto.RequestDescription);
+        Assert.Equal(readModel.Request.RequestedMaterial, dto.RequestedMaterial);
         Assert.Equal(projectId, dto.Project.ProjectId);
         Assert.Equal("Cafe Project", dto.Project.ProjectName);
         Assert.Equal(proposalId, dto.Proposal.ProposalId);

@@ -3,8 +3,10 @@ using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
 
-public sealed class ProductionCustomizationRequestQueueReadModel : CustomizationRequestReadModel
+public sealed class ProductionCustomizationRequestQueueReadModel
 {
+    public CustomizationRequestReadModel Request { get; set; } = new();
+
     public string ProposalName { get; set; } = string.Empty;
 
     public ProposalStatus? ProposalStatus { get; set; }

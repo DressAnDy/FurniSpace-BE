@@ -135,20 +135,14 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
 
         PaymentSummaryCalculator.ApplyCharge(payment, appliedAmount, now);
 
-        await _unitOfWork.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            _payments.UpdateTransaction(transaction);
-            _payments.UpdatePayment(payment);
-            await _paymentBusinessEffects.ApplyAsync(payment, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await _unitOfWork.CommitTransactionAsync(cancellationToken);
-        }
-        catch
-        {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw;
-        }
+        await PaymentWebhookChargeSupport.CommitSuccessfulChargeAsync(
+            _unitOfWork,
+            _payments,
+            _paymentBusinessEffects,
+            payment,
+            transaction,
+            isExistingTransaction: true,
+            cancellationToken);
 
         _logger?.LogInformation(
             "PayOS webhook processed. PaymentId={PaymentId}, OrderCode={OrderCode}, AppliedAmount={AppliedAmount}, Status={Status}",
@@ -157,45 +151,15 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
             appliedAmount,
             payment.Status);
 
-        await PushPaymentUpdatedAsync(payment, transaction, appliedAmount, now, cancellationToken);
+        await PaymentWebhookChargeSupport.PushPaymentUpdatedAsync(
+            _paymentRealtime,
+            _logger,
+            payment,
+            transaction,
+            appliedAmount,
+            now,
+            cancellationToken);
         return SuccessResult();
-    }
-
-    private async Task PushPaymentUpdatedAsync(
-        Payment payment,
-        PaymentTransaction transaction,
-        decimal appliedAmount,
-        DateTime occurredAt,
-        CancellationToken cancellationToken)
-    {
-        var payload = new PaymentUpdatedRealtimeDto
-        {
-            PaymentId = payment.PaymentId,
-            ProjectId = payment.ProjectId,
-            PaymentCode = payment.PaymentCode,
-            Status = payment.Status,
-            Amount = payment.Amount,
-            PaidAmount = payment.PaidAmount,
-            RemainingAmount = payment.RemainingAmount,
-            PaymentTransactionId = transaction.PaymentTransactionId,
-            TransactionAmount = transaction.Amount,
-            AppliedAmount = appliedAmount,
-            PaidAt = payment.PaidAt,
-            OccurredAt = occurredAt
-        };
-
-        try
-        {
-            await _paymentRealtime.SendPaymentUpdatedAsync(payload, cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger?.LogWarning(
-                exception,
-                "Failed to push payment.updated realtime event. PaymentId={PaymentId}, PaymentTransactionId={PaymentTransactionId}",
-                payment.PaymentId,
-                transaction.PaymentTransactionId);
-        }
     }
 
     private static bool IsSuccessfulWebhook(string? code)

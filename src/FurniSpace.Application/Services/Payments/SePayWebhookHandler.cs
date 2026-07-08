@@ -257,28 +257,16 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
         };
 
         var appliedAmount = Math.Min(payload.TransferAmount, payment.RemainingAmount);
-        payment.PaidAmount += appliedAmount;
-        payment.RemainingAmount = Math.Max(0m, payment.Amount - payment.PaidAmount);
-        payment.Status = payment.RemainingAmount <= 0m
-            ? PaymentStatus.PAID
-            : PaymentStatus.PARTIALLY_PAID;
-        payment.PaidAt = payment.Status == PaymentStatus.PAID ? now : payment.PaidAt;
-        payment.UpdatedAt = now;
+        PaymentSummaryCalculator.ApplyCharge(payment, appliedAmount, now);
 
-        await _unitOfWork.BeginTransactionAsync(cancellationToken);
-        try
-        {
-            await _payments.AddTransactionAsync(transaction, cancellationToken);
-            _payments.UpdatePayment(payment);
-            await _paymentBusinessEffects.ApplyAsync(payment, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-            await _unitOfWork.CommitTransactionAsync(cancellationToken);
-        }
-        catch
-        {
-            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw;
-        }
+        await PaymentWebhookChargeSupport.CommitSuccessfulChargeAsync(
+            _unitOfWork,
+            _payments,
+            _paymentBusinessEffects,
+            payment,
+            transaction,
+            isExistingTransaction: false,
+            cancellationToken);
 
         _logger?.LogInformation(
             "SePay webhook processed. PaymentId={PaymentId}, ProviderTransactionId={ProviderTransactionId}, AppliedAmount={AppliedAmount}, Status={Status}",
@@ -287,49 +275,14 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
             appliedAmount,
             payment.Status);
 
-        await PushPaymentUpdatedAsync(
+        await PaymentWebhookChargeSupport.PushPaymentUpdatedAsync(
+            _paymentRealtime,
+            _logger,
             payment,
             transaction,
             appliedAmount,
             now,
             cancellationToken);
-    }
-
-    private async Task PushPaymentUpdatedAsync(
-        Payment payment,
-        PaymentTransaction transaction,
-        decimal appliedAmount,
-        DateTime occurredAt,
-        CancellationToken cancellationToken)
-    {
-        var payload = new PaymentUpdatedRealtimeDto
-        {
-            PaymentId = payment.PaymentId,
-            ProjectId = payment.ProjectId,
-            PaymentCode = payment.PaymentCode,
-            Status = payment.Status,
-            Amount = payment.Amount,
-            PaidAmount = payment.PaidAmount,
-            RemainingAmount = payment.RemainingAmount,
-            PaymentTransactionId = transaction.PaymentTransactionId,
-            TransactionAmount = transaction.Amount,
-            AppliedAmount = appliedAmount,
-            PaidAt = payment.PaidAt,
-            OccurredAt = occurredAt
-        };
-
-        try
-        {
-            await _paymentRealtime.SendPaymentUpdatedAsync(payload, cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger?.LogWarning(
-                exception,
-                "Failed to push payment.updated realtime event. PaymentId={PaymentId}, PaymentTransactionId={PaymentTransactionId}",
-                payment.PaymentId,
-                transaction.PaymentTransactionId);
-        }
     }
 
     private async Task<string> GenerateUniqueTransactionCodeAsync(CancellationToken cancellationToken)

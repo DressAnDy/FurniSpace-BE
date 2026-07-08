@@ -26,7 +26,7 @@ public sealed class OrderServiceTests
     [Fact]
     public async Task GetByProjectAsync_WithEmptyUser_ReturnsUnauthorized()
     {
-        var service = BuildService();
+        var service = BuildService(options: null);
 
         var result = await service.GetByProjectAsync(_projectId, Guid.Empty);
 
@@ -142,7 +142,7 @@ public sealed class OrderServiceTests
         Assert.Equal("Counter", result.Data.Items[0].ItemName);
     }
 
-    private OrderService BuildService(OrderServiceTestOptions? options = null)
+    private static OrderService BuildService(OrderServiceTestOptions? options = null)
     {
         options ??= new OrderServiceTestOptions();
         return new OrderService(

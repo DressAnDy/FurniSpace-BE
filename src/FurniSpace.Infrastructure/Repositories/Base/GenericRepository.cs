@@ -22,6 +22,15 @@ public class GenericRepository<TEntity> : IGenericRepository<TEntity>
         return DbSet.AsNoTracking();
     }
 
+    public async Task EnsureConnectionOpenAsync(CancellationToken cancellationToken = default)
+    {
+        var connection = DbContext.Database.GetDbConnection();
+        if (connection.State != System.Data.ConnectionState.Open)
+        {
+            await DbContext.Database.OpenConnectionAsync(cancellationToken);
+        }
+    }
+
     public async Task<TEntity?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await DbSet.FindAsync([id], cancellationToken);

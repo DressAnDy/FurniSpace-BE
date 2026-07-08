@@ -250,7 +250,7 @@ public sealed class AccountService : IAccountService
             return ServiceResult<PagedResult<AccountDto>>.Success(cached);
         }
 
-        long dbListMs = 0, dbCountMs = 0, redisSetMs = 0;
+        long dbConnectMs = 0, dbListMs = 0, dbCountMs = 0, redisSetMs = 0;
         PagedResult<AccountDto> result;
 
         if (!string.IsNullOrWhiteSpace(normalizedSearch))
@@ -262,6 +262,11 @@ public sealed class AccountService : IAccountService
         }
         else
         {
+            var swConnect = Stopwatch.StartNew();
+            await _accounts.EnsureConnectionOpenAsync(cancellationToken);
+            swConnect.Stop();
+            dbConnectMs = swConnect.ElapsedMilliseconds;
+
             (result, dbListMs, dbCountMs) = await GetPagedAccountsFromDatabaseAsync(
                 page, pageSize, normalizedSearch, normalizedStatus, includeDeleted,
                 cancellationToken);
@@ -277,8 +282,9 @@ public sealed class AccountService : IAccountService
         if (swTotal.ElapsedMilliseconds >= PerfLogThresholdMs)
         {
             _logger.LogWarning(
-                "[PERF] GetPagedAccounts cache=MISS redisGetMs={RedisGetMs} dbListMs={DbListMs} dbCountMs={DbCountMs} redisSetMs={RedisSetMs} totalMs={TotalMs}",
+                "[PERF] GetPagedAccounts cache=MISS redisGetMs={RedisGetMs} dbConnectMs={DbConnectMs} dbListMs={DbListMs} dbCountMs={DbCountMs} redisSetMs={RedisSetMs} totalMs={TotalMs}",
                 swRedisGet.Elapsed.TotalMilliseconds,
+                dbConnectMs,
                 dbListMs,
                 dbCountMs,
                 redisSetMs,

@@ -260,6 +260,74 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
+    public async Task GetProductionQueueAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.Empty,
+            new ProductionCustomizationRequestQueryDto());
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_InvalidPaginationReturnsBadRequest()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new ProductionCustomizationRequestQueryDto { Page = 0 });
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_AdminInvalidStatusReturnsBadRequest()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new ProductionCustomizationRequestQueryDto { Status = "NOT_A_STATUS" });
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_AdminFiltersSpecificStatus()
+    {
+        var ids = CreateIds();
+        var repo = new FakeCustomizationRequestRepository
+        {
+            QueueItems =
+            [
+                CreateQueueItem(ids, CustomizationStatus.PRODUCTION_REVIEWING),
+                CreateQueueItem(ids, CustomizationStatus.ACCEPTED)
+            ]
+        };
+        var service = CreateService(repo, new FakeProposalRepository(), new FakeProjectRepository(AdminRole));
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new ProductionCustomizationRequestQueryDto { Status = "ACCEPTED" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(CustomizationStatus.ACCEPTED, result.Data.Items[0].Status);
+    }
+
+    [Fact]
     public async Task GetDetailAsync_AuthorizedUserGetsSnapshot()
     {
         var ids = CreateIds();

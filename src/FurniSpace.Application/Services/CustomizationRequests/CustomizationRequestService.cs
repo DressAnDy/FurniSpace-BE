@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.CustomizationRequests;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.Interfaces.CustomizationRequests;
@@ -155,7 +156,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         return ServiceResult<ProductionCustomizationRequestListResponseDto>.Success(
             new ProductionCustomizationRequestListResponseDto
             {
-                Items = items.Select(ToProductionQueueItemDto).ToList(),
+                Items = items.Select(ProductionCustomizationRequestQueueMapper.ToDto).ToList(),
                 Page = query.Page,
                 PageSize = query.PageSize,
                 Total = total
@@ -889,68 +890,6 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         return receivers;
-    }
-
-    private static ProductionCustomizationRequestQueueItemDto ToProductionQueueItemDto(
-        ProductionCustomizationRequestQueueReadModel item)
-    {
-        return new ProductionCustomizationRequestQueueItemDto
-        {
-            CustomizationRequestId = item.CustomizationRequestId,
-            ProjectId = item.ProjectId,
-            ProposalId = item.ProposalId,
-            ProposalItemId = item.ProposalItemId,
-            RequestTitle = item.RequestTitle,
-            RequestDescription = item.RequestDescription,
-            RequestedWidth = item.RequestedWidth,
-            RequestedHeight = item.RequestedHeight,
-            RequestedDepth = item.RequestedDepth,
-            RequestedMaterial = item.RequestedMaterial,
-            RequestedColor = item.RequestedColor,
-            RequestedChangeNote = item.RequestedChangeNote,
-            DesignerId = item.DesignerId,
-            DesignerSpecNote = item.DesignerSpecNote,
-            ProductionReviewBy = item.ProductionReviewBy,
-            FeasibilityNote = item.FeasibilityNote,
-            EstimatedProductionDays = item.EstimatedProductionDays,
-            EstimatedAdditionalCost = item.EstimatedAdditionalCost,
-            AdditionalCostReason = item.AdditionalCostReason,
-            MaterialAvailable = item.MaterialAvailable,
-            ProductionRiskNote = item.ProductionRiskNote,
-            Status = item.Status,
-            CustomerAcceptedAt = item.CustomerAcceptedAt,
-            CustomerRejectedAt = item.CustomerRejectedAt,
-            CreatedAt = item.CreatedAt,
-            UpdatedAt = item.UpdatedAt,
-            Project = new ProductionCustomizationProjectSummaryDto
-            {
-                ProjectId = item.ProjectId,
-                ProjectName = item.ProjectName,
-                CustomerId = item.CustomerId,
-                AssignedSalesId = item.AssignedSalesId,
-                AssignedDesignerId = item.AssignedDesignerId
-            },
-            Proposal = new ProductionCustomizationProposalSummaryDto
-            {
-                ProposalId = item.ProposalId,
-                ProposalName = item.ProposalName,
-                Status = item.ProposalStatus
-            },
-            ProposalItem = new ProductionCustomizationProposalItemSummaryDto
-            {
-                ProposalItemId = item.ProposalItemId,
-                ItemName = item.ItemName,
-                ItemType = item.ItemType,
-                Quantity = item.Quantity,
-                Width = item.ItemWidth,
-                Height = item.ItemHeight,
-                Depth = item.ItemDepth,
-                Material = item.ItemMaterial,
-                Color = item.ItemColor,
-                UnitPriceSnapshot = item.UnitPriceSnapshot,
-                TotalPriceSnapshot = item.TotalPriceSnapshot
-            }
-        };
     }
 
     private static ServiceResult<ProductionCustomizationRequestListResponseDto>? ResolveProductionQueueStatuses(

@@ -17,7 +17,9 @@ public class GenericRepository<TEntity> : IGenericRepository<TEntity>
 
     public IQueryable<TEntity> Query()
     {
-        return DbSet.AsQueryable();
+        // Read-only query surface: callers use this for list/count/exists projections,
+        // never for fetching an entity to mutate and save, so tracking is unnecessary overhead.
+        return DbSet.AsNoTracking();
     }
 
     public async Task<TEntity?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

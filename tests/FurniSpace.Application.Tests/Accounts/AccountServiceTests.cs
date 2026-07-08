@@ -17,6 +17,7 @@ using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.Accounts;
@@ -516,7 +517,8 @@ public sealed class AccountServiceTests
             new FakeAuthService(),
             new InMemoryCacheService(),
             new ThrowingSearchIndexService(),
-            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            NullLogger<AccountService>.Instance);
 
         var result = await service.GetPagedAsync(
             page: 2,
@@ -589,7 +591,8 @@ public sealed class AccountServiceTests
             new FakeAuthService(),
             new InMemoryCacheService(),
             new ThrowingSearchIndexService(),
-            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            NullLogger<AccountService>.Instance);
 
         var result = await service.SuggestAsync(" Sarah ", limit: 5);
 
@@ -648,7 +651,8 @@ public sealed class AccountServiceTests
             new FakeAuthService(),
             new InMemoryCacheService(),
             new ThrowingSearchIndexService(),
-            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            NullLogger<AccountService>.Instance);
 
         var result = await service.GetSearchStatsAsync(includeDeleted: false);
 
@@ -670,7 +674,8 @@ public sealed class AccountServiceTests
             new FakeAuthService(),
             new InMemoryCacheService(),
             new FakeSearchIndexService(),
-            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            NullLogger<AccountService>.Instance);
     }
 
     private sealed class FakeAccountRepository : IAccountRepository

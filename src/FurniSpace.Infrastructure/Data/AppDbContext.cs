@@ -234,6 +234,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(ProductStatusColumnType).HasDefaultValueSql("'ACTIVE'::product_status");
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => new { e.CategoryName, e.CategoryId })
+                .HasDatabaseName("idx_categories_list_sort");
         });
     }
 
@@ -252,6 +254,12 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => e.ProductCode).IsUnique();
+            entity.HasIndex(e => new { e.CreatedAt, e.ProductName })
+                .HasDatabaseName("idx_products_list_sort")
+                .IsDescending(true, false);
+            entity.HasIndex(e => new { e.CategoryId, e.CreatedAt, e.ProductName })
+                .HasDatabaseName("idx_products_category_list_sort")
+                .IsDescending(false, true, false);
             entity.HasOne<Category>().WithMany().HasForeignKey(e => e.CategoryId).OnDelete(DeleteBehavior.Restrict);
         });
     }
@@ -373,6 +381,18 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => e.ProjectCode).IsUnique();
+            entity.HasIndex(e => new { e.Status, e.SubmittedAt, e.ProjectId })
+                .HasDatabaseName("idx_projects_status_list_sort")
+                .IsDescending(false, true, true);
+            entity.HasIndex(e => new { e.CustomerId, e.SubmittedAt, e.ProjectId })
+                .HasDatabaseName("idx_projects_customer_list_sort")
+                .IsDescending(false, true, true);
+            entity.HasIndex(e => new { e.AssignedSalesId, e.SubmittedAt, e.ProjectId })
+                .HasDatabaseName("idx_projects_sales_list_sort")
+                .IsDescending(false, true, true);
+            entity.HasIndex(e => new { e.AssignedDesignerId, e.SubmittedAt, e.ProjectId })
+                .HasDatabaseName("idx_projects_designer_list_sort")
+                .IsDescending(false, true, true);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AssignedSalesId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AssignedDesignerId).OnDelete(DeleteBehavior.Restrict);
@@ -420,6 +440,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(ProjectChatStatusColumnType).HasDefaultValueSql("'OPEN'::project_chat_status");
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.ClosedAt).HasColumnName("closed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => new { e.ProjectId, e.CreatedAt, e.ChatId })
+                .HasDatabaseName("idx_project_chats_project_list_sort")
+                .IsDescending(false, true, true);
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.StaffId).OnDelete(DeleteBehavior.Restrict);
         });
@@ -441,6 +464,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.EditedAt).HasColumnName("edited_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.DeletedAt).HasColumnName("deleted_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.ReadAt).HasColumnName("read_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => new { e.ChatId, e.CreatedAt, e.MessageId })
+                .HasDatabaseName("idx_chat_messages_chat_list_sort")
+                .IsDescending(false, true, true);
             entity.HasOne<ProjectChat>().WithMany().HasForeignKey(e => e.ChatId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.SenderId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<StoredFile>().WithMany().HasForeignKey(e => e.AttachmentFileId).OnDelete(DeleteBehavior.Restrict);
@@ -499,6 +525,12 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => new { e.ProjectId, e.ScheduledStart })
+                .HasDatabaseName("idx_project_schedules_project_sort")
+                .IsDescending(false, true);
+            entity.HasIndex(e => new { e.AssignedStaffId, e.ScheduledStart })
+                .HasDatabaseName("idx_project_schedules_staff_sort")
+                .IsDescending(false, true);
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
@@ -527,6 +559,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.RejectedAt).HasColumnName(RejectedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => new { e.ProjectId, e.VersionNo, e.CreatedAt, e.ProposalId })
+                .HasDatabaseName("idx_proposals_project_list_sort")
+                .IsDescending(false, true, true, true);
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Proposal>().WithMany().HasForeignKey(e => e.ParentProposalId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
@@ -551,6 +586,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => new { e.ProposalId, e.VersionNo, e.CreatedAt, e.SceneId })
+                .HasDatabaseName("idx_proposal_scenes_proposal_list_sort");
             entity.HasOne<Proposal>().WithMany().HasForeignKey(e => e.ProposalId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<StoredFile>().WithMany().HasForeignKey(e => e.PreviewFileId).OnDelete(DeleteBehavior.Restrict);
@@ -591,6 +628,8 @@ public class AppDbContext : DbContext
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ApprovedProductVersionId).OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(e => new { e.SceneId, e.SceneObjectId }).HasDatabaseName("idx_proposal_items_scene_object");
+            entity.HasIndex(e => new { e.ProposalId, e.ItemName })
+                .HasDatabaseName("idx_proposal_items_proposal_list_sort");
         });
     }
 

@@ -1,6 +1,7 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Common.Identity;
+using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Interfaces.Accounts;
@@ -17,6 +18,7 @@ using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectAreas;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
+using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Application.Interfaces.Search;
@@ -35,6 +37,7 @@ using FurniSpace.Application.Services.ProjectChats;
 using FurniSpace.Application.Services.ProjectChatMessages;
 using FurniSpace.Application.Services.ProjectAreas;
 using FurniSpace.Application.Services.ProjectSchedules;
+using FurniSpace.Application.Services.Payments;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Services.RoomPlanner;
 using FurniSpace.Domain.Entities;
@@ -58,6 +61,10 @@ public static class DependencyInjection
         TypeAdapterConfig.GlobalSettings.Scan(Assembly.GetExecutingAssembly());
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
         services.Configure<ProjectWorkflowSettings>(configuration.GetSection(ProjectWorkflowSettings.SectionName));
+        services.Configure<SePayOptions>(configuration.GetSection(SePayOptions.SectionName));
+        services.PostConfigure<SePayOptions>(options => SePayOptionsConfiguration.ApplyEnvironmentOverrides(options, configuration));
+        services.Configure<PayOsOptions>(configuration.GetSection(PayOsOptions.SectionName));
+        services.PostConfigure<PayOsOptions>(options => PayOsOptionsConfiguration.ApplyEnvironmentOverrides(options, configuration));
         services.PostConfigure<JwtSettings>(settings =>
         {
             if (string.IsNullOrWhiteSpace(settings.SecretKey))
@@ -169,6 +176,12 @@ public static class DependencyInjection
         services.AddScoped<IProjectSearchIndexer, ProjectSearchIndexer>();
         services.AddScoped<IChatMessageSearchIndexer, ChatMessageSearchIndexer>();
         services.AddScoped<IProjectFileSearchIndexer, ProjectFileSearchIndexer>();
+        services.AddScoped<IPaymentService, PaymentService>();
+        services.AddScoped<ISePayWebhookService, SePayWebhookHandler>();
+        services.AddScoped<IPayOsWebhookService, PayOsWebhookHandler>();
+        services.AddScoped<IPayOsClient, PayOsClientService>();
+        services.AddSingleton<SePayVietQrUrlBuilder>();
+        services.AddSingleton<SePayWebhookSignatureVerifier>();
 
         return services;
     }

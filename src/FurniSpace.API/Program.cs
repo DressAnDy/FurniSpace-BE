@@ -11,6 +11,7 @@ using FurniSpace.API.Hubs;
 using FurniSpace.API.Realtime;
 using FurniSpace.Application;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Common.Auth;
 using FurniSpace.Application.Common.Realtime;
@@ -65,6 +66,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<IRealtimeNotificationService, SignalRRealtimeNotificationService>();
 builder.Services.AddScoped<IProjectChatRealtimeService, SignalRProjectChatRealtimeService>();
+builder.Services.AddScoped<IPaymentRealtimeService, SignalRPaymentRealtimeService>();
 
 var app = builder.Build();
 
@@ -82,6 +84,7 @@ app.UseAuthorization();
 app.MapControllers();
 app.MapHub<NotificationsHub>(RealtimeGroupNames.HubPath);
 app.MapHub<ProjectChatHub>(ProjectChatRealtimeConstants.HubPath);
+app.MapHub<PaymentHub>(PaymentRealtimeConstants.HubPath);
 app.MapGet("/", () => "FurniSpace API");
 MapRedisDebugHealth(app);
 await app.RunAsync();
@@ -425,6 +428,7 @@ static async Task RunReindexCommandAsync(string module)
     builder.Services.AddApplication(builder.Configuration);
     builder.Services.AddScoped<IRealtimeNotificationService, NoOpRealtimeNotificationService>();
     builder.Services.AddScoped<IProjectChatRealtimeService, NoOpProjectChatRealtimeService>();
+    builder.Services.AddScoped<IPaymentRealtimeService, NoOpPaymentRealtimeService>();
 
     var app = builder.Build();
 

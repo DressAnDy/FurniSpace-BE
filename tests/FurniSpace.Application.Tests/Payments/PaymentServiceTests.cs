@@ -445,16 +445,16 @@ public sealed class PaymentServiceTests
     {
         options ??= new PaymentServiceTestOptions();
         var payments = options.Payments ?? new PaymentServiceFakeRepository();
-        var projects = options.Projects ?? new PaymentServiceFakeProjectRepository
+        var projects = new PaymentServiceFakeProjectRepository
         {
             ProjectDetail = options.ProjectDetail,
             Role = options.Role
         };
-        var orders = options.Orders ?? new PaymentServiceFakeOrderRepository
+        var orders = new PaymentServiceFakeOrderRepository
         {
             OrderDetail = options.OrderDetail
         };
-        var payOsClient = options.PayOsClient ?? new PaymentServiceFakePayOsClient();
+        var payOsClient = new PaymentServiceFakePayOsClient();
         var saveChangesCount = 0;
         var unitOfWork = TestUnitOfWork.ForSaveChanges(_ =>
         {

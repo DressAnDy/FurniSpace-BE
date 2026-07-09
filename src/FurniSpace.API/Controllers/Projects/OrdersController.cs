@@ -53,6 +53,26 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("orders/{orderId:guid}/financial-adjustment")]
+    public async Task<IActionResult> UpdateFinancialAdjustment(
+        Guid orderId,
+        [FromBody] UpdateOrderFinancialAdjustmentRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.UpdateFinancialAdjustmentAsync(
+            orderId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
     [HttpPost("orders/{orderId:guid}/payments/deposit")]
     public async Task<IActionResult> CreateDepositPayment(

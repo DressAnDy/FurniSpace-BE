@@ -28,7 +28,7 @@ public sealed class ProposalRepositoryTests
         Assert.Equal(data.CustomerId, access.CustomerId);
         Assert.Equal(data.SalesId, access.AssignedSalesId);
         Assert.Equal(data.DesignerId, access.AssignedDesignerId);
-        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, access.ProjectStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, access.ProjectStatus);
         Assert.NotNull(proposalContext);
         Assert.Equal(data.ProjectId, proposalContext.ProjectId);
         Assert.Equal(ProposalStatus.PUBLISHED, proposalContext.ProposalStatus);
@@ -432,7 +432,7 @@ public sealed class ProposalRepositoryTests
             ProjectName = "Luxury Cafe",
             BusinessType = "Cafe",
             FurnitureRequirement = "Tables",
-            Status = ProjectStatus.PROPOSAL_DRAFTING
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         });
         context.StoredFileSet.Add(new StoredFile
         {

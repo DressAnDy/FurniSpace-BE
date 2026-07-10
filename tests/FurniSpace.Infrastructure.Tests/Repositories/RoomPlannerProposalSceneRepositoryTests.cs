@@ -97,7 +97,7 @@ public sealed class RoomPlannerProposalSceneRepositoryTests
             ProjectName = "Cafe",
             BusinessType = "Cafe",
             FurnitureRequirement = "Tables",
-            Status = ProjectStatus.PROPOSAL_DRAFTING
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         });
         context.ProposalSet.Add(new Proposal
         {

@@ -74,7 +74,10 @@ public sealed class NotificationTemplateProviderTests
 
         Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
         Assert.Equal("proposal.published", template.SignalREventName);
-        Assert.Equal("New proposal ready for review", template.TitleTemplate);
+        Assert.Equal("New proposal is available", template.TitleTemplate);
+        Assert.Equal(
+            "A new proposal has been published for your project. Please review it.",
+            template.MessageTemplate);
     }
 
     [Fact]

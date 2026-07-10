@@ -62,7 +62,7 @@ public sealed class ProjectStatusTransitionEvaluatorTests
         var designerId = Guid.NewGuid();
         var evaluator = CreateEvaluator();
         var project = CreateProject(
-            status: ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
+            status: ProjectStatus.PROPOSAL_CONSULTING,
             assignedDesignerId: designerId);
 
         var error = await evaluator.EvaluateAsync(
@@ -88,7 +88,7 @@ public sealed class ProjectStatusTransitionEvaluatorTests
 
         var error = await evaluator.EvaluateAsync(
             project,
-            ProjectStatus.PROPOSAL_DRAFTING,
+            ProjectStatus.PROPOSAL_CONSULTING,
             note: null,
             Guid.NewGuid(),
             "DESIGNER",
@@ -277,14 +277,14 @@ public sealed class ProjectStatusTransitionEvaluatorTests
     }
 
     [Fact]
-    public async Task EvaluateAsync_MeasurementRequiredToProposalDrafting_WithoutMeasurementFiles_ReturnsMeasurementFileRequired()
+    public async Task EvaluateAsync_MeasurementRequiredToProposalConsulting_WithoutMeasurementFiles_ReturnsMeasurementFileRequired()
     {
         var designerId = Guid.NewGuid();
         var fakes = new ProjectServiceTransitionFakes
         {
             Schedules = { HasCompletedMeasurement = true },
             Files = { HasMeasurementFiles = false },
-            Settings = { RequireMeasurementFileOnProposalDrafting = true }
+            Settings = { RequireMeasurementFileOnProposalConsulting = true }
         };
         var evaluator = CreateEvaluator(fakes);
         var project = CreateProject(
@@ -293,7 +293,7 @@ public sealed class ProjectStatusTransitionEvaluatorTests
 
         var error = await evaluator.EvaluateAsync(
             project,
-            ProjectStatus.PROPOSAL_DRAFTING,
+            ProjectStatus.PROPOSAL_CONSULTING,
             note: null,
             designerId,
             "DESIGNER",
@@ -304,7 +304,7 @@ public sealed class ProjectStatusTransitionEvaluatorTests
     }
 
     [Fact]
-    public async Task EvaluateAsync_MeasurementRequiredToProposalDrafting_WithCompletedMeasurement_ReturnsNull()
+    public async Task EvaluateAsync_MeasurementRequiredToProposalConsulting_WithCompletedMeasurement_ReturnsNull()
     {
         var designerId = Guid.NewGuid();
         var fakes = new ProjectServiceTransitionFakes
@@ -319,7 +319,7 @@ public sealed class ProjectStatusTransitionEvaluatorTests
 
         var error = await evaluator.EvaluateAsync(
             project,
-            ProjectStatus.PROPOSAL_DRAFTING,
+            ProjectStatus.PROPOSAL_CONSULTING,
             note: null,
             designerId,
             "DESIGNER",
@@ -329,42 +329,17 @@ public sealed class ProjectStatusTransitionEvaluatorTests
     }
 
     [Fact]
-    public async Task EvaluateAsync_ProposalDraftingToCustomerReview_WithoutProposal_ReturnsFinalProposalRequired()
+    public async Task EvaluateAsync_SpaceVerifiedToProposalConsulting_WithAssignedDesigner_ReturnsNull()
     {
         var designerId = Guid.NewGuid();
         var evaluator = CreateEvaluator();
         var project = CreateProject(
-            status: ProjectStatus.PROPOSAL_DRAFTING,
+            status: ProjectStatus.SPACE_VERIFIED,
             assignedDesignerId: designerId);
 
         var error = await evaluator.EvaluateAsync(
             project,
-            ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
-            note: null,
-            designerId,
-            "DESIGNER",
-            CancellationToken.None);
-
-        Assert.NotNull(error);
-        Assert.Equal(ProjectStatusErrorCodes.FinalProposalRequired, error.Code);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_ProposalDraftingToCustomerReview_WithActiveScene_ReturnsNull()
-    {
-        var designerId = Guid.NewGuid();
-        var fakes = new ProjectServiceTransitionFakes
-        {
-            Proposals = { HasProposalWithActiveScene = true }
-        };
-        var evaluator = CreateEvaluator(fakes);
-        var project = CreateProject(
-            status: ProjectStatus.PROPOSAL_DRAFTING,
-            assignedDesignerId: designerId);
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
+            ProjectStatus.PROPOSAL_CONSULTING,
             note: null,
             designerId,
             "DESIGNER",
@@ -374,70 +349,28 @@ public sealed class ProjectStatusTransitionEvaluatorTests
     }
 
     [Fact]
-    public async Task EvaluateAsync_CustomerReviewToRevisionRequested_WithAssignedDesigner_ReturnsNull()
-    {
-        var designerId = Guid.NewGuid();
-        var evaluator = CreateEvaluator();
-        var project = CreateProject(
-            status: ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
-            assignedDesignerId: designerId);
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.REVISION_REQUESTED,
-            note: null,
-            designerId,
-            "DESIGNER",
-            CancellationToken.None);
-
-        Assert.Null(error);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_CustomerReviewToRevisionRequested_WithUnauthorizedUser_ReturnsForbidden()
-    {
-        var evaluator = CreateEvaluator();
-        var project = CreateProject(
-            status: ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
-            assignedDesignerId: Guid.NewGuid());
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.REVISION_REQUESTED,
-            note: null,
-            Guid.NewGuid(),
-            "DESIGNER",
-            CancellationToken.None);
-
-        Assert.NotNull(error);
-        Assert.Equal(403, error.Status);
-        Assert.Equal(ProjectStatusErrorCodes.Forbidden, error.Code);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_CustomerReviewToProposalDrafting_ReturnsDedicatedEndpointMessage()
+    public async Task EvaluateAsync_SpaceVerifiedToProposalConsulting_WithoutDesigner_ReturnsDesignerNotAssigned()
     {
         var salesId = Guid.NewGuid();
         var evaluator = CreateEvaluator();
         var project = CreateProject(
-            status: ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
+            status: ProjectStatus.SPACE_VERIFIED,
             assignedSalesId: salesId);
 
         var error = await evaluator.EvaluateAsync(
             project,
-            ProjectStatus.PROPOSAL_DRAFTING,
+            ProjectStatus.PROPOSAL_CONSULTING,
             note: null,
             salesId,
             "SALES",
             CancellationToken.None);
 
         Assert.NotNull(error);
-        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatusTransition, error.Code);
-        Assert.Contains("dedicated proposal revision endpoint", error.Message);
+        Assert.Equal(ProjectStatusErrorCodes.DesignerNotAssigned, error.Code);
     }
 
     [Fact]
-    public async Task EvaluateAsync_CustomerReviewToProposalSelected_WithNonSales_ReturnsForbidden()
+    public async Task EvaluateAsync_ProposalConsultingToProposalSelected_WithNonSales_ReturnsForbidden()
     {
         var designerId = Guid.NewGuid();
         var fakes = new ProjectServiceTransitionFakes
@@ -446,7 +379,7 @@ public sealed class ProjectStatusTransitionEvaluatorTests
         };
         var evaluator = CreateEvaluator(fakes);
         var project = CreateProject(
-            status: ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
+            status: ProjectStatus.PROPOSAL_CONSULTING,
             assignedDesignerId: designerId);
 
         var error = await evaluator.EvaluateAsync(
@@ -459,6 +392,77 @@ public sealed class ProjectStatusTransitionEvaluatorTests
 
         Assert.NotNull(error);
         Assert.Equal(403, error.Status);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_ProposalConsultingToProposalSelected_WithoutSelectedProposal_ReturnsFinalProposalRequired()
+    {
+        var salesId = Guid.NewGuid();
+        var evaluator = CreateEvaluator();
+        var project = CreateProject(
+            status: ProjectStatus.PROPOSAL_CONSULTING,
+            assignedSalesId: salesId);
+
+        var error = await evaluator.EvaluateAsync(
+            project,
+            ProjectStatus.PROPOSAL_SELECTED,
+            note: null,
+            salesId,
+            "SALES",
+            CancellationToken.None);
+
+        Assert.NotNull(error);
+        Assert.Equal(ProjectStatusErrorCodes.FinalProposalRequired, error.Code);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_ProposalConsultingToProposalSelected_WithSelectedProposal_ReturnsNull()
+    {
+        var salesId = Guid.NewGuid();
+        var fakes = new ProjectServiceTransitionFakes
+        {
+            Proposals = { HasSelectedFinalProposal = true }
+        };
+        var evaluator = CreateEvaluator(fakes);
+        var project = CreateProject(
+            status: ProjectStatus.PROPOSAL_CONSULTING,
+            assignedSalesId: salesId);
+
+        var error = await evaluator.EvaluateAsync(
+            project,
+            ProjectStatus.PROPOSAL_SELECTED,
+            note: null,
+            salesId,
+            "SALES",
+            CancellationToken.None);
+
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_ProposalSelected_FromNonConsultingStatus_ReturnsInvalidProjectStatus()
+    {
+        var salesId = Guid.NewGuid();
+        var fakes = new ProjectServiceTransitionFakes
+        {
+            Proposals = { HasSelectedFinalProposal = true }
+        };
+        var evaluator = CreateEvaluator(fakes);
+        var project = CreateProject(
+            status: ProjectStatus.SPACE_VERIFIED,
+            assignedSalesId: salesId,
+            assignedDesignerId: Guid.NewGuid());
+
+        var error = await evaluator.EvaluateAsync(
+            project,
+            ProjectStatus.PROPOSAL_SELECTED,
+            note: null,
+            salesId,
+            "SALES",
+            CancellationToken.None);
+
+        Assert.NotNull(error);
+        Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatus, error.Code);
     }
 
     [Fact]
@@ -482,27 +486,6 @@ public sealed class ProjectStatusTransitionEvaluatorTests
     }
 
     [Fact]
-    public async Task EvaluateAsync_RevisionRequestedToProposalDrafting_WithAssignedSales_ReturnsNull()
-    {
-        var salesId = Guid.NewGuid();
-        var evaluator = CreateEvaluator();
-        var project = CreateProject(
-            status: ProjectStatus.REVISION_REQUESTED,
-            assignedSalesId: salesId,
-            assignedDesignerId: Guid.NewGuid());
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.PROPOSAL_DRAFTING,
-            note: null,
-            salesId,
-            "SALES",
-            CancellationToken.None);
-
-        Assert.Null(error);
-    }
-
-    [Fact]
     public async Task EvaluateAsync_InConsultationToWaitingForDesigner_WithAdmin_ReturnsNull()
     {
         var evaluator = CreateEvaluator();
@@ -514,112 +497,6 @@ public sealed class ProjectStatusTransitionEvaluatorTests
             note: null,
             Guid.NewGuid(),
             "ADMIN",
-            CancellationToken.None);
-
-        Assert.Null(error);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_SpaceVerifiedToProposalDrafting_WithAssignedDesigner_ReturnsNull()
-    {
-        var designerId = Guid.NewGuid();
-        var evaluator = CreateEvaluator();
-        var project = CreateProject(
-            status: ProjectStatus.SPACE_VERIFIED,
-            assignedDesignerId: designerId);
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.PROPOSAL_DRAFTING,
-            note: null,
-            designerId,
-            "DESIGNER",
-            CancellationToken.None);
-
-        Assert.Null(error);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_SpaceVerifiedToProposalDrafting_WithoutDesigner_ReturnsDesignerNotAssigned()
-    {
-        var salesId = Guid.NewGuid();
-        var evaluator = CreateEvaluator();
-        var project = CreateProject(
-            status: ProjectStatus.SPACE_VERIFIED,
-            assignedSalesId: salesId);
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.PROPOSAL_DRAFTING,
-            note: null,
-            salesId,
-            "SALES",
-            CancellationToken.None);
-
-        Assert.NotNull(error);
-        Assert.Equal(ProjectStatusErrorCodes.DesignerNotAssigned, error.Code);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_ProposalDraftingToCustomerReview_WithUnauthorizedUser_ReturnsForbidden()
-    {
-        var evaluator = CreateEvaluator();
-        var project = CreateProject(
-            status: ProjectStatus.PROPOSAL_DRAFTING,
-            assignedDesignerId: Guid.NewGuid());
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
-            note: null,
-            Guid.NewGuid(),
-            "DESIGNER",
-            CancellationToken.None);
-
-        Assert.NotNull(error);
-        Assert.Equal(ProjectStatusErrorCodes.Forbidden, error.Code);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_CustomerReviewToProposalSelected_WithoutSelectedProposal_ReturnsFinalProposalRequired()
-    {
-        var salesId = Guid.NewGuid();
-        var evaluator = CreateEvaluator();
-        var project = CreateProject(
-            status: ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
-            assignedSalesId: salesId);
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.PROPOSAL_SELECTED,
-            note: null,
-            salesId,
-            "SALES",
-            CancellationToken.None);
-
-        Assert.NotNull(error);
-        Assert.Equal(ProjectStatusErrorCodes.FinalProposalRequired, error.Code);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_CustomerReviewToProposalSelected_WithSelectedProposal_ReturnsNull()
-    {
-        var salesId = Guid.NewGuid();
-        var fakes = new ProjectServiceTransitionFakes
-        {
-            Proposals = { HasSelectedFinalProposal = true }
-        };
-        var evaluator = CreateEvaluator(fakes);
-        var project = CreateProject(
-            status: ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
-            assignedSalesId: salesId);
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.PROPOSAL_SELECTED,
-            note: null,
-            salesId,
-            "SALES",
             CancellationToken.None);
 
         Assert.Null(error);
@@ -644,26 +521,6 @@ public sealed class ProjectStatusTransitionEvaluatorTests
 
         Assert.NotNull(error);
         Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatusTransition, error.Code);
-    }
-
-    [Fact]
-    public async Task EvaluateAsync_RevisionRequestedToProposalDrafting_WithUnauthorizedUser_ReturnsForbidden()
-    {
-        var evaluator = CreateEvaluator();
-        var project = CreateProject(
-            status: ProjectStatus.REVISION_REQUESTED,
-            assignedDesignerId: Guid.NewGuid());
-
-        var error = await evaluator.EvaluateAsync(
-            project,
-            ProjectStatus.PROPOSAL_DRAFTING,
-            note: null,
-            Guid.NewGuid(),
-            "DESIGNER",
-            CancellationToken.None);
-
-        Assert.NotNull(error);
-        Assert.Equal(ProjectStatusErrorCodes.Forbidden, error.Code);
     }
 
     [Fact]

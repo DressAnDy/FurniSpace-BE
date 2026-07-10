@@ -1086,7 +1086,7 @@ public sealed class ProposalServiceTests
             ProjectId = projectId,
             CustomerId = customerId,
             ProjectName = "Cafe",
-            Status = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         };
         var repository = new FakeProposalRepository(detail: detail);
         repository.Proposals.AddRange([selectedProposal, otherProposal]);
@@ -1264,7 +1264,7 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
-    public async Task PublishAsync_WithDraftProposalAndActiveScene_PublishesAndUpdatesProject()
+    public async Task PublishAsync_WithDraftProposalAndActiveScene_PublishesWithoutChangingProjectStatus()
     {
         var designerId = Guid.NewGuid();
         var customerId = Guid.NewGuid();
@@ -1276,7 +1276,7 @@ public sealed class ProposalServiceTests
             ProjectId = detail.ProjectId,
             CustomerId = customerId,
             ProjectName = "Cafe",
-            Status = ProjectStatus.PROPOSAL_DRAFTING
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         };
         var repository = new FakeProposalRepository(detail: detail) { HasActiveScene = true };
         repository.Proposals.Add(new Proposal
@@ -1297,8 +1297,8 @@ public sealed class ProposalServiceTests
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
         Assert.Equal(ProposalStatus.PUBLISHED, result.Data.ProposalStatus);
-        Assert.Equal(ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, result.Data.ProjectStatus);
-        Assert.Equal(ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, project.Status);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, result.Data.ProjectStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
         Assert.Equal(ProposalStatus.PUBLISHED, repository.Proposals[0].Status);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Equal(NotificationType.ProposalPublished, dispatcher.LastType);
@@ -1616,7 +1616,7 @@ public sealed class ProposalServiceTests
             CustomerId = customerId ?? Guid.NewGuid(),
             AssignedSalesId = assignedSalesId,
             AssignedDesignerId = assignedDesignerId,
-            ProjectStatus = ProjectStatus.PROPOSAL_DRAFTING
+            ProjectStatus = ProjectStatus.PROPOSAL_CONSULTING
         };
     }
 

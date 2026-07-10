@@ -1440,7 +1440,7 @@ public sealed class CustomizationRequestServiceTests
         CustomerId = ids.CustomerId,
         AssignedSalesId = ids.SalesId,
         AssignedDesignerId = ids.DesignerId,
-        ProjectStatus = ProjectStatus.PROPOSAL_DRAFTING
+        ProjectStatus = ProjectStatus.PROPOSAL_CONSULTING
     };
 
     private static CustomizationRequestReadModel CreateRequest(
@@ -1550,7 +1550,7 @@ public sealed class CustomizationRequestServiceTests
         AssignedSalesId = ids.SalesId,
         AssignedDesignerId = ids.DesignerId,
         ProposalStatus = ProposalStatus.PUBLISHED,
-        ProjectStatus = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
+        ProjectStatus = ProjectStatus.PROPOSAL_CONSULTING,
         ProjectName = "Cafe",
         ProposalName = "Cafe Proposal"
     };

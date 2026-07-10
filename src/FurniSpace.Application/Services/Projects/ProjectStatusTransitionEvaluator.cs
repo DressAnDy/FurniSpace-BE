@@ -20,9 +20,7 @@ public sealed class ProjectStatusTransitionEvaluator
     [
         ProjectStatus.MEASUREMENT_REQUIRED,
         ProjectStatus.SPACE_VERIFIED,
-        ProjectStatus.PROPOSAL_DRAFTING,
-        ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
-        ProjectStatus.REVISION_REQUESTED
+        ProjectStatus.PROPOSAL_CONSULTING
     ];
 
     private static readonly HashSet<ProjectStatus> DesignerForbiddenTargetStatuses =
@@ -104,11 +102,11 @@ public sealed class ProjectStatusTransitionEvaluator
         }
 
         if (targetStatus == ProjectStatus.PROPOSAL_SELECTED &&
-            currentStatus.Value != ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW)
+            currentStatus.Value != ProjectStatus.PROPOSAL_CONSULTING)
         {
             return Error.Validation(
                 ProjectStatusErrorCodes.InvalidProjectStatus,
-                "Project must be waiting for customer review before moving to proposal selected.");
+                "Project must be in proposal consulting before moving to proposal selected.");
         }
 
         return (currentStatus.Value, targetStatus) switch
@@ -128,28 +126,14 @@ public sealed class ProjectStatusTransitionEvaluator
             (ProjectStatus.MEASUREMENT_REQUIRED, ProjectStatus.SPACE_VERIFIED) =>
                 ValidateMeasurementRequiredToSpaceVerified(project, roleName, currentUserId, note),
 
-            (ProjectStatus.MEASUREMENT_REQUIRED, ProjectStatus.PROPOSAL_DRAFTING) =>
-                await ValidateToProposalDraftingAsync(project, roleName, currentUserId, cancellationToken),
+            (ProjectStatus.MEASUREMENT_REQUIRED, ProjectStatus.PROPOSAL_CONSULTING) =>
+                await ValidateToProposalConsultingAsync(project, roleName, currentUserId, cancellationToken),
 
-            (ProjectStatus.SPACE_VERIFIED, ProjectStatus.PROPOSAL_DRAFTING) =>
-                await ValidateToProposalDraftingAsync(project, roleName, currentUserId, cancellationToken),
+            (ProjectStatus.SPACE_VERIFIED, ProjectStatus.PROPOSAL_CONSULTING) =>
+                await ValidateToProposalConsultingAsync(project, roleName, currentUserId, cancellationToken),
 
-            (ProjectStatus.PROPOSAL_DRAFTING, ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW) =>
-                await ValidateProposalDraftingToCustomerReviewAsync(project, roleName, currentUserId, cancellationToken),
-
-            (ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, ProjectStatus.REVISION_REQUESTED) =>
-                ValidateWaitingForCustomerReviewToRevisionRequested(project, roleName, currentUserId),
-
-            (ProjectStatus.REVISION_REQUESTED, ProjectStatus.PROPOSAL_DRAFTING) =>
-                ValidateRevisionRequestedToProposalDrafting(project, roleName, currentUserId),
-
-            (ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, ProjectStatus.PROPOSAL_DRAFTING) =>
-                Error.Validation(
-                    ProjectStatusErrorCodes.InvalidProjectStatusTransition,
-                    "Use the dedicated proposal revision endpoint to reject a proposal."),
-
-            (ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, ProjectStatus.PROPOSAL_SELECTED) =>
-                await ValidateCustomerReviewToProposalSelectedAsync(project, roleName, currentUserId, cancellationToken),
+            (ProjectStatus.PROPOSAL_CONSULTING, ProjectStatus.PROPOSAL_SELECTED) =>
+                await ValidateProposalConsultingToProposalSelectedAsync(project, roleName, currentUserId, cancellationToken),
 
             _ => Error.Validation(
                 ProjectStatusErrorCodes.InvalidProjectStatusTransition,
@@ -241,36 +225,6 @@ public sealed class ProjectStatusTransitionEvaluator
         return RequireNote(note);
     }
 
-    private static Error? ValidateWaitingForCustomerReviewToRevisionRequested(
-        Project project,
-        string? roleName,
-        Guid currentUserId)
-    {
-        if (!CanActAsDesignerOrSales(project, roleName, currentUserId))
-        {
-            return Error.Forbidden(
-                ProjectStatusErrorCodes.Forbidden,
-                "Only assigned Designer, Sales, or Admin can mark revision requested.");
-        }
-
-        return null;
-    }
-
-    private static Error? ValidateRevisionRequestedToProposalDrafting(
-        Project project,
-        string? roleName,
-        Guid currentUserId)
-    {
-        if (!CanActAsDesignerOrSales(project, roleName, currentUserId))
-        {
-            return Error.Forbidden(
-                ProjectStatusErrorCodes.Forbidden,
-                "Only assigned Designer, Sales, or Admin can resume proposal drafting.");
-        }
-
-        return null;
-    }
-
     private static Error? ValidateDesignerAuthorization(
         Project project,
         string? roleName,
@@ -306,7 +260,7 @@ public sealed class ProjectStatusTransitionEvaluator
         return null;
     }
 
-    private async Task<Error?> ValidateToProposalDraftingAsync(
+    private async Task<Error?> ValidateToProposalConsultingAsync(
         Project project,
         string? roleName,
         Guid currentUserId,
@@ -316,14 +270,14 @@ public sealed class ProjectStatusTransitionEvaluator
         {
             return Error.Forbidden(
                 ProjectStatusErrorCodes.Forbidden,
-                "Only assigned Designer, Sales, or Admin can move to proposal drafting.");
+                "Only assigned Designer, Sales, or Admin can move to proposal consulting.");
         }
 
         if (!project.AssignedDesignerId.HasValue)
         {
             return Error.Validation(
                 ProjectStatusErrorCodes.DesignerNotAssigned,
-                "A designer must be assigned before proposal drafting.");
+                "A designer must be assigned before proposal consulting.");
         }
 
         if (project.Status == ProjectStatus.MEASUREMENT_REQUIRED)
@@ -337,7 +291,7 @@ public sealed class ProjectStatusTransitionEvaluator
                 return measurementError;
             }
 
-            if (_settings.RequireMeasurementFileOnProposalDrafting)
+            if (_settings.RequireMeasurementFileOnProposalConsulting)
             {
                 var fileError = await ProjectMeasurementGate.ValidateMeasurementFilesAsync(
                     project.ProjectId,
@@ -353,33 +307,7 @@ public sealed class ProjectStatusTransitionEvaluator
         return null;
     }
 
-    private async Task<Error?> ValidateProposalDraftingToCustomerReviewAsync(
-        Project project,
-        string? roleName,
-        Guid currentUserId,
-        CancellationToken cancellationToken)
-    {
-        if (!CanActAsDesignerOrSales(project, roleName, currentUserId))
-        {
-            return Error.Forbidden(
-                ProjectStatusErrorCodes.Forbidden,
-                "Only assigned Designer, Sales, or Admin can submit a proposal for customer review.");
-        }
-
-        var hasProposal = await _proposals.HasProposalWithActiveSceneAsync(
-            project.ProjectId,
-            cancellationToken);
-        if (!hasProposal)
-        {
-            return Error.Validation(
-                ProjectStatusErrorCodes.FinalProposalRequired,
-                "A proposal with an active scene is required before customer review.");
-        }
-
-        return null;
-    }
-
-    private async Task<Error?> ValidateCustomerReviewToProposalSelectedAsync(
+    private async Task<Error?> ValidateProposalConsultingToProposalSelectedAsync(
         Project project,
         string? roleName,
         Guid currentUserId,

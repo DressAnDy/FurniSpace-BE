@@ -137,7 +137,7 @@ public sealed class ProjectAreaRepositoryTests
             ProjectName = "Luxury Cafe",
             BusinessType = "Cafe",
             FurnitureRequirement = "Tables",
-            Status = ProjectStatus.PROPOSAL_DRAFTING
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         });
         context.ProjectAreaSet.AddRange(
             new ProjectArea

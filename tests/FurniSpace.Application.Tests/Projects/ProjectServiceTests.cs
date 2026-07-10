@@ -774,7 +774,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
-    public async Task UpdateStatusAsync_WithAssignedDesigner_MovesDesignStatus()
+    public async Task UpdateStatusAsync_WithAssignedDesignerMovingToProposalConsulting_Succeeds()
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -786,15 +786,15 @@ public sealed class ProjectServiceTests
 
         var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
         {
-            Status = ProjectStatus.PROPOSAL_DRAFTING,
-            Note = "Designer starts drafting proposal after space verification."
+            Status = ProjectStatus.PROPOSAL_CONSULTING,
+            Note = "Designer starts proposal consulting after space verification."
         });
 
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
         Assert.Equal(ProjectStatus.SPACE_VERIFIED, result.Data.OldStatus);
-        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, result.Data.NewStatus);
-        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, result.Data.NewStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
     }
 
     [Fact]
@@ -809,7 +809,7 @@ public sealed class ProjectServiceTests
 
         var result = await service.UpdateStatusAsync(projectId, Guid.NewGuid(), new UpdateProjectStatusRequestDto
         {
-            Status = ProjectStatus.PROPOSAL_DRAFTING
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         });
 
         Assert.Equal(403, result.Status);
@@ -839,34 +839,13 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
-    public async Task UpdateStatusAsync_WithAssignedDesignerResumingAfterRevision_Succeeds()
-    {
-        var designerId = Guid.NewGuid();
-        var projectId = Guid.NewGuid();
-        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
-        project.AssignedDesignerId = designerId;
-        project.Status = ProjectStatus.REVISION_REQUESTED;
-        var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
-
-        var result = await service.UpdateStatusAsync(projectId, designerId, new UpdateProjectStatusRequestDto
-        {
-            Status = ProjectStatus.PROPOSAL_DRAFTING,
-            Note = "Designer resumes drafting after customer revision request."
-        });
-
-        Assert.Equal(200, result.Status);
-        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
-    }
-
-    [Fact]
     public async Task UpdateStatusAsync_WithAssignedDesignerMovingToQuotation_ReturnsForbidden()
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
         var project = CreateQualifiedProject(projectId, Guid.NewGuid());
         project.AssignedDesignerId = designerId;
-        project.Status = ProjectStatus.PROPOSAL_DRAFTING;
+        project.Status = ProjectStatus.PROPOSAL_CONSULTING;
         var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
         var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
 
@@ -877,7 +856,7 @@ public sealed class ProjectServiceTests
 
         Assert.Equal(403, result.Status);
         Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatus, result.ErrorCode);
-        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
     }
 
     [Fact]
@@ -887,7 +866,7 @@ public sealed class ProjectServiceTests
         var projectId = Guid.NewGuid();
         var project = CreateQualifiedProject(projectId, Guid.NewGuid());
         project.AssignedDesignerId = designerId;
-        project.Status = ProjectStatus.PROPOSAL_DRAFTING;
+        project.Status = ProjectStatus.PROPOSAL_CONSULTING;
         var repository = new FakeProjectRepository(roleName: "DESIGNER", entities: [project]);
         var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
 
@@ -898,7 +877,7 @@ public sealed class ProjectServiceTests
 
         Assert.Equal(403, result.Status);
         Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatus, result.ErrorCode);
-        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
     }
 
     [Fact]
@@ -1041,7 +1020,7 @@ public sealed class ProjectServiceTests
         var salesId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
         var project = CreateQualifiedProject(projectId, salesId);
-        project.Status = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW;
+        project.Status = ProjectStatus.PROPOSAL_CONSULTING;
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
         var transitionFakes = new ProjectServiceTransitionFakes
         {
@@ -1064,7 +1043,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(200, result.Status);
         Assert.Equal("Project moved to proposal selected successfully.", result.Message);
         Assert.NotNull(result.Data);
-        Assert.Equal(ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, result.Data.OldStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, result.Data.OldStatus);
         Assert.Equal(ProjectStatus.PROPOSAL_SELECTED, result.Data.NewStatus);
         Assert.Equal(ProjectStatus.PROPOSAL_SELECTED, project.Status);
         Assert.Equal(1, repository.SaveChangesCallCount);
@@ -1076,7 +1055,7 @@ public sealed class ProjectServiceTests
         var salesId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
         var project = CreateQualifiedProject(projectId, salesId);
-        project.Status = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW;
+        project.Status = ProjectStatus.PROPOSAL_CONSULTING;
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
         var service = ProjectServiceTestFactory.Create(
             repository,
@@ -1090,7 +1069,7 @@ public sealed class ProjectServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(ProjectStatusErrorCodes.FinalProposalRequired, result.ErrorCode);
-        Assert.Equal(ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW, project.Status);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
         Assert.Equal(0, repository.SaveChangesCallCount);
     }
 
@@ -1100,7 +1079,8 @@ public sealed class ProjectServiceTests
         var salesId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
         var project = CreateQualifiedProject(projectId, salesId);
-        project.Status = ProjectStatus.PROPOSAL_DRAFTING;
+        project.Status = ProjectStatus.SPACE_VERIFIED;
+        project.AssignedDesignerId = Guid.NewGuid();
         var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
         var transitionFakes = new ProjectServiceTransitionFakes
         {
@@ -1121,7 +1101,7 @@ public sealed class ProjectServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(ProjectStatusErrorCodes.InvalidProjectStatus, result.ErrorCode);
-        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, project.Status);
+        Assert.Equal(ProjectStatus.SPACE_VERIFIED, project.Status);
         Assert.Equal(0, repository.SaveChangesCallCount);
     }
 
@@ -1143,7 +1123,7 @@ public sealed class ProjectServiceTests
 
         var result = await service.UpdateStatusAsync(projectId, salesId, new UpdateProjectStatusRequestDto
         {
-            Status = ProjectStatus.PROPOSAL_DRAFTING
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         });
 
         Assert.Equal(400, result.Status);

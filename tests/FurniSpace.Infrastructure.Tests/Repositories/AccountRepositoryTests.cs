@@ -207,7 +207,7 @@ public sealed class AccountRepositoryTests
             CreateAccount(inactiveDesignerId, designerRole.RoleId, "dana.designer@example.com", "Dana Designer", AccountStatus.INACTIVE, now.AddDays(-7)));
 
         context.ProjectSet.AddRange(
-            CreateProject(designerWithOneProjectId, ProjectStatus.PROPOSAL_DRAFTING),
+            CreateProject(designerWithOneProjectId, ProjectStatus.PROPOSAL_CONSULTING),
             CreateProject(designerAtCapacityId, ProjectStatus.IN_CONSULTATION),
             CreateProject(designerAtCapacityId, ProjectStatus.SPACE_VERIFIED),
             CreateProject(designerWithoutProjectsId, ProjectStatus.COMPLETED));

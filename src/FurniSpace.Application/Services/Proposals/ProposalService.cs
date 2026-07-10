@@ -46,9 +46,9 @@ public sealed class ProposalService : IProposalService
     private static readonly ProposalStatus[] CustomerVisibleStatuses =
     [
         ProposalStatus.PUBLISHED,
-        ProposalStatus.VIEWED,
+        ProposalStatus.REVISION_REQUESTED,
         ProposalStatus.SELECTED,
-        ProposalStatus.REVISION_REQUESTED
+        ProposalStatus.REJECTED
     ];
 
     private readonly IProposalRepository _proposals;
@@ -118,11 +118,11 @@ public sealed class ProposalService : IProposalService
                 "Project must have an assigned designer before creating a proposal."));
         }
 
-        if (project.ProjectStatus != ProjectStatus.PROPOSAL_DRAFTING)
+        if (project.ProjectStatus != ProjectStatus.PROPOSAL_CONSULTING)
         {
             return ServiceResult<ProposalDto>.Failure(Error.BadRequest(
                 "INVALID_PROJECT_STATUS",
-                "Proposal can only be created when project status is PROPOSAL_DRAFTING."));
+                "Proposal can only be created when project status is PROPOSAL_CONSULTING."));
         }
 
         if (!CanStaffAccessProject(project, currentUserId, roleName))
@@ -987,8 +987,6 @@ public sealed class ProposalService : IProposalService
             proposalEntity.Status = ProposalStatus.PUBLISHED;
             proposalEntity.PublishedAt = now;
             proposalEntity.UpdatedAt = now;
-            projectEntity.Status = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW;
-            projectEntity.UpdatedAt = now;
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
@@ -1807,7 +1805,7 @@ public sealed class ProposalService : IProposalService
 
     private static bool IsSelectableFinalProposal(ProposalStatus? status)
     {
-        return status is ProposalStatus.PUBLISHED or ProposalStatus.VIEWED;
+        return status is ProposalStatus.PUBLISHED;
     }
 
     private Task<bool> HasPendingCustomizationRequestsAsync(
@@ -1837,7 +1835,7 @@ public sealed class ProposalService : IProposalService
 
     private static bool CanRequestRevision(ProposalStatus? status)
     {
-        return status is ProposalStatus.PUBLISHED or ProposalStatus.VIEWED;
+        return status is ProposalStatus.PUBLISHED;
     }
 
     private async Task DispatchProposalFinalSelectedNotificationAsync(

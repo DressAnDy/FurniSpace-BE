@@ -375,7 +375,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 var hasCompletedMeasurement = await _schedules.HasCompletedMeasurementScheduleAsync(
                     detail.ProjectId,
                     cancellationToken);
-                response.CanMoveToProposalDrafting = ProjectMeasurementGate.CanMoveToProposalDrafting(
+                response.CanMoveToProposalConsulting = ProjectMeasurementGate.CanMoveToProposalConsulting(
                     project,
                     hasCompletedMeasurement);
             }

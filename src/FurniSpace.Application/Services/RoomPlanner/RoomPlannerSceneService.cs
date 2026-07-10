@@ -278,9 +278,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     private static bool IsCustomerVisible(ProposalStatus? status)
     {
         return status is ProposalStatus.PUBLISHED
-            or ProposalStatus.VIEWED
+            or ProposalStatus.REVISION_REQUESTED
             or ProposalStatus.SELECTED
-            or ProposalStatus.REVISION_REQUESTED;
+            or ProposalStatus.REJECTED;
     }
 
     private static bool IsEditableProposal(ProposalStatus? status)

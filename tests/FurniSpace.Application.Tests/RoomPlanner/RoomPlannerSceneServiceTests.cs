@@ -251,6 +251,23 @@ public sealed class RoomPlannerSceneServiceTests
     }
 
     [Fact]
+    public async Task GetSceneAsync_CustomerRejectedProposal_ReturnsDocument()
+    {
+        var document = CreateDocument("64fb8f0f2a98f67b1c000003");
+        var service = CreateService(
+            new FakeSqlSceneRepository
+            {
+                Context = CreateContext(document.Id, ProposalStatus.REJECTED)
+            },
+            new FakeSceneDocumentRepository { DocumentById = document });
+
+        var result = await service.GetSceneAsync(SceneId, CustomerId, "CUSTOMER");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(document.Id, result.Data!.MongoSceneId);
+    }
+
+    [Fact]
     public async Task GetSceneAsync_WhenNoMongoSceneId_ReturnsEmptyTemplate()
     {
         var service = CreateService(

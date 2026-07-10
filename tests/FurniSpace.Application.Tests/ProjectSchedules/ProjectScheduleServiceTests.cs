@@ -728,7 +728,7 @@ public sealed class ProjectScheduleServiceTests
     }
 
     [Fact]
-    public async Task UpdateStatusAsync_CompleteMeasurement_ReturnsCanMoveToProposalDrafting_WhenGatePasses()
+    public async Task UpdateStatusAsync_CompleteMeasurement_ReturnsCanMoveToProposalConsulting_WhenGatePasses()
     {
         var salesId = Guid.NewGuid();
         var designerId = Guid.NewGuid();
@@ -765,7 +765,7 @@ public sealed class ProjectScheduleServiceTests
             new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.COMPLETED });
 
         Assert.Equal(200, result.Status);
-        Assert.True(result.Data!.CanMoveToProposalDrafting);
+        Assert.True(result.Data!.CanMoveToProposalConsulting);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────

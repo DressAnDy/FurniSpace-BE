@@ -64,6 +64,34 @@ public sealed class ProposalRepositoryTests
     }
 
     [Fact]
+    public async Task GetListAsync_WithCustomerVisibleOnly_IncludesRejectedProposals()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var rejectedProposalId = Guid.NewGuid();
+        context.ProposalSet.Add(CreateProposal(
+            rejectedProposalId,
+            data.ProjectId,
+            "Rejected proposal",
+            ProposalStatus.REJECTED,
+            versionNo: 4));
+        await context.SaveChangesAsync();
+
+        var repository = new ProposalRepository(context);
+        var proposals = await repository.GetListAsync(new ProposalListQueryReadModel
+        {
+            ProjectId = data.ProjectId,
+            CustomerVisibleOnly = true,
+            Page = 1,
+            Limit = 10
+        });
+
+        Assert.Equal(3, proposals.Count);
+        Assert.Contains(proposals, proposal => proposal.ProposalId == rejectedProposalId);
+        Assert.Contains(proposals, proposal => proposal.Status == ProposalStatus.REJECTED);
+    }
+
+    [Fact]
     public async Task GetListAsync_WithStatusFilter_ReturnsMatchingProposals()
     {
         await using var context = CreateContext();

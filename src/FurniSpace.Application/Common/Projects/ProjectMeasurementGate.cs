@@ -45,7 +45,7 @@ internal static class ProjectMeasurementGate
         return null;
     }
 
-    internal static bool CanMoveToProposalDrafting(Project project, bool hasCompletedMeasurement)
+    internal static bool CanMoveToProposalConsulting(Project project, bool hasCompletedMeasurement)
     {
         if (!project.AssignedDesignerId.HasValue)
         {

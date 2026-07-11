@@ -856,11 +856,16 @@ public sealed class ProposalServiceTests
                 }
             ]
         };
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            repository.SaveChangesAsync,
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
         var service = CreateService(
             repository,
             new FakeProjectRepository("DESIGNER"),
             productVersions,
-            TestUnitOfWork.ForTransaction(),
+            unitOfWork,
             roomPlannerScenes);
 
         var result = await service.SyncItemsFromSceneAsync(proposalId, designerId, new SyncProposalItemsFromSceneRequestDto
@@ -925,11 +930,16 @@ public sealed class ProposalServiceTests
                 }
             ]
         };
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            repository.SaveChangesAsync,
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
         var service = CreateService(
             repository,
             new FakeProjectRepository("DESIGNER"),
             productVersions,
-            TestUnitOfWork.ForTransaction(),
+            unitOfWork,
             roomPlannerScenes);
 
         var result = await service.SyncItemsFromSceneAsync(proposalId, designerId, new SyncProposalItemsFromSceneRequestDto

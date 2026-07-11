@@ -4,43 +4,57 @@ namespace FurniSpace.Infrastructure.Data;
 
 public static class DataSeeder
 {
+    internal delegate Task<int> RawSeedExecutor(string sql, CancellationToken cancellationToken);
+    internal delegate Task<int> InterpolatedSeedExecutor(FormattableString sql, CancellationToken cancellationToken);
+
     private const string SeedPasswordHash = "AQAAAAIAAYagAAAAEAECAwQFBgcICQoLDA0ODxDAH0b1OrxnAM4eksEmeLkcwosb1PNke5hkU3/Rat3JOA==";
     private const string InvalidSeedPasswordHash = "AQAAAAMAAYagAAAAEAECAwQFBgcICQoLDA0ODxDAH0b1OrxnAM4eksEmeLkcwosb1PNke5hkU3/Rat3JOA==";
 
-    public static async Task SeedAsync(AppDbContext dbContext, CancellationToken cancellationToken = default)
+    public static Task SeedAsync(AppDbContext dbContext, CancellationToken cancellationToken = default)
     {
-        await SeedRolesAsync(dbContext, cancellationToken);
-        await SeedAccountsAsync(dbContext, cancellationToken);
-        await SeedCategoriesAsync(dbContext, cancellationToken);
-        await SeedProductsAsync(dbContext, cancellationToken);
-        await SeedProductVersionsAsync(dbContext, cancellationToken);
-        await SeedProjectsAsync(dbContext, cancellationToken);
-        await SeedProjectAreasAsync(dbContext, cancellationToken);
-        await SeedProjectSchedulesAsync(dbContext, cancellationToken);
-        await SeedFilesAsync(dbContext, cancellationToken);
-        await SeedFileLinksAsync(dbContext, cancellationToken);
-        await SeedProjectChatsAsync(dbContext, cancellationToken);
-        await SeedProjectChatMessagesAsync(dbContext, cancellationToken);
-        await SeedProposalsAsync(dbContext, cancellationToken);
-        await SeedProposalScenesAsync(dbContext, cancellationToken);
-        await SeedProposalItemsAsync(dbContext, cancellationToken);
-        await SeedProposalSceneVariantsAsync(dbContext, cancellationToken);
-        await SeedCustomizationRequestsAsync(dbContext, cancellationToken);
-        await SeedQuotationsAsync(dbContext, cancellationToken);
-        await SeedQuotationItemsAsync(dbContext, cancellationToken);
-        await SeedOrdersAsync(dbContext, cancellationToken);
-        await SeedOrderItemsAsync(dbContext, cancellationToken);
-        await SeedPaymentsAsync(dbContext, cancellationToken);
-        await SeedPaymentTransactionsAsync(dbContext, cancellationToken);
-        await SeedProductionRequestsAsync(dbContext, cancellationToken);
-        await SeedProductionItemsAsync(dbContext, cancellationToken);
-        await SeedNotificationsAsync(dbContext, cancellationToken);
-        await SeedProjectReviewsAsync(dbContext, cancellationToken);
+        return SeedAsync(
+            (sql, token) => dbContext.Database.ExecuteSqlRawAsync(sql, token),
+            (sql, token) => dbContext.Database.ExecuteSqlInterpolatedAsync(sql, token),
+            cancellationToken);
     }
 
-    private static Task<int> SeedRolesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    internal static async Task SeedAsync(
+        RawSeedExecutor executeRawAsync,
+        InterpolatedSeedExecutor executeInterpolatedAsync,
+        CancellationToken cancellationToken = default)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        await SeedRolesAsync(executeRawAsync, cancellationToken);
+        await SeedAccountsAsync(executeInterpolatedAsync, cancellationToken);
+        await SeedCategoriesAsync(executeRawAsync, cancellationToken);
+        await SeedProductsAsync(executeRawAsync, cancellationToken);
+        await SeedProductVersionsAsync(executeRawAsync, cancellationToken);
+        await SeedProjectsAsync(executeRawAsync, cancellationToken);
+        await SeedProjectAreasAsync(executeRawAsync, cancellationToken);
+        await SeedProjectSchedulesAsync(executeRawAsync, cancellationToken);
+        await SeedFilesAsync(executeRawAsync, cancellationToken);
+        await SeedFileLinksAsync(executeRawAsync, cancellationToken);
+        await SeedProjectChatsAsync(executeRawAsync, cancellationToken);
+        await SeedProjectChatMessagesAsync(executeRawAsync, cancellationToken);
+        await SeedProposalsAsync(executeRawAsync, cancellationToken);
+        await SeedProposalScenesAsync(executeRawAsync, cancellationToken);
+        await SeedProposalItemsAsync(executeRawAsync, cancellationToken);
+        await SeedProposalSceneVariantsAsync(executeRawAsync, cancellationToken);
+        await SeedCustomizationRequestsAsync(executeRawAsync, cancellationToken);
+        await SeedQuotationsAsync(executeRawAsync, cancellationToken);
+        await SeedQuotationItemsAsync(executeRawAsync, cancellationToken);
+        await SeedOrdersAsync(executeRawAsync, cancellationToken);
+        await SeedOrderItemsAsync(executeRawAsync, cancellationToken);
+        await SeedPaymentsAsync(executeRawAsync, cancellationToken);
+        await SeedPaymentTransactionsAsync(executeRawAsync, cancellationToken);
+        await SeedProductionRequestsAsync(executeRawAsync, cancellationToken);
+        await SeedProductionItemsAsync(executeRawAsync, cancellationToken);
+        await SeedNotificationsAsync(executeRawAsync, cancellationToken);
+        await SeedProjectReviewsAsync(executeRawAsync, cancellationToken);
+    }
+
+    private static Task<int> SeedRolesAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
+    {
+        return executeRawAsync(
             """
             INSERT INTO roles (role_id, role_name, description, created_at, updated_at)
             VALUES
@@ -54,9 +68,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedAccountsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedAccountsAsync(InterpolatedSeedExecutor executeInterpolatedAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlInterpolatedAsync(
+        return executeInterpolatedAsync(
             $"""
             INSERT INTO accounts (account_id, role_id, email, password_hash, full_name, phone, status, created_at, updated_at)
             VALUES
@@ -85,9 +99,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedCategoriesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedCategoriesAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO categories (category_id, category_name, description, status, created_at, updated_at)
             VALUES
@@ -100,9 +114,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProductsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProductsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO products (product_id, category_id, product_code, product_name, description, status, created_at, updated_at)
             VALUES
@@ -115,9 +129,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProductVersionsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProductVersionsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO product_versions (
                 product_version_id, product_id, version_code, version_name, version_type,
@@ -134,9 +148,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProjectsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProjectsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO projects (
                 project_id, customer_id, assigned_sales_id, assigned_designer_id, project_code,
@@ -158,9 +172,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProjectAreasAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProjectAreasAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO project_areas (
                 project_area_id, project_id, area_name, area_type, floor_number, description,
@@ -176,9 +190,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProjectSchedulesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProjectSchedulesAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO project_schedules (
                 schedule_id, project_id, project_area_id, schedule_type, title, description,
@@ -194,9 +208,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedFilesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedFilesAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO files (
                 file_id, uploaded_by, original_file_name, stored_file_name, file_url,
@@ -212,9 +226,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedFileLinksAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedFileLinksAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO file_links (
                 file_link_id, file_id, reference_type, reference_id, file_type,
@@ -229,9 +243,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProjectChatsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProjectChatsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO project_chats (chat_id, project_id, chat_type, staff_id, title, status, created_at, closed_at)
             VALUES
@@ -243,9 +257,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProjectChatMessagesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProjectChatMessagesAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO project_chat_messages (
                 message_id, chat_id, sender_id, message_type, content, attachment_file_id,
@@ -260,9 +274,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProposalsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProposalsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO proposals (
                 proposal_id, project_id, parent_proposal_id, proposal_name, description,
@@ -282,9 +296,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProposalScenesAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProposalScenesAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO proposal_scenes (
                 scene_id, proposal_id, project_area_id, scene_name, scene_type, mongo_scene_id,
@@ -299,9 +313,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProposalItemsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProposalItemsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO proposal_items (
                 proposal_item_id, proposal_id, scene_id, scene_object_id, project_area_id,
@@ -320,9 +334,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProposalSceneVariantsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProposalSceneVariantsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO proposal_scene_variants (
                 variant_id, proposal_id, scene_id, created_by, variant_type, status,
@@ -338,9 +352,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedCustomizationRequestsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedCustomizationRequestsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO customization_requests (
                 customization_request_id, project_id, proposal_id, proposal_item_id, requested_by_customer_id,
@@ -359,9 +373,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedQuotationsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedQuotationsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO quotations (
                 quotation_id, project_id, proposal_id, quotation_code, version_no,
@@ -380,9 +394,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedQuotationItemsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedQuotationItemsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO quotation_items (
                 quotation_item_id, quotation_id, item_type, proposal_item_id, product_version_id,
@@ -404,9 +418,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedOrdersAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedOrdersAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO orders (
                 order_id, project_id, proposal_id, quotation_id, order_code, customer_id, sales_id,
@@ -424,9 +438,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedOrderItemsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedOrderItemsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO order_items (
                 order_item_id, order_id, quotation_item_id, product_version_id, product_name_snapshot,
@@ -444,9 +458,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedPaymentsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedPaymentsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO payments (
                 payment_id, project_id, order_id, quotation_id, payment_code, paid_by,
@@ -462,9 +476,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedPaymentTransactionsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedPaymentTransactionsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO payment_transactions (
                 payment_transaction_id, payment_id, project_id, order_id, transaction_code,
@@ -481,9 +495,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProductionRequestsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProductionRequestsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO production_requests (
                 production_request_id, production_code, project_id, order_id, assigned_to, status,
@@ -499,9 +513,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProductionItemsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProductionItemsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO production_items (
                 production_item_id, production_request_id, order_item_id, product_version_id,
@@ -517,9 +531,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedNotificationsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedNotificationsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO notifications (
                 notification_id, receiver_id, project_id, title, message, notification_type,
@@ -534,9 +548,9 @@ public static class DataSeeder
             cancellationToken);
     }
 
-    private static Task<int> SeedProjectReviewsAsync(AppDbContext dbContext, CancellationToken cancellationToken)
+    private static Task<int> SeedProjectReviewsAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
-        return dbContext.Database.ExecuteSqlRawAsync(
+        return executeRawAsync(
             """
             INSERT INTO project_reviews (
                 review_id, project_id, order_id, customer_id, rating, design_quality_rating,

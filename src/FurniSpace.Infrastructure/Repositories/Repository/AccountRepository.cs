@@ -208,7 +208,9 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 project.AssignedDesignerId == account.AccountId &&
                 project.Status.HasValue &&
                 ActiveDesignerProjectStatuses.Contains(project.Status.Value))
-            where activeProjectCount < maxActiveProjects
+            // Capacity filtering is temporarily disabled so Sales/Admin can still see
+            // designers who already have two or more active projects.
+            // where activeProjectCount < maxActiveProjects
             select new AvailableDesignerReadModel
             {
                 AccountId = account.AccountId,

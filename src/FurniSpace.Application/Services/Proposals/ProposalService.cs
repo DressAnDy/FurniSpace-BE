@@ -42,6 +42,7 @@ public sealed class ProposalService : IProposalService
     private const string InvalidProductVersionCode = "INVALID_PRODUCT_VERSION";
     private const string InvalidQuantityCode = "INVALID_QUANTITY";
     private const string SceneObjectNotFoundCode = "SCENE_OBJECT_NOT_FOUND";
+    private const string DuplicateSceneObjectProductVersionCode = "DUPLICATE_SCENE_OBJECT_PRODUCT_VERSION";
 
     private static readonly ProposalStatus[] CustomerVisibleStatuses =
     [
@@ -700,11 +701,19 @@ public sealed class ProposalService : IProposalService
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(sceneObjectError);
         }
 
+        var duplicateSceneObjectError = ValidateDuplicateSceneObjectGroups(request.Items);
+        if (duplicateSceneObjectError is not null)
+        {
+            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(duplicateSceneObjectError);
+        }
+
+        var consolidatedRequest = ConsolidateSyncRequestItems(request);
+
         var productVersions = await GetProductVersionsForSyncAsync(
-            request.Items,
+            consolidatedRequest.Items,
             scene.ProjectId,
             cancellationToken);
-        if (productVersions.Count != request.Items.Select(item => item.ProductVersionId).Distinct().Count())
+        if (productVersions.Count != consolidatedRequest.Items.Select(item => item.ProductVersionId).Distinct().Count())
         {
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.BadRequest(
                 InvalidProductVersionCode,
@@ -717,7 +726,7 @@ public sealed class ProposalService : IProposalService
             var now = DateTime.UtcNow;
             var existingItems = await _proposals.GetItemsBySceneAsync(proposalId, request.SceneId, cancellationToken);
             var syncResult = await UpsertProposalItemsAsync(
-                request,
+                consolidatedRequest,
                 scene,
                 productVersions,
                 existingItems,
@@ -1526,6 +1535,69 @@ public sealed class ProposalService : IProposalService
         return null;
     }
 
+    private static Error? ValidateDuplicateSceneObjectGroups(IEnumerable<SyncProposalItemFromSceneDto> items)
+    {
+        foreach (var group in items
+                     .Select(item => new { Item = item, SceneObjectId = NormalizeOptional(item.SceneObjectId) })
+                     .Where(entry => entry.SceneObjectId is not null)
+                     .GroupBy(entry => entry.SceneObjectId!, StringComparer.Ordinal)
+                     .Where(group => group.Count() > 1))
+        {
+            if (group.Select(entry => entry.Item.ProductVersionId).Distinct().Count() > 1)
+            {
+                return Error.BadRequest(
+                    DuplicateSceneObjectProductVersionCode,
+                    "Duplicate scene objects must reference the same product version.");
+            }
+        }
+
+        return null;
+    }
+
+    private static SyncProposalItemsFromSceneRequestDto ConsolidateSyncRequestItems(
+        SyncProposalItemsFromSceneRequestDto request)
+    {
+        var itemsWithoutSceneObjectId = new List<SyncProposalItemFromSceneDto>();
+        var itemsBySceneObjectId = new Dictionary<string, SyncProposalItemFromSceneDto>(StringComparer.Ordinal);
+
+        foreach (var item in request.Items)
+        {
+            var sceneObjectId = NormalizeOptional(item.SceneObjectId);
+            if (sceneObjectId is null)
+            {
+                itemsWithoutSceneObjectId.Add(item);
+                continue;
+            }
+
+            if (!itemsBySceneObjectId.TryGetValue(sceneObjectId, out var consolidatedItem))
+            {
+                consolidatedItem = new SyncProposalItemFromSceneDto
+                {
+                    SceneObjectId = sceneObjectId,
+                    ProductVersionId = item.ProductVersionId,
+                    Quantity = 0,
+                    CustomizationNote = item.CustomizationNote
+                };
+                itemsBySceneObjectId[sceneObjectId] = consolidatedItem;
+            }
+
+            consolidatedItem.Quantity += item.Quantity;
+            if (!string.IsNullOrWhiteSpace(item.CustomizationNote))
+            {
+                consolidatedItem.CustomizationNote = item.CustomizationNote;
+            }
+        }
+
+        var consolidatedItems = new List<SyncProposalItemFromSceneDto>(itemsWithoutSceneObjectId);
+        consolidatedItems.AddRange(itemsBySceneObjectId.Values);
+
+        return new SyncProposalItemsFromSceneRequestDto
+        {
+            SceneId = request.SceneId,
+            Items = consolidatedItems
+        };
+    }
+
     private async Task<Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel>> GetProductVersionsForSyncAsync(
         IEnumerable<SyncProposalItemFromSceneDto> items,
         Guid projectId,
@@ -1638,9 +1710,10 @@ public sealed class ProposalService : IProposalService
 
         var proposalItemIdsByObjectId = syncedItems
             .Where(item => !string.IsNullOrWhiteSpace(item.SceneObjectId))
+            .GroupBy(item => item.SceneObjectId!, StringComparer.Ordinal)
             .ToDictionary(
-                item => item.SceneObjectId!,
-                item => item.ProposalItemId,
+                group => group.Key,
+                group => group.Last().ProposalItemId,
                 StringComparer.Ordinal);
         var hasChanges = false;
 

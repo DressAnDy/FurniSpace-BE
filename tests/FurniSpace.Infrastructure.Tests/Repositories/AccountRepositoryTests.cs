@@ -143,7 +143,7 @@ public sealed class AccountRepositoryTests
     }
 
     [Fact]
-    public async Task GetAvailableDesignersAsync_ExcludesDesignerAtCapacity()
+    public async Task GetAvailableDesignersAsync_IncludesDesignersAtCapacityWhenCapacityFilterDisabled()
     {
         await using var context = CreateContext();
         var data = await SeedAsync(context);
@@ -155,8 +155,12 @@ public sealed class AccountRepositoryTests
             maxActiveProjects: 1,
             search: null);
 
-        Assert.Equal([data.DesignerWithoutProjectsId], designers.Select(designer => designer.AccountId));
-        Assert.DoesNotContain(designers, designer => designer.AccountId == data.DesignerWithOneProjectId);
+        Assert.Equal(
+            [data.DesignerWithoutProjectsId, data.DesignerWithOneProjectId],
+            designers.Select(designer => designer.AccountId));
+        Assert.Contains(designers, designer =>
+            designer.AccountId == data.DesignerWithOneProjectId &&
+            designer.CurrentActiveProjectCount == 1);
     }
 
     [Fact]

@@ -17,6 +17,7 @@ using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using Microsoft.AspNetCore.Identity;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.Accounts;
@@ -75,6 +76,78 @@ public sealed class AccountServiceTests
         Assert.Equal(404, result.Status);
         Assert.Equal("Account not found.", result.Message);
         Assert.Equal(1, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithValidPassword_HashesPasswordBeforeSaving()
+    {
+        var roleId = Guid.NewGuid();
+        var password = "Secure123";
+        var repository = new FakeAccountRepository
+        {
+            RoleExistsResult = true
+        };
+        var service = CreateService(repository);
+
+        var result = await service.CreateAsync(new CreateAccountRequestDto
+        {
+            RoleId = roleId,
+            Email = " New.User@FurniSpace.com ",
+            Password = password,
+            FullName = " New User ",
+            Phone = " 0900000001 ",
+            AvatarUrl = " https://cdn.furnispace.com/avatar.png ",
+            Status = " active "
+        });
+
+        Assert.Equal(201, result.Status);
+        Assert.NotNull(repository.AddedAccount);
+        Assert.Equal(roleId, repository.AddedAccount.RoleId);
+        Assert.Equal("new.user@furnispace.com", repository.AddedAccount.Email);
+        Assert.Equal("New User", repository.AddedAccount.FullName);
+        Assert.Equal("0900000001", repository.AddedAccount.Phone);
+        Assert.Equal("https://cdn.furnispace.com/avatar.png", repository.AddedAccount.AvatarUrl);
+        Assert.Equal(AccountStatus.ACTIVE, repository.AddedAccount.Status);
+        Assert.NotEqual(password, repository.AddedAccount.PasswordHash);
+        var verification = new PasswordHasher<Account>().VerifyHashedPassword(
+            repository.AddedAccount,
+            repository.AddedAccount.PasswordHash,
+            password);
+        Assert.NotEqual(PasswordVerificationResult.Failed, verification);
+        Assert.Equal(1, repository.AddCallCount);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.NotNull(result.Data);
+        Assert.Equal("new.user@furnispace.com", result.Data.Email);
+    }
+
+    [Theory]
+    [InlineData("", "Password must be between 8 and 128 characters.")]
+    [InlineData("Short1", "Password must be between 8 and 128 characters.")]
+    [InlineData("lowercase123", "Password must contain uppercase, lowercase, and numeric characters.")]
+    public async Task CreateAsync_WithInvalidPassword_ReturnsBadRequest(
+        string password,
+        string expectedError)
+    {
+        var repository = new FakeAccountRepository
+        {
+            RoleExistsResult = true
+        };
+        var service = CreateService(repository);
+
+        var result = await service.CreateAsync(new CreateAccountRequestDto
+        {
+            RoleId = Guid.NewGuid(),
+            Email = "new@furnispace.com",
+            Password = password,
+            FullName = "New User"
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.NotNull(result.Errors);
+        Assert.Contains(expectedError, result.Errors);
+        Assert.Null(repository.AddedAccount);
+        Assert.Equal(0, repository.AddCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
     }
 
     [Fact]
@@ -516,7 +589,8 @@ public sealed class AccountServiceTests
             new FakeAuthService(),
             new InMemoryCacheService(),
             new ThrowingSearchIndexService(),
-            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new PasswordHasher<Account>());
 
         var result = await service.GetPagedAsync(
             page: 2,
@@ -589,7 +663,8 @@ public sealed class AccountServiceTests
             new FakeAuthService(),
             new InMemoryCacheService(),
             new ThrowingSearchIndexService(),
-            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new PasswordHasher<Account>());
 
         var result = await service.SuggestAsync(" Sarah ", limit: 5);
 
@@ -648,7 +723,8 @@ public sealed class AccountServiceTests
             new FakeAuthService(),
             new InMemoryCacheService(),
             new ThrowingSearchIndexService(),
-            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new PasswordHasher<Account>());
 
         var result = await service.GetSearchStatsAsync(includeDeleted: false);
 
@@ -670,7 +746,8 @@ public sealed class AccountServiceTests
             new FakeAuthService(),
             new InMemoryCacheService(),
             new FakeSearchIndexService(),
-            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new PasswordHasher<Account>());
     }
 
     private sealed class FakeAccountRepository : IAccountRepository
@@ -703,6 +780,10 @@ public sealed class AccountServiceTests
         public string? PagedSearch { get; private set; }
         public string? PagedStatus { get; private set; }
         public bool PagedIncludeDeleted { get; private set; }
+        public bool RoleExistsResult { get; set; }
+        public bool EmailExistsResult { get; set; }
+        public Account? AddedAccount { get; private set; }
+        public int AddCallCount { get; private set; }
 
         public Task<AccountDetailReadModel?> GetDetailAsync(
             Guid accountId,
@@ -721,7 +802,12 @@ public sealed class AccountServiceTests
         }
 
         public Task<IReadOnlyList<Account>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Account>>([]);
-        public Task AddAsync(Account entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddAsync(Account entity, CancellationToken cancellationToken = default)
+        {
+            AddCallCount++;
+            AddedAccount = entity;
+            return Task.CompletedTask;
+        }
         public Task AddRangeAsync(IEnumerable<Account> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public void Update(Account entity) { }
         public void Remove(Account entity) { }
@@ -739,8 +825,8 @@ public sealed class AccountServiceTests
         }
 
         public Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default) => Task.FromResult<Guid?>(null);
-        public Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default) => Task.FromResult(false);
-        public Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default) => Task.FromResult(RoleExistsResult);
+        public Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default) => Task.FromResult(EmailExistsResult);
         public Task<IReadOnlyList<AvailableDesignerReadModel>> GetAvailableDesignersAsync(
             int page,
             int pageSize,

@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Identity;
 using FurniSpace.Application.DTOs.Accounts;
 using FurniSpace.Application.DTOs.Search;
 using FurniSpace.Application.Interfaces.Accounts;
@@ -605,28 +606,13 @@ public sealed class AccountService : IAccountService
     private static List<string> ValidateCreateRequest(CreateAccountRequestDto request)
     {
         var errors = ValidateCommon(request.RoleId, request.Email, request.FullName, request.Status);
-        var passwordError = ValidatePassword(request.Password);
+        var passwordError = PasswordPolicy.Validate(request.Password);
         if (passwordError is not null)
         {
             errors.Add(passwordError);
         }
 
         return errors;
-    }
-
-    private static string? ValidatePassword(string password)
-    {
-        if (string.IsNullOrWhiteSpace(password) || password.Length < 8 || password.Length > 128)
-        {
-            return "Password must be between 8 and 128 characters.";
-        }
-
-        if (!password.Any(char.IsUpper) || !password.Any(char.IsLower) || !password.Any(char.IsDigit))
-        {
-            return "Password must contain uppercase, lowercase, and numeric characters.";
-        }
-
-        return null;
     }
 
     private static List<string> ValidateUpdateRequest(UpdateAccountRequestDto request)

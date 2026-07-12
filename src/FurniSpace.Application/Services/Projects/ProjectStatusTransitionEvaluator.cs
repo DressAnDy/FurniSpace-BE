@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Projects;
+using static FurniSpace.Application.Constants.Projects.ProjectStatusTransitionEvaluatorConstants;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -10,34 +11,6 @@ namespace FurniSpace.Application.Services.Projects;
 
 public sealed class ProjectStatusTransitionEvaluator
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const int MaxNoteLength = 1000;
-
-    private static readonly HashSet<ProjectStatus> DesignerAllowedTargetStatuses =
-    [
-        ProjectStatus.MEASUREMENT_REQUIRED,
-        ProjectStatus.SPACE_VERIFIED,
-        ProjectStatus.PROPOSAL_CONSULTING
-    ];
-
-    private static readonly HashSet<ProjectStatus> DesignerForbiddenTargetStatuses =
-    [
-        ProjectStatus.PROPOSAL_SELECTED,
-        ProjectStatus.QUOTATION_SENT,
-        ProjectStatus.QUOTATION_REVISION_REQUESTED,
-        ProjectStatus.ORDER_CONFIRMED,
-        ProjectStatus.IN_PRODUCTION,
-        ProjectStatus.PRODUCTION_BLOCKED,
-        ProjectStatus.READY_FOR_DELIVERY,
-        ProjectStatus.DELIVERING,
-        ProjectStatus.DELIVERED,
-        ProjectStatus.COMPLETED,
-        ProjectStatus.REJECTED
-    ];
-
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectFileRepository _files;
     private readonly IProposalRepository _proposals;

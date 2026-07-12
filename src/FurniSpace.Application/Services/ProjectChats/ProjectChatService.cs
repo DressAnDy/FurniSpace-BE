@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChats;
+using static FurniSpace.Application.Constants.ProjectChats.ProjectChatServiceConstants;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
@@ -12,14 +13,6 @@ namespace FurniSpace.Application.Services.ProjectChats;
 
 public sealed class ProjectChatService : IProjectChatService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const int MaxTitleLength = 150;
-    private static readonly ProjectChatType[] CustomerAndSalesChatTypes =
-        [ProjectChatType.SALES, ProjectChatType.DESIGNER];
-    private static readonly ProjectChatType[] DesignerChatTypes = [ProjectChatType.DESIGNER];
     private readonly IProjectChatRepository _chats;
     private readonly IUnitOfWork _unitOfWork;
 

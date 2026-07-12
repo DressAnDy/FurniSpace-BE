@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Storage;
+using static FurniSpace.Application.Constants.ProjectChatMessages.ProjectChatMessageServiceConstants;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Search;
@@ -20,14 +21,6 @@ namespace FurniSpace.Application.Services.ProjectChatMessages;
 
 public sealed class ProjectChatMessageService : IProjectChatMessageService
 {
-    private const string ChatMessageIndexName = "chat-messages";
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const string AscendingSort = "ASC";
-    private const string DescendingSort = "DESC";
-    private const int MaxTextMessageLength = 4000;
     private readonly IProjectChatMessageRepository _messages;
     private readonly IProjectFileRepository _projectFiles;
     private readonly IProjectChatRealtimeService _realtime;

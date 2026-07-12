@@ -2,6 +2,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Payments;
+using static FurniSpace.Application.Constants.Projects.ProjectServiceConstants;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Payments;
@@ -25,42 +26,6 @@ namespace FurniSpace.Application.Services.Projects;
 
 public sealed class ProjectService : IProjectService
 {
-    private const string ProjectIndexName = "projects";
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const int MaxNoteLength = 1000;
-    private const int MaxRejectionReasonLength = 1000;
-    private const string ProjectReferenceType = "PROJECT";
-    private const string ProjectNameNotificationKey = "ProjectName";
-    private const string AuthenticatedAccountIdRequiredMessage = "Authenticated account id is required.";
-    private const string ProjectIdRequiredMessage = "Project id is required.";
-    private const string ProjectNotFoundMessage = "Project not found.";
-    private const int MaxProjectsByUserPageSize = 100;
-    private static readonly string[] ProjectSubmittedReceiverRoles = [SalesRole, AdminRole];
-    private static readonly Dictionary<ProjectStatus, int> ProjectStatusRanks = new()
-    {
-        [ProjectStatus.SUBMITTED] = 10,
-        [ProjectStatus.IN_CONSULTATION] = 20,
-        [ProjectStatus.NEED_BASIC_INFORMATION] = 30,
-        [ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT] = 40,
-        [ProjectStatus.MEASUREMENT_REQUIRED] = 50,
-        [ProjectStatus.SPACE_VERIFIED] = 60,
-        [ProjectStatus.PROPOSAL_CONSULTING] = 80,
-        [ProjectStatus.PROPOSAL_SELECTED] = 100,
-        [ProjectStatus.QUOTATION_SENT] = 110,
-        [ProjectStatus.QUOTATION_REVISION_REQUESTED] = 120,
-        [ProjectStatus.ORDER_CONFIRMED] = 130,
-        [ProjectStatus.IN_PRODUCTION] = 140,
-        [ProjectStatus.PRODUCTION_BLOCKED] = 150,
-        [ProjectStatus.READY_FOR_DELIVERY] = 160,
-        [ProjectStatus.DELIVERING] = 170,
-        [ProjectStatus.DELIVERED] = 180,
-        [ProjectStatus.COMPLETED] = 190,
-        [ProjectStatus.REJECTED] = 200
-    };
-
     private readonly IProjectRepository _projects;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ISearchIndexService? _search;

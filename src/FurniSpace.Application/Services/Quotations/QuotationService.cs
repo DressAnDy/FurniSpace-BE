@@ -2,6 +2,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Quotations;
+using static FurniSpace.Application.Constants.Quotations.QuotationServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Quotations;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -18,34 +19,6 @@ namespace FurniSpace.Application.Services.Quotations;
 
 public sealed class QuotationService : IQuotationService
 {
-    private const string ProjectNotFoundMessage = "Project not found.";
-    private const string QuotationNotFoundMessage = "Quotation not found.";
-    private const string QuotationCodeParameter = "QuotationCode";
-    private const string QuotationReferenceType = "QUOTATION";
-
-    private static readonly QuotationStatus[] CustomerVisibleStatuses =
-    [
-        QuotationStatus.SENT,
-        QuotationStatus.REVISION_REQUESTED,
-        QuotationStatus.REVISED,
-        QuotationStatus.ACCEPTED,
-        QuotationStatus.REJECTED,
-        QuotationStatus.EXPIRED
-    ];
-
-    private static readonly QuotationStatus[] HeaderEditableStatuses =
-    [
-        QuotationStatus.DRAFT,
-        QuotationStatus.REVISION_REQUESTED,
-        QuotationStatus.REVISED
-    ];
-
-    private static readonly QuotationStatus[] ManualItemEditableStatuses =
-    [
-        QuotationStatus.DRAFT,
-        QuotationStatus.REVISED
-    ];
-
     private readonly IQuotationRepository _quotations;
     private readonly IProjectRepository _projects;
     private readonly IOrderRepository _orders;

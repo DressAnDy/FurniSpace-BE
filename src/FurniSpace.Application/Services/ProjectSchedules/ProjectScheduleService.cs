@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Projects;
+using static FurniSpace.Application.Constants.ProjectSchedules.ProjectScheduleServiceConstants;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
@@ -16,26 +17,6 @@ namespace FurniSpace.Application.Services.ProjectSchedules;
 
 public sealed class ProjectScheduleService : IProjectScheduleService
 {
-    private const string AdminRole = "ADMIN";
-    private const string SalesRole = "SALES";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string ProductionRole = "PRODUCTION";
-    private const string ScheduleNotFoundMessage = "Schedule not found.";
-    private const string ProjectScheduleReferenceType = "PROJECT_SCHEDULE";
-    private static readonly ProjectScheduleType[] ProductionManageableScheduleTypes =
-    [
-        ProjectScheduleType.DELIVERY,
-        ProjectScheduleType.HANDOVER,
-        ProjectScheduleType.OTHER
-    ];
-
-    private static readonly ProjectScheduleType[] ProductionStatusScheduleTypes =
-    [
-        ProjectScheduleType.DELIVERY,
-        ProjectScheduleType.HANDOVER
-    ];
-
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectRepository _projects;
     private readonly IProjectFileRepository _files;

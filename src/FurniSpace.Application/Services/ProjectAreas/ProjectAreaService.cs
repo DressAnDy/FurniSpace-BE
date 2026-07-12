@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using static FurniSpace.Application.Constants.ProjectAreas.ProjectAreaServiceConstants;
 using FurniSpace.Application.DTOs.ProjectAreas;
 using FurniSpace.Application.Interfaces.ProjectAreas;
 using FurniSpace.Domain.Entities;
@@ -13,14 +14,6 @@ namespace FurniSpace.Application.Services.ProjectAreas;
 
 public sealed class ProjectAreaService : IProjectAreaService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const string ProjectNotFoundMessage = "Project not found.";
-    private const string ProjectAreaNotFoundMessage = "Project area not found.";
-    private const string ProjectAreaIdRequiredMessage = "Project area id is required.";
-
     private readonly IProjectAreaRepository _areas;
     private readonly IProjectRepository _projects;
     private readonly IUnitOfWork _unitOfWork;

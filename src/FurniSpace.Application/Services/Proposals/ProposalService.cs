@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using static FurniSpace.Application.Constants.Proposals.ProposalServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Proposals;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
@@ -18,40 +19,6 @@ namespace FurniSpace.Application.Services.Proposals;
 
 public sealed class ProposalService : IProposalService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const int MaxPageSize = 100;
-    private const int MaxProposalNameLength = 150;
-    private const int MaxDescriptionLength = 1000;
-    private const int MaxSceneNameLength = 150;
-    private const int MaxCustomizationNoteLength = 1000;
-    private const string AuthenticatedAccountIdRequiredMessage = "Authenticated account id is required.";
-    private const string ProjectIdRequiredMessage = "Project id is required.";
-    private const string ProposalIdRequiredMessage = "Proposal id is required.";
-    private const string ProposalNotFoundMessage = "Proposal not found.";
-    private const string ProposalItemNotFoundMessage = "Proposal item not found.";
-    private const string InvalidProposalStatusCode = "INVALID_PROPOSAL_STATUS";
-    private const string ProposalNotFoundCode = "PROPOSAL_NOT_FOUND";
-    private const string ProposalItemNotFoundCode = "PROPOSAL_ITEM_NOT_FOUND";
-    private const string ProposalNotEditableCode = "PROPOSAL_NOT_EDITABLE";
-    private const string ProposalSceneNotFoundCode = "PROPOSAL_SCENE_NOT_FOUND";
-    private const string ProposalSceneNotFoundMessage = "Proposal scene not found.";
-    private const string RoomPlannerSceneNotFoundCode = "ROOM_PLANNER_SCENE_NOT_FOUND";
-    private const string InvalidProductVersionCode = "INVALID_PRODUCT_VERSION";
-    private const string InvalidQuantityCode = "INVALID_QUANTITY";
-    private const string SceneObjectNotFoundCode = "SCENE_OBJECT_NOT_FOUND";
-    private const string DuplicateSceneObjectProductVersionCode = "DUPLICATE_SCENE_OBJECT_PRODUCT_VERSION";
-
-    private static readonly ProposalStatus[] CustomerVisibleStatuses =
-    [
-        ProposalStatus.PUBLISHED,
-        ProposalStatus.REVISION_REQUESTED,
-        ProposalStatus.SELECTED,
-        ProposalStatus.REJECTED
-    ];
-
     private readonly IProposalRepository _proposals;
     private readonly ICustomizationRequestRepository? _customizationRequests;
     private readonly IProjectRepository _projects;

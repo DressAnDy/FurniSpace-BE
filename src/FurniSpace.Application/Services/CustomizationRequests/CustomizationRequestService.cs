@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.CustomizationRequests;
 using FurniSpace.Application.Common.Notifications;
+using static FurniSpace.Application.Constants.CustomizationRequests.CustomizationRequestServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.Interfaces.CustomizationRequests;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -16,41 +17,6 @@ namespace FurniSpace.Application.Services.CustomizationRequests;
 
 public sealed class CustomizationRequestService : ICustomizationRequestService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string SalesRole = "SALES";
-    private const string DesignerRole = "DESIGNER";
-    private const string ProductionRole = "PRODUCTION";
-    private const string AllStatusesFilter = "ALL";
-    private const int MaxProductionQueuePageSize = 100;
-    private const string CustomizationReferenceType = "CUSTOMIZATION_REQUEST";
-    private const string FeasibleResult = "FEASIBLE";
-    private const string NotFeasibleResult = "NOT_FEASIBLE";
-    private const string AcceptDecision = "ACCEPT";
-    private const string RejectDecision = "REJECT";
-
-    private static readonly CustomizationStatus[] ProductionVisibleStatuses =
-    [
-        CustomizationStatus.PRODUCTION_REVIEWING,
-        CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL,
-        CustomizationStatus.NOT_FEASIBLE,
-        CustomizationStatus.ACCEPTED
-    ];
-
-    private static readonly ProjectStatus[] ProjectStatusesAfterProposalSelection =
-    [
-        ProjectStatus.PROPOSAL_SELECTED,
-        ProjectStatus.QUOTATION_SENT,
-        ProjectStatus.QUOTATION_REVISION_REQUESTED,
-        ProjectStatus.ORDER_CONFIRMED,
-        ProjectStatus.IN_PRODUCTION,
-        ProjectStatus.PRODUCTION_BLOCKED,
-        ProjectStatus.READY_FOR_DELIVERY,
-        ProjectStatus.DELIVERING,
-        ProjectStatus.DELIVERED,
-        ProjectStatus.COMPLETED
-    ];
-
     private readonly ICustomizationRequestRepository _customizationRequests;
     private readonly IProposalRepository _proposals;
     private readonly IProjectRepository _projects;

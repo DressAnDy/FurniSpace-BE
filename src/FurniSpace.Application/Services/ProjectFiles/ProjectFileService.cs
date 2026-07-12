@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Storage;
+using static FurniSpace.Application.Constants.ProjectFiles.ProjectFileServiceConstants;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
@@ -19,51 +20,6 @@ namespace FurniSpace.Application.Services.ProjectFiles;
 
 public sealed class ProjectFileService : IProjectFileService
 {
-    private const string ProjectFileIndexName = "project-files";
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string SalesRole = "SALES";
-    private const string DesignerRole = "DESIGNER";
-    private const string ProjectReferenceType = "PROJECT";
-    private const string InactiveOrMissingRoleMessage = "Authenticated account is not active or has no role.";
-    private const string FileNotFoundMessage = "File not found.";
-    private static readonly HashSet<string> SupportedReferenceTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ProjectReferenceType,
-        "PROJECT_SCHEDULE",
-        "PROPOSAL",
-        "QUOTATION",
-        "ORDER",
-        CatalogFileReferenceTypes.Product,
-        CatalogFileReferenceTypes.ProductVersion
-    };
-    private static readonly HashSet<string> CatalogReferenceTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        CatalogFileReferenceTypes.Product,
-        CatalogFileReferenceTypes.ProductVersion
-    };
-    private static readonly Dictionary<ProjectStatus, int> ProjectStatusRanks = new()
-    {
-        [ProjectStatus.SUBMITTED] = 10,
-        [ProjectStatus.IN_CONSULTATION] = 20,
-        [ProjectStatus.NEED_BASIC_INFORMATION] = 30,
-        [ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT] = 40,
-        [ProjectStatus.MEASUREMENT_REQUIRED] = 50,
-        [ProjectStatus.SPACE_VERIFIED] = 60,
-        [ProjectStatus.PROPOSAL_CONSULTING] = 80,
-        [ProjectStatus.PROPOSAL_SELECTED] = 100,
-        [ProjectStatus.QUOTATION_SENT] = 110,
-        [ProjectStatus.QUOTATION_REVISION_REQUESTED] = 120,
-        [ProjectStatus.ORDER_CONFIRMED] = 130,
-        [ProjectStatus.IN_PRODUCTION] = 140,
-        [ProjectStatus.PRODUCTION_BLOCKED] = 150,
-        [ProjectStatus.READY_FOR_DELIVERY] = 160,
-        [ProjectStatus.DELIVERING] = 170,
-        [ProjectStatus.DELIVERED] = 180,
-        [ProjectStatus.COMPLETED] = 190,
-        [ProjectStatus.REJECTED] = 200
-    };
-
     private readonly IProjectFileRepository _projectFiles;
     private readonly IProductRepository _products;
     private readonly IProductVersionRepository _productVersions;

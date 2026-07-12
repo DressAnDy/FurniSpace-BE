@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using static FurniSpace.Application.Constants.RoomPlanner.RoomPlannerSceneServiceConstants;
 using FurniSpace.Application.DTOs.RoomPlanner;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Interfaces.RoomPlanner;
@@ -12,15 +13,6 @@ namespace FurniSpace.Application.Services.RoomPlanner;
 
 public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const string SceneNotFoundMessage = "Proposal scene not found.";
-    private const string InvalidSceneDataCode = "INVALID_SCENE_DATA";
-    private const string ProposalNotEditableCode = "PROPOSAL_NOT_EDITABLE";
-    private const string ProposalNotEditableMessage = "Room Planner scene can only be saved for editable proposal.";
-    private const string ProductVersionReferenceType = "PRODUCT_VERSION";
     private readonly RoomPlannerSqlSceneRepository _proposalScenes;
     private readonly ApplicationRoomPlannerSceneRepository _sceneDocuments;
     private readonly IUnitOfWork _unitOfWork;

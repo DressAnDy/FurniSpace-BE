@@ -1,4 +1,6 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Identity;
+using static FurniSpace.Application.Constants.Accounts.AccountServiceConstants;
 using FurniSpace.Application.DTOs.Accounts;
 using FurniSpace.Application.DTOs.Search;
 using FurniSpace.Application.Interfaces.Accounts;
@@ -9,6 +11,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Persistence;
 using Mapster;
+using Microsoft.AspNetCore.Identity;
 using System.Security.Cryptography;
 using System.Text;
 using InfrastructureCacheService = FurniSpace.Infrastructure.Interfaces.ICacheService;
@@ -18,36 +21,27 @@ namespace FurniSpace.Application.Services.Accounts;
 
 public sealed class AccountService : IAccountService
 {
-    private const string AccountIndexName = "accounts";
-    private const string AccountItemCachePrefix = "furnispace:accounts:item:";
-    private const string AccountListCachePrefix = "furnispace:accounts:list:";
-    private const string AccountNotFoundCode = "ACCOUNT_NOT_FOUND";
-    private const string AccountNotFoundMessage = "Account not found.";
-    private const string AccountDetailRetrievedMessage = "Account detail retrieved successfully.";
-    private const string ProfileUpdatedMessage = "Profile updated successfully.";
-    private const string AvailableDesignersRetrievedMessage = "Available designers retrieved successfully.";
-    private const int MaxActiveDesignerProjects = 2;
-    private static readonly TimeSpan AccountItemCacheTtl = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(5);
-
     private readonly IAccountRepository _accounts;
     private readonly IAuthService _auth;
     private readonly IUnitOfWork _unitOfWork;
     private readonly InfrastructureCacheService _cache;
     private readonly InfrastructureSearchIndexService _search;
+    private readonly IPasswordHasher<Account> _passwordHasher;
 
     public AccountService(
         IAccountRepository accounts,
         IAuthService auth,
         InfrastructureCacheService cache,
         InfrastructureSearchIndexService search,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IPasswordHasher<Account> passwordHasher)
     {
         _accounts = accounts;
         _auth = auth;
         _unitOfWork = unitOfWork;
         _cache = cache;
         _search = search;
+        _passwordHasher = passwordHasher;
     }
 
     public async Task<ServiceResult<AccountDto>> CreateAsync(CreateAccountRequestDto request, CancellationToken cancellationToken = default)
@@ -74,12 +68,12 @@ public sealed class AccountService : IAccountService
             AccountId = Guid.NewGuid(),
             RoleId = request.RoleId,
             Email = email,
-            PasswordHash = request.PasswordHash.Trim(),
             FullName = request.FullName.Trim(),
             Phone = NormalizeOptional(request.Phone),
             AvatarUrl = NormalizeOptional(request.AvatarUrl),
             Status = NormalizeStatus(request.Status)
         };
+        account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
 
         await _accounts.AddAsync(account, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -601,13 +595,10 @@ public sealed class AccountService : IAccountService
     private static List<string> ValidateCreateRequest(CreateAccountRequestDto request)
     {
         var errors = ValidateCommon(request.RoleId, request.Email, request.FullName, request.Status);
-        if (string.IsNullOrWhiteSpace(request.PasswordHash))
+        var passwordError = PasswordPolicy.Validate(request.Password);
+        if (passwordError is not null)
         {
-            errors.Add("Password hash is required.");
-        }
-        else if (request.PasswordHash.Length > 255)
-        {
-            errors.Add("Password hash must not exceed 255 characters.");
+            errors.Add(passwordError);
         }
 
         return errors;

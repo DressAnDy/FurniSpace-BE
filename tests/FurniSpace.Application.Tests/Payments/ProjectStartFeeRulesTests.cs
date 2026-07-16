@@ -55,7 +55,7 @@ public sealed class ProjectStartFeeRulesTests
     [Theory]
     [InlineData(ProjectStatus.SUBMITTED, true)]
     [InlineData(ProjectStatus.IN_CONSULTATION, true)]
-    [InlineData(ProjectStatus.PROPOSAL_DRAFTING, false)]
+    [InlineData(ProjectStatus.PROPOSAL_CONSULTING, false)]
     public void IsProjectStatusEligibleForPaymentCreation_ReturnsExpected(ProjectStatus status, bool expected)
     {
         Assert.Equal(expected, ProjectStartFeeRules.IsProjectStatusEligibleForPaymentCreation(status));

@@ -1,5 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Constants.Common;
+using static FurniSpace.Application.Constants.Proposals.ProposalServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Proposals;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
@@ -18,39 +20,6 @@ namespace FurniSpace.Application.Services.Proposals;
 
 public sealed class ProposalService : IProposalService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const int MaxPageSize = 100;
-    private const int MaxProposalNameLength = 150;
-    private const int MaxDescriptionLength = 1000;
-    private const int MaxSceneNameLength = 150;
-    private const int MaxCustomizationNoteLength = 1000;
-    private const string AuthenticatedAccountIdRequiredMessage = "Authenticated account id is required.";
-    private const string ProjectIdRequiredMessage = "Project id is required.";
-    private const string ProposalIdRequiredMessage = "Proposal id is required.";
-    private const string ProposalNotFoundMessage = "Proposal not found.";
-    private const string ProposalItemNotFoundMessage = "Proposal item not found.";
-    private const string InvalidProposalStatusCode = "INVALID_PROPOSAL_STATUS";
-    private const string ProposalNotFoundCode = "PROPOSAL_NOT_FOUND";
-    private const string ProposalItemNotFoundCode = "PROPOSAL_ITEM_NOT_FOUND";
-    private const string ProposalNotEditableCode = "PROPOSAL_NOT_EDITABLE";
-    private const string ProposalSceneNotFoundCode = "PROPOSAL_SCENE_NOT_FOUND";
-    private const string ProposalSceneNotFoundMessage = "Proposal scene not found.";
-    private const string RoomPlannerSceneNotFoundCode = "ROOM_PLANNER_SCENE_NOT_FOUND";
-    private const string InvalidProductVersionCode = "INVALID_PRODUCT_VERSION";
-    private const string InvalidQuantityCode = "INVALID_QUANTITY";
-    private const string SceneObjectNotFoundCode = "SCENE_OBJECT_NOT_FOUND";
-
-    private static readonly ProposalStatus[] CustomerVisibleStatuses =
-    [
-        ProposalStatus.PUBLISHED,
-        ProposalStatus.VIEWED,
-        ProposalStatus.SELECTED,
-        ProposalStatus.REVISION_REQUESTED
-    ];
-
     private readonly IProposalRepository _proposals;
     private readonly ICustomizationRequestRepository? _customizationRequests;
     private readonly IProjectRepository _projects;
@@ -118,11 +87,11 @@ public sealed class ProposalService : IProposalService
                 "Project must have an assigned designer before creating a proposal."));
         }
 
-        if (project.ProjectStatus != ProjectStatus.PROPOSAL_DRAFTING)
+        if (project.ProjectStatus != ProjectStatus.PROPOSAL_CONSULTING)
         {
             return ServiceResult<ProposalDto>.Failure(Error.BadRequest(
                 "INVALID_PROJECT_STATUS",
-                "Proposal can only be created when project status is PROPOSAL_DRAFTING."));
+                "Proposal can only be created when project status is PROPOSAL_CONSULTING."));
         }
 
         if (!CanStaffAccessProject(project, currentUserId, roleName))
@@ -700,11 +669,19 @@ public sealed class ProposalService : IProposalService
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(sceneObjectError);
         }
 
+        var duplicateSceneObjectError = ValidateDuplicateSceneObjectGroups(request.Items);
+        if (duplicateSceneObjectError is not null)
+        {
+            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(duplicateSceneObjectError);
+        }
+
+        var consolidatedRequest = ConsolidateSyncRequestItems(request);
+
         var productVersions = await GetProductVersionsForSyncAsync(
-            request.Items,
+            consolidatedRequest.Items,
             scene.ProjectId,
             cancellationToken);
-        if (productVersions.Count != request.Items.Select(item => item.ProductVersionId).Distinct().Count())
+        if (productVersions.Count != consolidatedRequest.Items.Select(item => item.ProductVersionId).Distinct().Count())
         {
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.BadRequest(
                 InvalidProductVersionCode,
@@ -717,7 +694,7 @@ public sealed class ProposalService : IProposalService
             var now = DateTime.UtcNow;
             var existingItems = await _proposals.GetItemsBySceneAsync(proposalId, request.SceneId, cancellationToken);
             var syncResult = await UpsertProposalItemsAsync(
-                request,
+                consolidatedRequest,
                 scene,
                 productVersions,
                 existingItems,
@@ -987,8 +964,6 @@ public sealed class ProposalService : IProposalService
             proposalEntity.Status = ProposalStatus.PUBLISHED;
             proposalEntity.PublishedAt = now;
             proposalEntity.UpdatedAt = now;
-            projectEntity.Status = ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW;
-            projectEntity.UpdatedAt = now;
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
@@ -1528,6 +1503,69 @@ public sealed class ProposalService : IProposalService
         return null;
     }
 
+    private static Error? ValidateDuplicateSceneObjectGroups(IEnumerable<SyncProposalItemFromSceneDto> items)
+    {
+        foreach (var group in items
+                     .Select(item => new { Item = item, SceneObjectId = NormalizeOptional(item.SceneObjectId) })
+                     .Where(entry => entry.SceneObjectId is not null)
+                     .GroupBy(entry => entry.SceneObjectId!, StringComparer.Ordinal)
+                     .Where(group => group.Count() > 1))
+        {
+            if (group.Select(entry => entry.Item.ProductVersionId).Distinct().Count() > 1)
+            {
+                return Error.BadRequest(
+                    DuplicateSceneObjectProductVersionCode,
+                    "Duplicate scene objects must reference the same product version.");
+            }
+        }
+
+        return null;
+    }
+
+    private static SyncProposalItemsFromSceneRequestDto ConsolidateSyncRequestItems(
+        SyncProposalItemsFromSceneRequestDto request)
+    {
+        var itemsWithoutSceneObjectId = new List<SyncProposalItemFromSceneDto>();
+        var itemsBySceneObjectId = new Dictionary<string, SyncProposalItemFromSceneDto>(StringComparer.Ordinal);
+
+        foreach (var item in request.Items)
+        {
+            var sceneObjectId = NormalizeOptional(item.SceneObjectId);
+            if (sceneObjectId is null)
+            {
+                itemsWithoutSceneObjectId.Add(item);
+                continue;
+            }
+
+            if (!itemsBySceneObjectId.TryGetValue(sceneObjectId, out var consolidatedItem))
+            {
+                consolidatedItem = new SyncProposalItemFromSceneDto
+                {
+                    SceneObjectId = sceneObjectId,
+                    ProductVersionId = item.ProductVersionId,
+                    Quantity = 0,
+                    CustomizationNote = item.CustomizationNote
+                };
+                itemsBySceneObjectId[sceneObjectId] = consolidatedItem;
+            }
+
+            consolidatedItem.Quantity += item.Quantity;
+            if (!string.IsNullOrWhiteSpace(item.CustomizationNote))
+            {
+                consolidatedItem.CustomizationNote = item.CustomizationNote;
+            }
+        }
+
+        var consolidatedItems = new List<SyncProposalItemFromSceneDto>(itemsWithoutSceneObjectId);
+        consolidatedItems.AddRange(itemsBySceneObjectId.Values);
+
+        return new SyncProposalItemsFromSceneRequestDto
+        {
+            SceneId = request.SceneId,
+            Items = consolidatedItems
+        };
+    }
+
     private async Task<Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel>> GetProductVersionsForSyncAsync(
         IEnumerable<SyncProposalItemFromSceneDto> items,
         Guid projectId,
@@ -1640,9 +1678,10 @@ public sealed class ProposalService : IProposalService
 
         var proposalItemIdsByObjectId = syncedItems
             .Where(item => !string.IsNullOrWhiteSpace(item.SceneObjectId))
+            .GroupBy(item => item.SceneObjectId!, StringComparer.Ordinal)
             .ToDictionary(
-                item => item.SceneObjectId!,
-                item => item.ProposalItemId,
+                group => group.Key,
+                group => group.Last().ProposalItemId,
                 StringComparer.Ordinal);
         var hasChanges = false;
 
@@ -1807,7 +1846,7 @@ public sealed class ProposalService : IProposalService
 
     private static bool IsSelectableFinalProposal(ProposalStatus? status)
     {
-        return status is ProposalStatus.PUBLISHED or ProposalStatus.VIEWED;
+        return status is ProposalStatus.PUBLISHED;
     }
 
     private Task<bool> HasPendingCustomizationRequestsAsync(
@@ -1837,7 +1876,7 @@ public sealed class ProposalService : IProposalService
 
     private static bool CanRequestRevision(ProposalStatus? status)
     {
-        return status is ProposalStatus.PUBLISHED or ProposalStatus.VIEWED;
+        return status is ProposalStatus.PUBLISHED;
     }
 
     private async Task DispatchProposalFinalSelectedNotificationAsync(
@@ -1969,22 +2008,22 @@ public sealed class ProposalService : IProposalService
 
     private static bool IsAdmin(string? roleName)
     {
-        return string.Equals(roleName, AdminRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsCustomer(string? roleName)
     {
-        return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsDesigner(string? roleName)
     {
-        return string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsSales(string? roleName)
     {
-        return string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? NormalizeOptional(string? value)

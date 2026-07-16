@@ -374,7 +374,7 @@ public sealed class IdentityService : IIdentityService
         ResetPasswordRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var passwordError = ValidatePassword(request.NewPassword);
+        var passwordError = PasswordPolicy.Validate(request.NewPassword);
         if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Token))
         {
             return ServiceResult.BadRequest("Email and reset token are required.");
@@ -463,7 +463,7 @@ public sealed class IdentityService : IIdentityService
         ChangePasswordRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var passwordError = ValidatePassword(request.NewPassword);
+        var passwordError = PasswordPolicy.Validate(request.NewPassword);
         if (string.IsNullOrWhiteSpace(request.CurrentPassword))
         {
             return ServiceResult.BadRequest("Current password is required.");
@@ -582,28 +582,13 @@ public sealed class IdentityService : IIdentityService
             errors.Add("Phone must not exceed 20 characters.");
         }
 
-        var passwordError = ValidatePassword(request.Password);
+        var passwordError = PasswordPolicy.Validate(request.Password);
         if (passwordError is not null)
         {
             errors.Add(passwordError);
         }
 
         return errors;
-    }
-
-    private static string? ValidatePassword(string password)
-    {
-        if (string.IsNullOrWhiteSpace(password) || password.Length < 8 || password.Length > 128)
-        {
-            return "Password must be between 8 and 128 characters.";
-        }
-
-        if (!password.Any(char.IsUpper) || !password.Any(char.IsLower) || !password.Any(char.IsDigit))
-        {
-            return "Password must contain uppercase, lowercase, and numeric characters.";
-        }
-
-        return null;
     }
 
     private static string NormalizeEmail(string email) => email.Trim().ToLowerInvariant();

@@ -14,4 +14,10 @@ public interface IOrderService
         Guid orderId,
         Guid currentUserId,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<OrderDetailDto>> UpdateFinancialAdjustmentAsync(
+        Guid orderId,
+        Guid currentUserId,
+        UpdateOrderFinancialAdjustmentRequestDto request,
+        CancellationToken cancellationToken = default);
 }

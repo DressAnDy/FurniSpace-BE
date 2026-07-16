@@ -61,7 +61,7 @@ public sealed class ProjectRepositoryTests
         {
             UserId = data.DesignerId,
             RoleScope = "DESIGNER",
-            Status = ProjectStatus.PROPOSAL_DRAFTING,
+            Status = ProjectStatus.PROPOSAL_CONSULTING,
             Page = 1,
             PageSize = 10
         });
@@ -76,7 +76,7 @@ public sealed class ProjectRepositoryTests
         Assert.Single(salesProjects);
         Assert.Equal(data.SalesId, salesProjects[0].AssignedSales?.AccountId);
         Assert.Single(designerProjects);
-        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, designerProjects[0].Status);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, designerProjects[0].Status);
         Assert.Equal(3, adminCount);
     }
 
@@ -104,14 +104,14 @@ public sealed class ProjectRepositoryTests
         var projects = await repository.GetListAsync(new ProjectListQueryReadModel
         {
             AssignedDesignerId = data.DesignerId,
-            Status = ProjectStatus.PROPOSAL_DRAFTING,
+            Status = ProjectStatus.PROPOSAL_CONSULTING,
             Page = 1,
             Limit = 10
         });
         var count = await repository.CountAsync(new ProjectListQueryReadModel
         {
             AssignedDesignerId = data.DesignerId,
-            Status = ProjectStatus.PROPOSAL_DRAFTING,
+            Status = ProjectStatus.PROPOSAL_CONSULTING,
             Page = 1,
             Limit = 10
         });
@@ -219,7 +219,7 @@ public sealed class ProjectRepositoryTests
                 ProjectName = "Luxury Cafe Interior",
                 BusinessType = "Cafe",
                 ProjectAddress = "123 Main Street",
-                Status = ProjectStatus.PROPOSAL_DRAFTING,
+                Status = ProjectStatus.PROPOSAL_CONSULTING,
                 SubmittedAt = new DateTime(2026, 6, 10, 8, 0, 0, DateTimeKind.Utc),
                 CreatedAt = new DateTime(2026, 6, 9, 8, 0, 0, DateTimeKind.Utc)
             },

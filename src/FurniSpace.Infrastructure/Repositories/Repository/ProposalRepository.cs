@@ -13,9 +13,9 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
     private static readonly ProposalStatus[] CustomerVisibleStatuses =
     [
         ProposalStatus.PUBLISHED,
-        ProposalStatus.VIEWED,
+        ProposalStatus.REVISION_REQUESTED,
         ProposalStatus.SELECTED,
-        ProposalStatus.REVISION_REQUESTED
+        ProposalStatus.REJECTED
     ];
 
     public ProposalRepository(AppDbContext dbContext) : base(dbContext)
@@ -175,7 +175,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         var proposal = await DbContext.ProposalSet
             .Where(item =>
                 item.ProjectId == projectId &&
-                (item.Status == ProposalStatus.PUBLISHED || item.Status == ProposalStatus.VIEWED))
+                (item.Status == ProposalStatus.PUBLISHED))
             .OrderByDescending(item => item.PublishedAt)
             .ThenByDescending(item => item.VersionNo)
             .ThenByDescending(item => item.CreatedAt)

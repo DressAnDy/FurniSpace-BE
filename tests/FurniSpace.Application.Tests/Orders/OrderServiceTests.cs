@@ -9,6 +9,7 @@ using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.Services.Orders;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Orders;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -147,7 +148,9 @@ public sealed class OrderServiceTests
         options ??= new OrderServiceTestOptions();
         return new OrderService(
             new FakeOrderRepository(options.Orders, options.OrderDetail),
-            new FakeProjectRepository(options.ProjectDetail, options.Role));
+            new FakeProjectRepository(options.ProjectDetail, options.Role),
+            new EmptyPaymentRepository(),
+            new FakeUnitOfWork());
     }
 
     private ProjectDetailReadModel CreateProjectDetail()
@@ -342,5 +345,103 @@ public sealed class OrderServiceTests
 
         public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
+    }
+
+    private sealed class EmptyPaymentRepository : IPaymentRepository
+    {
+        public Task<Payment?> GetByIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Payment?>(null);
+
+        public Task<Infrastructure.ReadModels.Payments.PaymentDetailReadModel?> GetDetailAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Infrastructure.ReadModels.Payments.PaymentDetailReadModel?>(null);
+
+        public Task<Infrastructure.ReadModels.Payments.PaymentDetailReadModel?> GetDetailByPaymentCodeAsync(
+            string paymentCode,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Infrastructure.ReadModels.Payments.PaymentDetailReadModel?>(null);
+
+        public Task<Infrastructure.ReadModels.Payments.PaymentStatusByCodeReadModel?> GetStatusByPaymentCodeAsync(
+            string paymentCode,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Infrastructure.ReadModels.Payments.PaymentStatusByCodeReadModel?>(null);
+
+        public Task<IReadOnlyList<Infrastructure.ReadModels.Payments.PaymentListItemReadModel>> GetListAsync(
+            Infrastructure.ReadModels.Payments.PaymentQueryReadModel query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Payments.PaymentListItemReadModel>>([]);
+
+        public Task<IReadOnlyList<Infrastructure.ReadModels.Payments.PaymentTransactionReadModel>> GetTransactionsByPaymentIdAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Payments.PaymentTransactionReadModel>>([]);
+
+        public Task<bool> PaymentCodeExistsAsync(string paymentCode, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> TransactionCodeExistsAsync(string transactionCode, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> ProviderTransactionExistsAsync(
+            PaymentProvider provider,
+            string providerTransactionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> PayOsOrderCodeExistsAsync(string orderCode, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<PaymentTransaction?> GetTransactionByProviderReferenceAsync(
+            PaymentProvider provider,
+            string providerReferenceCode,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<PaymentTransaction?>(null);
+
+        public Task AddPaymentAsync(Payment payment, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<Payment?> GetByOrderAndTypeAsync(
+            Guid orderId,
+            PaymentType paymentType,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Payment?>(null);
+
+        public Task<Payment?> GetByProjectAndTypeAsync(
+            Guid projectId,
+            PaymentType paymentType,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Payment?>(null);
+
+        public Task<decimal> SumOrderScopedPaidAmountAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(0m);
+
+        public void UpdatePayment(Payment payment)
+        {
+        }
+
+        public void UpdateTransaction(PaymentTransaction transaction)
+        {
+        }
+    }
+
+    private sealed class FakeUnitOfWork : IUnitOfWork
+    {
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(1);
+
+        public Task BeginTransactionAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task CommitTransactionAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task RollbackTransactionAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
     }
 }

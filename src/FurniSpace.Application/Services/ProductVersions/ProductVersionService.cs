@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Storage;
+using static FurniSpace.Application.Constants.ProductVersions.ProductVersionServiceConstants;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
@@ -17,18 +18,6 @@ namespace FurniSpace.Application.Services.ProductVersions;
 
 public sealed class ProductVersionService : IProductVersionService
 {
-    private const string ProductVersionIdRequiredMessage = "Product version id is required.";
-    private const string ProductVersionNotFoundMessage = "Product version not found.";
-    private const string PreviewFileNotFoundMessage = "Product version preview image not found.";
-
-    private static readonly HashSet<FileType> AllowedProductVersionFileTypes =
-    [
-        FileType.PRODUCT_PREVIEW,
-        FileType.MODEL_3D,
-        FileType.TEXTURE,
-        FileType.OTHER
-    ];
-
     private readonly IProductVersionRepository _productVersions;
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;

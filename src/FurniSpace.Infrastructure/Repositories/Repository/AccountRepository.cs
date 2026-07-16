@@ -18,9 +18,7 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT,
         ProjectStatus.MEASUREMENT_REQUIRED,
         ProjectStatus.SPACE_VERIFIED,
-        ProjectStatus.PROPOSAL_DRAFTING,
-        ProjectStatus.WAITING_FOR_CUSTOMER_REVIEW,
-        ProjectStatus.REVISION_REQUESTED,
+        ProjectStatus.PROPOSAL_CONSULTING,
         ProjectStatus.PROPOSAL_SELECTED,
         ProjectStatus.QUOTATION_SENT,
         ProjectStatus.ORDER_CONFIRMED,
@@ -210,7 +208,9 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 project.AssignedDesignerId == account.AccountId &&
                 project.Status.HasValue &&
                 ActiveDesignerProjectStatuses.Contains(project.Status.Value))
-            where activeProjectCount < maxActiveProjects
+            // Capacity filtering is temporarily disabled so Sales/Admin can still see
+            // designers who already have two or more active projects.
+            // where activeProjectCount < maxActiveProjects
             select new AvailableDesignerReadModel
             {
                 AccountId = account.AccountId,

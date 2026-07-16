@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using static FurniSpace.Application.Constants.Notifications.NotificationServiceConstants;
 using FurniSpace.Application.DTOs.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -9,9 +10,6 @@ namespace FurniSpace.Application.Services.Notifications;
 
 public sealed class NotificationService : INotificationService
 {
-    private const string AuthenticatedAccountIdRequiredMessage = "Authenticated account id is required.";
-    private const string NotificationNotFoundMessage = "Notification not found.";
-
     private readonly INotificationRepository _notifications;
     private readonly IUnitOfWork _unitOfWork;
 

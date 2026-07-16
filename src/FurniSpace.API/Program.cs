@@ -1,6 +1,7 @@
 using Serilog;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -86,6 +87,7 @@ app.MapHub<ProjectChatHub>(ProjectChatRealtimeConstants.HubPath);
 app.MapHub<PaymentHub>(PaymentRealtimeConstants.HubPath);
 app.MapGet("/", () => "FurniSpace API");
 MapRedisDebugHealth(app);
+MapSmtpDebugHealth(app);
 await app.RunAsync();
 await Log.CloseAndFlushAsync();
 
@@ -397,6 +399,73 @@ static void MapRedisDebugHealth(WebApplication app)
                     ["configuredConnection"] = RedisConnectionMasker.Mask(configuredConnection),
                     ["exceptionType"] = exception.GetType().FullName
                 });
+        }
+    });
+}
+
+static void MapSmtpDebugHealth(WebApplication app)
+{
+    var enabled = app.Configuration.GetValue<bool>("SMTP_DEBUG_HEALTH")
+        || app.Configuration.GetValue<bool>("Smtp:DebugHealth");
+
+    if (!enabled)
+    {
+        return;
+    }
+
+    app.MapGet("/health/smtp-egress", async (
+        IConfiguration configuration,
+        CancellationToken cancellationToken) =>
+    {
+        var smtpSection = configuration.GetSection("Smtp");
+        var host = smtpSection["Host"] ?? "smtp.gmail.com";
+        var port = int.TryParse(smtpSection["Port"], out var configuredPort) ? configuredPort : 587;
+
+        var result = new Dictionary<string, object>
+        {
+            ["host"] = host,
+            ["port"] = port
+        };
+
+        try
+        {
+            var dnsStartedAt = DateTime.UtcNow;
+            var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
+            result["dnsMs"] = (DateTime.UtcNow - dnsStartedAt).TotalMilliseconds;
+            result["resolvedAddresses"] = addresses.Select(address => address.ToString()).ToArray();
+
+            var connectStartedAt = DateTime.UtcNow;
+            using var connectTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            connectTimeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+
+            using var client = new TcpClient();
+            await client.ConnectAsync(host, port, connectTimeoutCts.Token);
+
+            result["connectMs"] = (DateTime.UtcNow - connectStartedAt).TotalMilliseconds;
+            result["connected"] = client.Connected;
+
+            return Results.Ok(new
+            {
+                status = "ok",
+                result
+            });
+        }
+        catch (Exception exception)
+        {
+            result["exceptionType"] = exception.GetType().FullName ?? exception.GetType().Name;
+            result["message"] = exception.Message;
+
+            if (exception is SocketException socketException)
+            {
+                result["socketErrorCode"] = socketException.SocketErrorCode.ToString();
+                result["nativeErrorCode"] = socketException.ErrorCode;
+            }
+
+            return Results.Problem(
+                title: "SMTP egress check failed.",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                extensions: result);
         }
     });
 }

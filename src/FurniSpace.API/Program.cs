@@ -421,53 +421,86 @@ static void MapSmtpDebugHealth(WebApplication app)
         var host = smtpSection["Host"] ?? "smtp.gmail.com";
         var port = int.TryParse(smtpSection["Port"], out var configuredPort) ? configuredPort : 587;
 
-        var result = new Dictionary<string, object>
-        {
-            ["host"] = host,
-            ["port"] = port
-        };
-
+        IPAddress[] addresses;
+        double dnsMs;
         try
         {
             var dnsStartedAt = DateTime.UtcNow;
-            var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
-            result["dnsMs"] = (DateTime.UtcNow - dnsStartedAt).TotalMilliseconds;
-            result["resolvedAddresses"] = addresses.Select(address => address.ToString()).ToArray();
-
-            var connectStartedAt = DateTime.UtcNow;
-            using var connectTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            connectTimeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
-
-            using var client = new TcpClient();
-            await client.ConnectAsync(host, port, connectTimeoutCts.Token);
-
-            result["connectMs"] = (DateTime.UtcNow - connectStartedAt).TotalMilliseconds;
-            result["connected"] = client.Connected;
-
-            return Results.Ok(new
-            {
-                status = "ok",
-                result
-            });
+            addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
+            dnsMs = (DateTime.UtcNow - dnsStartedAt).TotalMilliseconds;
         }
         catch (Exception exception)
         {
-            result["exceptionType"] = exception.GetType().FullName ?? exception.GetType().Name;
-            result["message"] = exception.Message;
-
-            if (exception is SocketException socketException)
-            {
-                result["socketErrorCode"] = socketException.SocketErrorCode.ToString();
-                result["nativeErrorCode"] = socketException.ErrorCode;
-            }
-
             return Results.Problem(
                 title: "SMTP egress check failed.",
                 detail: exception.Message,
                 statusCode: StatusCodes.Status503ServiceUnavailable,
-                extensions: result);
+                extensions: new Dictionary<string, object>
+                {
+                    ["stage"] = "dns",
+                    ["host"] = host,
+                    ["exceptionType"] = exception.GetType().FullName ?? exception.GetType().Name
+                });
         }
+
+        var perAddressResults = new List<object>();
+        foreach (var address in addresses)
+        {
+            perAddressResults.Add(await TryConnectAsync(address, port, cancellationToken));
+        }
+
+        var anyConnected = perAddressResults
+            .Any(entry => entry is Dictionary<string, object> dict && dict.TryGetValue("connected", out var value) && value is true);
+
+        var payload = new
+        {
+            status = anyConnected ? "ok" : "failed",
+            host,
+            port,
+            dnsMs,
+            addresses = perAddressResults
+        };
+
+        return anyConnected
+            ? Results.Ok(payload)
+            : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
     });
+}
+
+static async Task<object> TryConnectAsync(IPAddress address, int port, CancellationToken cancellationToken)
+{
+    var result = new Dictionary<string, object>
+    {
+        ["address"] = address.ToString(),
+        ["addressFamily"] = address.AddressFamily.ToString()
+    };
+
+    try
+    {
+        var connectStartedAt = DateTime.UtcNow;
+        using var connectTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        connectTimeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
+
+        using var client = new TcpClient(address.AddressFamily);
+        await client.ConnectAsync(address, port, connectTimeoutCts.Token);
+
+        result["connectMs"] = (DateTime.UtcNow - connectStartedAt).TotalMilliseconds;
+        result["connected"] = client.Connected;
+    }
+    catch (Exception exception)
+    {
+        result["connected"] = false;
+        result["exceptionType"] = exception.GetType().FullName ?? exception.GetType().Name;
+        result["message"] = exception.Message;
+
+        if (exception is SocketException socketException)
+        {
+            result["socketErrorCode"] = socketException.SocketErrorCode.ToString();
+            result["nativeErrorCode"] = socketException.ErrorCode;
+        }
+    }
+
+    return result;
 }
 
 static bool TryGetReindexModule(string[] args, out string module)

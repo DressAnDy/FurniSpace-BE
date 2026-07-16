@@ -48,8 +48,8 @@ public static class NotificationTemplateProvider
                 "project.designer.assigned"),
 
             NotificationType.ProposalPublished => new NotificationTemplate(
-                "New proposal ready for review",
-                "A design proposal \"{ProposalName}\" is ready for your review.",
+                "New proposal is available",
+                "A new proposal has been published for your project. Please review it.",
                 NotificationDeliveryLevel.InAppRealtime,
                 "proposal.published"),
 

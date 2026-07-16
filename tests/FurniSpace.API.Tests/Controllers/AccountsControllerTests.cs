@@ -351,7 +351,7 @@ public sealed class AccountsControllerTests
         {
             Email = "new@furnispace.com",
             FullName = "New User",
-            PasswordHash = "hashed"
+            Password = "Secure123"
         };
 
         var actionResult = await controller.Create(request, CancellationToken.None);

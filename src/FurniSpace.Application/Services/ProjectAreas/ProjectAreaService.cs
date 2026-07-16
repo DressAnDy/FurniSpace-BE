@@ -1,4 +1,6 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Constants.Common;
+using static FurniSpace.Application.Constants.ProjectAreas.ProjectAreaServiceConstants;
 using FurniSpace.Application.DTOs.ProjectAreas;
 using FurniSpace.Application.Interfaces.ProjectAreas;
 using FurniSpace.Domain.Entities;
@@ -13,14 +15,6 @@ namespace FurniSpace.Application.Services.ProjectAreas;
 
 public sealed class ProjectAreaService : IProjectAreaService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const string ProjectNotFoundMessage = "Project not found.";
-    private const string ProjectAreaNotFoundMessage = "Project area not found.";
-    private const string ProjectAreaIdRequiredMessage = "Project area id is required.";
-
     private readonly IProjectAreaRepository _areas;
     private readonly IProjectRepository _projects;
     private readonly IUnitOfWork _unitOfWork;
@@ -450,12 +444,12 @@ public sealed class ProjectAreaService : IProjectAreaService
             return true;
         }
 
-        if (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase))
         {
             return assignment.AssignedSalesId == currentUserId;
         }
 
-        if (string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase))
         {
             return assignment.AssignedDesignerId == currentUserId;
         }
@@ -478,7 +472,7 @@ public sealed class ProjectAreaService : IProjectAreaService
             return access.CustomerId == currentUserId;
         }
 
-        if (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase))
         {
             if (!access.AssignedSalesId.HasValue && !access.AssignedDesignerId.HasValue)
             {
@@ -488,7 +482,7 @@ public sealed class ProjectAreaService : IProjectAreaService
             return access.AssignedSalesId == currentUserId;
         }
 
-        if (string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase))
         {
             return access.AssignedDesignerId == currentUserId;
         }
@@ -529,12 +523,12 @@ public sealed class ProjectAreaService : IProjectAreaService
 
     private static bool IsAdmin(string? roleName)
     {
-        return string.Equals(roleName, AdminRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsCustomer(string? roleName)
     {
-        return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase);
     }
 
     private readonly record struct ProjectStaffAssignment(Guid? AssignedSalesId, Guid? AssignedDesignerId);

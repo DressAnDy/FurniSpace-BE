@@ -40,6 +40,38 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
+    public void UpdateFinancialAdjustment_RequiresSalesOrAdmin()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.UpdateFinancialAdjustment));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task UpdateFinancialAdjustment_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var orderService = new FakeOrderService(
+            updateFinancialAdjustmentResult: ServiceResult<OrderDetailDto>.Success(
+                new OrderDetailDto { OrderId = orderId, FinalTotalAmount = 95_000_000m },
+                "updated"));
+        var controller = CreateController(orderService, new FakePaymentService(), userId);
+
+        var result = await controller.UpdateFinancialAdjustment(
+            orderId,
+            new UpdateOrderFinancialAdjustmentRequestDto
+            {
+                AdditionalDiscountAmount = 5_000_000m,
+                DepositAmount = 25_000_000m
+            });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
+    [Fact]
     public async Task GetByProject_WithoutUser_ReturnsUnauthorized()
     {
         var controller = CreateController(new FakeOrderService(), new FakePaymentService(), userId: null);
@@ -169,13 +201,16 @@ public sealed class OrdersControllerTests
     {
         private readonly ServiceResult<OrderListResponseDto>? _getByProjectResult;
         private readonly ServiceResult<OrderDetailDto>? _getDetailResult;
+        private readonly ServiceResult<OrderDetailDto>? _updateFinancialAdjustmentResult;
 
         public FakeOrderService(
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
-            ServiceResult<OrderDetailDto>? getDetailResult = null)
+            ServiceResult<OrderDetailDto>? getDetailResult = null,
+            ServiceResult<OrderDetailDto>? updateFinancialAdjustmentResult = null)
         {
             _getByProjectResult = getByProjectResult;
             _getDetailResult = getDetailResult;
+            _updateFinancialAdjustmentResult = updateFinancialAdjustmentResult;
         }
 
         public Task<ServiceResult<OrderListResponseDto>> GetByProjectAsync(
@@ -194,6 +229,16 @@ public sealed class OrdersControllerTests
         {
             return Task.FromResult(
                 _getDetailResult ?? ServiceResult<OrderDetailDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderDetailDto>> UpdateFinancialAdjustmentAsync(
+            Guid orderId,
+            Guid currentUserId,
+            UpdateOrderFinancialAdjustmentRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                _updateFinancialAdjustmentResult ?? ServiceResult<OrderDetailDto>.Unauthorized());
         }
     }
 

@@ -3,6 +3,7 @@ using FurniSpace.Application.Common.Identity;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Payments;
+using static FurniSpace.Application.Constants.Payments.PaymentServiceConstants;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.DTOs.Projects;
@@ -20,24 +21,6 @@ namespace FurniSpace.Application.Services.Payments;
 
 public sealed class PaymentService : IPaymentService
 {
-    private const string PaymentNotFoundMessage = "Payment not found.";
-    private const string ProjectNotFoundMessage = "Project not found.";
-    private const string OrderNotFoundMessage = "Order not found.";
-    private const string ForbiddenMessage = "Forbidden.";
-    private const int MaxPaymentCodeAttempts = 5;
-    private const int MaxPayOsOrderCodeAttempts = 5;
-    private const int MaxTransactionCodeAttempts = 5;
-
-    private static readonly PaymentStatus[] CollectableDepositStatuses =
-        ProjectStartFeeRules.CollectablePaymentStatuses;
-
-    private static readonly PaymentStatus[] VietQrEligibleStatuses =
-    [
-        PaymentStatus.PENDING,
-        PaymentStatus.PROCESSING,
-        PaymentStatus.PARTIALLY_PAID
-    ];
-
     private readonly IPaymentRepository _payments;
     private readonly IProjectRepository _projects;
     private readonly IOrderRepository _orders;

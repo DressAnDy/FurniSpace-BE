@@ -4,19 +4,13 @@ using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Common.Search.Documents;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using static FurniSpace.Application.Constants.Search.SearchReindexServiceConstants;
 using Mapster;
 
 namespace FurniSpace.Application.Services.Search;
 
 public sealed class SearchReindexService : ISearchReindexService
 {
-    private const string AccountIndexName = "accounts";
-    private const string ProductIndexName = "products";
-    private const string ProjectIndexName = "projects";
-    private const string ChatMessageIndexName = "chat-messages";
-    private const string ProjectFileIndexName = "project-files";
-    private const int BatchSize = 100;
-
     private readonly IAccountRepository _accounts;
     private readonly IProductRepository _products;
     private readonly IProjectRepository _projects;

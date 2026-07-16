@@ -1,6 +1,8 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChats;
+using static FurniSpace.Application.Constants.ProjectChats.ProjectChatServiceConstants;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
@@ -12,14 +14,6 @@ namespace FurniSpace.Application.Services.ProjectChats;
 
 public sealed class ProjectChatService : IProjectChatService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const int MaxTitleLength = 150;
-    private static readonly ProjectChatType[] CustomerAndSalesChatTypes =
-        [ProjectChatType.SALES, ProjectChatType.DESIGNER];
-    private static readonly ProjectChatType[] DesignerChatTypes = [ProjectChatType.DESIGNER];
     private readonly IProjectChatRepository _chats;
     private readonly IUnitOfWork _unitOfWork;
 
@@ -61,7 +55,7 @@ public sealed class ProjectChatService : IProjectChatService
             return ServiceResult<ProjectChatSummaryDto>.NotFound("Project not found.");
         }
 
-        if (!IsRole(access.RoleName, AdminRole))
+        if (!IsRole(access.RoleName, ApplicationRoles.Admin))
         {
             return ServiceResult<ProjectChatSummaryDto>.Forbidden(
                 "Only administrators can manually create project chats.");
@@ -201,7 +195,7 @@ public sealed class ProjectChatService : IProjectChatService
             return ServiceResult<ProjectChatSummaryDto>.NotFound("Project chat not found.");
         }
 
-        if (IsRole(access.RoleName, CustomerRole))
+        if (IsRole(access.RoleName, ApplicationRoles.Customer))
         {
             return ServiceResult<ProjectChatSummaryDto>.Forbidden(
                 "Customers cannot close project chats.");
@@ -386,28 +380,28 @@ public sealed class ProjectChatService : IProjectChatService
 
     private static bool CanAccessProject(ProjectChatAccessReadModel access, Guid currentUserId)
     {
-        if (IsRole(access.RoleName, AdminRole))
+        if (IsRole(access.RoleName, ApplicationRoles.Admin))
         {
             return true;
         }
 
-        if (IsRole(access.RoleName, CustomerRole))
+        if (IsRole(access.RoleName, ApplicationRoles.Customer))
         {
             return access.CustomerId == currentUserId;
         }
 
-        if (IsRole(access.RoleName, SalesRole))
+        if (IsRole(access.RoleName, ApplicationRoles.Sales))
         {
             return access.AssignedSalesId == currentUserId;
         }
 
-        return IsRole(access.RoleName, DesignerRole) &&
+        return IsRole(access.RoleName, ApplicationRoles.Designer) &&
             access.AssignedDesignerId == currentUserId;
     }
 
     private static bool CanCloseChat(ProjectChatStatusAccessReadModel access, Guid currentUserId)
     {
-        if (IsRole(access.RoleName, AdminRole))
+        if (IsRole(access.RoleName, ApplicationRoles.Admin))
         {
             return true;
         }
@@ -415,22 +409,22 @@ public sealed class ProjectChatService : IProjectChatService
         return access.ChatType switch
         {
             ProjectChatType.SALES =>
-                IsRole(access.RoleName, SalesRole) && access.AssignedSalesId == currentUserId,
+                IsRole(access.RoleName, ApplicationRoles.Sales) && access.AssignedSalesId == currentUserId,
             ProjectChatType.DESIGNER =>
-                (IsRole(access.RoleName, DesignerRole) && access.AssignedDesignerId == currentUserId) ||
-                (IsRole(access.RoleName, SalesRole) && access.AssignedSalesId == currentUserId),
+                (IsRole(access.RoleName, ApplicationRoles.Designer) && access.AssignedDesignerId == currentUserId) ||
+                (IsRole(access.RoleName, ApplicationRoles.Sales) && access.AssignedSalesId == currentUserId),
             _ => false
         };
     }
 
     private static ProjectChatType[]? GetVisibleChatTypes(string? roleName)
     {
-        if (IsRole(roleName, AdminRole))
+        if (IsRole(roleName, ApplicationRoles.Admin))
         {
             return null;
         }
 
-        return IsRole(roleName, DesignerRole)
+        return IsRole(roleName, ApplicationRoles.Designer)
             ? DesignerChatTypes
             : CustomerAndSalesChatTypes;
     }

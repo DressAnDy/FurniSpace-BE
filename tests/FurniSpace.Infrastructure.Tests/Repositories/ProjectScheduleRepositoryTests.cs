@@ -109,7 +109,7 @@ public sealed class ProjectScheduleRepositoryTests
             ProjectName = "Luxury Cafe",
             BusinessType = "Cafe",
             FurnitureRequirement = "Tables",
-            Status = ProjectStatus.PROPOSAL_DRAFTING
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         });
         context.ProjectScheduleSet.Add(new ProjectSchedule
         {
@@ -156,7 +156,7 @@ public sealed class ProjectScheduleRepositoryTests
             ProjectName = "Luxury Cafe",
             BusinessType = "Cafe",
             FurnitureRequirement = "Tables",
-            Status = ProjectStatus.PROPOSAL_DRAFTING
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         });
         context.ProjectScheduleSet.AddRange(
             new ProjectSchedule

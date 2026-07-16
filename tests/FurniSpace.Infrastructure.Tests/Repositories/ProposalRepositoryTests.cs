@@ -28,7 +28,7 @@ public sealed class ProposalRepositoryTests
         Assert.Equal(data.CustomerId, access.CustomerId);
         Assert.Equal(data.SalesId, access.AssignedSalesId);
         Assert.Equal(data.DesignerId, access.AssignedDesignerId);
-        Assert.Equal(ProjectStatus.PROPOSAL_DRAFTING, access.ProjectStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, access.ProjectStatus);
         Assert.NotNull(proposalContext);
         Assert.Equal(data.ProjectId, proposalContext.ProjectId);
         Assert.Equal(ProposalStatus.PUBLISHED, proposalContext.ProposalStatus);
@@ -61,6 +61,34 @@ public sealed class ProposalRepositoryTests
         Assert.All(proposals, proposal => Assert.NotEqual(ProposalStatus.DRAFT, proposal.Status));
         Assert.Equal(3, proposals[0].VersionNo);
         Assert.Equal(2, proposals[1].VersionNo);
+    }
+
+    [Fact]
+    public async Task GetListAsync_WithCustomerVisibleOnly_IncludesRejectedProposals()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var rejectedProposalId = Guid.NewGuid();
+        context.ProposalSet.Add(CreateProposal(
+            rejectedProposalId,
+            data.ProjectId,
+            "Rejected proposal",
+            ProposalStatus.REJECTED,
+            versionNo: 4));
+        await context.SaveChangesAsync();
+
+        var repository = new ProposalRepository(context);
+        var proposals = await repository.GetListAsync(new ProposalListQueryReadModel
+        {
+            ProjectId = data.ProjectId,
+            CustomerVisibleOnly = true,
+            Page = 1,
+            Limit = 10
+        });
+
+        Assert.Equal(3, proposals.Count);
+        Assert.Contains(proposals, proposal => proposal.ProposalId == rejectedProposalId);
+        Assert.Contains(proposals, proposal => proposal.Status == ProposalStatus.REJECTED);
     }
 
     [Fact]
@@ -432,7 +460,7 @@ public sealed class ProposalRepositoryTests
             ProjectName = "Luxury Cafe",
             BusinessType = "Cafe",
             FurnitureRequirement = "Tables",
-            Status = ProjectStatus.PROPOSAL_DRAFTING
+            Status = ProjectStatus.PROPOSAL_CONSULTING
         });
         context.StoredFileSet.Add(new StoredFile
         {

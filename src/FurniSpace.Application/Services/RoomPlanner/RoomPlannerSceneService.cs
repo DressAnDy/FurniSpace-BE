@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.RoomPlanner.RoomPlannerSceneServiceConstants;
 using FurniSpace.Application.DTOs.RoomPlanner;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
@@ -235,12 +236,12 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         Guid currentUserId,
         string role)
     {
-        if (IsRole(role, AdminRole))
+        if (IsRole(role, ApplicationRoles.Admin))
         {
             return true;
         }
 
-        return IsRole(role, DesignerRole) && context.AssignedDesignerId == currentUserId;
+        return IsRole(role, ApplicationRoles.Designer) && context.AssignedDesignerId == currentUserId;
     }
 
     private static bool CanViewScene(
@@ -248,12 +249,12 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         Guid currentUserId,
         string role)
     {
-        if (IsRole(role, AdminRole) || IsAssignedStaff(context, currentUserId, role))
+        if (IsRole(role, ApplicationRoles.Admin) || IsAssignedStaff(context, currentUserId, role))
         {
             return true;
         }
 
-        return IsRole(role, CustomerRole) &&
+        return IsRole(role, ApplicationRoles.Customer) &&
             context.CustomerId == currentUserId &&
             IsCustomerVisible(context.ProposalStatus);
     }
@@ -263,8 +264,8 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         Guid currentUserId,
         string role)
     {
-        return IsRole(role, DesignerRole) && context.AssignedDesignerId == currentUserId ||
-            IsRole(role, SalesRole) && context.AssignedSalesId == currentUserId;
+        return IsRole(role, ApplicationRoles.Designer) && context.AssignedDesignerId == currentUserId ||
+            IsRole(role, ApplicationRoles.Sales) && context.AssignedSalesId == currentUserId;
     }
 
     private static bool IsCustomerVisible(ProposalStatus? status)

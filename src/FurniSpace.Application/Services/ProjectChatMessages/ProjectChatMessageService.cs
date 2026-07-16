@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Storage;
+using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.ProjectChatMessages.ProjectChatMessageServiceConstants;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
@@ -297,7 +298,7 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         var visibility = ProjectFileUploadSupport.ResolveVisibility(
             request.Visibility,
             access.RoleName,
-            CustomerRole);
+            ApplicationRoles.Customer);
         var normalizedContent = ProjectFileUploadSupport.NormalizeOptionalText(request.Content);
 
         var uploadResult = await _fileUpload.Storage.UploadAsync(
@@ -522,24 +523,24 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         ProjectChatMessageAccessReadModel access,
         Guid currentUserId)
     {
-        if (IsRole(access.RoleName, AdminRole))
+        if (IsRole(access.RoleName, ApplicationRoles.Admin))
         {
             return true;
         }
 
-        if (IsRole(access.RoleName, CustomerRole))
+        if (IsRole(access.RoleName, ApplicationRoles.Customer))
         {
             return access.CustomerId == currentUserId &&
                 IsCustomerOrSalesVisible(access.ChatType);
         }
 
-        if (IsRole(access.RoleName, SalesRole))
+        if (IsRole(access.RoleName, ApplicationRoles.Sales))
         {
             return access.AssignedSalesId == currentUserId &&
                 IsCustomerOrSalesVisible(access.ChatType);
         }
 
-        return IsRole(access.RoleName, DesignerRole) &&
+        return IsRole(access.RoleName, ApplicationRoles.Designer) &&
             access.AssignedDesignerId == currentUserId &&
             access.ChatType == ProjectChatType.DESIGNER;
     }
@@ -618,22 +619,22 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         Guid currentUserId,
         string? roleName)
     {
-        if (IsRole(roleName, AdminRole))
+        if (IsRole(roleName, ApplicationRoles.Admin))
         {
             return true;
         }
 
-        if (IsRole(roleName, CustomerRole))
+        if (IsRole(roleName, ApplicationRoles.Customer))
         {
             return project.CustomerId == currentUserId;
         }
 
-        if (IsRole(roleName, SalesRole))
+        if (IsRole(roleName, ApplicationRoles.Sales))
         {
             return project.AssignedSalesId == currentUserId;
         }
 
-        if (IsRole(roleName, DesignerRole))
+        if (IsRole(roleName, ApplicationRoles.Designer))
         {
             return project.AssignedDesignerId == currentUserId;
         }

@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.ProjectSchedules.ProjectScheduleServiceConstants;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -68,7 +69,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ServiceResult<ProjectScheduleDto>.NotFound("Project not found.");
         }
 
-        if (role == SalesRole && project.AssignedSalesId != currentUserId)
+        if (role == ApplicationRoles.Sales && project.AssignedSalesId != currentUserId)
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden("You are not the assigned Sales for this project.");
         }
@@ -425,7 +426,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ServiceResult<ProjectScheduleListResponseDto>.Unauthorized();
         }
 
-        Guid? staffId = role == AdminRole ? null : currentUserId;
+        Guid? staffId = role == ApplicationRoles.Admin ? null : currentUserId;
 
         var normalizedQuery = NormalizeQuery(query);
         var (items, total) = await _schedules.GetMyAssignedAsync(staffId, normalizedQuery, cancellationToken);
@@ -447,11 +448,11 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     {
         return role switch
         {
-            AdminRole => true,
-            CustomerRole => project.CustomerId == currentUserId,
-            SalesRole => project.AssignedSalesId == currentUserId,
-            DesignerRole => project.AssignedDesignerId == currentUserId,
-            ProductionRole => await _schedules.HasAssignedScheduleAsync(project.ProjectId, currentUserId, cancellationToken),
+            ApplicationRoles.Admin => true,
+            ApplicationRoles.Customer => project.CustomerId == currentUserId,
+            ApplicationRoles.Sales => project.AssignedSalesId == currentUserId,
+            ApplicationRoles.Designer => project.AssignedDesignerId == currentUserId,
+            ApplicationRoles.Production => await _schedules.HasAssignedScheduleAsync(project.ProjectId, currentUserId, cancellationToken),
             _ => false
         };
     }
@@ -462,7 +463,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         Guid currentUserId,
         CancellationToken cancellationToken)
     {
-        if (role == AdminRole) return true;
+        if (role == ApplicationRoles.Admin) return true;
         if (schedule.CustomerId == currentUserId) return true;
         if (schedule.AssignedSalesId == currentUserId) return true;
         if (schedule.AssignedDesignerId == currentUserId) return true;
@@ -557,7 +558,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ServiceResult<ProjectScheduleDto>.BadRequest("Assigned staff id is required.");
         }
 
-        if (role != AdminRole && assignedStaffId.Value != project.AssignedDesignerId.Value)
+        if (role != ApplicationRoles.Admin && assignedStaffId.Value != project.AssignedDesignerId.Value)
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden(
                 "Measurement schedules must be assigned to the project's designer.");
@@ -577,12 +578,13 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ValidateProductionUpdatePermission(detail, currentUserId, request);
         }
 
-        if (role != AdminRole && !(role == SalesRole && detail.AssignedSalesId == currentUserId))
+        if (role != ApplicationRoles.Admin &&
+            !(role == ApplicationRoles.Sales && detail.AssignedSalesId == currentUserId))
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden("Only assigned Sales or Admin can update schedules.");
         }
 
-        if (role != AdminRole &&
+        if (role != ApplicationRoles.Admin &&
             detail.Status is not (ProjectScheduleStatus.PENDING_CONFIRMATION or ProjectScheduleStatus.CONFIRMED))
         {
             return ServiceResult<ProjectScheduleDto>.BadRequest("Completed or cancelled schedules cannot be updated.");
@@ -624,7 +626,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         ProjectScheduleDetailReadModel detail,
         Guid currentUserId)
     {
-        if (role == AdminRole || role == SalesRole && detail.AssignedSalesId == currentUserId)
+        if (role == ApplicationRoles.Admin ||
+            role == ApplicationRoles.Sales && detail.AssignedSalesId == currentUserId)
         {
             return null;
         }
@@ -709,7 +712,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     "Only PENDING_CONFIRMATION schedules can be confirmed."));
         }
 
-        if (role != CustomerRole || detail.CustomerId != currentUserId)
+        if (role != ApplicationRoles.Customer || detail.CustomerId != currentUserId)
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden(
                 "Only the customer owner can confirm a schedule.");
@@ -745,8 +748,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     "Only assigned production staff can complete this schedule.");
         }
 
-        var canComplete = role == AdminRole
-            || role == SalesRole && detail.AssignedSalesId == currentUserId
+        var canComplete = role == ApplicationRoles.Admin
+            || role == ApplicationRoles.Sales && detail.AssignedSalesId == currentUserId
             || detail.AssignedStaffId == currentUserId;
         if (!canComplete)
         {
@@ -769,9 +772,9 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 "Only PENDING_CONFIRMATION or CONFIRMED schedules can be cancelled.");
         }
 
-        var canCancel = role == AdminRole
-            || role == SalesRole && detail.AssignedSalesId == currentUserId
-            || role == CustomerRole && detail.CustomerId == currentUserId;
+        var canCancel = role == ApplicationRoles.Admin
+            || role == ApplicationRoles.Sales && detail.AssignedSalesId == currentUserId
+            || role == ApplicationRoles.Customer && detail.CustomerId == currentUserId;
         if (IsProduction(role))
         {
             if (!IsProductionStatusType(detail.ScheduleType))
@@ -954,12 +957,12 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
     private static bool CanCreateSchedules(string? role)
     {
-        return role is AdminRole or SalesRole or ProductionRole;
+        return role is ApplicationRoles.Admin or ApplicationRoles.Sales or ApplicationRoles.Production;
     }
 
     private static bool IsProduction(string? role)
     {
-        return string.Equals(role, ProductionRole, StringComparison.Ordinal);
+        return string.Equals(role, ApplicationRoles.Production, StringComparison.Ordinal);
     }
 
     private static bool IsProductionManageableType(ProjectScheduleType? scheduleType)

@@ -2,6 +2,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Payments;
+using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.Projects.ProjectServiceConstants;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
@@ -1129,15 +1130,15 @@ public sealed class ProjectService : IProjectService
 
         return IsCustomer(requesterRole) ||
             IsDesigner(requesterRole) ||
-            string.Equals(requesterRole, SalesRole, StringComparison.OrdinalIgnoreCase);
+            string.Equals(requesterRole, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsSupportedProjectsByUserRoleScope(string? roleScope)
     {
-        return string.Equals(roleScope, CustomerRole, StringComparison.Ordinal) ||
-            string.Equals(roleScope, SalesRole, StringComparison.Ordinal) ||
-            string.Equals(roleScope, DesignerRole, StringComparison.Ordinal) ||
-            string.Equals(roleScope, AdminRole, StringComparison.Ordinal);
+        return string.Equals(roleScope, ApplicationRoles.Customer, StringComparison.Ordinal) ||
+            string.Equals(roleScope, ApplicationRoles.Sales, StringComparison.Ordinal) ||
+            string.Equals(roleScope, ApplicationRoles.Designer, StringComparison.Ordinal) ||
+            string.Equals(roleScope, ApplicationRoles.Admin, StringComparison.Ordinal);
     }
 
     private static string? NormalizeRoleScope(string? roleScope)
@@ -1152,7 +1153,7 @@ public sealed class ProjectService : IProjectService
         return IsCustomer(roleName) ||
             IsDesigner(roleName) ||
             IsAdmin(roleName) ||
-            string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase);
+            string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool CanViewProjectDetail(
@@ -1170,7 +1171,7 @@ public sealed class ProjectService : IProjectService
             return project.CustomerId == currentUserId;
         }
 
-        if (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase))
         {
             // Sales can inspect unassigned projects; once assigned, only assigned sales can view.
             if (!project.AssignedSalesId.HasValue && !project.AssignedDesignerId.HasValue)
@@ -1181,7 +1182,7 @@ public sealed class ProjectService : IProjectService
             return project.AssignedSalesId == currentUserId;
         }
 
-        if (string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase))
         {
             return project.AssignedDesignerId == currentUserId;
         }
@@ -1281,7 +1282,7 @@ public sealed class ProjectService : IProjectService
             return project.CustomerId == currentUserId;
         }
 
-        if (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase))
         {
             return project.AssignedSalesId == currentUserId;
         }
@@ -1292,21 +1293,21 @@ public sealed class ProjectService : IProjectService
     private static bool CanRejectProject(Project project, Guid currentUserId, string? roleName)
     {
         return IsAdmin(roleName) ||
-            (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase) &&
+            (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase) &&
                 project.AssignedSalesId == currentUserId);
     }
 
     private static bool CanAssignDesigner(Project project, Guid currentUserId, string? roleName)
     {
         return IsAdmin(roleName) ||
-            (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase) &&
+            (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase) &&
                 project.AssignedSalesId == currentUserId);
     }
 
     private static bool CanAssignSales(string? roleName)
     {
         return IsAdmin(roleName) ||
-            string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase);
+            string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPreConsultationStatus(ProjectStatus? status)
@@ -1341,17 +1342,17 @@ public sealed class ProjectService : IProjectService
 
     private static bool IsAdmin(string? roleName)
     {
-        return string.Equals(roleName, AdminRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsCustomer(string? roleName)
     {
-        return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsDesigner(string? roleName)
     {
-        return string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? NormalizeOptional(string? value)

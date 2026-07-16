@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.Proposals.ProposalServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Proposals;
@@ -2007,22 +2008,22 @@ public sealed class ProposalService : IProposalService
 
     private static bool IsAdmin(string? roleName)
     {
-        return string.Equals(roleName, AdminRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsCustomer(string? roleName)
     {
-        return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsDesigner(string? roleName)
     {
-        return string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsSales(string? roleName)
     {
-        return string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? NormalizeOptional(string? value)

@@ -4,11 +4,6 @@ namespace FurniSpace.Application.Constants.CustomizationRequests;
 
 internal static class CustomizationRequestServiceConstants
 {
-    internal const string AdminRole = "ADMIN";
-    internal const string CustomerRole = "CUSTOMER";
-    internal const string SalesRole = "SALES";
-    internal const string DesignerRole = "DESIGNER";
-    internal const string ProductionRole = "PRODUCTION";
     internal const string AllStatusesFilter = "ALL";
     internal const int MaxProductionQueuePageSize = 100;
     internal const string CustomizationReferenceType = "CUSTOMIZATION_REQUEST";

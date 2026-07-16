@@ -4,11 +4,6 @@ namespace FurniSpace.Application.Constants.Proposals;
 
 internal static class ProposalServiceConstants
 {
-    internal const string AdminRole = "ADMIN";
-    internal const string CustomerRole = "CUSTOMER";
-    internal const string DesignerRole = "DESIGNER";
-    internal const string SalesRole = "SALES";
-
     internal const int MaxPageSize = 100;
     internal const int MaxProposalNameLength = 150;
     internal const int MaxDescriptionLength = 1000;

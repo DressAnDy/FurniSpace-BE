@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Storage;
+using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.ProjectFiles.ProjectFileServiceConstants;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.ProjectFiles;
@@ -681,10 +682,10 @@ public sealed class ProjectFileService : IProjectFileService
     {
         return roleName.ToUpperInvariant() switch
         {
-            AdminRole => true,
-            CustomerRole => customerId == currentUserId,
-            SalesRole => assignedSalesId == currentUserId,
-            DesignerRole => assignedDesignerId == currentUserId,
+            ApplicationRoles.Admin => true,
+            ApplicationRoles.Customer => customerId == currentUserId,
+            ApplicationRoles.Sales => assignedSalesId == currentUserId,
+            ApplicationRoles.Designer => assignedDesignerId == currentUserId,
             _ => false
         };
     }
@@ -769,12 +770,12 @@ public sealed class ProjectFileService : IProjectFileService
 
     private static bool IsAdmin(string roleName)
     {
-        return string.Equals(roleName, AdminRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsCustomer(string roleName)
     {
-        return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsBeforeProposalSelected(ProjectStatus? status)
@@ -804,7 +805,7 @@ public sealed class ProjectFileService : IProjectFileService
             return requestedVisibility.Value;
         }
 
-        return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase)
+        return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase)
             ? FileVisibility.CUSTOMER_VISIBLE
             : FileVisibility.STAFF_ONLY;
     }

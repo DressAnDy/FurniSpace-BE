@@ -2,10 +2,6 @@ namespace FurniSpace.Application.Constants.RoomPlanner;
 
 internal static class RoomPlannerSceneServiceConstants
 {
-    internal const string AdminRole = "ADMIN";
-    internal const string CustomerRole = "CUSTOMER";
-    internal const string DesignerRole = "DESIGNER";
-    internal const string SalesRole = "SALES";
     internal const string SceneNotFoundMessage = "Proposal scene not found.";
     internal const string InvalidSceneDataCode = "INVALID_SCENE_DATA";
     internal const string ProposalNotEditableCode = "PROPOSAL_NOT_EDITABLE";

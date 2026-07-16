@@ -1,14 +1,11 @@
 using FurniSpace.Domain.Enums;
+using FurniSpace.Application.Constants.Common;
 
 namespace FurniSpace.Application.Constants.Projects;
 
 internal static class ProjectServiceConstants
 {
     internal const string ProjectIndexName = "projects";
-    internal const string AdminRole = "ADMIN";
-    internal const string CustomerRole = "CUSTOMER";
-    internal const string DesignerRole = "DESIGNER";
-    internal const string SalesRole = "SALES";
     internal const int MaxNoteLength = 1000;
     internal const int MaxRejectionReasonLength = 1000;
     internal const string ProjectReferenceType = "PROJECT";
@@ -18,7 +15,7 @@ internal static class ProjectServiceConstants
     internal const string ProjectNotFoundMessage = "Project not found.";
     internal const int MaxProjectsByUserPageSize = 100;
 
-    internal static readonly string[] ProjectSubmittedReceiverRoles = [SalesRole, AdminRole];
+    internal static readonly string[] ProjectSubmittedReceiverRoles = [ApplicationRoles.Sales, ApplicationRoles.Admin];
     internal static readonly Dictionary<ProjectStatus, int> ProjectStatusRanks = new()
     {
         [ProjectStatus.SUBMITTED] = 10,

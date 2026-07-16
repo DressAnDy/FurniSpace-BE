@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.CustomizationRequests;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.CustomizationRequests.CustomizationRequestServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.Interfaces.CustomizationRequests;
@@ -86,7 +87,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role is not (ProductionRole or AdminRole))
+        if (role is not (ApplicationRoles.Production or ApplicationRoles.Admin))
         {
             return ServiceResult<ProductionCustomizationRequestListResponseDto>.Forbidden(
                 "You do not have permission to view the production customization queue.");
@@ -172,7 +173,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role != CustomerRole)
+        if (role != ApplicationRoles.Customer)
         {
             return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
                 "Only customers can submit customization requests.");
@@ -252,7 +253,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 "Designer spec note is required.");
         }
 
-        context.Entity.DesignerId = role == AdminRole
+        context.Entity.DesignerId = role == ApplicationRoles.Admin
             ? context.Detail!.AssignedDesignerId ?? currentUserId
             : currentUserId;
         context.Entity.DesignerSpecNote = request.DesignerSpecNote.Trim();
@@ -287,7 +288,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role is not (ProductionRole or AdminRole))
+        if (role is not (ApplicationRoles.Production or ApplicationRoles.Admin))
         {
             return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
                 "You do not have permission to review production feasibility.");
@@ -332,7 +333,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role != CustomerRole || context.Detail!.CustomerId != currentUserId)
+        if (role != ApplicationRoles.Customer || context.Detail!.CustomerId != currentUserId)
         {
             return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
                 "You can only decide customization requests for your own project.");
@@ -418,7 +419,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         Guid currentUserId,
         CancellationToken cancellationToken)
     {
-        if (role == ProductionRole)
+        if (role == ApplicationRoles.Production)
         {
             var hasProductionRequest = await _customizationRequests.HasProductionVisibleRequestAsync(
                 project.ProjectId,
@@ -519,8 +520,8 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     {
         return role switch
         {
-            AdminRole => true,
-            DesignerRole => request.AssignedDesignerId == currentUserId,
+            ApplicationRoles.Admin => true,
+            ApplicationRoles.Designer => request.AssignedDesignerId == currentUserId,
             _ => false
         };
     }
@@ -757,7 +758,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         CancellationToken cancellationToken)
     {
         var receivers = await _projects.GetActiveAccountIdsByRoleNamesAsync(
-            [ProductionRole],
+            [ApplicationRoles.Production],
             cancellationToken);
         if (receivers.Count == 0)
         {
@@ -783,17 +784,17 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         CustomizationRequestReadModel request,
         Guid currentUserId)
     {
-        if (role == ProductionRole)
+        if (role == ApplicationRoles.Production)
         {
             return IsProductionVisible(request, currentUserId);
         }
 
         return role switch
         {
-            AdminRole => true,
-            CustomerRole => request.CustomerId == currentUserId,
-            SalesRole => request.AssignedSalesId == currentUserId,
-            DesignerRole => request.AssignedDesignerId == currentUserId,
+            ApplicationRoles.Admin => true,
+            ApplicationRoles.Customer => request.CustomerId == currentUserId,
+            ApplicationRoles.Sales => request.AssignedSalesId == currentUserId,
+            ApplicationRoles.Designer => request.AssignedDesignerId == currentUserId,
             _ => false
         };
     }
@@ -803,7 +804,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         CustomizationRequestReadModel request,
         Guid currentUserId)
     {
-        return role is CustomerRole or SalesRole or DesignerRole or AdminRole &&
+        return role is ApplicationRoles.Customer or ApplicationRoles.Sales or ApplicationRoles.Designer or ApplicationRoles.Admin &&
             CanAccessRequest(role, request, currentUserId);
     }
 
@@ -812,7 +813,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         string? role,
         Guid currentUserId)
     {
-        return role == ProductionRole
+        return role == ApplicationRoles.Production
             ? items.Where(item => IsProductionVisible(item, currentUserId))
             : items;
     }
@@ -866,7 +867,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         statuses = null;
         var normalizedStatus = status?.Trim();
 
-        if (role == ProductionRole)
+        if (role == ApplicationRoles.Production)
         {
             if (string.IsNullOrWhiteSpace(normalizedStatus))
             {

@@ -4,10 +4,6 @@ namespace FurniSpace.Application.Constants.Projects;
 
 internal static class ProjectStatusTransitionEvaluatorConstants
 {
-    internal const string AdminRole = "ADMIN";
-    internal const string CustomerRole = "CUSTOMER";
-    internal const string DesignerRole = "DESIGNER";
-    internal const string SalesRole = "SALES";
     internal const int MaxNoteLength = 1000;
 
     internal static readonly HashSet<ProjectStatus> DesignerAllowedTargetStatuses =

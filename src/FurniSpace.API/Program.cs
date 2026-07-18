@@ -5,7 +5,6 @@ using System.Security.Claims;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using FurniSpace.API.Cli;
-using FurniSpace.API.Constants;
 using FurniSpace.API.Filters;
 using FurniSpace.API.Hubs;
 using FurniSpace.API.Realtime;
@@ -280,7 +279,7 @@ static void AddApiSwagger(IServiceCollection services)
                         Id = "Bearer"
                     }
                 },
-                SwaggerConstants.EmptySecurityScopes
+                Array.Empty<string>()
             }
         });
     });

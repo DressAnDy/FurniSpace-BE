@@ -3,6 +3,7 @@ using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
+using static FurniSpace.Application.Constants.Payments.PaymentBusinessEffectServiceConstants;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -12,12 +13,6 @@ namespace FurniSpace.Application.Services.Payments;
 
 public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
 {
-    private const string OrderReferenceType = "ORDER";
-    private const string OrderCodeParameter = "OrderCode";
-
-    private static readonly ProjectStatus[] ProjectStartFeeEligibleStatuses =
-        ProjectStartFeeRules.PaymentCreationEligibleStatuses;
-
     private readonly IPaymentRepository _payments;
     private readonly IOrderRepository _orders;
     private readonly IProjectRepository _projects;

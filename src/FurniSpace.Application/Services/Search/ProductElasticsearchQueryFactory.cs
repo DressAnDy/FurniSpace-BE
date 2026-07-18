@@ -2,6 +2,7 @@ using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.ReadModels.Products;
+using static FurniSpace.Application.Constants.Search.ProductElasticsearchQueryFactoryConstants;
 
 namespace FurniSpace.Application.Services.Search;
 
@@ -10,8 +11,6 @@ public static class ProductElasticsearchQueryFactory
     public const string CategoryFacetField = "categoryName.keyword";
     public const string MaterialFacetField = "material";
     public const string ColorFacetField = "color";
-    private const string EstimatedPriceField = "estimatedPrice";
-    private const string ProductNameKeywordField = "productName.keyword";
 
     private static readonly string[] ProductFacetFields =
     [

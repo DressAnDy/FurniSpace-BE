@@ -1,6 +1,8 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.DTOs.Projects;
+using static FurniSpace.Application.Constants.Projects.ProjectStatusTransitionEvaluatorConstants;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -10,34 +12,6 @@ namespace FurniSpace.Application.Services.Projects;
 
 public sealed class ProjectStatusTransitionEvaluator
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const int MaxNoteLength = 1000;
-
-    private static readonly HashSet<ProjectStatus> DesignerAllowedTargetStatuses =
-    [
-        ProjectStatus.MEASUREMENT_REQUIRED,
-        ProjectStatus.SPACE_VERIFIED,
-        ProjectStatus.PROPOSAL_CONSULTING
-    ];
-
-    private static readonly HashSet<ProjectStatus> DesignerForbiddenTargetStatuses =
-    [
-        ProjectStatus.PROPOSAL_SELECTED,
-        ProjectStatus.QUOTATION_SENT,
-        ProjectStatus.QUOTATION_REVISION_REQUESTED,
-        ProjectStatus.ORDER_CONFIRMED,
-        ProjectStatus.IN_PRODUCTION,
-        ProjectStatus.PRODUCTION_BLOCKED,
-        ProjectStatus.READY_FOR_DELIVERY,
-        ProjectStatus.DELIVERING,
-        ProjectStatus.DELIVERED,
-        ProjectStatus.COMPLETED,
-        ProjectStatus.REJECTED
-    ];
-
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectFileRepository _files;
     private readonly IProposalRepository _proposals;
@@ -378,7 +352,7 @@ public sealed class ProjectStatusTransitionEvaluator
     private static bool CanActAsSales(Project project, string? roleName, Guid currentUserId)
     {
         return IsAdmin(roleName) ||
-            (string.Equals(roleName, SalesRole, StringComparison.OrdinalIgnoreCase) &&
+            (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase) &&
                 project.AssignedSalesId == currentUserId);
     }
 
@@ -386,23 +360,23 @@ public sealed class ProjectStatusTransitionEvaluator
     {
         return IsAdmin(roleName) ||
             CanActAsSales(project, roleName, currentUserId) ||
-            (string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase) &&
+            (string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase) &&
                 project.AssignedDesignerId == currentUserId);
     }
 
     private static bool IsDesigner(string? roleName)
     {
-        return string.Equals(roleName, DesignerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsAdmin(string? roleName)
     {
-        return string.Equals(roleName, AdminRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsCustomer(string? roleName)
     {
-        return string.Equals(roleName, CustomerRole, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? NormalizeOptional(string? value)

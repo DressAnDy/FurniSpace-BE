@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
+using static FurniSpace.Application.Constants.Orders.OrderServiceConstants;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.Interfaces.Orders;
 using FurniSpace.Domain.Entities;
@@ -13,14 +14,6 @@ namespace FurniSpace.Application.Services.Orders;
 
 public sealed class OrderService : IOrderService
 {
-    private const string ProjectNotFoundMessage = "Project not found.";
-    private const string OrderNotFoundMessage = "Order not found.";
-    private const string ForbiddenMessage = "You do not have permission to update this order financial adjustment.";
-    private const string InvalidOrderStatusMessage = "Order is not pending deposit payment.";
-    private const string PaymentAlreadyStartedMessage =
-        "Order deposit payment has already started and cannot be adjusted.";
-    private const string FinancialAdjustmentUpdatedMessage = "Order financial adjustment updated successfully.";
-
     private readonly IOrderRepository _orders;
     private readonly IProjectRepository _projects;
     private readonly IPaymentRepository _payments;

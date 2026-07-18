@@ -90,9 +90,20 @@ public sealed class IdentityService : IIdentityService
                 await _unitOfWork.SaveChangesAsync(ct);
             },
             cancellationToken);
-        await SendVerificationOtpAsync(account, cancellationToken);
 
-        return ServiceResult.Created(new { account.AccountId, account.Email }, "Account registered. Please verify your email with the OTP sent to your inbox.");
+        try
+        {
+            await SendVerificationOtpAsync(account, cancellationToken);
+            return ServiceResult.Created(
+                new { account.AccountId, account.Email, EmailDeliveryStatus = "sent" },
+                "Account registered. Please verify your email with the OTP sent to your inbox.");
+        }
+        catch (EmailDeliveryException)
+        {
+            return ServiceResult.Created(
+                new { account.AccountId, account.Email, EmailDeliveryStatus = "failed" },
+                "Account registered, but the verification email could not be sent. Please request a new OTP.");
+        }
     }
 
     public async Task<ServiceResult<AuthResponseDto>> VerifyEmailAsync(
@@ -163,7 +174,14 @@ public sealed class IdentityService : IIdentityService
         var account = await _accounts.GetByEmailAsync(email, cancellationToken);
         if (account is not null && account.DeletedAt is null && account.Status != AccountStatus.ACTIVE)
         {
-            await SendVerificationOtpAsync(account, cancellationToken);
+            try
+            {
+                await SendVerificationOtpAsync(account, cancellationToken);
+            }
+            catch (EmailDeliveryException)
+            {
+                // Keep the response neutral to avoid disclosing account state.
+            }
         }
 
         return ServiceResult.Success("If the account requires verification, an OTP has been sent.");
@@ -275,7 +293,14 @@ public sealed class IdentityService : IIdentityService
         if (account is not null && account.DeletedAt is null)
         {
             var token = await _verificationStores.PasswordResetStore.CreateAsync(account.AccountId, cancellationToken);
-            await _email.SendPasswordResetAsync(account.Email, account.FullName, token, cancellationToken);
+            try
+            {
+                await _email.SendPasswordResetAsync(account.Email, account.FullName, token, cancellationToken);
+            }
+            catch (EmailDeliveryException)
+            {
+                // Keep the response neutral to avoid disclosing account state.
+            }
         }
 
         return ServiceResult.Success("If the account exists, a password reset email has been sent.");

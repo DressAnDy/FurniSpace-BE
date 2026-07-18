@@ -265,6 +265,46 @@ Task RevokeAccessTokenAsync(...);
 Task<bool> IsAccessTokenRevokedAsync(...);
 ```
 
+Email verification and password-reset messages use the Gmail API over HTTPS:
+
+```text
+FurniSpace.Infrastructure/Interfaces/IEmailService.cs
+FurniSpace.Infrastructure/Common/Email/Settings/GmailApiSettings.cs
+FurniSpace.Infrastructure/Common/Email/Services/GmailAccessTokenProvider.cs
+FurniSpace.Infrastructure/Common/Email/Services/GmailApiEmailService.cs
+```
+
+Required configuration:
+
+```text
+GmailApi__ClientId
+GmailApi__ClientSecret
+GmailApi__RefreshToken
+GmailApi__SenderEmail
+GmailApi__SenderName
+GmailApi__ResetPasswordUrl
+```
+
+Optional configuration:
+
+```text
+GmailApi__BaseUrl=https://gmail.googleapis.com/gmail/v1/
+GmailApi__TokenUrl=https://oauth2.googleapis.com/token
+GmailApi__TimeoutSeconds=10
+```
+
+Gmail API deployment rules:
+
+- Enable Gmail API and grant only `https://www.googleapis.com/auth/gmail.send`.
+- Store the OAuth client secret and refresh token only in local secrets or Render environment variables; never commit them.
+- `GmailApi__SenderEmail` must be the Gmail account that authorized the refresh token.
+- Gmail access tokens are refreshed and cached automatically. If the OAuth app remains in Testing, the refresh token may expire after seven days.
+- Gmail API uses HTTPS port 443 and therefore does not depend on SMTP egress from Render.
+- If Register commits the account but email delivery fails, return `201 Created` with `EmailDeliveryStatus = "failed"` and let the client call resend OTP.
+- Resend OTP and forgot-password responses remain neutral so callers cannot infer whether an account exists.
+- Revoke and regenerate OAuth credentials immediately if a client secret or refresh token is exposed.
+- Do not log OAuth credentials, access tokens, OTP codes, reset tokens, recipient addresses, or email bodies.
+
 ## 7. Redis and Cache
 
 Redis implementation belongs to Infrastructure.

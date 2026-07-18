@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Diagnostics;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Identity;
 using FurniSpace.Application.DTOs.Auth;
@@ -12,7 +11,6 @@ using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Logging;
 using InfrastructureCacheService = FurniSpace.Infrastructure.Interfaces.ICacheService;
 
 namespace FurniSpace.Application.Services.Identity;
@@ -28,7 +26,6 @@ public sealed class IdentityService : IIdentityService
     private readonly IdentityVerificationStores _verificationStores;
     private readonly IEmailService _email;
     private readonly InfrastructureCacheService _cache;
-    private readonly ILogger<IdentityService>? _logger;
 
     public IdentityService(
         IAccountRepository accounts,
@@ -37,8 +34,7 @@ public sealed class IdentityService : IIdentityService
         IdentityVerificationStores verificationStores,
         IEmailService email,
         InfrastructureCacheService cache,
-        IUnitOfWork unitOfWork,
-        ILogger<IdentityService>? logger = null)
+        IUnitOfWork unitOfWork)
     {
         _accounts = accounts;
         _auth = auth;
@@ -47,21 +43,12 @@ public sealed class IdentityService : IIdentityService
         _verificationStores = verificationStores;
         _email = email;
         _cache = cache;
-        _logger = logger;
     }
 
     public async Task<ServiceResult> RegisterAsync(
         RegisterRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var totalSw = Stopwatch.StartNew();
-        long rateLimitMs = 0;
-        long emailExistsMs = 0;
-        long roleLookupMs = 0;
-        long dbWriteMs = 0;
-        long otpStoreMs = 0;
-        long emailSendMs = 0;
-
         var errors = ValidateRegistration(request);
         if (errors.Count > 0)
         {
@@ -69,57 +56,19 @@ public sealed class IdentityService : IIdentityService
         }
 
         var email = NormalizeEmail(request.Email);
-        var stepSw = Stopwatch.StartNew();
         if (!await AllowEmailAttemptAsync("register", email, 5, cancellationToken))
         {
-            rateLimitMs = stepSw.ElapsedMilliseconds;
-            LogRegisterTiming(
-                email,
-                "RATE_LIMITED",
-                totalSw.ElapsedMilliseconds,
-                rateLimitMs,
-                emailExistsMs,
-                roleLookupMs,
-                dbWriteMs,
-                otpStoreMs,
-                emailSendMs);
             return ServiceResult.TooManyRequests("Too many registration attempts. Please try again later.");
         }
-        rateLimitMs = stepSw.ElapsedMilliseconds;
 
-        stepSw.Restart();
         if (await _accounts.EmailExistsAsync(email, cancellationToken: cancellationToken))
         {
-            emailExistsMs = stepSw.ElapsedMilliseconds;
-            LogRegisterTiming(
-                email,
-                "EMAIL_EXISTS",
-                totalSw.ElapsedMilliseconds,
-                rateLimitMs,
-                emailExistsMs,
-                roleLookupMs,
-                dbWriteMs,
-                otpStoreMs,
-                emailSendMs);
             return ServiceResult.Conflict("Email already exists.");
         }
-        emailExistsMs = stepSw.ElapsedMilliseconds;
 
-        stepSw.Restart();
         var customerRoleId = await _accounts.GetRoleIdByNameAsync(CustomerRole, cancellationToken);
-        roleLookupMs = stepSw.ElapsedMilliseconds;
         if (!customerRoleId.HasValue)
         {
-            LogRegisterTiming(
-                email,
-                "ROLE_NOT_FOUND",
-                totalSw.ElapsedMilliseconds,
-                rateLimitMs,
-                emailExistsMs,
-                roleLookupMs,
-                dbWriteMs,
-                otpStoreMs,
-                emailSendMs);
             return ServiceResult.InternalServerError("Customer role is not configured.");
         }
 
@@ -134,7 +83,6 @@ public sealed class IdentityService : IIdentityService
         };
         account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
 
-        stepSw.Restart();
         await ExecuteInTransactionAsync(
             async ct =>
             {
@@ -142,46 +90,20 @@ public sealed class IdentityService : IIdentityService
                 await _unitOfWork.SaveChangesAsync(ct);
             },
             cancellationToken);
-        dbWriteMs = stepSw.ElapsedMilliseconds;
 
         try
         {
-            stepSw.Restart();
-            var otpCode = await _verificationStores.EmailOtpStore.CreateAsync(account.Email, cancellationToken);
-            otpStoreMs = stepSw.ElapsedMilliseconds;
-
-            stepSw.Restart();
-            await _email.SendEmailVerificationOtpAsync(account.Email, account.FullName, otpCode, cancellationToken);
-            emailSendMs = stepSw.ElapsedMilliseconds;
+            await SendVerificationOtpAsync(account, cancellationToken);
+            return ServiceResult.Created(
+                new { account.AccountId, account.Email, EmailDeliveryStatus = "sent" },
+                "Account registered. Please verify your email with the OTP sent to your inbox.");
         }
-        catch (Exception exception)
+        catch (EmailDeliveryException)
         {
-            _logger?.LogError(
-                exception,
-                "[PERF][AUTH_REGISTER] status=FAILED email={Email} totalMs={TotalMs} rateLimitMs={RateLimitMs} emailExistsMs={EmailExistsMs} roleLookupMs={RoleLookupMs} dbWriteMs={DbWriteMs} otpStoreMs={OtpStoreMs} emailSendMs={EmailSendMs}",
-                email,
-                totalSw.ElapsedMilliseconds,
-                rateLimitMs,
-                emailExistsMs,
-                roleLookupMs,
-                dbWriteMs,
-                otpStoreMs,
-                stepSw.ElapsedMilliseconds);
-            throw;
+            return ServiceResult.Created(
+                new { account.AccountId, account.Email, EmailDeliveryStatus = "failed" },
+                "Account registered, but the verification email could not be sent. Please request a new OTP.");
         }
-
-        LogRegisterTiming(
-            email,
-            "SUCCESS",
-            totalSw.ElapsedMilliseconds,
-            rateLimitMs,
-            emailExistsMs,
-            roleLookupMs,
-            dbWriteMs,
-            otpStoreMs,
-            emailSendMs);
-
-        return ServiceResult.Created(new { account.AccountId, account.Email }, "Account registered. Please verify your email with the OTP sent to your inbox.");
     }
 
     public async Task<ServiceResult<AuthResponseDto>> VerifyEmailAsync(
@@ -252,7 +174,14 @@ public sealed class IdentityService : IIdentityService
         var account = await _accounts.GetByEmailAsync(email, cancellationToken);
         if (account is not null && account.DeletedAt is null && account.Status != AccountStatus.ACTIVE)
         {
-            await SendVerificationOtpAsync(account, cancellationToken);
+            try
+            {
+                await SendVerificationOtpAsync(account, cancellationToken);
+            }
+            catch (EmailDeliveryException)
+            {
+                // Keep the response neutral to avoid disclosing account state.
+            }
         }
 
         return ServiceResult.Success("If the account requires verification, an OTP has been sent.");
@@ -364,7 +293,14 @@ public sealed class IdentityService : IIdentityService
         if (account is not null && account.DeletedAt is null)
         {
             var token = await _verificationStores.PasswordResetStore.CreateAsync(account.AccountId, cancellationToken);
-            await _email.SendPasswordResetAsync(account.Email, account.FullName, token, cancellationToken);
+            try
+            {
+                await _email.SendPasswordResetAsync(account.Email, account.FullName, token, cancellationToken);
+            }
+            catch (EmailDeliveryException)
+            {
+                // Keep the response neutral to avoid disclosing account state.
+            }
         }
 
         return ServiceResult.Success("If the account exists, a password reset email has been sent.");
@@ -520,30 +456,6 @@ public sealed class IdentityService : IIdentityService
     private static IEnumerable<string> RoleList(string? role)
     {
         return string.IsNullOrWhiteSpace(role) ? [] : [role];
-    }
-
-    private void LogRegisterTiming(
-        string email,
-        string status,
-        long totalMs,
-        long rateLimitMs,
-        long emailExistsMs,
-        long roleLookupMs,
-        long dbWriteMs,
-        long otpStoreMs,
-        long emailSendMs)
-    {
-        _logger?.LogWarning(
-            "[PERF][AUTH_REGISTER] status={Status} email={Email} totalMs={TotalMs} rateLimitMs={RateLimitMs} emailExistsMs={EmailExistsMs} roleLookupMs={RoleLookupMs} dbWriteMs={DbWriteMs} otpStoreMs={OtpStoreMs} emailSendMs={EmailSendMs}",
-            status,
-            email,
-            totalMs,
-            rateLimitMs,
-            emailExistsMs,
-            roleLookupMs,
-            dbWriteMs,
-            otpStoreMs,
-            emailSendMs);
     }
 
     private async Task SendVerificationOtpAsync(Account account, CancellationToken cancellationToken)

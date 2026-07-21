@@ -14,6 +14,13 @@ public sealed class BusinessTypeRepository : IBusinessTypeRepository
         _dbContext = dbContext;
     }
 
+    public Task AddAsync(
+        BusinessType businessType,
+        CancellationToken cancellationToken = default)
+    {
+        return _dbContext.BusinessTypeSet.AddAsync(businessType, cancellationToken).AsTask();
+    }
+
     public Task<BusinessType?> GetByIdAsync(
         int businessTypeId,
         CancellationToken cancellationToken = default)
@@ -21,6 +28,33 @@ public sealed class BusinessTypeRepository : IBusinessTypeRepository
         return _dbContext.BusinessTypeSet
             .AsNoTracking()
             .FirstOrDefaultAsync(businessType => businessType.Id == businessTypeId, cancellationToken);
+    }
+
+    public Task<BusinessType?> GetForUpdateAsync(
+        int businessTypeId,
+        CancellationToken cancellationToken = default)
+    {
+        return _dbContext.BusinessTypeSet
+            .FirstOrDefaultAsync(businessType => businessType.Id == businessTypeId, cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<BusinessType>> GetByIdsAsync(
+        IReadOnlyCollection<int> businessTypeIds,
+        CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.BusinessTypeSet
+            .AsNoTracking()
+            .Where(businessType => businessTypeIds.Contains(businessType.Id))
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<bool> CodeExistsAsync(
+        string normalizedCode,
+        CancellationToken cancellationToken = default)
+    {
+        return _dbContext.BusinessTypeSet
+            .AsNoTracking()
+            .AnyAsync(businessType => businessType.Code == normalizedCode, cancellationToken);
     }
 
     public async Task<IReadOnlyList<BusinessType>> GetPagedAsync(

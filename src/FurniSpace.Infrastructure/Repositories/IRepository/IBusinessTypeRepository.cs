@@ -4,8 +4,24 @@ namespace FurniSpace.Infrastructure.Repositories.IRepository;
 
 public interface IBusinessTypeRepository
 {
+    Task AddAsync(
+        BusinessType businessType,
+        CancellationToken cancellationToken = default);
+
     Task<BusinessType?> GetByIdAsync(
         int businessTypeId,
+        CancellationToken cancellationToken = default);
+
+    Task<BusinessType?> GetForUpdateAsync(
+        int businessTypeId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<BusinessType>> GetByIdsAsync(
+        IReadOnlyCollection<int> businessTypeIds,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> CodeExistsAsync(
+        string normalizedCode,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<BusinessType>> GetPagedAsync(

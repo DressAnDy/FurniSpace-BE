@@ -48,9 +48,10 @@ public sealed class ProductsController : BaseApiController
     public async Task<IActionResult> GetAll(
         [FromQuery] int page = 1,
         [FromQuery] int limit = 20,
+        [FromQuery] int[]? businessTypeIds = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await _products.GetAllAsync(page, limit, cancellationToken);
+        var result = await _products.GetAllAsync(page, limit, businessTypeIds, cancellationToken);
         return ToActionResult(result);
     }
 

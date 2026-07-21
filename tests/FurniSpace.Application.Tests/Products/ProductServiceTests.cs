@@ -6,11 +6,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Products;
+using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Search;
+using FurniSpace.Infrastructure.Common.Search.Documents;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -68,6 +70,143 @@ public sealed class ProductServiceTests
         Assert.Equal(1, repository.GetByIdCallCount);
         Assert.Equal(1, repository.GetCategoryCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithBusinessTypeIds_ReplacesAndNormalizesIdsThenSyncsSearch()
+    {
+        var context = CreateProductUpdateContext();
+        var businessTypes = new FakeBusinessTypeRepository(
+        [
+            CreateBusinessType(1, status: true),
+            CreateBusinessType(3, status: true)
+        ]);
+        var indexer = new RecordingProductSearchIndexer();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            context.Repository,
+            new FakeCatalogProjectFileRepository(),
+            productSearchIndexer: indexer,
+            businessTypes: businessTypes);
+
+        var result = await service.UpdateAsync(context.ProductId, new UpdateProductRequestDto
+        {
+            CategoryId = context.CategoryId,
+            ProductName = "Oak Bar Stool",
+            Description = "Updated wooden bar stool.",
+            BusinessTypeIds = [3, 1, 3]
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal([1, 3], result.Data.BusinessTypeIds);
+        Assert.Equal([1, 3], context.Product.BusinessTypeIds);
+        Assert.Equal([1, 3], businessTypes.RequestedIds);
+        Assert.Equal(1, context.Repository.SaveChangesCallCount);
+        Assert.Equal(context.ProductId, indexer.SyncedProductId);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithNullBusinessTypeIds_StoresNull()
+    {
+        var context = CreateProductUpdateContext();
+        var service = CatalogServiceTestHelper.CreateProductService(context.Repository, new FakeCatalogProjectFileRepository());
+
+        var result = await service.UpdateAsync(context.ProductId, new UpdateProductRequestDto
+        {
+            CategoryId = context.CategoryId,
+            ProductName = "Coffee Counter Updated",
+            BusinessTypeIds = null
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(context.Product.BusinessTypeIds);
+        Assert.Null(result.Data!.BusinessTypeIds);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithEmptyBusinessTypeIds_StoresEmptyArray()
+    {
+        var context = CreateProductUpdateContext();
+        var service = CatalogServiceTestHelper.CreateProductService(context.Repository, new FakeCatalogProjectFileRepository());
+
+        var result = await service.UpdateAsync(context.ProductId, new UpdateProductRequestDto
+        {
+            CategoryId = context.CategoryId,
+            ProductName = "Coffee Counter Updated",
+            BusinessTypeIds = []
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Empty(context.Product.BusinessTypeIds!);
+        Assert.Empty(result.Data!.BusinessTypeIds!);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithInvalidBusinessTypeId_ReturnsBadRequest()
+    {
+        var context = CreateProductUpdateContext();
+        var businessTypes = new FakeBusinessTypeRepository([]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            context.Repository,
+            new FakeCatalogProjectFileRepository(),
+            businessTypes: businessTypes);
+
+        var result = await service.UpdateAsync(context.ProductId, new UpdateProductRequestDto
+        {
+            CategoryId = context.CategoryId,
+            ProductName = "Coffee Counter Updated",
+            BusinessTypeIds = [0]
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_BUSINESS_TYPE_ID", result.Message);
+        Assert.Equal([1], context.Product.BusinessTypeIds);
+        Assert.Equal(0, businessTypes.GetByIdsCallCount);
+        Assert.Equal(0, context.Repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithUnknownBusinessTypeId_ReturnsNotFoundCode()
+    {
+        var context = CreateProductUpdateContext();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            context.Repository,
+            new FakeCatalogProjectFileRepository(),
+            businessTypes: new FakeBusinessTypeRepository([CreateBusinessType(1, status: true)]));
+
+        var result = await service.UpdateAsync(context.ProductId, new UpdateProductRequestDto
+        {
+            CategoryId = context.CategoryId,
+            ProductName = "Coffee Counter Updated",
+            BusinessTypeIds = [1, 99]
+        });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("BUSINESS_TYPE_NOT_FOUND", result.Message);
+        Assert.Equal([1], context.Product.BusinessTypeIds);
+        Assert.Equal(0, context.Repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithInactiveBusinessTypeId_ReturnsBadRequest()
+    {
+        var context = CreateProductUpdateContext();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            context.Repository,
+            new FakeCatalogProjectFileRepository(),
+            businessTypes: new FakeBusinessTypeRepository([CreateBusinessType(2, status: false)]));
+
+        var result = await service.UpdateAsync(context.ProductId, new UpdateProductRequestDto
+        {
+            CategoryId = context.CategoryId,
+            ProductName = "Coffee Counter Updated",
+            BusinessTypeIds = [2]
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("BUSINESS_TYPE_INACTIVE", result.Message);
+        Assert.Equal([1], context.Product.BusinessTypeIds);
+        Assert.Equal(0, context.Repository.SaveChangesCallCount);
     }
 
     [Fact]
@@ -249,6 +388,116 @@ public sealed class ProductServiceTests
         Assert.Equal(1, repository.AddCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Single(repository.CreatedProducts);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithBusinessTypeIds_NormalizesIdsAndReturnsResolvedBusinessTypes()
+    {
+        var categoryId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            categories: [new ProductCategoryReadModel { CategoryId = categoryId, CategoryName = "Counter" }]);
+        var businessTypes = new FakeBusinessTypeRepository(
+        [
+            CreateBusinessType(1, "CAFE", status: true),
+            CreateBusinessType(2, "RESTAURANT", status: true)
+        ]);
+        var indexer = new RecordingProductSearchIndexer();
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            productSearchIndexer: indexer,
+            businessTypes: businessTypes);
+
+        var result = await service.CreateAsync(new CreateProductRequestDto
+        {
+            CategoryId = categoryId,
+            ProductCode = "STOOL-001",
+            ProductName = "Oak Bar Stool",
+            Description = "Wooden bar stool.",
+            BusinessTypeIds = [2, 1, 2]
+        });
+
+        Assert.Equal(201, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal([1, 2], result.Data.BusinessTypeIds);
+        Assert.Equal([1, 2], repository.CreatedProducts[0].BusinessTypeIds);
+        Assert.Equal([1, 2], businessTypes.RequestedIds);
+        Assert.Collection(
+            result.Data.BusinessTypes,
+            item => Assert.Equal("CAFE", item.Code),
+            item => Assert.Equal("RESTAURANT", item.Code));
+        Assert.Equal(result.Data.ProductId, indexer.SyncedProductId);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithEmptyBusinessTypeIds_StoresEmptyArray()
+    {
+        var categoryId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            categories: [new ProductCategoryReadModel { CategoryId = categoryId, CategoryName = "Counter" }]);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
+
+        var result = await service.CreateAsync(new CreateProductRequestDto
+        {
+            CategoryId = categoryId,
+            ProductName = "Oak Bar Stool",
+            BusinessTypeIds = []
+        });
+
+        Assert.Equal(201, result.Status);
+        Assert.Empty(repository.CreatedProducts[0].BusinessTypeIds!);
+        Assert.Empty(result.Data!.BusinessTypes);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithUnknownBusinessTypeId_ReturnsInvalidBusinessTypeId()
+    {
+        var categoryId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            categories: [new ProductCategoryReadModel { CategoryId = categoryId, CategoryName = "Counter" }]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            businessTypes: new FakeBusinessTypeRepository([CreateBusinessType(1, status: true)]));
+
+        var result = await service.CreateAsync(new CreateProductRequestDto
+        {
+            CategoryId = categoryId,
+            ProductName = "Oak Bar Stool",
+            BusinessTypeIds = [1, 99]
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_BUSINESS_TYPE_ID", result.Message);
+        Assert.Empty(repository.CreatedProducts);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithInactiveBusinessTypeId_ReturnsBusinessTypeInactive()
+    {
+        var categoryId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            categories: [new ProductCategoryReadModel { CategoryId = categoryId, CategoryName = "Counter" }]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            businessTypes: new FakeBusinessTypeRepository([CreateBusinessType(2, status: false)]));
+
+        var result = await service.CreateAsync(new CreateProductRequestDto
+        {
+            CategoryId = categoryId,
+            ProductName = "Oak Bar Stool",
+            BusinessTypeIds = [2]
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("BUSINESS_TYPE_INACTIVE", result.Message);
+        Assert.Empty(repository.CreatedProducts);
     }
 
     [Fact]
@@ -471,6 +720,38 @@ public sealed class ProductServiceTests
     }
 
     [Fact]
+    public async Task GetByIdAsync_WithBusinessTypeIds_ReturnsResolvedBusinessTypesAndIgnoresUnknownIds()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+            products: [],
+            details:
+            [
+                new ProductDetailReadModel
+                {
+                    ProductId = productId,
+                    ProductName = "Oak Bar Stool",
+                    BusinessTypeIds = [1, 99],
+                    Status = ProductStatus.ACTIVE
+                }
+            ]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            businessTypes: new FakeBusinessTypeRepository([CreateBusinessType(1, "CAFE", status: false)]));
+
+        var result = await service.GetByIdAsync(productId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal([1, 99], result.Data.BusinessTypeIds);
+        var businessType = Assert.Single(result.Data.BusinessTypes);
+        Assert.Equal(1, businessType.Id);
+        Assert.Equal("CAFE", businessType.Code);
+        Assert.False(businessType.Status);
+    }
+
+    [Fact]
     public async Task GetByIdAsync_WhenNoActivePublicVersionExists_ReturnsNullDefaultVersion()
     {
         var productId = Guid.NewGuid();
@@ -555,6 +836,7 @@ public sealed class ProductServiceTests
                     CategoryName = "Counter",
                     ProductCode = "PM-COUNTER-001",
                     ProductName = "Coffee Counter",
+                    BusinessTypeIds = [5],
                     Status = ProductStatus.ACTIVE,
                     DefaultVersion = new ProductVersionReadModel
                     {
@@ -575,7 +857,10 @@ public sealed class ProductServiceTests
                     CategoryName = "Counter"
                 }
             ]);
-        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            businessTypes: new FakeBusinessTypeRepository([CreateBusinessType(5, "HOTEL", status: false)]));
 
         var result = await service.GetByCategoryAsync(categoryId, page: 1, limit: 20, includeDefaultVersion: true);
 
@@ -589,6 +874,7 @@ public sealed class ProductServiceTests
         Assert.Equal(1, result.Data.Total);
         var item = Assert.Single(result.Data.Items);
         Assert.Equal("Coffee Counter", item.ProductName);
+        Assert.False(Assert.Single(item.BusinessTypes).Status);
         Assert.NotNull(item.DefaultVersion);
         Assert.Equal("PV-COUNTER-001-V1", item.DefaultVersion.VersionCode);
         Assert.Equal(1, repository.GetCategoryCallCount);
@@ -716,6 +1002,7 @@ public sealed class ProductServiceTests
                 ProductCode = "PM-COUNTER-001",
                 ProductName = "Coffee Counter",
                 Description = "Counter template for cafe projects",
+                BusinessTypeIds = [1, 2],
                 Status = ProductStatus.ACTIVE,
                 DefaultVersion = new ProductVersionReadModel
                 {
@@ -736,7 +1023,14 @@ public sealed class ProductServiceTests
                 }
             }
         ]);
-        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            businessTypes: new FakeBusinessTypeRepository(
+            [
+                CreateBusinessType(1, "CAFE", status: true),
+                CreateBusinessType(2, "RESTAURANT", status: true)
+            ]));
 
         var result = await service.GetAllAsync(page: 1, limit: 20);
 
@@ -748,6 +1042,8 @@ public sealed class ProductServiceTests
         Assert.Equal(1, result.Data.Total);
         var item = Assert.Single(result.Data.Items);
         Assert.Equal(productId, item.ProductId);
+        Assert.Equal([1, 2], item.BusinessTypeIds);
+        Assert.Equal(2, item.BusinessTypes.Count);
         Assert.Equal("Counter", item.CategoryName);
         Assert.Equal("Coffee Counter", item.ProductName);
         Assert.NotNull(item.DefaultVersion);
@@ -790,6 +1086,46 @@ public sealed class ProductServiceTests
         Assert.NotNull(result.Data);
         var item = Assert.Single(result.Data.Items);
         Assert.Null(item.DefaultVersion);
+    }
+
+    [Fact]
+    public async Task GetAllAsync_WithBusinessTypeFilter_NormalizesIdsAndUsesAnySemantics()
+    {
+        var matchingId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+        [
+            new ProductListItemReadModel { ProductId = matchingId, ProductName = "Cafe Counter", BusinessTypeIds = [2] },
+            new ProductListItemReadModel { ProductId = Guid.NewGuid(), ProductName = "Office Desk", BusinessTypeIds = [3] },
+            new ProductListItemReadModel { ProductId = Guid.NewGuid(), ProductName = "Generic Chair", BusinessTypeIds = null },
+            new ProductListItemReadModel { ProductId = Guid.NewGuid(), ProductName = "Empty Mapping", BusinessTypeIds = [] }
+        ]);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
+
+        var result = await service.GetAllAsync(page: 1, limit: 20, businessTypeIds: [2, 1, 2]);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        var item = Assert.Single(result.Data.Items);
+        Assert.Equal(matchingId, item.ProductId);
+        Assert.Equal(1, result.Data.Total);
+        Assert.Equal([1, 2], repository.LastBusinessTypeFilter);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task GetAllAsync_WithInvalidBusinessTypeFilter_ReturnsBadRequest(int businessTypeId)
+    {
+        var repository = new FakeProductRepository([]);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
+
+        var result = await service.GetAllAsync(page: 1, limit: 20, businessTypeIds: [businessTypeId]);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_BUSINESS_TYPE_FILTER", result.Message);
+        Assert.Null(result.Data);
+        Assert.Equal(0, repository.GetPublicListCallCount);
+        Assert.Equal(0, repository.CountCallCount);
     }
 
     [Fact]
@@ -1113,6 +1449,25 @@ public sealed class ProductServiceTests
         };
     }
 
+    private static ProductUpdateContext CreateProductUpdateContext()
+    {
+        var productId = Guid.NewGuid();
+        var categoryId = Guid.NewGuid();
+        var product = new Product
+        {
+            ProductId = productId,
+            CategoryId = categoryId,
+            ProductName = "Coffee Counter",
+            BusinessTypeIds = [1]
+        };
+        var repository = new FakeProductRepository(
+            products: [],
+            categories: [new ProductCategoryReadModel { CategoryId = categoryId, CategoryName = "Counter" }],
+            entities: [product]);
+
+        return new ProductUpdateContext(productId, categoryId, product, repository);
+    }
+
     [Fact]
     public async Task SearchAsync_WithInvalidSort_ReturnsBadRequest()
     {
@@ -1128,6 +1483,89 @@ public sealed class ProductServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Contains("Sort must be one of", result.Message);
+    }
+
+    [Fact]
+    public async Task SearchAsync_WithInvalidBusinessTypeFilter_ReturnsBadRequest()
+    {
+        var repository = new FakeProductRepository([]);
+        var service = CatalogServiceTestHelper.CreateProductService(repository, new FakeCatalogProjectFileRepository());
+
+        var result = await service.SearchAsync(new ProductSearchRequestDto
+        {
+            BusinessTypeIds = [0],
+            Page = 1,
+            Limit = 20
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_BUSINESS_TYPE_FILTER", result.Message);
+        Assert.Null(result.Data);
+    }
+
+    [Fact]
+    public async Task SearchAsync_WithIndexedBusinessTypeIds_ReturnsResolvedBusinessTypes()
+    {
+        var productId = Guid.NewGuid();
+        var search = new ProductDocumentSearchIndexService(new ProductSearchDocument
+        {
+            ProductId = productId,
+            ProductName = "Oak Bar Stool",
+            Status = ProductStatus.ACTIVE.ToString(),
+            IsPublic = true,
+            BusinessTypeIds = [1],
+            Material = "Oak"
+        });
+        var repository = new FakeProductRepository([]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            search: search,
+            businessTypes: new FakeBusinessTypeRepository([CreateBusinessType(1, "CAFE", status: true)]));
+
+        var result = await service.SearchAsync(new ProductSearchRequestDto
+        {
+            Query = "Oak",
+            Page = 1,
+            Limit = 20
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        var item = Assert.Single(result.Data.Items);
+        Assert.Equal(productId, item.ProductId);
+        Assert.Equal([1], item.BusinessTypeIds);
+        Assert.Equal("CAFE", Assert.Single(item.BusinessTypes).Code);
+    }
+
+    [Fact]
+    public async Task SearchAsync_WithBusinessTypeFilter_AddsTermsFilterToElasticsearchRequest()
+    {
+        var search = new ProductDocumentSearchIndexService(new ProductSearchDocument
+        {
+            ProductId = Guid.NewGuid(),
+            ProductName = "Cafe Counter",
+            Status = ProductStatus.ACTIVE.ToString(),
+            IsPublic = true,
+            BusinessTypeIds = [2]
+        });
+        var service = CatalogServiceTestHelper.CreateProductService(
+            new FakeProductRepository([]),
+            new FakeCatalogProjectFileRepository(),
+            search: search);
+
+        await service.SearchAsync(new ProductSearchRequestDto
+        {
+            BusinessTypeIds = [2, 1, 2],
+            Page = 1,
+            Limit = 20
+        });
+
+        var filter = Assert.Single(
+            search.LastSearchRequest!.Filters,
+            item => item.Field == "businessTypeIds");
+        Assert.Equal(SearchFilterOperator.Terms, filter.Operator);
+        Assert.Equal([1, 2], filter.Values!.Cast<int>());
     }
 
     [Fact]
@@ -1169,6 +1607,35 @@ public sealed class ProductServiceTests
         Assert.NotNull(result.Data);
         Assert.Single(result.Data!.Items);
         Assert.Equal(productId, result.Data.Items[0].ProductId);
+    }
+
+    [Fact]
+    public async Task SearchAsync_WhenElasticsearchUnavailable_AppliesBusinessTypeFilterToFallback()
+    {
+        var matchingId = Guid.NewGuid();
+        var repository = new FakeProductRepository(
+        [
+            new ProductListItemReadModel { ProductId = matchingId, ProductName = "Oak Desk", BusinessTypeIds = [2] },
+            new ProductListItemReadModel { ProductId = Guid.NewGuid(), ProductName = "Oak Chair", BusinessTypeIds = [3] }
+        ]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            search: new ThrowingSearchIndexService());
+
+        var result = await service.SearchAsync(new ProductSearchRequestDto
+        {
+            Query = "Oak",
+            BusinessTypeIds = [2, 2],
+            Page = 1,
+            Limit = 20
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        var item = Assert.Single(result.Data.Items);
+        Assert.Equal(matchingId, item.ProductId);
+        Assert.Equal([2], repository.LastBusinessTypeFilter);
     }
 
     [Fact]
@@ -1322,6 +1789,137 @@ public sealed class ProductServiceTests
             => throw new InvalidOperationException("Elasticsearch unavailable.");
     }
 
+    private sealed class ProductDocumentSearchIndexService : ISearchIndexService
+    {
+        private readonly ProductSearchDocument _document;
+
+        public ProductDocumentSearchIndexService(ProductSearchDocument document)
+        {
+            _document = document;
+        }
+
+        public SearchRequest? LastSearchRequest { get; private set; }
+
+        public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(
+            string indexName,
+            SearchRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            LastSearchRequest = request;
+            return Task.FromResult(new SearchResult<TDocument>
+            {
+                Documents = [(TDocument)(object)_document],
+                Total = 1,
+                Page = request.Page,
+                PageSize = request.PageSize
+            });
+        }
+
+        public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(
+            string indexName,
+            string query,
+            int size = 100,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<TDocument>>([(TDocument)(object)_document]);
+
+        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new SuggestResult());
+
+        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
+            string indexName,
+            string documentId,
+            MoreLikeThisRequest request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new SearchResult<TDocument>());
+
+        public Task<SearchAggregationResult> AggregateAsync(
+            string indexName,
+            SearchAggregationRequest request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new SearchAggregationResult());
+    }
+
+    private sealed class RecordingProductSearchIndexer : IProductSearchIndexer
+    {
+        public Guid SyncedProductId { get; private set; }
+
+        public Task SyncProductAsync(Guid productId, CancellationToken cancellationToken = default)
+        {
+            SyncedProductId = productId;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed record ProductUpdateContext(
+        Guid ProductId,
+        Guid CategoryId,
+        Product Product,
+        FakeProductRepository Repository);
+
+    private sealed class FakeBusinessTypeRepository : IBusinessTypeRepository
+    {
+        private readonly IReadOnlyList<BusinessType> _businessTypes;
+
+        public FakeBusinessTypeRepository(IReadOnlyList<BusinessType> businessTypes)
+        {
+            _businessTypes = businessTypes;
+        }
+
+        public IReadOnlyList<int> RequestedIds { get; private set; } = [];
+        public int GetByIdsCallCount { get; private set; }
+
+        public Task<IReadOnlyList<BusinessType>> GetByIdsAsync(
+            IReadOnlyCollection<int> businessTypeIds,
+            CancellationToken cancellationToken = default)
+        {
+            GetByIdsCallCount++;
+            RequestedIds = businessTypeIds.ToList();
+            return Task.FromResult<IReadOnlyList<BusinessType>>(
+                _businessTypes.Where(type => businessTypeIds.Contains(type.Id)).ToList());
+        }
+
+        public Task AddAsync(BusinessType businessType, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<BusinessType?> GetByIdAsync(int businessTypeId, CancellationToken cancellationToken = default)
+            => Task.FromResult<BusinessType?>(null);
+
+        public Task<BusinessType?> GetForUpdateAsync(int businessTypeId, CancellationToken cancellationToken = default)
+            => Task.FromResult<BusinessType?>(null);
+
+        public Task<bool> CodeExistsAsync(string normalizedCode, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<IReadOnlyList<BusinessType>> GetPagedAsync(
+            bool status,
+            string? keyword,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<BusinessType>>([]);
+
+        public Task<int> CountAsync(bool status, string? keyword, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+    }
+
+    private static BusinessType CreateBusinessType(int id, bool status)
+        => CreateBusinessType(id, $"TYPE_{id}", status);
+
+    private static BusinessType CreateBusinessType(int id, string code, bool status)
+    {
+        return new BusinessType
+        {
+            Id = id,
+            Code = code,
+            Name = $"Business Type {id}",
+            Status = status
+        };
+    }
+
     private sealed class FakeProductRepository : IProductRepository
     {
         private readonly IReadOnlyList<ProductListItemReadModel> _products;
@@ -1353,6 +1951,7 @@ public sealed class ProductServiceTests
         public int GetPublicListByCategoryCallCount { get; private set; }
         public int CountByCategoryCallCount { get; private set; }
         public bool LastIncludeDefaultVersion { get; private set; }
+        public IReadOnlyCollection<int>? LastBusinessTypeFilter { get; private set; }
         public IReadOnlyList<Product> CreatedProducts => _createdProducts;
 
         public Task<bool> ProductCodeExistsAsync(
@@ -1375,20 +1974,26 @@ public sealed class ProductServiceTests
         public Task<IReadOnlyList<ProductListItemReadModel>> GetPublicListAsync(
             int page,
             int limit,
+            IReadOnlyCollection<int>? businessTypeIds = null,
             CancellationToken cancellationToken = default)
         {
             GetPublicListCallCount++;
+            LastBusinessTypeFilter = businessTypeIds?.ToArray();
+            var items = ApplyBusinessTypeFilter(_products, businessTypeIds);
             return Task.FromResult<IReadOnlyList<ProductListItemReadModel>>(
-                _products
+                items
                     .Skip((page - 1) * limit)
                     .Take(limit)
                     .ToList());
         }
 
-        public Task<int> CountAsync(CancellationToken cancellationToken = default)
+        public Task<int> CountAsync(
+            IReadOnlyCollection<int>? businessTypeIds = null,
+            CancellationToken cancellationToken = default)
         {
             CountCallCount++;
-            return Task.FromResult(_products.Count);
+            LastBusinessTypeFilter = businessTypeIds?.ToArray();
+            return Task.FromResult(ApplyBusinessTypeFilter(_products, businessTypeIds).Count);
         }
 
         public Task<ProductCategoryReadModel?> GetCategoryAsync(
@@ -1419,6 +2024,7 @@ public sealed class ProductServiceTests
                         {
                             ProductId = product.ProductId,
                             CategoryId = product.CategoryId,
+                            BusinessTypeIds = product.BusinessTypeIds,
                             CategoryName = product.CategoryName,
                             ProductCode = product.ProductCode,
                             ProductName = product.ProductName,
@@ -1460,10 +2066,14 @@ public sealed class ProductServiceTests
             ProductSearchQueryReadModel query,
             CancellationToken cancellationToken = default)
         {
-            var items = _products
+            LastBusinessTypeFilter = query.BusinessTypeIds;
+            var matching = _products
                 .Where(product => !query.CategoryId.HasValue || product.CategoryId == query.CategoryId)
+                .Where(product => ProductMatchesBusinessTypeFilter(product, query.BusinessTypeIds))
                 .Where(product => string.IsNullOrWhiteSpace(query.Query) ||
                     product.ProductName.Contains(query.Query, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var items = matching
                 .Skip((query.Page - 1) * query.Limit)
                 .Take(query.Limit)
                 .ToList();
@@ -1471,7 +2081,7 @@ public sealed class ProductServiceTests
             return Task.FromResult(new ProductSearchResultReadModel
             {
                 Items = items,
-                Total = items.Count
+                Total = matching.Count
             });
         }
 
@@ -1529,6 +2139,25 @@ public sealed class ProductServiceTests
         {
             SaveChangesCallCount++;
             return Task.FromResult(1);
+        }
+
+        private static IReadOnlyList<ProductListItemReadModel> ApplyBusinessTypeFilter(
+            IReadOnlyList<ProductListItemReadModel> products,
+            IReadOnlyCollection<int>? businessTypeIds)
+        {
+            return products
+                .Where(product => ProductMatchesBusinessTypeFilter(product, businessTypeIds))
+                .ToList();
+        }
+
+        private static bool ProductMatchesBusinessTypeFilter(
+            ProductListItemReadModel product,
+            IReadOnlyCollection<int>? businessTypeIds)
+        {
+            return businessTypeIds is null ||
+                businessTypeIds.Count == 0 ||
+                product.BusinessTypeIds is { Length: > 0 } productBusinessTypeIds &&
+                productBusinessTypeIds.Any(businessTypeIds.Contains);
         }
     }
 }

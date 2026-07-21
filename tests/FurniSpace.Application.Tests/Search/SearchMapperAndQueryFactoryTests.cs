@@ -88,6 +88,7 @@ public sealed class SearchMapperAndQueryFactoryTests
         {
             Query = " oak table ",
             CategoryId = categoryId,
+            BusinessTypeIds = [2, 1, 2],
             Material = " oak ",
             Color = " brown ",
             MinPrice = 100,
@@ -105,12 +106,16 @@ public sealed class SearchMapperAndQueryFactoryTests
 
         Assert.Contains("productName:*oak\\ table*", search.Query);
         Assert.Contains(search.Filters, filter => filter.Field == "categoryId" && Equals(filter.Value, categoryId.ToString()));
+        var businessTypeFilter = Assert.Single(search.Filters, filter => filter.Field == "businessTypeIds");
+        Assert.Equal(SearchFilterOperator.Terms, businessTypeFilter.Operator);
+        Assert.Equal([1, 2], businessTypeFilter.Values!.Cast<int>());
         Assert.Contains(search.Filters, filter => filter.Field == "material" && Equals(filter.Value, "oak"));
         Assert.Contains(search.Filters, filter => filter.Field == "estimatedPrice" && filter.Operator == SearchFilterOperator.RangeGte);
         Assert.Equal(["estimatedPrice", "productName.keyword"], search.Sort.Select(sort => sort.Field).ToArray());
         Assert.Equal(SortDirection.Desc, search.Sort[0].Direction);
         Assert.Equal(ProductElasticsearchQueryFactory.CategoryFacetField, search.FacetFields[0]);
         Assert.Equal("oak table", repositoryQuery.Query);
+        Assert.Equal([1, 2], repositoryQuery.BusinessTypeIds);
         Assert.Equal("oak", repositoryQuery.Material);
         Assert.Equal("brown", repositoryQuery.Color);
         Assert.Equal("chair", suggest.AutocompleteText);
@@ -182,6 +187,7 @@ public sealed class SearchMapperAndQueryFactoryTests
         {
             ProductId = Guid.NewGuid(),
             CategoryId = Guid.NewGuid(),
+            BusinessTypeIds = [1, 2],
             CategoryName = "Tables",
             ProductCode = "TBL-01",
             ProductName = "Oak Table",
@@ -205,6 +211,7 @@ public sealed class SearchMapperAndQueryFactoryTests
         Assert.Equal(file.FileId, fileDto.FileId);
         Assert.Equal("floor.pdf", fileDto.OriginalFileName);
         Assert.Equal(product.ProductId, productDto.ProductId);
+        Assert.Equal([1, 2], productDto.BusinessTypeIds);
         Assert.Equal(ProductStatus.ACTIVE, productDto.Status);
         Assert.NotNull(productDto.DefaultVersion);
         Assert.Equal("Oak", productDto.DefaultVersion.Material);

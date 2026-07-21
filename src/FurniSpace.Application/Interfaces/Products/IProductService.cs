@@ -21,6 +21,7 @@ public interface IProductService
     Task<ServiceResult<ProductListResponseDto>> GetAllAsync(
         int page,
         int limit,
+        int[]? businessTypeIds = null,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<ProductListResponseDto>> SearchAsync(

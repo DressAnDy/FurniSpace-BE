@@ -44,9 +44,9 @@ public sealed class ProductRepositoryTests
         Assert.Equal("Oak", detail.DefaultVersion?.Material);
         Assert.NotNull(category);
         Assert.Equal("Tables", category.CategoryName);
-        Assert.Equal(3, count);
+        Assert.Equal(4, count);
         Assert.Equal(2, categoryCount);
-        Assert.Equal(3, list.Count);
+        Assert.Equal(4, list.Count);
         Assert.Contains(list, product => product.ProductId == data.TableId && product.DefaultVersion?.Material == "Oak");
         Assert.All(byCategory, product =>
         {
@@ -101,8 +101,35 @@ public sealed class ProductRepositoryTests
         Assert.Equal(2, result.Total);
         Assert.Equal(2, result.Items.Count);
         Assert.Equal(data.TableId, result.Items[0].ProductId);
-        Assert.Equal(3, createdAscending.Total);
+        Assert.Equal(4, createdAscending.Total);
         Assert.Equal("Dining Table", createdAscending.Items[0].ProductName);
+    }
+
+    [Fact]
+    public async Task BusinessTypeFilter_UsesAnySemanticsAndExcludesMissingAssignments()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProductRepository(context);
+
+        var filteredList = await repository.GetPublicListAsync(
+            page: 1,
+            limit: 10,
+            businessTypeIds: [2, 1, 2]);
+        var filteredSearch = await repository.SearchPublicAsync(new ProductSearchQueryReadModel
+        {
+            BusinessTypeIds = [2],
+            Page = 1,
+            Limit = 10
+        });
+        var filteredCount = await repository.CountAsync([2]);
+
+        Assert.Equal(2, filteredList.Count);
+        Assert.Contains(filteredList, product => product.ProductId == data.TableId);
+        Assert.Contains(filteredList, product => product.ProductId == data.SideTableId);
+        Assert.Single(filteredSearch.Items);
+        Assert.Equal(data.SideTableId, filteredSearch.Items[0].ProductId);
+        Assert.Equal(1, filteredCount);
     }
 
     [Fact]
@@ -138,6 +165,7 @@ public sealed class ProductRepositoryTests
         var tableId = Guid.NewGuid();
         var sideTableId = Guid.NewGuid();
         var chairId = Guid.NewGuid();
+        var stoolId = Guid.NewGuid();
         var now = DateTime.UtcNow;
 
         context.CategorySet.AddRange(
@@ -157,14 +185,19 @@ public sealed class ProductRepositoryTests
         context.ProductSet.AddRange(
             CreateProduct(tableId, tableCategoryId, "TBL-001", "Dining Table", "Oak table for cafe", now.AddDays(-3)),
             CreateProduct(sideTableId, tableCategoryId, "TBL-002", "Side Table", "Compact brown table", now.AddDays(-2)),
-            CreateProduct(chairId, chairCategoryId, "CHR-001", "Cafe Chair", "Walnut seating", now.AddDays(-1)));
+            CreateProduct(chairId, chairCategoryId, "CHR-001", "Cafe Chair", "Walnut seating", now.AddDays(-1)),
+            CreateProduct(stoolId, chairCategoryId, "STL-001", "Cafe Stool", "Backless seating", now, []));
+
+        context.ProductSet.Find(tableId)!.BusinessTypeIds = [1];
+        context.ProductSet.Find(sideTableId)!.BusinessTypeIds = [2];
 
         context.ProductVersionSet.AddRange(
             CreateVersion(tableId, "Oak", "Brown", 200m, isDefault: true, isPublic: true, status: ProductStatus.ACTIVE, now.AddDays(-3)),
             CreateVersion(tableId, "Hidden", "Gray", 50m, isDefault: false, isPublic: false, status: ProductStatus.ACTIVE, now.AddDays(-2)),
             CreateVersion(tableId, "Old", "Black", 30m, isDefault: false, isPublic: true, status: ProductStatus.INACTIVE, now.AddDays(-1)),
             CreateVersion(sideTableId, "Oak", "Brown", 150m, isDefault: true, isPublic: true, status: ProductStatus.ACTIVE, now.AddDays(-2)),
-            CreateVersion(chairId, "Walnut", "Black", 90m, isDefault: true, isPublic: true, status: ProductStatus.ACTIVE, now.AddDays(-1)));
+            CreateVersion(chairId, "Walnut", "Black", 90m, isDefault: true, isPublic: true, status: ProductStatus.ACTIVE, now.AddDays(-1)),
+            CreateVersion(stoolId, "Metal", "Black", 80m, isDefault: true, isPublic: true, status: ProductStatus.ACTIVE, now));
 
         await context.SaveChangesAsync();
         return new SeededData(tableCategoryId, tableId, sideTableId);
@@ -176,12 +209,14 @@ public sealed class ProductRepositoryTests
         string code,
         string name,
         string description,
-        DateTime createdAt)
+        DateTime createdAt,
+        int[]? businessTypeIds = null)
     {
         return new Product
         {
             ProductId = productId,
             CategoryId = categoryId,
+            BusinessTypeIds = businessTypeIds,
             ProductCode = code,
             ProductName = name,
             Description = description,

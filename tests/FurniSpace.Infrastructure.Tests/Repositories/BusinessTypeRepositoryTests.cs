@@ -39,6 +39,31 @@ public sealed class BusinessTypeRepositoryTests
     }
 
     [Fact]
+    public async Task AddCodeExistsAndGetForUpdateAsync_UseTrackedBusinessType()
+    {
+        await using var context = CreateContext();
+        var repository = new BusinessTypeRepository(context);
+        var businessType = CreateBusinessType(4, "RESTAURANT", "Restaurant", true, DateTime.UtcNow);
+
+        await repository.AddAsync(businessType);
+        await context.SaveChangesAsync();
+        var exists = await repository.CodeExistsAsync("RESTAURANT");
+        var missing = await repository.CodeExistsAsync("CAFE");
+        var byIds = await repository.GetByIdsAsync([4, 99]);
+        var tracked = await repository.GetForUpdateAsync(4);
+        tracked!.Name = "Restaurant Updated";
+        await context.SaveChangesAsync();
+        var detail = await repository.GetByIdAsync(4);
+
+        Assert.True(exists);
+        Assert.False(missing);
+        Assert.Single(byIds);
+        Assert.Equal(4, byIds[0].Id);
+        Assert.Same(businessType, tracked);
+        Assert.Equal("Restaurant Updated", detail!.Name);
+    }
+
+    [Fact]
     public void BuildSearchPattern_EscapesLikeWildcards()
     {
         var method = typeof(BusinessTypeRepository).GetMethod(

@@ -14,6 +14,7 @@ public static class ProductSearchResponseMapper
         {
             ProductId = document.ProductId,
             CategoryId = document.CategoryId,
+            BusinessTypeIds = document.BusinessTypeIds,
             CategoryName = document.CategoryName,
             ProductCode = document.ProductCode,
             ProductName = document.ProductName,

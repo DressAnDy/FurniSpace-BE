@@ -1,6 +1,7 @@
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.BusinessTypes;
 using FurniSpace.Application.Interfaces.BusinessTypes;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FurniSpace.API.Controllers.Catalog;
@@ -13,6 +14,38 @@ public sealed class BusinessTypesController : BaseApiController
     public BusinessTypesController(IBusinessTypeService businessTypes)
     {
         _businessTypes = businessTypes;
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> Create(
+        [FromBody] CreateBusinessTypeRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _businessTypes.CreateAsync(request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPatch("{businessTypeId:int}")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> Update(
+        int businessTypeId,
+        [FromBody] UpdateBusinessTypeRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _businessTypes.UpdateAsync(businessTypeId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpPatch("{businessTypeId:int}/status")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> UpdateStatus(
+        int businessTypeId,
+        [FromBody] UpdateBusinessTypeStatusRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _businessTypes.UpdateStatusAsync(businessTypeId, request, cancellationToken);
+        return ToActionResult(result);
     }
 
     [HttpGet]

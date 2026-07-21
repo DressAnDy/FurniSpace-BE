@@ -149,7 +149,8 @@ public static class DependencyInjection
                 sp.GetRequiredService<IProductSearchIndexer>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
                 sp.GetRequiredService<IOptions<ProductPreviewImageSettings>>().Value,
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
+                sp.GetService<ILogger<ProductService>>());
         });
         services.AddScoped<ProjectFileServiceDependencies>(sp =>
         {

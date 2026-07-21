@@ -13,12 +13,17 @@ using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
+using Microsoft.Extensions.Logging;
 
 namespace FurniSpace.Application.Services.Products;
 
 public sealed class ProductService : IProductService
 {
     private const string ProductIndexName = "products";
+    private const string BusinessTypeInactiveCode = "BUSINESS_TYPE_INACTIVE";
+    private const string BusinessTypeNotFoundCode = "BUSINESS_TYPE_NOT_FOUND";
+    private const string InvalidBusinessTypeIdCode = "INVALID_BUSINESS_TYPE_ID";
+    private const string InvalidBusinessTypeFilterCode = "INVALID_BUSINESS_TYPE_FILTER";
 
     private static readonly HashSet<FileType> AllowedProductFileTypes =
     [
@@ -27,6 +32,7 @@ public sealed class ProductService : IProductService
     ];
 
     private readonly IProductRepository _products;
+    private readonly IBusinessTypeRepository _businessTypes;
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
@@ -35,14 +41,17 @@ public sealed class ProductService : IProductService
     private readonly FileUploadSettings _uploadSettings;
     private readonly ProductPreviewImageSettings _previewSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
+    private readonly ILogger<ProductService>? _logger;
 
     public ProductService(
         IProductRepository products,
+        IBusinessTypeRepository businessTypes,
         IProjectFileRepository files,
         ProductServiceDependencies dependencies,
         IUnitOfWork unitOfWork)
     {
         _products = products;
+        _businessTypes = businessTypes;
         _files = files;
         _unitOfWork = unitOfWork;
         _storage = dependencies.Storage;
@@ -51,6 +60,7 @@ public sealed class ProductService : IProductService
         _uploadSettings = dependencies.UploadSettings;
         _previewSettings = dependencies.PreviewSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
+        _logger = dependencies.Logger;
     }
 
     public async Task<ServiceResult<ProductDto>> CreateAsync(
@@ -68,6 +78,15 @@ public sealed class ProductService : IProductService
             return ServiceResult<ProductDto>.BadRequest("Category does not exist.");
         }
 
+        var businessTypeAssignment = await ResolveBusinessTypeAssignmentAsync(
+            request.BusinessTypeIds,
+            unknownIdError: InvalidBusinessTypeIdCode,
+            cancellationToken);
+        if (businessTypeAssignment.Error is not null)
+        {
+            return ServiceResult<ProductDto>.BadRequest(businessTypeAssignment.Error);
+        }
+
         var productCode = NormalizeOptional(request.ProductCode);
         if (productCode is not null &&
             await _products.ProductCodeExistsAsync(productCode, cancellationToken))
@@ -79,6 +98,7 @@ public sealed class ProductService : IProductService
         {
             ProductId = Guid.NewGuid(),
             CategoryId = request.CategoryId,
+            BusinessTypeIds = businessTypeAssignment.Value,
             ProductCode = productCode,
             ProductName = request.ProductName.Trim(),
             Description = CatalogFileStorageHelpers.NormalizeOptional(request.Description)
@@ -89,7 +109,9 @@ public sealed class ProductService : IProductService
         product.Status ??= ProductStatus.ACTIVE;
         await _productSearchIndexer.SyncProductAsync(product.ProductId, cancellationToken);
 
-        return ServiceResult<ProductDto>.Created(product.Adapt<ProductDto>(), "Product master created successfully.");
+        var dto = product.Adapt<ProductDto>();
+        dto.BusinessTypes = businessTypeAssignment.BusinessTypes.Adapt<List<ProductBusinessTypeDto>>();
+        return ServiceResult<ProductDto>.Created(dto, "Product master created successfully.");
     }
 
     public async Task<ServiceResult<ProductDto>> UpdateAsync(
@@ -119,16 +141,33 @@ public sealed class ProductService : IProductService
             return ServiceResult<ProductDto>.BadRequest("Category does not exist.");
         }
 
+        var businessTypeIdsResult = await ResolveBusinessTypeAssignmentAsync(
+            request.BusinessTypeIds,
+            unknownIdError: BusinessTypeNotFoundCode,
+            cancellationToken);
+        if (businessTypeIdsResult.Error is not null)
+        {
+            if (businessTypeIdsResult.Error == BusinessTypeNotFoundCode)
+            {
+                return ServiceResult<ProductDto>.NotFound(BusinessTypeNotFoundCode);
+            }
+
+            return ServiceResult<ProductDto>.BadRequest(businessTypeIdsResult.Error);
+        }
+
         product.CategoryId = request.CategoryId;
         product.ProductName = request.ProductName.Trim();
         product.Description = NormalizeOptional(request.Description);
+        product.BusinessTypeIds = businessTypeIdsResult.Value;
         product.Status ??= ProductStatus.ACTIVE;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await _productSearchIndexer.SyncProductAsync(product.ProductId, cancellationToken);
 
+        var updatedDto = product.Adapt<ProductDto>();
+        updatedDto.BusinessTypes = businessTypeIdsResult.BusinessTypes.Adapt<List<ProductBusinessTypeDto>>();
         return ServiceResult<ProductDto>.Success(
-            product.Adapt<ProductDto>(),
+            updatedDto,
             "Product master updated successfully.");
     }
 
@@ -149,12 +188,14 @@ public sealed class ProductService : IProductService
 
         var detail = product.Adapt<ProductDetailDto>();
         await EnrichDetailAsync(detail, cancellationToken);
+        await EnrichBusinessTypesAsync(detail, cancellationToken);
         return ServiceResult<ProductDetailDto>.Success(detail, string.Empty);
     }
 
     public async Task<ServiceResult<ProductListResponseDto>> GetAllAsync(
         int page,
         int limit,
+        int[]? businessTypeIds = null,
         CancellationToken cancellationToken = default)
     {
         var validationError = ValidatePagination(page, limit);
@@ -163,10 +204,17 @@ public sealed class ProductService : IProductService
             return ServiceResult<ProductListResponseDto>.BadRequest(validationError);
         }
 
-        var products = await _products.GetPublicListAsync(page, limit, cancellationToken);
-        var total = await _products.CountAsync(cancellationToken);
+        var businessTypeFilter = NormalizeBusinessTypeFilter(businessTypeIds);
+        if (businessTypeFilter.IsInvalid)
+        {
+            return ServiceResult<ProductListResponseDto>.BadRequest(InvalidBusinessTypeFilterCode);
+        }
+
+        var products = await _products.GetPublicListAsync(page, limit, businessTypeFilter.Value, cancellationToken);
+        var total = await _products.CountAsync(businessTypeFilter.Value, cancellationToken);
         var items = products.Adapt<List<ProductListItemDto>>();
         await EnrichListItemsAsync(items, cancellationToken);
+        await EnrichBusinessTypesAsync(items, cancellationToken);
 
         return ServiceResult<ProductListResponseDto>.Success(
             new ProductListResponseDto
@@ -212,6 +260,7 @@ public sealed class ProductService : IProductService
         var total = await _products.CountByCategoryAsync(categoryId, cancellationToken);
         var items = products.Adapt<List<ProductListItemDto>>();
         await EnrichListItemsAsync(items, cancellationToken);
+        await EnrichBusinessTypesAsync(items, cancellationToken);
 
         return ServiceResult<ProductByCategoryResponseDto>.Success(
             new ProductByCategoryResponseDto
@@ -272,7 +321,9 @@ public sealed class ProductService : IProductService
             };
         }
 
-        await EnrichListItemsAsync(response.Items.ToList(), cancellationToken);
+        var responseItems = response.Items.ToList();
+        await EnrichListItemsAsync(responseItems, cancellationToken);
+        await EnrichBusinessTypesAsync(responseItems, cancellationToken);
 
         return ServiceResult<ProductListResponseDto>.Success(response, string.Empty);
     }
@@ -373,7 +424,9 @@ public sealed class ProductService : IProductService
             };
         }
 
-        await EnrichListItemsAsync(response.Items.ToList(), cancellationToken);
+        var responseItems = response.Items.ToList();
+        await EnrichListItemsAsync(responseItems, cancellationToken);
+        await EnrichBusinessTypesAsync(responseItems, cancellationToken);
 
         return ServiceResult<ProductListResponseDto>.Success(response, string.Empty);
     }
@@ -755,6 +808,11 @@ public sealed class ProductService : IProductService
             return paginationError;
         }
 
+        if (NormalizeBusinessTypeFilter(request.BusinessTypeIds).IsInvalid)
+        {
+            return InvalidBusinessTypeFilterCode;
+        }
+
         if (request.MinPrice.HasValue && request.MinPrice.Value < 0)
         {
             return "Minimum price must be greater than or equal to zero.";
@@ -780,6 +838,34 @@ public sealed class ProductService : IProductService
         }
 
         return null;
+    }
+
+    private static BusinessTypeFilter NormalizeBusinessTypeFilter(int[]? businessTypeIds)
+    {
+        if (businessTypeIds is null)
+        {
+            return BusinessTypeFilter.Empty;
+        }
+
+        if (businessTypeIds.Any(id => id <= 0))
+        {
+            return BusinessTypeFilter.Invalid;
+        }
+
+        var normalized = businessTypeIds
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+        return normalized.Length == 0
+            ? BusinessTypeFilter.Empty
+            : new BusinessTypeFilter(normalized, IsInvalid: false);
+    }
+
+    private sealed record BusinessTypeFilter(int[]? Value, bool IsInvalid)
+    {
+        public static BusinessTypeFilter Empty { get; } = new(null, IsInvalid: false);
+
+        public static BusinessTypeFilter Invalid { get; } = new(null, IsInvalid: true);
     }
 
     private static List<string> ValidateCreateRequest(CreateProductRequestDto request)
@@ -826,6 +912,132 @@ public sealed class ProductService : IProductService
 
         return errors;
     }
+
+    private async Task<BusinessTypeAssignment> ResolveBusinessTypeAssignmentAsync(
+        int[]? businessTypeIds,
+        string unknownIdError,
+        CancellationToken cancellationToken)
+    {
+        if (businessTypeIds is null)
+        {
+            return new BusinessTypeAssignment(null, [], null);
+        }
+
+        if (businessTypeIds.Any(id => id <= 0))
+        {
+            return new BusinessTypeAssignment(null, [], InvalidBusinessTypeIdCode);
+        }
+
+        var normalizedIds = businessTypeIds
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+        if (normalizedIds.Length == 0)
+        {
+            return new BusinessTypeAssignment([], [], null);
+        }
+
+        var businessTypes = await _businessTypes.GetByIdsAsync(normalizedIds, cancellationToken);
+        if (businessTypes.Count != normalizedIds.Length)
+        {
+            return new BusinessTypeAssignment(null, [], unknownIdError);
+        }
+
+        if (businessTypes.Any(businessType => !businessType.Status))
+        {
+            return new BusinessTypeAssignment(null, [], BusinessTypeInactiveCode);
+        }
+
+        return new BusinessTypeAssignment(normalizedIds, businessTypes, null);
+    }
+
+    private async Task EnrichBusinessTypesAsync(
+        ProductDetailDto product,
+        CancellationToken cancellationToken)
+    {
+        product.BusinessTypes = await ResolveBusinessTypeDtosAsync(
+            product.ProductId,
+            product.BusinessTypeIds,
+            cancellationToken);
+    }
+
+    private async Task EnrichBusinessTypesAsync(
+        IReadOnlyList<ProductListItemDto> products,
+        CancellationToken cancellationToken)
+    {
+        if (products.Count == 0)
+        {
+            return;
+        }
+
+        var ids = products
+            .SelectMany(product => product.BusinessTypeIds ?? [])
+            .Where(id => id > 0)
+            .Distinct()
+            .ToArray();
+        if (ids.Length == 0)
+        {
+            foreach (var product in products)
+            {
+                product.BusinessTypes = [];
+            }
+
+            return;
+        }
+
+        var businessTypes = await _businessTypes.GetByIdsAsync(ids, cancellationToken);
+        var businessTypesById = businessTypes.ToDictionary(type => type.Id);
+        foreach (var product in products)
+        {
+            product.BusinessTypes = ResolveBusinessTypeDtos(product.ProductId, product.BusinessTypeIds, businessTypesById);
+        }
+    }
+
+    private async Task<IReadOnlyList<ProductBusinessTypeDto>> ResolveBusinessTypeDtosAsync(
+        Guid productId,
+        int[]? businessTypeIds,
+        CancellationToken cancellationToken)
+    {
+        var ids = (businessTypeIds ?? [])
+            .Where(id => id > 0)
+            .Distinct()
+            .ToArray();
+        if (ids.Length == 0)
+        {
+            return [];
+        }
+
+        var businessTypes = await _businessTypes.GetByIdsAsync(ids, cancellationToken);
+        return ResolveBusinessTypeDtos(productId, ids, businessTypes.ToDictionary(type => type.Id));
+    }
+
+    private IReadOnlyList<ProductBusinessTypeDto> ResolveBusinessTypeDtos(
+        Guid productId,
+        int[]? businessTypeIds,
+        IReadOnlyDictionary<int, BusinessType> businessTypesById)
+    {
+        var resolved = new List<ProductBusinessTypeDto>();
+        foreach (var id in businessTypeIds ?? [])
+        {
+            if (businessTypesById.TryGetValue(id, out var businessType))
+            {
+                resolved.Add(businessType.Adapt<ProductBusinessTypeDto>());
+                continue;
+            }
+
+            _logger?.LogWarning(
+                "Product {ProductId} references unresolved business type id {BusinessTypeId}.",
+                productId,
+                id);
+        }
+
+        return resolved;
+    }
+
+    private sealed record BusinessTypeAssignment(
+        int[]? Value,
+        IReadOnlyList<BusinessType> BusinessTypes,
+        string? Error);
 
     private static string? NormalizeOptional(string? value)
         => CatalogFileStorageHelpers.NormalizeOptional(value);

@@ -115,11 +115,24 @@ public sealed class RoomPlannerSceneServiceTests
     }
 
     [Fact]
+    public async Task SaveSceneAsync_PublishedProposal_SavesScene()
+    {
+        var sql = new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.PUBLISHED) };
+        var documents = new FakeSceneDocumentRepository();
+        var service = CreateService(sql, documents);
+
+        var result = await service.SaveSceneAsync(SceneId, CreateSaveRequest(), DesignerId, "DESIGNER");
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(documents.UpsertedDocument);
+    }
+
+    [Fact]
     public async Task SaveSceneAsync_NonEditableProposal_ReturnsProposalNotEditable()
     {
         var documents = new FakeSceneDocumentRepository();
         var service = CreateService(
-            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.PUBLISHED) },
+            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.SELECTED) },
             documents);
 
         var result = await service.SaveSceneAsync(SceneId, CreateSaveRequest(), DesignerId, "DESIGNER");

@@ -25,7 +25,6 @@ namespace FurniSpace.API.Tests.Controllers;
 public sealed class ProductVersionsControllerTests
 {
     [Theory]
-    [InlineData(nameof(ProductVersionsController.Create))]
     [InlineData(nameof(ProductVersionsController.Update))]
     [InlineData(nameof(ProductVersionsController.SetDefault))]
     [InlineData(nameof(ProductVersionsController.UploadFile))]
@@ -40,6 +39,20 @@ public sealed class ProductVersionsControllerTests
 
         Assert.NotNull(authorize);
         Assert.Equal("ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public void Create_RequiresDesignerAndAdminRoles()
+    {
+        var authorize = typeof(ProductVersionsController)
+            .GetMethods()
+            .Single(method => method.Name == nameof(ProductVersionsController.Create))
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(authorize);
+        Assert.Equal("DESIGNER,ADMIN", authorize.Roles);
     }
 
     [Fact]

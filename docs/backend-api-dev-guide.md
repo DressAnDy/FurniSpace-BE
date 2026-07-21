@@ -485,7 +485,153 @@ Tests:
 - [ ] Infrastructure repository/cache behavior when practical.
 - [ ] API route/status mapping when endpoint is stable.
 
-## 11. Logging
+## 11. Catalog Business Type Documentation
+
+Business Type is a Catalog concept used to describe which business environments a Product is suitable for,
+for example cafe, restaurant, fashion store, showroom, salon, or pharmacy. It is separate from Category:
+
+- Category answers what the furniture is, for example counter, table, chair, shelf, or lighting.
+- Business Type answers where the furniture is intended to be used.
+- `projects.business_type` remains customer-entered free text from project requests and is not linked to Catalog Business Type.
+
+### DBML
+
+The Catalog DBML should include `business_types` and `products.business_type_ids`.
+There is intentionally no join table for Product and Business Type.
+
+```dbml
+Table business_types {
+  id integer [pk, increment]
+  code varchar(50) [not null, unique]
+  name varchar(150) [not null]
+  description varchar(500)
+  status boolean [not null, default: true]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table products {
+  product_id uuid [pk]
+  category_id uuid
+  business_type_ids integer[] [note: 'Nullable PostgreSQL int array. No DB-level FK exists for array elements.']
+  product_code varchar(50)
+  product_name varchar(150) [not null]
+  description text
+  status product_status
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+Ref: products.category_id > categories.category_id
+```
+
+Do not add a DBML `Ref` from `products.business_type_ids` to `business_types.id`.
+PostgreSQL cannot enforce an array-element foreign key with a normal FK constraint.
+The database uses a nullable `integer[]` column plus a GIN index for lookup performance.
+
+`ProductService` owns validation for this relationship:
+
+- create/update normalizes duplicate `businessTypeIds`.
+- ID values must be positive.
+- referenced Business Types must exist.
+- referenced Business Types must be active.
+- missing IDs return validation errors through `ServiceResult<T>`.
+
+### Business Type API
+
+Business Type routes live in the Catalog module.
+
+| Route | Access | Description |
+| --- | --- | --- |
+| `GET /business-types` | Public | List active/inactive Business Types with pagination/filtering. |
+| `GET /business-types/{id}` | Public | Get Business Type detail. |
+| `POST /business-types` | Admin | Create a Business Type. |
+| `PATCH /business-types/{id}` | Admin | Update Business Type code/name/description/status. |
+| `PATCH /business-types/{id}/status` | Admin | Update active/inactive status. |
+
+### Product Request And Response Changes
+
+Product create/update requests may include:
+
+```json
+{
+  "categoryId": "uuid",
+  "businessTypeIds": [1, 2],
+  "productCode": "PM-COUNTER-001",
+  "productName": "Coffee Counter",
+  "description": "Counter template for cafe projects"
+}
+```
+
+Product list/detail/search responses include both the raw IDs and resolved Business Type summaries:
+
+```json
+{
+  "productId": "uuid",
+  "categoryId": "uuid",
+  "categoryName": "Counter",
+  "businessTypeIds": [1, 2],
+  "businessTypes": [
+    {
+      "id": 1,
+      "code": "CAFE",
+      "name": "Cafe",
+      "status": true
+    }
+  ]
+}
+```
+
+`businessTypeIds` is nullable on Product:
+
+- `null` means no Business Type assignment has been stored.
+- `[]` means the Product has explicitly no Business Type assignment.
+- when a Business Type filter is used, both `null` and `[]` do not match.
+- when no Business Type filter is used, existing Product list/search behavior is unchanged.
+
+### Product Filtering
+
+`GET /products` and `GET /products/search` support repeated query parameters:
+
+```http
+GET /products?businessTypeIds=1&businessTypeIds=2
+GET /products/search?businessTypeIds=1&businessTypeIds=2
+```
+
+Filter semantics are ANY:
+
+```text
+Product matches when product.business_type_ids contains 1 OR 2.
+```
+
+PostgreSQL equivalent:
+
+```sql
+products.business_type_ids && ARRAY[1, 2]
+```
+
+Rules:
+
+- filter is optional.
+- duplicate query IDs are normalized before repository/search execution.
+- IDs less than or equal to zero return `400 INVALID_BUSINESS_TYPE_FILTER`.
+- Product with `business_type_ids IS NULL` does not match a filter.
+- Product with `business_type_ids = '{}'` does not match a filter.
+- unknown positive IDs currently return an empty result set for filtering.
+
+### Elasticsearch Impact
+
+`ProductSearchDocument` includes `businessTypeIds`.
+`GET /products/search` adds a `terms` filter on `businessTypeIds` when the query contains Business Type IDs.
+The PostgreSQL fallback in `ProductRepository.SearchPublicAsync` must apply the same ANY semantics so ES and fallback results stay equivalent.
+
+After changing the Product search document or mapping, rebuild the Product index:
+
+```powershell
+dotnet run --project src/FurniSpace.API -- reindex products
+```
+
+## 12. Logging
 
 Serilog configuration belongs in:
 
@@ -531,7 +677,7 @@ logger.LogInformation($"Account {accountId} was created");
 Never log passwords, access tokens, refresh tokens, OTPs, reset tokens, authorization headers,
 connection strings, or full request bodies containing sensitive data.
 
-## 12. Agent Rules
+## 13. Agent Rules
 
 - Read existing files before editing.
 - Keep changes scoped to the request.

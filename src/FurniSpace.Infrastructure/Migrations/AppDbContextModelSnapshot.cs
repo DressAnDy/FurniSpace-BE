@@ -127,6 +127,53 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.ToTable("accounts", (string)null);
                 });
 
+            modelBuilder.Entity("FurniSpace.Domain.Entities.BusinessType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("varchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("status");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("business_types", (string)null);
+                });
+
             modelBuilder.Entity("FurniSpace.Domain.Entities.Category", b =>
                 {
                     b.Property<Guid>("CategoryId")
@@ -951,6 +998,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("product_id");
 
+                    b.Property<int[]>("BusinessTypeIds")
+                        .HasColumnType("integer[]")
+                        .HasColumnName("business_type_ids");
+
                     b.Property<Guid?>("CategoryId")
                         .HasColumnType("uuid")
                         .HasColumnName("category_id");
@@ -983,6 +1034,11 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnName("updated_at");
 
                     b.HasKey("ProductId");
+
+                    b.HasIndex("BusinessTypeIds")
+                        .HasDatabaseName("idx_products_business_type_ids");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("BusinessTypeIds"), "gin");
 
                     b.HasIndex("ProductCode")
                         .IsUnique();

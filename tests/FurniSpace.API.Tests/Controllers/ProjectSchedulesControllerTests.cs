@@ -80,12 +80,12 @@ public sealed class ProjectSchedulesControllerTests
     }
 
     [Fact]
-    public void UpdateStatus_RequiresCustomerSalesProductionAndAdminRoles()
+    public void UpdateStatus_RequiresCustomerSalesDesignerProductionAndAdminRoles()
     {
         var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.UpdateStatus));
 
         Assert.NotNull(attr);
-        Assert.Equal("CUSTOMER,SALES,PRODUCTION,ADMIN", attr.Roles);
+        Assert.Equal("CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN", attr.Roles);
     }
 
     [Fact]

@@ -25,6 +25,7 @@ public static class DataSeeder
     {
         await SeedRolesAsync(executeRawAsync, cancellationToken);
         await SeedAccountsAsync(executeInterpolatedAsync, cancellationToken);
+        await SeedBusinessTypesAsync(executeRawAsync, cancellationToken);
         await SeedCategoriesAsync(executeRawAsync, cancellationToken);
         await SeedProductsAsync(executeRawAsync, cancellationToken);
         await SeedProductVersionsAsync(executeRawAsync, cancellationToken);
@@ -99,6 +100,35 @@ public static class DataSeeder
             cancellationToken);
     }
 
+    private static Task<int> SeedBusinessTypesAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
+    {
+        return executeRawAsync(
+            """
+            INSERT INTO business_types (id, code, name, description, status, created_at, updated_at)
+            VALUES
+                (1, 'CAFE', 'Quan ca phe', 'Khong gian kinh doanh do uong va phuc vu khach.', true, now(), now()),
+                (2, 'RESTAURANT', 'Nha hang', 'Khong gian phuc vu an uong tai cho.', true, now(), now()),
+                (3, 'SPA', 'Spa', 'Khong gian cham soc suc khoe va thu gian.', true, now(), now()),
+                (4, 'BEAUTY_STORE', 'Cua hang lam dep', 'Cua hang ban san pham cham soc sac dep.', true, now(), now()),
+                (5, 'FASHION_STORE', 'Cua hang thoi trang', 'Khong gian trung bay va ban san pham thoi trang.', true, now(), now()),
+                (6, 'SHOWROOM', 'Showroom', 'Khong gian trung bay san pham va tu van khach hang.', true, now(), now()),
+                (7, 'CONVENIENCE_STORE', 'Cua hang tien loi', 'Cua hang ban le hang hoa thiet yeu va tieu dung nhanh.', true, now(), now()),
+                (8, 'RETAIL_KIOSK', 'Kiosk ban le', 'Diem ban le nho gon trong trung tam thuong mai hoac khu cong cong.', true, now(), now()),
+                (9, 'OTHER', 'Khac', 'Loai hinh kinh doanh khac.', true, now(), now())
+            ON CONFLICT (code) DO NOTHING;
+
+            SELECT setval(
+                pg_get_serial_sequence('business_types', 'id'),
+                GREATEST(
+                    COALESCE((SELECT MAX(id) FROM business_types), 1),
+                    9
+                ),
+                true
+            );
+            """,
+            cancellationToken);
+    }
+
     private static Task<int> SeedCategoriesAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
     {
         return executeRawAsync(
@@ -118,13 +148,18 @@ public static class DataSeeder
     {
         return executeRawAsync(
             """
-            INSERT INTO products (product_id, category_id, product_code, product_name, description, status, created_at, updated_at)
+            INSERT INTO products (product_id, category_id, business_type_ids, product_code, product_name, description, status, created_at, updated_at)
             VALUES
-                ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', 'SOFA-LUX-001', 'Luxe Modular Sofa', 'Custom modular sofa for living spaces', 'ACTIVE'::product_status, now(), now()),
-                ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', 'WARD-STD-001', 'Sliding Door Wardrobe', 'Built-in wardrobe with sliding doors', 'ACTIVE'::product_status, now(), now()),
-                ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000003', 'KITCH-CAB-001', 'Modern Kitchen Cabinet', 'Upper and lower kitchen cabinet set', 'ACTIVE'::product_status, now(), now()),
-                ('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000004', 'DESK-OAK-001', 'Oak Work Desk', 'Minimal office desk with drawer module', 'ACTIVE'::product_status, now(), now())
-            ON CONFLICT (product_code) DO NOTHING;
+                ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', ARRAY[1, 2, 6]::integer[], 'SOFA-LUX-001', 'Luxe Modular Sofa', 'Custom modular sofa for living spaces', 'ACTIVE'::product_status, now(), now()),
+                ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000002', ARRAY[5, 6, 9]::integer[], 'WARD-STD-001', 'Sliding Door Wardrobe', 'Built-in wardrobe with sliding doors', 'ACTIVE'::product_status, now(), now()),
+                ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000003', ARRAY[1, 2, 7]::integer[], 'KITCH-CAB-001', 'Modern Kitchen Cabinet', 'Upper and lower kitchen cabinet set', 'ACTIVE'::product_status, now(), now()),
+                ('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000004', ARRAY[3, 4, 5, 6]::integer[], 'DESK-OAK-001', 'Oak Work Desk', 'Minimal office desk with drawer module', 'ACTIVE'::product_status, now(), now())
+            ON CONFLICT (product_code) DO UPDATE
+            SET business_type_ids = COALESCE(products.business_type_ids, EXCLUDED.business_type_ids),
+                updated_at = CASE
+                    WHEN products.business_type_ids IS NULL THEN now()
+                    ELSE products.updated_at
+                END;
             """,
             cancellationToken);
     }

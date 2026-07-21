@@ -121,7 +121,7 @@ public sealed class ProjectSchedulesController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER,SALES,PRODUCTION,ADMIN")]
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [HttpPatch("{scheduleId:guid}/status")]
     public async Task<IActionResult> UpdateStatus(
         Guid scheduleId,

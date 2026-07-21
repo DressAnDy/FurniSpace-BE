@@ -278,7 +278,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
     private static bool IsEditableProposal(ProposalStatus? status)
     {
-        return status is ProposalStatus.DRAFT or ProposalStatus.REVISION_REQUESTED;
+        return status is ProposalStatus.DRAFT
+            or ProposalStatus.PUBLISHED
+            or ProposalStatus.REVISION_REQUESTED;
     }
 
     private async Task<Error?> ValidateSceneReferencesAsync(

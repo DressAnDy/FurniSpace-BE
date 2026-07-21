@@ -238,8 +238,8 @@ public sealed class SearchReindexServiceTests
         public Task<ProductListItemReadModel?> GetSearchIndexItemAsync(Guid productId, CancellationToken cancellationToken = default) => Task.FromResult<ProductListItemReadModel?>(null);
         public Task<bool> ProductCodeExistsAsync(string productCode, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<ProductDetailReadModel?> GetDetailAsync(Guid productId, CancellationToken cancellationToken = default) => Task.FromResult<ProductDetailReadModel?>(null);
-        public Task<IReadOnlyList<ProductListItemReadModel>> GetPublicListAsync(int page, int limit, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductListItemReadModel>>([]);
-        public Task<int> CountAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<ProductListItemReadModel>> GetPublicListAsync(int page, int limit, IReadOnlyCollection<int>? businessTypeIds = null, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductListItemReadModel>>([]);
+        public Task<int> CountAsync(IReadOnlyCollection<int>? businessTypeIds = null, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<ProductCategoryReadModel?> GetCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default) => Task.FromResult<ProductCategoryReadModel?>(null);
         public Task<IReadOnlyList<ProductListItemReadModel>> GetPublicListByCategoryAsync(Guid categoryId, int page, int limit, bool includeDefaultVersion, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductListItemReadModel>>([]);
         public Task<int> CountByCategoryAsync(Guid categoryId, CancellationToken cancellationToken = default) => Task.FromResult(0);

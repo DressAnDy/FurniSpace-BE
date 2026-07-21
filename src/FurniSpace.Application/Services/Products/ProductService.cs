@@ -962,7 +962,7 @@ public sealed class ProductService : IProductService
     }
 
     private async Task EnrichBusinessTypesAsync(
-        IReadOnlyList<ProductListItemDto> products,
+        List<ProductListItemDto> products,
         CancellationToken cancellationToken)
     {
         if (products.Count == 0)
@@ -1011,10 +1011,10 @@ public sealed class ProductService : IProductService
         return ResolveBusinessTypeDtos(productId, ids, businessTypes.ToDictionary(type => type.Id));
     }
 
-    private IReadOnlyList<ProductBusinessTypeDto> ResolveBusinessTypeDtos(
+    private List<ProductBusinessTypeDto> ResolveBusinessTypeDtos(
         Guid productId,
         int[]? businessTypeIds,
-        IReadOnlyDictionary<int, BusinessType> businessTypesById)
+        Dictionary<int, BusinessType> businessTypesById)
     {
         var resolved = new List<ProductBusinessTypeDto>();
         foreach (var id in businessTypeIds ?? [])

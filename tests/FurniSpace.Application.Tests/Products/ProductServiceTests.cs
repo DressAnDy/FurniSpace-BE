@@ -1952,7 +1952,7 @@ public sealed class ProductServiceTests
         public int CountByCategoryCallCount { get; private set; }
         public bool LastIncludeDefaultVersion { get; private set; }
         public IReadOnlyCollection<int>? LastBusinessTypeFilter { get; private set; }
-        public IReadOnlyList<Product> CreatedProducts => _createdProducts;
+        public List<Product> CreatedProducts => _createdProducts;
 
         public Task<bool> ProductCodeExistsAsync(
             string productCode,
@@ -2141,7 +2141,7 @@ public sealed class ProductServiceTests
             return Task.FromResult(1);
         }
 
-        private static IReadOnlyList<ProductListItemReadModel> ApplyBusinessTypeFilter(
+        private static List<ProductListItemReadModel> ApplyBusinessTypeFilter(
             IReadOnlyList<ProductListItemReadModel> products,
             IReadOnlyCollection<int>? businessTypeIds)
         {

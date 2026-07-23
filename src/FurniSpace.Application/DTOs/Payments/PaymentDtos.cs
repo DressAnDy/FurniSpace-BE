@@ -12,8 +12,6 @@ public class PaymentDto
     public Guid? PaidBy { get; set; }
     public PaymentType? PaymentType { get; set; }
     public decimal Amount { get; set; }
-    public decimal PaidAmount { get; set; }
-    public decimal RemainingAmount { get; set; }
     public string Currency { get; set; } = "VND";
     public PaymentStatus? Status { get; set; }
     public DateTime? ExpiredAt { get; set; }
@@ -57,8 +55,6 @@ public sealed class PaymentStatusByCodeDto
     public string PaymentCode { get; set; } = string.Empty;
     public PaymentStatus? Status { get; set; }
     public decimal Amount { get; set; }
-    public decimal PaidAmount { get; set; }
-    public decimal RemainingAmount { get; set; }
     public DateTime? PaidAt { get; set; }
 }
 
@@ -117,7 +113,6 @@ public sealed class SePayWebhookSuccessDto
 
 public sealed class CreatePayOsPaymentLinkRequestDto
 {
-    public decimal? Amount { get; set; }
     public string? ReturnUrl { get; set; }
     public string? CancelUrl { get; set; }
 }

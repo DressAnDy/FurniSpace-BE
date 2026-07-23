@@ -38,12 +38,12 @@ public sealed class OrderFinancialAdjustmentServiceTests
     }
 
     [Fact]
-    public async Task UpdateFinancialAdjustmentAsync_WhenDepositPartiallyPaid_ReturnsOrderPaymentAlreadyStarted()
+    public async Task UpdateFinancialAdjustmentAsync_WhenDepositProcessing_ReturnsOrderPaymentAlreadyStarted()
     {
         var service = BuildService(new TestOptions
         {
             Role = "SALES",
-            DepositPayment = CreateDepositPayment(PaymentStatus.PARTIALLY_PAID, paidAmount: 10_000_000m)
+            DepositPayment = CreateDepositPayment(PaymentStatus.PROCESSING)
         });
 
         var result = await service.UpdateFinancialAdjustmentAsync(
@@ -58,9 +58,8 @@ public sealed class OrderFinancialAdjustmentServiceTests
     [Fact]
     public async Task UpdateFinancialAdjustmentAsync_WhenDepositPending_UpdatesOrderAndPayment()
     {
-        var depositPayment = CreateDepositPayment(PaymentStatus.PENDING, paidAmount: 0m);
+        var depositPayment = CreateDepositPayment(PaymentStatus.PENDING);
         depositPayment.Amount = 30_000_000m;
-        depositPayment.RemainingAmount = 30_000_000m;
         var options = new TestOptions
         {
             Role = "SALES",
@@ -82,7 +81,6 @@ public sealed class OrderFinancialAdjustmentServiceTests
         Assert.Equal(100_000_000m, options.Order.OriginalTotalAmount);
         Assert.NotNull(options.DepositPayment);
         Assert.Equal(25_000_000m, options.DepositPayment.Amount);
-        Assert.Equal(25_000_000m, options.DepositPayment.RemainingAmount);
         Assert.Equal("Final discount approved by Sales Manager.", options.DepositPayment.Note);
         Assert.Equal(1, options.UnitOfWork.SaveChangesCount);
     }
@@ -190,14 +188,12 @@ public sealed class OrderFinancialAdjustmentServiceTests
         Status = ProjectStatus.ORDER_CONFIRMED
     };
 
-    private static Payment CreateDepositPayment(PaymentStatus status, decimal paidAmount) => new()
+    private static Payment CreateDepositPayment(PaymentStatus status) => new()
     {
         PaymentId = Guid.NewGuid(),
         OrderId = Guid.NewGuid(),
         PaymentType = PaymentType.DEPOSIT,
         Amount = 30_000_000m,
-        PaidAmount = paidAmount,
-        RemainingAmount = 30_000_000m - paidAmount,
         Status = status
     };
 
@@ -313,7 +309,13 @@ public sealed class OrderFinancialAdjustmentServiceTests
         public Task<decimal> SumOrderScopedPaidAmountAsync(
             Guid orderId,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(_depositPayment?.PaidAmount ?? 0m);
+            => Task.FromResult(
+                _depositPayment?.Status == PaymentStatus.PAID ? _depositPayment.Amount : 0m);
+
+        public Task<bool> HasSuccessfulTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
 
         public void UpdatePayment(Payment payment)
         {

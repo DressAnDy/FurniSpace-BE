@@ -70,6 +70,12 @@ public interface IPaymentService
         CreatePayOsPaymentLinkRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<PaymentTransactionAttemptResponseDto>> CreatePaymentTransactionAttemptAsync(
+        Guid paymentId,
+        Guid currentUserId,
+        CreatePaymentTransactionAttemptRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<PayOsConfirmWebhookResponseDto>> ConfirmPayOsWebhookAsync(
         PayOsConfirmWebhookRequestDto request,
         CancellationToken cancellationToken = default);

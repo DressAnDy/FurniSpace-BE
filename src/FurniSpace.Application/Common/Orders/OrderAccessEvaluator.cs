@@ -10,10 +10,7 @@ internal static class OrderAccessEvaluator
     [
         OrderStatus.DEPOSIT_PAID,
         OrderStatus.IN_PRODUCTION,
-        OrderStatus.PRODUCTION_PARTIALLY_FAILED,
-        OrderStatus.PRODUCTION_COMPLETED,
         OrderStatus.READY_FOR_DELIVERY,
-        OrderStatus.DELIVERY_SCHEDULED,
         OrderStatus.DELIVERING,
         OrderStatus.DELIVERED,
         OrderStatus.FINAL_PAYMENT_PENDING,

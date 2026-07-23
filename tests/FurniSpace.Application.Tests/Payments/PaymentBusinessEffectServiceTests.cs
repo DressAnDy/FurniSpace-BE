@@ -41,7 +41,7 @@ public sealed class PaymentBusinessEffectServiceTests
     }
 
     [Fact]
-    public async Task ApplyAsync_RemainingPaidWithZeroRemaining_CompletesOrder()
+    public async Task ApplyAsync_RemainingPaid_DoesNotAutoCompleteOrder()
     {
         var orderId = Guid.NewGuid();
         var order = CreateOrder(orderId, Guid.NewGuid(), OrderStatus.FINAL_PAYMENT_PENDING);
@@ -67,8 +67,8 @@ public sealed class PaymentBusinessEffectServiceTests
 
         await service.ApplyAsync(payment);
 
-        Assert.Equal(OrderStatus.COMPLETED, orders.Order!.Status);
-        Assert.Equal(ProjectStatus.COMPLETED, projects.Project!.Status);
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, orders.Order!.Status);
+        Assert.Equal(ProjectStatus.ORDER_CONFIRMED, projects.Project!.Status);
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class PaymentBusinessEffectServiceTests
             orders,
             new FakeProjectRepository());
 
-        var payment = CreatePayment(orderId, PaymentType.DEPOSIT, PaymentStatus.PARTIALLY_PAID);
+        var payment = CreatePayment(orderId, PaymentType.DEPOSIT, PaymentStatus.PROCESSING);
 
         await service.ApplyAsync(payment);
 
@@ -171,8 +171,6 @@ public sealed class PaymentBusinessEffectServiceTests
             PaymentCode = "FS12345678",
             PaymentType = paymentType,
             Amount = 100m,
-            PaidAmount = status == PaymentStatus.PAID ? 100m : 30m,
-            RemainingAmount = status == PaymentStatus.PAID ? 0m : 70m,
             Status = status
         };
     }
@@ -260,6 +258,11 @@ public sealed class PaymentBusinessEffectServiceTests
             Guid orderId,
             CancellationToken cancellationToken = default)
             => Task.FromResult(SummedPaidAmount);
+
+        public Task<bool> HasSuccessfulTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
     }
 
     private sealed class FakeOrderRepository : IOrderRepository

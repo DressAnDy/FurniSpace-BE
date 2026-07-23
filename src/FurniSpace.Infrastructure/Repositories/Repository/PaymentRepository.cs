@@ -44,8 +44,6 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
                 PaymentCode = payment.PaymentCode,
                 Status = payment.Status,
                 Amount = payment.Amount,
-                PaidAmount = payment.PaidAmount,
-                RemainingAmount = payment.RemainingAmount,
                 PaidAt = payment.PaidAt
             })
             .FirstOrDefaultAsync(cancellationToken);
@@ -66,8 +64,6 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
                 PaymentCode = payment.PaymentCode,
                 PaymentType = payment.PaymentType,
                 Amount = payment.Amount,
-                PaidAmount = payment.PaidAmount,
-                RemainingAmount = payment.RemainingAmount,
                 Currency = payment.Currency,
                 Status = payment.Status,
                 ExpiredAt = payment.ExpiredAt,
@@ -205,8 +201,7 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
         };
         var statuses = new[]
         {
-            PaymentStatus.PAID,
-            PaymentStatus.PARTIALLY_PAID
+            PaymentStatus.PAID
         };
 
         return DbContext.PaymentSet
@@ -216,7 +211,18 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
                 paymentTypes.Contains(payment.PaymentType.Value) &&
                 payment.Status.HasValue &&
                 statuses.Contains(payment.Status.Value))
-            .SumAsync(payment => payment.PaidAmount, cancellationToken);
+            .SumAsync(payment => payment.Amount, cancellationToken);
+    }
+
+    public Task<bool> HasSuccessfulTransactionAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.PaymentTransactionSet.AnyAsync(
+            transaction =>
+                transaction.PaymentId == paymentId &&
+                transaction.Status == PaymentTransactionStatus.SUCCESS,
+            cancellationToken);
     }
 
     private IQueryable<PaymentDetailReadModel> BuildDetailQuery()
@@ -236,8 +242,6 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
                     PaidBy = payment.PaidBy,
                     PaymentType = payment.PaymentType,
                     Amount = payment.Amount,
-                    PaidAmount = payment.PaidAmount,
-                    RemainingAmount = payment.RemainingAmount,
                     Currency = payment.Currency,
                     Status = payment.Status,
                     ExpiredAt = payment.ExpiredAt,

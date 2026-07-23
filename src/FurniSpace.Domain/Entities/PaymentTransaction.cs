@@ -18,6 +18,8 @@ public class PaymentTransaction
     public string? ProviderTransactionId { get; set; }
     public string? ProviderReferenceCode { get; set; }
     public PaymentTransactionStatus? Status { get; set; }
+    public string? PaymentUrl { get; set; }
+    public string? QrContent { get; set; }
     public DateTime? TransactionTime { get; set; }
     public Guid? ConfirmedBy { get; set; }
     public DateTime? ConfirmedAt { get; set; }

@@ -52,7 +52,7 @@ public sealed class PayOsWebhookHandlerTests
         Assert.Equal(200, result.StatusCode);
         Assert.Equal(PaymentTransactionStatus.SUCCESS, repository.Transaction!.Status);
         Assert.Equal(PaymentStatus.PAID, repository.Payment!.Status);
-        Assert.Equal(10000m, repository.Payment.PaidAmount);
+        Assert.Equal(10000m, repository.Payment.Amount);
         Assert.NotNull(realtime.LastPayload);
         Assert.Equal(PaymentStatus.PAID, realtime.LastPayload!.Status);
     }
@@ -87,7 +87,7 @@ public sealed class PayOsWebhookHandlerTests
         var result = await handler.ProcessAsync("{}");
 
         Assert.Equal(200, result.StatusCode);
-        Assert.Equal(0m, repository.Payment!.PaidAmount);
+        Assert.Equal(PaymentStatus.PENDING, repository.Payment!.Status);
     }
 
     [Fact]
@@ -230,7 +230,7 @@ public sealed class PayOsWebhookHandlerTests
         var result = await handler.ProcessAsync("{}");
 
         Assert.Equal(200, result.StatusCode);
-        Assert.Equal(0m, repository.Payment!.PaidAmount);
+        Assert.Equal(PaymentStatus.PENDING, repository.Payment!.Status);
     }
 
     private static PayOsWebhookHandler CreateHandler(
@@ -268,8 +268,6 @@ public sealed class PayOsWebhookHandlerTests
             ProjectId = projectId,
             PaymentCode = "FS12345678",
             Amount = amount,
-            PaidAmount = 0m,
-            RemainingAmount = amount,
             Currency = "VND",
             Status = PaymentStatus.PENDING
         };
@@ -407,6 +405,16 @@ public sealed class PayOsWebhookHandlerTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(0m);
+        }
+
+        public Task<bool> HasSuccessfulTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                Transaction is not null &&
+                Transaction.PaymentId == paymentId &&
+                Transaction.Status == PaymentTransactionStatus.SUCCESS);
         }
     }
 

@@ -84,8 +84,6 @@ public sealed class PaymentService : IPaymentService
             PaidBy = project.CustomerId,
             PaymentType = request.PaymentType,
             Amount = request.Amount,
-            PaidAmount = 0m,
-            RemainingAmount = request.Amount,
             Currency = _sePayOptions.Currency,
             Status = PaymentStatus.PENDING,
             ExpiredAt = request.ExpiredAt,
@@ -142,20 +140,22 @@ public sealed class PaymentService : IPaymentService
         }
 
         var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
-        if (existing is not null)
+        if (existing?.Status == PaymentStatus.PAID)
         {
-            if (existing.Status == PaymentStatus.PAID)
-            {
-                return BadRequestDetail(OrderErrorCodes.DepositAlreadyPaid, "Deposit payment has already been paid.");
-            }
+            return BadRequestDetail(OrderErrorCodes.DepositAlreadyPaid, "Deposit payment has already been paid.");
+        }
 
-            if (existing.Status.HasValue && CollectableDepositStatuses.Contains(existing.Status.Value))
-            {
-                var existingDetail = await _payments.GetDetailAsync(existing.PaymentId, cancellationToken);
-                return ServiceResult<PaymentDetailDto>.Success(
-                    existingDetail?.Adapt<PaymentDetailDto>() ?? existing.Adapt<PaymentDetailDto>(),
-                    "Existing deposit payment returned.");
-            }
+        var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
+            _payments,
+            _unitOfWork,
+            existing,
+            cancellationToken);
+        if (reusable is not null && ActivePaymentResolver.IsActive(reusable, DateTime.UtcNow))
+        {
+            var existingDetail = await _payments.GetDetailAsync(reusable.PaymentId, cancellationToken);
+            return ServiceResult<PaymentDetailDto>.Success(
+                PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusable, reused: true),
+                "Active payment retrieved successfully.");
         }
 
         var paymentCode = await GenerateUniquePaymentCodeAsync(cancellationToken);
@@ -170,8 +170,6 @@ public sealed class PaymentService : IPaymentService
             PaidBy = order.CustomerId,
             PaymentType = PaymentType.DEPOSIT,
             Amount = depositAmount,
-            PaidAmount = 0m,
-            RemainingAmount = depositAmount,
             Currency = _sePayOptions.Currency,
             Status = PaymentStatus.PENDING,
             ExpiredAt = request.ExpiredAt,
@@ -228,22 +226,24 @@ public sealed class PaymentService : IPaymentService
         }
 
         var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.REMAINING_PAYMENT, cancellationToken);
-        if (existing is not null)
+        if (existing?.Status == PaymentStatus.PAID)
         {
-            if (existing.Status == PaymentStatus.PAID)
-            {
-                return BadRequestDetail(
-                    OrderErrorCodes.RemainingPaymentAlreadyPaid,
-                    "Remaining payment has already been paid.");
-            }
+            return BadRequestDetail(
+                OrderErrorCodes.RemainingPaymentAlreadyPaid,
+                "Remaining payment has already been paid.");
+        }
 
-            if (existing.Status.HasValue && CollectableDepositStatuses.Contains(existing.Status.Value))
-            {
-                var existingDetail = await _payments.GetDetailAsync(existing.PaymentId, cancellationToken);
-                return ServiceResult<PaymentDetailDto>.Success(
-                    existingDetail?.Adapt<PaymentDetailDto>() ?? existing.Adapt<PaymentDetailDto>(),
-                    "Existing remaining payment returned.");
-            }
+        var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
+            _payments,
+            _unitOfWork,
+            existing,
+            cancellationToken);
+        if (reusable is not null && ActivePaymentResolver.IsActive(reusable, DateTime.UtcNow))
+        {
+            var existingDetail = await _payments.GetDetailAsync(reusable.PaymentId, cancellationToken);
+            return ServiceResult<PaymentDetailDto>.Success(
+                PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusable, reused: true),
+                "Active payment retrieved successfully.");
         }
 
         var paymentCode = await GenerateUniquePaymentCodeAsync(cancellationToken);
@@ -258,8 +258,6 @@ public sealed class PaymentService : IPaymentService
             PaidBy = order.CustomerId,
             PaymentType = PaymentType.REMAINING_PAYMENT,
             Amount = remainingAmount,
-            PaidAmount = 0m,
-            RemainingAmount = remainingAmount,
             Currency = _sePayOptions.Currency,
             Status = PaymentStatus.PENDING,
             ExpiredAt = request.ExpiredAt,
@@ -323,23 +321,24 @@ public sealed class PaymentService : IPaymentService
             projectId,
             PaymentType.PROJECT_START_FEE,
             cancellationToken);
-        if (existing is not null)
+        if (existing?.Status == PaymentStatus.PAID)
         {
-            if (existing.Status == PaymentStatus.PAID)
-            {
-                return BadRequestDetail(
-                    PaymentErrorCodes.ProjectStartFeeAlreadyPaid,
-                    "Project start fee has already been paid.");
-            }
+            return BadRequestDetail(
+                PaymentErrorCodes.ProjectStartFeeAlreadyPaid,
+                "Project start fee has already been paid.");
+        }
 
-            if (existing.Status.HasValue &&
-                ProjectStartFeeRules.CollectablePaymentStatuses.Contains(existing.Status.Value))
-            {
-                var existingDetail = await _payments.GetDetailAsync(existing.PaymentId, cancellationToken);
-                return ServiceResult<PaymentDetailDto>.Success(
-                    existingDetail?.Adapt<PaymentDetailDto>() ?? existing.Adapt<PaymentDetailDto>(),
-                    "Existing project start fee payment returned.");
-            }
+        var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
+            _payments,
+            _unitOfWork,
+            existing,
+            cancellationToken);
+        if (reusable is not null && ActivePaymentResolver.IsActive(reusable, DateTime.UtcNow))
+        {
+            var existingDetail = await _payments.GetDetailAsync(reusable.PaymentId, cancellationToken);
+            return ServiceResult<PaymentDetailDto>.Success(
+                PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusable, reused: true),
+                "Active payment retrieved successfully.");
         }
 
         var amount = request.Amount ?? _projectWorkflowSettings.DefaultProjectStartFeeAmount;
@@ -360,8 +359,6 @@ public sealed class PaymentService : IPaymentService
             PaidBy = project.CustomerId,
             PaymentType = PaymentType.PROJECT_START_FEE,
             Amount = amount,
-            PaidAmount = 0m,
-            RemainingAmount = amount,
             Currency = _sePayOptions.Currency,
             Status = PaymentStatus.PENDING,
             ExpiredAt = request.ExpiredAt,
@@ -584,7 +581,7 @@ public sealed class PaymentService : IPaymentService
             {
                 PaymentId = payment.PaymentId,
                 PaymentCode = payment.PaymentCode,
-                Amount = payment.RemainingAmount,
+                Amount = payment.Amount,
                 BankCode = _sePayOptions.BankCode,
                 AccountNo = _sePayOptions.BankAccountNo,
                 AccountName = _sePayOptions.BankAccountName,
@@ -661,20 +658,20 @@ public sealed class PaymentService : IPaymentService
                 isBadRequest: true);
         }
 
-        var amount = request.Amount ?? payment.RemainingAmount;
+        if (await _payments.HasSuccessfulTransactionAsync(payment.PaymentId, cancellationToken))
+        {
+            return Failure<PayOsPaymentLinkResponseDto>(
+                PaymentErrorCodes.PaymentAlreadyPaid,
+                "Payment has already been paid.",
+                isBadRequest: true);
+        }
+
+        var amount = payment.Amount;
         if (amount <= 0m)
         {
             return Failure<PayOsPaymentLinkResponseDto>(
                 PaymentErrorCodes.InvalidPaymentAmount,
                 "Amount must be greater than zero.",
-                isBadRequest: true);
-        }
-
-        if (amount > payment.RemainingAmount)
-        {
-            return Failure<PayOsPaymentLinkResponseDto>(
-                PaymentErrorCodes.PaymentAmountExceedsRemaining,
-                "Amount exceeds remaining payment amount.",
                 isBadRequest: true);
         }
 
@@ -757,7 +754,11 @@ public sealed class PaymentService : IPaymentService
             }
 
             transaction.ProviderTransactionId = payOsResult.PaymentLinkId;
+            transaction.PaymentUrl = payOsResult.CheckoutUrl;
+            transaction.QrContent = payOsResult.QrCode;
+            PaymentSummaryCalculator.MarkProcessing(payment, now);
             _payments.UpdateTransaction(transaction);
+            _payments.UpdatePayment(payment);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
 
@@ -781,6 +782,152 @@ public sealed class PaymentService : IPaymentService
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
             throw;
         }
+    }
+
+    public async Task<ServiceResult<PaymentTransactionAttemptResponseDto>> CreatePaymentTransactionAttemptAsync(
+        Guid paymentId,
+        Guid currentUserId,
+        CreatePaymentTransactionAttemptRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PaymentTransactionAttemptResponseDto>.Unauthorized();
+        }
+
+        var detail = await _payments.GetDetailAsync(paymentId, cancellationToken);
+        if (detail is null)
+        {
+            return NotFound<PaymentTransactionAttemptResponseDto>(PaymentErrorCodes.PaymentNotFound, PaymentNotFoundMessage);
+        }
+
+        var accessError = await ValidateAccessAsync(detail, currentUserId, cancellationToken);
+        if (accessError is not null)
+        {
+            return ServiceResult<PaymentTransactionAttemptResponseDto>.Forbidden(accessError.Message ?? ForbiddenMessage);
+        }
+
+        var payment = await _payments.GetByIdAsync(paymentId, cancellationToken);
+        if (payment is null)
+        {
+            return NotFound<PaymentTransactionAttemptResponseDto>(PaymentErrorCodes.PaymentNotFound, PaymentNotFoundMessage);
+        }
+
+        var stateValidation = PaymentCollectableStateValidator.Validate(payment);
+        if (!stateValidation.IsValid)
+        {
+            return Failure<PaymentTransactionAttemptResponseDto>(
+                stateValidation.ErrorCode!,
+                stateValidation.ErrorMessage!,
+                isBadRequest: true);
+        }
+
+        if (await _payments.HasSuccessfulTransactionAsync(paymentId, cancellationToken))
+        {
+            return Failure<PaymentTransactionAttemptResponseDto>(
+                PaymentErrorCodes.PaymentAlreadyPaid,
+                "Payment has already been paid.",
+                isBadRequest: true);
+        }
+
+        if (request.PaymentProvider == PaymentProvider.PAYOS &&
+            request.PaymentMethod == PaymentMethod.PAYMENT_LINK)
+        {
+            var linkResult = await CreatePayOsPaymentLinkAsync(
+                paymentId,
+                currentUserId,
+                new CreatePayOsPaymentLinkRequestDto
+                {
+                    ReturnUrl = request.ReturnUrl,
+                    CancelUrl = request.CancelUrl
+                },
+                cancellationToken);
+
+            if (linkResult.Status is not (200 or 201) || linkResult.Data is null)
+            {
+                return new ServiceResult<PaymentTransactionAttemptResponseDto>(
+                    linkResult.Status,
+                    linkResult.Message ?? "Failed to create payment transaction attempt.")
+                {
+                    ErrorCode = linkResult.ErrorCode
+                };
+            }
+
+            return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
+                new PaymentTransactionAttemptResponseDto
+                {
+                    PaymentTransactionId = linkResult.Data.PaymentTransactionId,
+                    PaymentId = linkResult.Data.PaymentId,
+                    TransactionCode = string.Empty,
+                    Amount = linkResult.Data.Amount,
+                    Currency = payment.Currency,
+                    Status = linkResult.Data.Status,
+                    PaymentProvider = PaymentProvider.PAYOS,
+                    PaymentMethod = PaymentMethod.PAYMENT_LINK,
+                    PaymentUrl = linkResult.Data.CheckoutUrl,
+                    QrContent = linkResult.Data.QrCode,
+                    PaymentStatus = linkResult.Data.PaymentStatus
+                },
+                "Payment transaction attempt created successfully.");
+        }
+
+        if (request.PaymentProvider == PaymentProvider.SEPAY &&
+            request.PaymentMethod == PaymentMethod.QR_CODE)
+        {
+            if (!_sePayOptions.Enabled || !_sePayOptions.VietQrEnabled)
+            {
+                return Failure<PaymentTransactionAttemptResponseDto>(
+                    PaymentErrorCodes.SePayDisabled,
+                    "SePay VietQR is disabled.",
+                    isBadRequest: true);
+            }
+
+            var now = DateTime.UtcNow;
+            var transaction = new PaymentTransaction
+            {
+                PaymentTransactionId = Guid.NewGuid(),
+                PaymentId = payment.PaymentId,
+                ProjectId = payment.ProjectId,
+                OrderId = payment.OrderId,
+                TransactionCode = await GenerateUniqueTransactionCodeAsync(cancellationToken),
+                TransactionType = PaymentTransactionType.CHARGE,
+                Amount = payment.Amount,
+                Currency = payment.Currency,
+                PaymentProvider = PaymentProvider.SEPAY,
+                PaymentMethod = PaymentMethod.QR_CODE,
+                Status = PaymentTransactionStatus.PENDING,
+                CreatedAt = now
+            };
+
+            var vietQrUrl = _vietQrUrlBuilder.Build(payment);
+            transaction.PaymentUrl = vietQrUrl;
+            PaymentSummaryCalculator.MarkProcessing(payment, now);
+
+            await _payments.AddTransactionAsync(transaction, cancellationToken);
+            _payments.UpdatePayment(payment);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
+                new PaymentTransactionAttemptResponseDto
+                {
+                    PaymentTransactionId = transaction.PaymentTransactionId,
+                    PaymentId = payment.PaymentId,
+                    TransactionCode = transaction.TransactionCode,
+                    Amount = transaction.Amount,
+                    Currency = transaction.Currency,
+                    Status = transaction.Status,
+                    PaymentProvider = transaction.PaymentProvider,
+                    PaymentMethod = transaction.PaymentMethod,
+                    PaymentUrl = vietQrUrl,
+                    PaymentStatus = payment.Status
+                },
+                "Payment transaction attempt created successfully.");
+        }
+
+        return Failure<PaymentTransactionAttemptResponseDto>(
+            PaymentErrorCodes.PaymentNotPayable,
+            "Unsupported payment provider or method.",
+            isBadRequest: true);
     }
 
     public async Task<ServiceResult<PayOsConfirmWebhookResponseDto>> ConfirmPayOsWebhookAsync(
@@ -954,11 +1101,11 @@ public sealed class PaymentService : IPaymentService
                 isBadRequest: true);
         }
 
-        if (payment.RemainingAmount <= 0m)
+        if (payment.Amount <= 0m)
         {
             return Failure<SePayVietQrResponseDto>(
                 PaymentErrorCodes.InvalidPaymentAmount,
-                "Payment has no remaining amount.",
+                "Payment amount must be greater than zero.",
                 isBadRequest: true);
         }
 

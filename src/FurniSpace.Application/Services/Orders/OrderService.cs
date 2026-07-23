@@ -186,18 +186,17 @@ public sealed class OrderService : IOrderService
             return false;
         }
 
-        if (depositPayment.Status is PaymentStatus.PARTIALLY_PAID or PaymentStatus.PAID)
+        if (depositPayment.Status is PaymentStatus.PROCESSING or PaymentStatus.PAID)
         {
             return true;
         }
 
-        return depositPayment.PaidAmount > 0m;
+        return false;
     }
 
     private static bool CanSyncPendingDepositPayment(Payment depositPayment)
     {
-        return depositPayment.Status == PaymentStatus.PENDING
-            && depositPayment.PaidAmount <= 0m;
+        return depositPayment.Status == PaymentStatus.PENDING;
     }
 
     private static void SyncPendingDepositPayment(
@@ -206,7 +205,6 @@ public sealed class OrderService : IOrderService
         string? adjustmentNote)
     {
         depositPayment.Amount = depositAmount;
-        depositPayment.RemainingAmount = depositAmount;
         if (!string.IsNullOrWhiteSpace(adjustmentNote))
         {
             depositPayment.Note = adjustmentNote.Trim();

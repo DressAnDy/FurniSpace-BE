@@ -43,7 +43,7 @@ public sealed class PaymentRepositoryTests
     }
 
     [Fact]
-    public async Task SumOrderScopedPaidAmountAsync_SumsPaidAndPartiallyPaidPayments()
+    public async Task SumOrderScopedPaidAmountAsync_SumsPaidPaymentsOnly()
     {
         await using var context = CreateContext();
         var data = await SeedAsync(context);
@@ -55,17 +55,26 @@ public sealed class PaymentRepositoryTests
             PaymentCode = "FS87654321",
             PaymentType = PaymentType.REMAINING_PAYMENT,
             Amount = 70m,
-            PaidAmount = 20m,
-            RemainingAmount = 50m,
-            Status = PaymentStatus.PARTIALLY_PAID,
+            Status = PaymentStatus.PAID,
             CreatedAt = DateTime.UtcNow.AddMinutes(1)
+        });
+        context.PaymentSet.Add(new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            ProjectId = data.ProjectId,
+            OrderId = data.OrderId,
+            PaymentCode = "FS87654322",
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = 20m,
+            Status = PaymentStatus.PROCESSING,
+            CreatedAt = DateTime.UtcNow.AddMinutes(2)
         });
         await context.SaveChangesAsync();
         var repository = new PaymentRepository(context);
 
         var sum = await repository.SumOrderScopedPaidAmountAsync(data.OrderId);
 
-        Assert.Equal(50m, sum);
+        Assert.Equal(100m, sum);
     }
 
     [Fact]
@@ -135,8 +144,6 @@ public sealed class PaymentRepositoryTests
             PaymentCode = "FS99999999",
             PaymentType = PaymentType.PROJECT_START_FEE,
             Amount = 500000m,
-            PaidAmount = 0m,
-            RemainingAmount = 500000m,
             Status = PaymentStatus.PENDING,
             CreatedAt = DateTime.UtcNow
         });
@@ -235,8 +242,6 @@ public sealed class PaymentRepositoryTests
             PaymentCode = paymentCode,
             PaymentType = PaymentType.DEPOSIT,
             Amount = 30m,
-            PaidAmount = 30m,
-            RemainingAmount = 0m,
             Status = PaymentStatus.PAID,
             CreatedAt = DateTime.UtcNow
         });

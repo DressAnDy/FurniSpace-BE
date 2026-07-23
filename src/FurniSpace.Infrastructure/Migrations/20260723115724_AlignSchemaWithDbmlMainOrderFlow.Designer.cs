@@ -4,6 +4,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace FurniSpace.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260723115724_AlignSchemaWithDbmlMainOrderFlow")]
+    partial class AlignSchemaWithDbmlMainOrderFlow
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -33,7 +36,7 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_status", new[] { "CREATED", "DEPOSIT_PENDING", "DEPOSIT_PAID", "IN_PRODUCTION", "READY_FOR_DELIVERY", "DELIVERING", "DELIVERED", "FINAL_PAYMENT_PENDING", "COMPLETED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_method", new[] { "PAYMENT_LINK", "QR_CODE", "BANK_TRANSFER", "CASH", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_provider", new[] { "PAYOS", "SEPAY", "CASH", "MANUAL_BANK_TRANSFER", "OTHER" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_status", new[] { "PENDING", "PROCESSING", "PAID", "CANCELLED", "EXPIRED", "REFUNDED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_status", new[] { "PENDING", "PROCESSING", "PARTIALLY_PAID", "PAID", "FAILED", "CANCELLED", "EXPIRED", "REFUNDED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_transaction_status", new[] { "PENDING", "SUCCESS", "FAILED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_transaction_type", new[] { "CHARGE", "REFUND", "ADJUSTMENT" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_type", new[] { "PROJECT_START_FEE", "DEPOSIT", "REMAINING_PAYMENT", "FULL_PAYMENT", "REFUND", "OTHER" });
@@ -322,6 +325,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("numeric(10,2)")
                         .HasColumnName("requested_width");
 
+                    b.Property<Guid?>("SalesReviewBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("sales_review_by");
+
                     b.Property<CustomizationStatus?>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("customization_status")
@@ -347,6 +354,8 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasIndex("ProposalItemId");
 
                     b.HasIndex("RequestedByCustomerId");
+
+                    b.HasIndex("SalesReviewBy");
 
                     b.ToTable("customization_requests", null, t =>
                         {
@@ -983,6 +992,12 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("order_id");
 
+                    b.Property<decimal>("PaidAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(12,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("paid_amount");
+
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("paid_at");
@@ -1009,6 +1024,12 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.Property<Guid?>("QuotationId")
                         .HasColumnType("uuid")
                         .HasColumnName("quotation_id");
+
+                    b.Property<decimal>("RemainingAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(12,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("remaining_amount");
 
                     b.Property<PaymentStatus?>("Status")
                         .ValueGeneratedOnAdd()
@@ -1152,7 +1173,7 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasIndex("PaymentId")
                         .IsUnique()
-                        .HasDatabaseName("idx_payment_transactions_payment_id")
+                        .HasDatabaseName("uq_payment_transactions_one_success")
                         .HasFilter("status = 'SUCCESS'");
 
                     b.HasIndex("ProviderReferenceCode")
@@ -2705,6 +2726,11 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasOne("FurniSpace.Domain.Entities.Account", null)
                         .WithMany()
                         .HasForeignKey("RequestedByCustomerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("SalesReviewBy")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 

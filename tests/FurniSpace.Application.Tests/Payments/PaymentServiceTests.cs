@@ -262,8 +262,6 @@ public sealed class PaymentServiceTests
             ProjectId = _projectId,
             PaymentCode = "FS12345678",
             Amount = 30m,
-            PaidAmount = 0m,
-            RemainingAmount = 30m,
             Status = PaymentStatus.PENDING
         });
         var service = BuildService(new PaymentServiceTestOptions
@@ -622,13 +620,23 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
-    public async Task CreatePayOsPaymentLinkAsync_WhenAmountExceedsRemaining_ReturnsBadRequest()
+    public async Task CreatePayOsPaymentLinkAsync_WhenPaymentAlreadyPaid_ReturnsBadRequest()
     {
         var paymentId = Guid.NewGuid();
         var repository = new PaymentServiceFakeRepository();
         repository.SeedPayment(
             CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m),
             CreatePaymentDetail(paymentId));
+        await repository.AddTransactionAsync(new PaymentTransaction
+        {
+            PaymentTransactionId = Guid.NewGuid(),
+            PaymentId = paymentId,
+            TransactionCode = "TXN-PAID",
+            Amount = 30m,
+            Currency = "VND",
+            Status = PaymentTransactionStatus.SUCCESS,
+            CreatedAt = DateTime.UtcNow
+        });
         var service = BuildService(new PaymentServiceTestOptions
         {
             Role = "CUSTOMER",
@@ -639,10 +647,10 @@ public sealed class PaymentServiceTests
         var result = await service.CreatePayOsPaymentLinkAsync(
             paymentId,
             _customerId,
-            new CreatePayOsPaymentLinkRequestDto { Amount = 100m });
+            new CreatePayOsPaymentLinkRequestDto());
 
         Assert.Equal(400, result.Status);
-        Assert.Equal(PaymentErrorCodes.PaymentAmountExceedsRemaining, result.ErrorCode);
+        Assert.Equal(PaymentErrorCodes.PaymentAlreadyPaid, result.ErrorCode);
     }
 
     [Fact]
@@ -891,8 +899,6 @@ public sealed class PaymentServiceTests
             ProjectId = _projectId,
             PaymentCode = paymentCode,
             Amount = 30m,
-            PaidAmount = 0m,
-            RemainingAmount = 30m,
             Currency = "VND",
             Status = PaymentStatus.PENDING,
             CustomerId = customerId ?? _customerId,
@@ -917,8 +923,6 @@ public sealed class PaymentServiceTests
             PaidBy = _customerId,
             PaymentType = paymentType,
             Amount = amount,
-            PaidAmount = status == PaymentStatus.PAID ? amount : 0m,
-            RemainingAmount = status == PaymentStatus.PAID ? 0m : amount,
             Currency = "VND",
             Status = status,
             CreatedAt = DateTime.UtcNow,

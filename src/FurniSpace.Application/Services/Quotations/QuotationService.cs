@@ -742,6 +742,7 @@ public sealed class QuotationService : IQuotationService
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
             QuotationItemId = quotationItem.QuotationItemId,
+            ItemType = quotationItem.ItemType ?? QuotationItemType.PRODUCT_ITEM,
             ProductVersionId = quotationItem.ProductVersionId,
             ProductNameSnapshot = quotationItem.ProductNameSnapshot ?? quotationItem.ItemName,
             ProductVersionNameSnapshot = quotationItem.ProductVersionNameSnapshot,

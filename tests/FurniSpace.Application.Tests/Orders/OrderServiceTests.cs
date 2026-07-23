@@ -421,6 +421,11 @@ public sealed class OrderServiceTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(0m);
 
+        public Task<bool> HasSuccessfulTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
         public void UpdatePayment(Payment payment)
         {
         }

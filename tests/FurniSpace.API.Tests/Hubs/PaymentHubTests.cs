@@ -168,6 +168,13 @@ public sealed class PaymentHubTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<PayOsPaymentLinkResponseDto>.Unauthorized());
 
+        public Task<ServiceResult<PaymentTransactionAttemptResponseDto>> CreatePaymentTransactionAttemptAsync(
+            Guid paymentId,
+            Guid currentUserId,
+            CreatePaymentTransactionAttemptRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PaymentTransactionAttemptResponseDto>.Unauthorized());
+
         public Task<ServiceResult<PayOsConfirmWebhookResponseDto>> ConfirmPayOsWebhookAsync(
             PayOsConfirmWebhookRequestDto request,
             CancellationToken cancellationToken = default)

@@ -33,6 +33,9 @@ public interface IPaymentRepository
     Task<decimal> SumOrderScopedPaidAmountAsync(
         Guid orderId,
         CancellationToken cancellationToken = default);
+    Task<bool> HasSuccessfulTransactionAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default);
     void UpdatePayment(Payment payment);
     void UpdateTransaction(PaymentTransaction transaction);
 }

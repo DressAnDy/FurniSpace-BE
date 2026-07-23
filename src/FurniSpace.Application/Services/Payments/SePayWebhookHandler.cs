@@ -84,8 +84,27 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
         }
 
         var payment = await LoadCollectablePaymentAsync(paymentCode, providerTransactionId, cancellationToken);
-        if (payment is null || !CanApplyTransferAmount(payment, payload, providerTransactionId))
+        if (payment is null)
         {
+            return SuccessResult();
+        }
+
+        var validationError = ValidateTransfer(payment, payload, providerTransactionId);
+        if (validationError is not null)
+        {
+            _logger?.LogWarning(
+                "SePay webhook rejected. PaymentId={PaymentId}, ProviderTransactionId={ProviderTransactionId}, Error={Error}",
+                payment.PaymentId,
+                providerTransactionId,
+                validationError);
+            return new SePayWebhookProcessResult(400, null, validationError);
+        }
+
+        if (await _payments.HasSuccessfulTransactionAsync(payment.PaymentId, cancellationToken))
+        {
+            _logger?.LogInformation(
+                "SePay webhook ignored: payment already has a successful transaction. PaymentId={PaymentId}",
+                payment.PaymentId);
             return SuccessResult();
         }
 
@@ -188,42 +207,32 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
         return await _payments.GetByIdAsync(paymentDetail.PaymentId, cancellationToken);
     }
 
-    private bool CanApplyTransferAmount(
+    private static string? ValidateTransfer(
         Payment payment,
         SePayWebhookPayloadDto payload,
         string providerTransactionId)
     {
-        if (payment.Status is PaymentStatus.CANCELLED or PaymentStatus.EXPIRED or PaymentStatus.REFUNDED)
+        if (payment.Status is PaymentStatus.CANCELLED or PaymentStatus.EXPIRED or PaymentStatus.REFUNDED or PaymentStatus.PAID)
         {
-            _logger?.LogInformation(
-                "SePay webhook ignored: payment is not collectable. PaymentId={PaymentId}, Status={Status}",
-                payment.PaymentId,
-                payment.Status);
-            return false;
+            return PaymentErrorCodes.PaymentNotPayable;
+        }
+
+        if (ActivePaymentResolver.IsExpired(payment, DateTime.UtcNow))
+        {
+            return PaymentErrorCodes.PaymentExpired;
         }
 
         if (payload.TransferAmount <= 0m)
         {
-            _logger?.LogWarning(
-                "SePay webhook failed: transfer amount must be greater than zero. PaymentId={PaymentId}, ProviderTransactionId={ProviderTransactionId}",
-                payment.PaymentId,
-                providerTransactionId);
-            return false;
+            return PaymentErrorCodes.InvalidPaymentAmount;
         }
 
-        if (_options.StrictAmountCheck &&
-            payload.TransferAmount > payment.RemainingAmount &&
-            !_options.AllowOverpayment)
+        if (payload.TransferAmount != payment.Amount)
         {
-            _logger?.LogWarning(
-                "SePay overpayment detected for payment {PaymentId}. TransferAmount={TransferAmount}, RemainingAmount={RemainingAmount}",
-                payment.PaymentId,
-                payload.TransferAmount,
-                payment.RemainingAmount);
-            return false;
+            return PaymentErrorCodes.PaymentAmountMismatch;
         }
 
-        return true;
+        return null;
     }
 
     private async Task PersistSuccessfulTransferAsync(
@@ -244,7 +253,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
             OrderId = payment.OrderId,
             TransactionCode = transactionCode,
             TransactionType = PaymentTransactionType.CHARGE,
-            Amount = payload.TransferAmount,
+            Amount = payment.Amount,
             Currency = payment.Currency,
             PaymentProvider = PaymentProvider.SEPAY,
             PaymentMethod = PaymentMethod.QR_CODE,
@@ -256,8 +265,19 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
             CreatedAt = now
         };
 
-        var appliedAmount = Math.Min(payload.TransferAmount, payment.RemainingAmount);
-        PaymentSummaryCalculator.ApplyCharge(payment, appliedAmount, now);
+        if (!PaymentSummaryCalculator.TryApplySuccessfulCharge(
+                payment,
+                transaction.Amount,
+                transaction.Currency,
+                now,
+                out var errorCode))
+        {
+            _logger?.LogWarning(
+                "SePay webhook charge rejected. PaymentId={PaymentId}, ErrorCode={ErrorCode}",
+                payment.PaymentId,
+                errorCode);
+            return;
+        }
 
         await PaymentWebhookChargeSupport.CommitSuccessfulChargeAsync(
             _unitOfWork,
@@ -269,10 +289,9 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
             cancellationToken);
 
         _logger?.LogInformation(
-            "SePay webhook processed. PaymentId={PaymentId}, ProviderTransactionId={ProviderTransactionId}, AppliedAmount={AppliedAmount}, Status={Status}",
+            "SePay webhook processed. PaymentId={PaymentId}, ProviderTransactionId={ProviderTransactionId}, Status={Status}",
             payment.PaymentId,
             providerTransactionId,
-            appliedAmount,
             payment.Status);
 
         await PaymentWebhookChargeSupport.PushPaymentUpdatedAsync(
@@ -280,7 +299,6 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
             _logger,
             payment,
             transaction,
-            appliedAmount,
             now,
             cancellationToken);
     }

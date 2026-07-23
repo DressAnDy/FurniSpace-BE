@@ -101,6 +101,26 @@ public sealed class PaymentsController : BaseApiController
     }
 
     [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [HttpPost("{paymentId:guid}/transactions")]
+    public async Task<IActionResult> CreatePaymentTransactionAttempt(
+        Guid paymentId,
+        [FromBody] CreatePaymentTransactionAttemptRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _payments.CreatePaymentTransactionAttemptAsync(
+            paymentId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
     [HttpPost("{paymentId:guid}/payos/payment-link")]
     public async Task<IActionResult> CreatePayOsPaymentLink(
         Guid paymentId,

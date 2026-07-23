@@ -12,8 +12,6 @@ public sealed class PaymentDetailReadModel
     public Guid? PaidBy { get; set; }
     public PaymentType? PaymentType { get; set; }
     public decimal Amount { get; set; }
-    public decimal PaidAmount { get; set; }
-    public decimal RemainingAmount { get; set; }
     public string Currency { get; set; } = "VND";
     public PaymentStatus? Status { get; set; }
     public DateTime? ExpiredAt { get; set; }
@@ -35,8 +33,6 @@ public sealed class PaymentListItemReadModel
     public string PaymentCode { get; set; } = string.Empty;
     public PaymentType? PaymentType { get; set; }
     public decimal Amount { get; set; }
-    public decimal PaidAmount { get; set; }
-    public decimal RemainingAmount { get; set; }
     public string Currency { get; set; } = "VND";
     public PaymentStatus? Status { get; set; }
     public DateTime? ExpiredAt { get; set; }
@@ -75,7 +71,5 @@ public sealed class PaymentStatusByCodeReadModel
     public string PaymentCode { get; set; } = string.Empty;
     public PaymentStatus? Status { get; set; }
     public decimal Amount { get; set; }
-    public decimal PaidAmount { get; set; }
-    public decimal RemainingAmount { get; set; }
     public DateTime? PaidAt { get; set; }
 }

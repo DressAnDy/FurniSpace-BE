@@ -54,7 +54,6 @@ public sealed class PaymentWebhookChargeSupportTests
                 logger: null,
                 payment,
                 transaction,
-                appliedAmount: 10000m,
                 DateTime.UtcNow,
                 CancellationToken.None));
 
@@ -70,8 +69,6 @@ public sealed class PaymentWebhookChargeSupportTests
             ProjectId = Guid.NewGuid(),
             PaymentCode = "FS12345678",
             Amount = 10000m,
-            PaidAmount = 10000m,
-            RemainingAmount = 0m,
             Currency = "VND",
             Status = PaymentStatus.PAID
         };

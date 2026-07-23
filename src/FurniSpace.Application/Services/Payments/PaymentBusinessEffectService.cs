@@ -141,25 +141,9 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
             return;
         }
 
-        if ((order.RemainingAmount ?? 0m) > 0m)
-        {
-            return;
-        }
-
-        order.Status = OrderStatus.COMPLETED;
-        order.UpdatedAt = DateTime.UtcNow;
-        _orders.Update(order);
-
-        if (order.CustomerConfirmedDeliveryAt.HasValue)
-        {
-            var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
-            if (project is not null && project.Status != ProjectStatus.COMPLETED)
-            {
-                project.Status = ProjectStatus.COMPLETED;
-                project.UpdatedAt = DateTime.UtcNow;
-                _projects.Update(project);
-            }
-        }
+        // Remaining payment PAID only updates order financial summary via ApplyOrderCollectionEffectsAsync.
+        // Order/project completion is explicit in a later workflow step.
+        await Task.CompletedTask;
     }
 
     private async Task DispatchProjectStartFeePaidNotificationAsync(

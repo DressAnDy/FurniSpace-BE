@@ -72,8 +72,6 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
             PaymentCode = detail.PaymentCode,
             Status = detail.Status,
             Amount = detail.Amount,
-            PaidAmount = detail.PaidAmount,
-            RemainingAmount = detail.RemainingAmount,
             PaidAt = detail.PaidAt
         });
     }
@@ -179,8 +177,6 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
         if (_details.TryGetValue(payment.PaymentId, out var detail))
         {
             detail.Status = payment.Status;
-            detail.PaidAmount = payment.PaidAmount;
-            detail.RemainingAmount = payment.RemainingAmount;
             detail.PaidAt = payment.PaidAt;
         }
     }
@@ -227,9 +223,20 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
             .Where(payment =>
                 payment.OrderId == orderId &&
                 payment.PaymentType is PaymentType.DEPOSIT or PaymentType.REMAINING_PAYMENT or PaymentType.FULL_PAYMENT &&
-                payment.Status is PaymentStatus.PAID or PaymentStatus.PARTIALLY_PAID)
-            .Sum(payment => payment.PaidAmount);
+                payment.Status == PaymentStatus.PAID)
+            .Sum(payment => payment.Amount);
         return Task.FromResult(sum);
+    }
+
+    public Task<bool> HasSuccessfulTransactionAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        var hasSuccess = _transactions.Any(
+            transaction =>
+                transaction.PaymentId == paymentId &&
+                transaction.Status == PaymentTransactionStatus.SUCCESS);
+        return Task.FromResult(hasSuccess);
     }
 
     private static PaymentDetailReadModel CreateDetailFromPayment(Payment payment)
@@ -242,8 +249,6 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
             PaymentCode = payment.PaymentCode,
             PaymentType = payment.PaymentType,
             Amount = payment.Amount,
-            PaidAmount = payment.PaidAmount,
-            RemainingAmount = payment.RemainingAmount,
             Currency = payment.Currency,
             Status = payment.Status,
             ExpiredAt = payment.ExpiredAt,

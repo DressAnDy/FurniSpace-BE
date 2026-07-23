@@ -19,7 +19,6 @@ internal static class PaymentServiceConstants
     internal static readonly PaymentStatus[] VietQrEligibleStatuses =
     [
         PaymentStatus.PENDING,
-        PaymentStatus.PROCESSING,
-        PaymentStatus.PARTIALLY_PAID
+        PaymentStatus.PROCESSING
     ];
 }

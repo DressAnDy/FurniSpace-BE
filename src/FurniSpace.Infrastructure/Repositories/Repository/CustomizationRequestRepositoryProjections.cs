@@ -42,7 +42,6 @@ internal static class CustomizationRequestRepositoryProjections
             AdditionalCostReason = joined.Request.AdditionalCostReason,
             MaterialAvailable = joined.Request.MaterialAvailable,
             ProductionRiskNote = joined.Request.ProductionRiskNote,
-            SalesReviewBy = joined.Request.SalesReviewBy,
             ApprovedProductVersionId = joined.Request.ApprovedProductVersionId,
             Status = joined.Request.Status,
             CustomerAcceptedAt = joined.Request.CustomerAcceptedAt,

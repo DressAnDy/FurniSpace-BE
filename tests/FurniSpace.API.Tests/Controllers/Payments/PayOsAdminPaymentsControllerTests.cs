@@ -121,6 +121,13 @@ public sealed class PayOsAdminPaymentsControllerTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<PayOsPaymentLinkResponseDto>.Unauthorized());
 
+        public Task<ServiceResult<PaymentTransactionAttemptResponseDto>> CreatePaymentTransactionAttemptAsync(
+            Guid paymentId,
+            Guid currentUserId,
+            CreatePaymentTransactionAttemptRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PaymentTransactionAttemptResponseDto>.Unauthorized());
+
         public Task<ServiceResult<PaymentDetailDto>> CreateTestPaymentAsync(
             Guid currentUserId,
             CreateTestPaymentRequestDto request,

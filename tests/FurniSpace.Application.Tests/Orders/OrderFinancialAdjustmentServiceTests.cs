@@ -264,6 +264,47 @@ public sealed class OrderFinancialAdjustmentServiceTests
         public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task<OrderItem?> GetItemByIdAsync(Guid orderItemId, CancellationToken cancellationToken = default)
+            => Task.FromResult<OrderItem?>(null);
+
+        public Task<OrderAdjustment?> GetAdjustmentByIdAsync(
+            Guid orderAdjustmentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<OrderAdjustment?>(null);
+
+        public Task<OrderAdjustmentItem?> GetAdjustmentItemByIdAsync(
+            Guid orderAdjustmentItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<OrderAdjustmentItem?>(null);
+
+        public Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsAsync(
+            Guid orderAdjustmentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<OrderAdjustmentItem>>([]);
+
+        public Task<bool> HasCancelledProductionItemAsync(
+            Guid orderItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task AddAdjustmentAsync(OrderAdjustment adjustment, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task AddAdjustmentItemAsync(OrderAdjustmentItem item, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public void UpdateAdjustment(OrderAdjustment adjustment)
+        {
+        }
+
+        public void UpdateAdjustmentItem(OrderAdjustmentItem item)
+        {
+        }
+
+        public void RemoveAdjustmentItem(OrderAdjustmentItem item)
+        {
+        }
+
         public IQueryable<Order> Query() => Enumerable.Empty<Order>().AsQueryable();
 
         public Task<IReadOnlyList<Order>> ListAsync(CancellationToken cancellationToken = default)

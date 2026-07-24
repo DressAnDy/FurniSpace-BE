@@ -20,4 +20,27 @@ public interface IOrderService
         Guid currentUserId,
         UpdateOrderFinancialAdjustmentRequestDto request,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<OrderAdjustmentDto>> CreateAdjustmentAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CreateOrderAdjustmentDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<OrderAdjustmentItemDto>> AddAdjustmentItemAsync(
+        Guid orderAdjustmentId,
+        Guid currentUserId,
+        UpsertOrderAdjustmentItemDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<OrderAdjustmentItemDto>> UpdateAdjustmentItemAsync(
+        Guid orderAdjustmentItemId,
+        Guid currentUserId,
+        UpsertOrderAdjustmentItemDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<OrderAdjustmentDto>> DeleteAdjustmentItemAsync(
+        Guid orderAdjustmentItemId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
 }

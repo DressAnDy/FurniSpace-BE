@@ -140,6 +140,84 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPost("orders/{orderId:guid}/adjustments")]
+    public async Task<IActionResult> CreateAdjustment(
+        Guid orderId,
+        [FromBody] CreateOrderAdjustmentDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.CreateAdjustmentAsync(
+            orderId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPost("order-adjustments/{orderAdjustmentId:guid}/items")]
+    public async Task<IActionResult> AddAdjustmentItem(
+        Guid orderAdjustmentId,
+        [FromBody] UpsertOrderAdjustmentItemDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.AddAdjustmentItemAsync(
+            orderAdjustmentId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("order-adjustment-items/{orderAdjustmentItemId:guid}")]
+    public async Task<IActionResult> UpdateAdjustmentItem(
+        Guid orderAdjustmentItemId,
+        [FromBody] UpsertOrderAdjustmentItemDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.UpdateAdjustmentItemAsync(
+            orderAdjustmentItemId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpDelete("order-adjustment-items/{orderAdjustmentItemId:guid}")]
+    public async Task<IActionResult> DeleteAdjustmentItem(
+        Guid orderAdjustmentItemId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.DeleteAdjustmentItemAsync(
+            orderAdjustmentItemId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

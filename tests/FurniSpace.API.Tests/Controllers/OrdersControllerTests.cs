@@ -60,6 +60,19 @@ public sealed class OrdersControllerTests
         Assert.Equal("SALES,ADMIN", authorize.Roles);
     }
 
+    [Theory]
+    [InlineData(nameof(OrdersController.CreateAdjustment))]
+    [InlineData(nameof(OrdersController.AddAdjustmentItem))]
+    [InlineData(nameof(OrdersController.UpdateAdjustmentItem))]
+    [InlineData(nameof(OrdersController.DeleteAdjustmentItem))]
+    public void AdjustmentActions_RequireSalesOrAdmin(string methodName)
+    {
+        var authorize = GetMethodAuthorizeAttribute(methodName);
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
     [Fact]
     public async Task UpdateFinancialAdjustment_ReturnsServiceResult()
     {
@@ -212,6 +225,72 @@ public sealed class OrdersControllerTests
         Assert.IsType<UnauthorizedResult>(result);
     }
 
+    [Fact]
+    public async Task AdjustmentActions_ReturnServiceResultAndPassRequest()
+    {
+        var userId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var adjustmentId = Guid.NewGuid();
+        var adjustmentItemId = Guid.NewGuid();
+        var createRequest = new CreateOrderAdjustmentDto { Reason = "reason" };
+        var itemRequest = new UpsertOrderAdjustmentItemDto
+        {
+            AdjustmentType = OrderAdjustmentItemType.ADDITIONAL_DISCOUNT,
+            AdjustmentAmount = 500_000m,
+            Reason = "discount"
+        };
+        var orderService = new FakeOrderService(
+            createAdjustmentResult: ServiceResult<OrderAdjustmentDto>.Created(
+                new OrderAdjustmentDto { OrderAdjustmentId = adjustmentId },
+                "created"),
+            addAdjustmentItemResult: ServiceResult<OrderAdjustmentItemDto>.Created(
+                new OrderAdjustmentItemDto { OrderAdjustmentItemId = adjustmentItemId },
+                "created"),
+            updateAdjustmentItemResult: ServiceResult<OrderAdjustmentItemDto>.Success(
+                new OrderAdjustmentItemDto { OrderAdjustmentItemId = adjustmentItemId },
+                "updated"),
+            deleteAdjustmentItemResult: ServiceResult<OrderAdjustmentDto>.Success(
+                new OrderAdjustmentDto { OrderAdjustmentId = adjustmentId },
+                "deleted"));
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
+
+        var create = await controller.CreateAdjustment(orderId, createRequest);
+        var add = await controller.AddAdjustmentItem(adjustmentId, itemRequest);
+        var update = await controller.UpdateAdjustmentItem(adjustmentItemId, itemRequest);
+        var delete = await controller.DeleteAdjustmentItem(adjustmentItemId);
+
+        Assert.Equal(201, Assert.IsType<ObjectResult>(create).StatusCode);
+        Assert.Equal(201, Assert.IsType<ObjectResult>(add).StatusCode);
+        Assert.Equal(200, Assert.IsType<ObjectResult>(update).StatusCode);
+        Assert.Equal(200, Assert.IsType<ObjectResult>(delete).StatusCode);
+        Assert.Equal(orderId, orderService.OrderId);
+        Assert.Equal(userId, orderService.CurrentUserId);
+        Assert.Equal(adjustmentId, orderService.OrderAdjustmentId);
+        Assert.Equal(adjustmentItemId, orderService.OrderAdjustmentItemId);
+        Assert.Same(createRequest, orderService.CreateAdjustmentRequest);
+        Assert.Same(itemRequest, orderService.UpsertAdjustmentItemRequest);
+    }
+
+    [Fact]
+    public async Task AdjustmentActions_WithoutUser_ReturnUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var create = await controller.CreateAdjustment(Guid.NewGuid(), new CreateOrderAdjustmentDto());
+        var add = await controller.AddAdjustmentItem(Guid.NewGuid(), new UpsertOrderAdjustmentItemDto());
+        var update = await controller.UpdateAdjustmentItem(Guid.NewGuid(), new UpsertOrderAdjustmentItemDto());
+        var delete = await controller.DeleteAdjustmentItem(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(create);
+        Assert.IsType<UnauthorizedResult>(add);
+        Assert.IsType<UnauthorizedResult>(update);
+        Assert.IsType<UnauthorizedResult>(delete);
+    }
+
     private static AuthorizeAttribute? GetMethodAuthorizeAttribute(string methodName)
     {
         var method = typeof(OrdersController)
@@ -339,16 +418,35 @@ public sealed class OrdersControllerTests
         private readonly ServiceResult<OrderListResponseDto>? _getByProjectResult;
         private readonly ServiceResult<OrderDetailDto>? _getDetailResult;
         private readonly ServiceResult<OrderDetailDto>? _updateFinancialAdjustmentResult;
+        private readonly ServiceResult<OrderAdjustmentDto>? _createAdjustmentResult;
+        private readonly ServiceResult<OrderAdjustmentItemDto>? _addAdjustmentItemResult;
+        private readonly ServiceResult<OrderAdjustmentItemDto>? _updateAdjustmentItemResult;
+        private readonly ServiceResult<OrderAdjustmentDto>? _deleteAdjustmentItemResult;
 
         public FakeOrderService(
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
             ServiceResult<OrderDetailDto>? getDetailResult = null,
-            ServiceResult<OrderDetailDto>? updateFinancialAdjustmentResult = null)
+            ServiceResult<OrderDetailDto>? updateFinancialAdjustmentResult = null,
+            ServiceResult<OrderAdjustmentDto>? createAdjustmentResult = null,
+            ServiceResult<OrderAdjustmentItemDto>? addAdjustmentItemResult = null,
+            ServiceResult<OrderAdjustmentItemDto>? updateAdjustmentItemResult = null,
+            ServiceResult<OrderAdjustmentDto>? deleteAdjustmentItemResult = null)
         {
             _getByProjectResult = getByProjectResult;
             _getDetailResult = getDetailResult;
             _updateFinancialAdjustmentResult = updateFinancialAdjustmentResult;
+            _createAdjustmentResult = createAdjustmentResult;
+            _addAdjustmentItemResult = addAdjustmentItemResult;
+            _updateAdjustmentItemResult = updateAdjustmentItemResult;
+            _deleteAdjustmentItemResult = deleteAdjustmentItemResult;
         }
+
+        public Guid OrderId { get; private set; }
+        public Guid CurrentUserId { get; private set; }
+        public Guid OrderAdjustmentId { get; private set; }
+        public Guid OrderAdjustmentItemId { get; private set; }
+        public CreateOrderAdjustmentDto? CreateAdjustmentRequest { get; private set; }
+        public UpsertOrderAdjustmentItemDto? UpsertAdjustmentItemRequest { get; private set; }
 
         public Task<ServiceResult<OrderListResponseDto>> GetByProjectAsync(
             Guid projectId,
@@ -376,6 +474,52 @@ public sealed class OrdersControllerTests
         {
             return Task.FromResult(
                 _updateFinancialAdjustmentResult ?? ServiceResult<OrderDetailDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderAdjustmentDto>> CreateAdjustmentAsync(
+            Guid orderId,
+            Guid currentUserId,
+            CreateOrderAdjustmentDto request,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            CreateAdjustmentRequest = request;
+            return Task.FromResult(_createAdjustmentResult ?? ServiceResult<OrderAdjustmentDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderAdjustmentItemDto>> AddAdjustmentItemAsync(
+            Guid orderAdjustmentId,
+            Guid currentUserId,
+            UpsertOrderAdjustmentItemDto request,
+            CancellationToken cancellationToken = default)
+        {
+            OrderAdjustmentId = orderAdjustmentId;
+            CurrentUserId = currentUserId;
+            UpsertAdjustmentItemRequest = request;
+            return Task.FromResult(_addAdjustmentItemResult ?? ServiceResult<OrderAdjustmentItemDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderAdjustmentItemDto>> UpdateAdjustmentItemAsync(
+            Guid orderAdjustmentItemId,
+            Guid currentUserId,
+            UpsertOrderAdjustmentItemDto request,
+            CancellationToken cancellationToken = default)
+        {
+            OrderAdjustmentItemId = orderAdjustmentItemId;
+            CurrentUserId = currentUserId;
+            UpsertAdjustmentItemRequest = request;
+            return Task.FromResult(_updateAdjustmentItemResult ?? ServiceResult<OrderAdjustmentItemDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderAdjustmentDto>> DeleteAdjustmentItemAsync(
+            Guid orderAdjustmentItemId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            OrderAdjustmentItemId = orderAdjustmentItemId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_deleteAdjustmentItemResult ?? ServiceResult<OrderAdjustmentDto>.Unauthorized());
         }
     }
 

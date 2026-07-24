@@ -28,7 +28,19 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         Guid accountId,
         CancellationToken cancellationToken = default);
 
+    Task<ProductionAssigneeReadModel?> GetAssigneeAsync(
+        Guid accountId,
+        CancellationToken cancellationToken = default);
+
     Task<List<AvailableProductionStaffReadModel>> GetAvailableStaffAsync(
         string? search,
+        CancellationToken cancellationToken = default);
+
+    Task<List<ProductionRequestListItemReadModel>> GetQueueAsync(
+        ProductionRequestQueueReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<ProductionRequestDetailReadModel?> GetDetailAsync(
+        Guid productionRequestId,
         CancellationToken cancellationToken = default);
 }

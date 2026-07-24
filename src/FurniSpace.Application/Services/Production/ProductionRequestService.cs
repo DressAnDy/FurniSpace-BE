@@ -8,6 +8,7 @@ using FurniSpace.Application.Interfaces.Production;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
+using FurniSpace.Infrastructure.ReadModels.Production;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 using Microsoft.Extensions.Logging;
@@ -17,12 +18,20 @@ namespace FurniSpace.Application.Services.Production;
 public sealed class ProductionRequestService : IProductionRequestService
 {
     private const string AdminRole = "ADMIN";
+    private const string ProductionRole = "PRODUCTION";
     private const string SalesRole = "SALES";
     private const string OrderReferenceType = "ORDER";
     private const string ProductionStaffNotFoundMessage = "Production staff not found.";
     private const string OrderNotFoundMessage = "Order not found.";
     private const string ProjectNotFoundMessage = "Project not found.";
     private const string ProductionRequestNotFoundMessage = "Production request not found.";
+    private static readonly ProductionRequestStatus[] AssignableStatuses =
+    [
+        ProductionRequestStatus.PENDING_REVIEW,
+        ProductionRequestStatus.FEASIBLE,
+        ProductionRequestStatus.IN_PRODUCTION,
+        ProductionRequestStatus.BLOCKED
+    ];
 
     private readonly IProductionRequestRepository _productionRequests;
     private readonly IOrderRepository _orders;
@@ -90,11 +99,12 @@ public sealed class ProductionRequestService : IProductionRequestService
                 "Deposit payment must be PAID.");
         }
 
-        if (!await _productionRequests.IsActiveProductionStaffAsync(request.AssignedTo, cancellationToken))
+        var assigneeError = await ValidateProductionAssigneeAsync<ProductionRequestCreatedDto>(
+            request.AssignedTo,
+            cancellationToken);
+        if (assigneeError is not null)
         {
-            return NotFound<ProductionRequestCreatedDto>(
-                ProductionErrorCodes.ProductionStaffNotFound,
-                ProductionStaffNotFoundMessage);
+            return assigneeError;
         }
 
         if (await _productionRequests.HasActiveRequestForOrderAsync(orderId, cancellationToken))
@@ -198,6 +208,145 @@ public sealed class ProductionRequestService : IProductionRequestService
             "Available Production Staff retrieved successfully.");
     }
 
+    public async Task<ServiceResult<ProductionRequestAssignmentDto>> AssignAsync(
+        Guid productionRequestId,
+        Guid currentUserId,
+        AssignProductionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var accessError = await ValidateSalesAdminAsync<ProductionRequestAssignmentDto>(
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var assigneeError = await ValidateProductionAssigneeAsync<ProductionRequestAssignmentDto>(
+            request.AssignedTo,
+            cancellationToken);
+        if (assigneeError is not null)
+        {
+            return assigneeError;
+        }
+
+        var detail = await _productionRequests.GetDetailAsync(productionRequestId, cancellationToken);
+        if (detail is null)
+        {
+            return NotFound<ProductionRequestAssignmentDto>(
+                ProductionErrorCodes.ProductionRequestNotFound,
+                ProductionRequestNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanManageProductionRequest(role, detail.AssignedSalesId, currentUserId))
+        {
+            return ServiceResult<ProductionRequestAssignmentDto>.Forbidden(
+                "You do not have permission to assign this production request.");
+        }
+
+        if (!detail.Status.HasValue || !AssignableStatuses.Contains(detail.Status.Value))
+        {
+            return BadRequest<ProductionRequestAssignmentDto>(
+                ProductionErrorCodes.ProductionRequestAlreadyClosed,
+                "Production request is already closed.");
+        }
+
+        var productionRequest = await _productionRequests.GetByIdAsync(productionRequestId, cancellationToken);
+        if (productionRequest is null)
+        {
+            return NotFound<ProductionRequestAssignmentDto>(
+                ProductionErrorCodes.ProductionRequestNotFound,
+                ProductionRequestNotFoundMessage);
+        }
+
+        var previousAssignedTo = productionRequest.AssignedTo;
+        productionRequest.AssignedTo = request.AssignedTo;
+        productionRequest.Note = MergeAssignmentNote(productionRequest.Note, request.AssignmentNote);
+        productionRequest.UpdatedAt = DateTime.UtcNow;
+        _productionRequests.Update(productionRequest);
+        await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
+
+        await DispatchAssignedNotificationAsync(productionRequest, detail.ProjectName, cancellationToken);
+
+        return ServiceResult<ProductionRequestAssignmentDto>.Success(
+            new ProductionRequestAssignmentDto
+            {
+                ProductionRequestId = productionRequest.ProductionRequestId,
+                PreviousAssignedTo = previousAssignedTo,
+                AssignedTo = productionRequest.AssignedTo,
+                Status = productionRequest.Status.ToString() ?? string.Empty,
+                UpdatedAt = productionRequest.UpdatedAt
+            },
+            "Production request assigned successfully.");
+    }
+
+    public async Task<ServiceResult<ProductionRequestListResponseDto>> GetQueueAsync(
+        Guid currentUserId,
+        ProductionRequestQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProductionRequestListResponseDto>.Unauthorized();
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanViewProductionQueue(role))
+        {
+            return ServiceResult<ProductionRequestListResponseDto>.Forbidden(
+                "You do not have permission to view production requests.");
+        }
+
+        var items = await _productionRequests.GetQueueAsync(
+            new ProductionRequestQueueReadModel
+            {
+                Status = query.Status,
+                AssignedTo = query.AssignedTo,
+                Priority = NormalizeOptionalPriority(query.Priority),
+                CurrentUserRole = role,
+                CurrentUserId = currentUserId
+            },
+            cancellationToken);
+
+        return ServiceResult<ProductionRequestListResponseDto>.Success(
+            new ProductionRequestListResponseDto
+            {
+                Items = items.Select(ToListItemDto).ToList()
+            },
+            "Production requests retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProductionRequestDetailDto>> GetDetailAsync(
+        Guid productionRequestId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProductionRequestDetailDto>.Unauthorized();
+        }
+
+        var detail = await _productionRequests.GetDetailAsync(productionRequestId, cancellationToken);
+        if (detail is null)
+        {
+            return NotFound<ProductionRequestDetailDto>(
+                ProductionErrorCodes.ProductionRequestNotFound,
+                ProductionRequestNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanViewProductionRequest(role, detail.AssignedSalesId, currentUserId))
+        {
+            return ServiceResult<ProductionRequestDetailDto>.Forbidden(
+                "You do not have permission to view this production request.");
+        }
+
+        return ServiceResult<ProductionRequestDetailDto>.Success(
+            ToDetailDto(detail),
+            "Production request detail retrieved successfully.");
+    }
+
     private async Task<ProductionRequest> BuildProductionRequestAsync(
         Order order,
         CreateProductionRequestDto request,
@@ -273,6 +422,42 @@ public sealed class ProductionRequestService : IProductionRequestService
         return null;
     }
 
+    private async Task<ServiceResult<T>?> ValidateProductionAssigneeAsync<T>(
+        Guid assignedTo,
+        CancellationToken cancellationToken)
+    {
+        if (assignedTo == Guid.Empty)
+        {
+            return BadRequest<T>(
+                ProductionErrorCodes.InvalidProductionAssignee,
+                "Assigned production staff is required.");
+        }
+
+        var assignee = await _productionRequests.GetAssigneeAsync(assignedTo, cancellationToken);
+        if (assignee is null)
+        {
+            return NotFound<T>(
+                ProductionErrorCodes.ProductionStaffNotFound,
+                ProductionStaffNotFoundMessage);
+        }
+
+        if (assignee.RoleName != ProductionRole)
+        {
+            return BadRequest<T>(
+                ProductionErrorCodes.InvalidProductionAssignee,
+                "Selected account does not have Production role.");
+        }
+
+        if (assignee.Status != AccountStatus.ACTIVE || assignee.DeletedAt is not null)
+        {
+            return BadRequest<T>(
+                ProductionErrorCodes.ProductionAssigneeNotActive,
+                "Selected Production account is not active.");
+        }
+
+        return null;
+    }
+
     private static ServiceResult<ProductionRequestCreatedDto>? ValidateCreateRequest(
         CreateProductionRequestDto request)
     {
@@ -300,6 +485,14 @@ public sealed class ProductionRequestService : IProductionRequestService
         Project project,
         CancellationToken cancellationToken)
     {
+        await DispatchAssignedNotificationAsync(productionRequest, project.ProjectName, cancellationToken);
+    }
+
+    private async Task DispatchAssignedNotificationAsync(
+        ProductionRequest productionRequest,
+        string projectName,
+        CancellationToken cancellationToken)
+    {
         if (_dependencies.Notifications is null || productionRequest.AssignedTo is null)
         {
             return;
@@ -312,10 +505,10 @@ public sealed class ProductionRequestService : IProductionRequestService
                 new Dictionary<string, string>
                 {
                     ["ProductionCode"] = productionRequest.ProductionCode ?? string.Empty,
-                    ["ProjectName"] = project.ProjectName
+                    ["ProjectName"] = projectName
                 },
                 [productionRequest.AssignedTo.Value],
-                project.ProjectId,
+                productionRequest.ProjectId,
                 OrderReferenceType,
                 productionRequest.OrderId,
                 cancellationToken);
@@ -334,6 +527,121 @@ public sealed class ProductionRequestService : IProductionRequestService
         return string.IsNullOrWhiteSpace(priority)
             ? "NORMAL"
             : priority.Trim().ToUpperInvariant();
+    }
+
+    private static string? NormalizeOptionalPriority(string? priority)
+    {
+        return string.IsNullOrWhiteSpace(priority)
+            ? null
+            : priority.Trim().ToUpperInvariant();
+    }
+
+    private static bool CanManageProductionRequest(
+        string? role,
+        Guid? assignedSalesId,
+        Guid currentUserId)
+    {
+        return role == AdminRole || role == SalesRole && assignedSalesId == currentUserId;
+    }
+
+    private static bool CanViewProductionQueue(string? role)
+    {
+        return role is AdminRole or SalesRole or ProductionRole;
+    }
+
+    private static bool CanViewProductionRequest(
+        string? role,
+        Guid? assignedSalesId,
+        Guid currentUserId)
+    {
+        return role is AdminRole or ProductionRole ||
+            role == SalesRole && assignedSalesId == currentUserId;
+    }
+
+    private static string? MergeAssignmentNote(string? currentNote, string? assignmentNote)
+    {
+        var note = assignmentNote?.Trim();
+        if (string.IsNullOrWhiteSpace(note))
+        {
+            return currentNote;
+        }
+
+        return string.IsNullOrWhiteSpace(currentNote)
+            ? note
+            : $"{currentNote.Trim()}{Environment.NewLine}{note}";
+    }
+
+    private static ProductionRequestListItemDto ToListItemDto(
+        ProductionRequestListItemReadModel item)
+    {
+        return new ProductionRequestListItemDto
+        {
+            ProductionRequestId = item.ProductionRequestId,
+            ProductionCode = item.ProductionCode,
+            ProjectId = item.ProjectId,
+            ProjectCode = item.ProjectCode,
+            ProjectName = item.ProjectName,
+            OrderId = item.OrderId,
+            OrderCode = item.OrderCode,
+            AssignedTo = item.AssignedTo,
+            AssignedToName = item.AssignedToName,
+            Status = item.Status.ToString() ?? string.Empty,
+            Priority = item.Priority,
+            EstimatedStartDate = item.EstimatedStartDate,
+            EstimatedCompletionDate = item.EstimatedCompletionDate,
+            ProductionItemCount = item.ProductionItemCount,
+            CreatedAt = item.CreatedAt,
+            UpdatedAt = item.UpdatedAt
+        };
+    }
+
+    private static ProductionRequestDetailDto ToDetailDto(
+        ProductionRequestDetailReadModel detail)
+    {
+        return new ProductionRequestDetailDto
+        {
+            ProductionRequestId = detail.ProductionRequestId,
+            ProductionCode = detail.ProductionCode,
+            ProjectId = detail.ProjectId,
+            ProjectCode = detail.ProjectCode,
+            ProjectName = detail.ProjectName,
+            OrderId = detail.OrderId,
+            OrderCode = detail.OrderCode,
+            AssignedTo = detail.AssignedTo,
+            AssignedToName = detail.AssignedToName,
+            Status = detail.Status.ToString() ?? string.Empty,
+            Priority = detail.Priority,
+            EstimatedStartDate = detail.EstimatedStartDate,
+            EstimatedCompletionDate = detail.EstimatedCompletionDate,
+            ActualStartDate = detail.ActualStartDate,
+            ActualCompletionDate = detail.ActualCompletionDate,
+            CancellationReason = detail.CancellationReason,
+            Note = detail.Note,
+            CreatedAt = detail.CreatedAt,
+            UpdatedAt = detail.UpdatedAt,
+            Items = detail.Items.Select(ToItemDto).ToList()
+        };
+    }
+
+    private static ProductionItemDto ToItemDto(ProductionItemReadModel item)
+    {
+        return new ProductionItemDto
+        {
+            ProductionItemId = item.ProductionItemId,
+            ProductionRequestId = item.ProductionRequestId,
+            OrderItemId = item.OrderItemId,
+            ProductVersionId = item.ProductVersionId,
+            ProductNameSnapshot = item.ProductNameSnapshot,
+            ProductVersionNameSnapshot = item.ProductVersionNameSnapshot,
+            Quantity = item.Quantity,
+            Status = item.Status.ToString() ?? string.Empty,
+            MaterialNote = item.MaterialNote,
+            ProductionNote = item.ProductionNote,
+            EstimatedCompletionDate = item.EstimatedCompletionDate,
+            StartedAt = item.StartedAt,
+            CompletedAt = item.CompletedAt,
+            OrderItemStatus = item.OrderItemStatus.ToString()
+        };
     }
 
     private static ServiceResult<T> BadRequest<T>(string code, string message)
@@ -368,9 +676,12 @@ public static class ProductionErrorCodes
 {
     public const string DepositNotPaid = "DEPOSIT_NOT_PAID";
     public const string InvalidOrderStatus = "INVALID_ORDER_STATUS";
+    public const string InvalidProductionAssignee = "INVALID_PRODUCTION_ASSIGNEE";
     public const string InvalidProductionRequestDate = "INVALID_PRODUCTION_REQUEST_DATE";
     public const string InvalidProductionStaffFilter = "INVALID_PRODUCTION_STAFF_FILTER";
     public const string OrderNotFound = "ORDER_NOT_FOUND";
+    public const string ProductionAssigneeNotActive = "PRODUCTION_ASSIGNEE_NOT_ACTIVE";
+    public const string ProductionRequestAlreadyClosed = "PRODUCTION_REQUEST_ALREADY_CLOSED";
     public const string ProductionRequestAlreadyExists = "PRODUCTION_REQUEST_ALREADY_EXISTS";
     public const string ProductionRequestNotFound = "PRODUCTION_REQUEST_NOT_FOUND";
     public const string ProductionStaffNotFound = "PRODUCTION_STAFF_NOT_FOUND";

@@ -290,6 +290,249 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(403, forbidden.Status);
     }
 
+    [Fact]
+    public async Task AssignAsync_WhenValid_ReassignsAndNotifies()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        await context.SaveChangesAsync();
+        var secondProductionId = Guid.NewGuid();
+        AddProductionAccount(context, secondProductionId, AccountStatus.ACTIVE);
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.PENDING_REVIEW);
+        productionRequest.Note = "Initial note";
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(context, dispatcher);
+
+        var result = await service.AssignAsync(
+            productionRequest.ProductionRequestId,
+            _salesId,
+            new AssignProductionRequestDto
+            {
+                AssignedTo = secondProductionId,
+                AssignmentNote = " Reassigned due to workload. "
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(_productionId, result.Data!.PreviousAssignedTo);
+        Assert.Equal(secondProductionId, result.Data.AssignedTo);
+        Assert.Contains("Reassigned due to workload.", context.ProductionRequestSet.Single().Note, StringComparison.Ordinal);
+        Assert.Equal(secondProductionId, Assert.Single(dispatcher.ReceiverIds));
+    }
+
+    [Fact]
+    public async Task AssignAsync_WithSameProductionStaff_SucceedsIdempotently()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.FEASIBLE);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.AssignAsync(
+            productionRequest.ProductionRequestId,
+            _salesId,
+            new AssignProductionRequestDto { AssignedTo = _productionId });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(_productionId, result.Data!.PreviousAssignedTo);
+        Assert.Equal(_productionId, result.Data.AssignedTo);
+    }
+
+    [Theory]
+    [InlineData(ProductionRequestStatus.COMPLETED)]
+    [InlineData(ProductionRequestStatus.CANCELLED)]
+    public async Task AssignAsync_WhenRequestClosed_ReturnsBadRequest(ProductionRequestStatus status)
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var productionRequest = CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, status);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.AssignAsync(
+            productionRequest.ProductionRequestId,
+            _salesId,
+            new AssignProductionRequestDto { AssignedTo = _productionId });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionRequestAlreadyClosed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignAsync_WhenAssigneeInvalidOrInactive_ReturnsExpectedErrors()
+    {
+        await using var context = CreateContext();
+        SeedRolesAndAccounts(context, AccountStatus.SUSPENDED);
+        await context.SaveChangesAsync();
+        var customerId = Guid.NewGuid();
+        AddCustomerAccount(context, customerId);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var invalidRole = await service.AssignAsync(
+            Guid.NewGuid(),
+            _salesId,
+            new AssignProductionRequestDto { AssignedTo = customerId });
+        var inactive = await service.AssignAsync(
+            Guid.NewGuid(),
+            _salesId,
+            new AssignProductionRequestDto { AssignedTo = _productionId });
+
+        Assert.Equal(ProductionErrorCodes.InvalidProductionAssignee, invalidRole.ErrorCode);
+        Assert.Equal(ProductionErrorCodes.ProductionAssigneeNotActive, inactive.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignAsync_WhenAssigneeEmptyOrRequestMissing_ReturnsExpectedErrors()
+    {
+        await using var context = CreateContext();
+        SeedRolesAndAccounts(context, AccountStatus.ACTIVE);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var emptyAssignee = await service.AssignAsync(
+            Guid.NewGuid(),
+            _salesId,
+            new AssignProductionRequestDto());
+        var missingRequest = await service.AssignAsync(
+            Guid.NewGuid(),
+            _salesId,
+            new AssignProductionRequestDto { AssignedTo = _productionId });
+
+        Assert.Equal(ProductionErrorCodes.InvalidProductionAssignee, emptyAssignee.ErrorCode);
+        Assert.Equal(ProductionErrorCodes.ProductionRequestNotFound, missingRequest.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AssignAsync_WhenSalesNotAssigned_ReturnsForbidden()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var productionRequest = CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.BLOCKED);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.AssignAsync(
+            productionRequest.ProductionRequestId,
+            Guid.NewGuid(),
+            new AssignProductionRequestDto { AssignedTo = _productionId });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetQueueAsync_ReturnsVisibleProductionRequestsWithFilters()
+    {
+        await using var context = CreateContext();
+        var own = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var otherSalesId = Guid.NewGuid();
+        var other = SeedOrderProjectRequest(context, otherSalesId, _productionId, ProductionRequestStatus.BLOCKED, "URGENT");
+        var ownRequest = CreateProductionRequest(own.ProjectId, own.OrderId, _productionId, ProductionRequestStatus.PENDING_REVIEW);
+        ownRequest.Priority = "NORMAL";
+        context.ProductionRequestSet.Add(ownRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var salesQueue = await service.GetQueueAsync(_salesId, new ProductionRequestQueryDto());
+        var productionQueue = await service.GetQueueAsync(
+            _productionId,
+            new ProductionRequestQueryDto
+            {
+                Status = ProductionRequestStatus.BLOCKED,
+                AssignedTo = _productionId,
+                Priority = " urgent "
+            });
+
+        Assert.Equal(200, salesQueue.Status);
+        Assert.Single(salesQueue.Data!.Items);
+        Assert.Equal(ownRequest.ProductionRequestId, salesQueue.Data.Items[0].ProductionRequestId);
+        Assert.Equal(200, productionQueue.Status);
+        var item = Assert.Single(productionQueue.Data!.Items);
+        Assert.Equal(other.ProductionRequestId, item.ProductionRequestId);
+        Assert.Equal("BLOCKED", item.Status);
+    }
+
+    [Fact]
+    public async Task GetQueueAsync_WhenUnauthorizedOrForbidden_ReturnsExpectedStatus()
+    {
+        await using var context = CreateContext();
+        SeedRolesAndAccounts(context, AccountStatus.ACTIVE);
+        var customerId = Guid.NewGuid();
+        await context.SaveChangesAsync();
+        AddCustomerAccount(context, customerId);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.GetQueueAsync(Guid.Empty, new ProductionRequestQueryDto());
+        var forbidden = await service.GetQueueAsync(customerId, new ProductionRequestQueryDto());
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_ReturnsItemsWhenAuthorized()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var orderItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Display Cabinet");
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.IN_PRODUCTION);
+        context.OrderItemSet.Add(orderItem);
+        context.ProductionRequestSet.Add(productionRequest);
+        context.ProductionItemSet.Add(CreateProductionItem(productionRequest.ProductionRequestId, orderItem));
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.GetDetailAsync(productionRequest.ProductionRequestId, _productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(productionRequest.ProductionRequestId, result.Data!.ProductionRequestId);
+        var item = Assert.Single(result.Data.Items);
+        Assert.Equal(orderItem.OrderItemId, item.OrderItemId);
+        Assert.Equal("PENDING", item.OrderItemStatus);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_WhenMissingOrForbidden_ReturnsExpectedStatus()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.PENDING_REVIEW);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.GetDetailAsync(productionRequest.ProductionRequestId, Guid.Empty);
+        var missing = await service.GetDetailAsync(Guid.NewGuid(), _salesId);
+        var forbidden = await service.GetDetailAsync(productionRequest.ProductionRequestId, Guid.NewGuid());
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionRequestNotFound, missing.ErrorCode);
+        Assert.Equal(403, forbidden.Status);
+    }
+
     private ProductionRequestService BuildService(
         AppDbContext context,
         INotificationDispatcher? dispatcher = null)
@@ -351,6 +594,64 @@ public sealed class ProductionRequestServiceTests
             CreateAccount(_productionId, productionRole.RoleId, "production@example.com", "Production User", productionStatus));
     }
 
+    private static void AddProductionAccount(
+        AppDbContext context,
+        Guid accountId,
+        AccountStatus status)
+    {
+        var roleId = context.RoleSet.Single(role => role.RoleName == "PRODUCTION").RoleId;
+        context.AccountSet.Add(CreateAccount(
+            accountId,
+            roleId,
+            $"{accountId:N}@production.example.com",
+            "Second Production",
+            status));
+    }
+
+    private static void AddCustomerAccount(AppDbContext context, Guid accountId)
+    {
+        var roleId = context.RoleSet.Single(role => role.RoleName == "CUSTOMER").RoleId;
+        context.AccountSet.Add(CreateAccount(
+            accountId,
+            roleId,
+            $"{accountId:N}@customer.example.com",
+            "Customer User",
+            AccountStatus.ACTIVE));
+    }
+
+    private static ProductionRequest SeedOrderProjectRequest(
+        AppDbContext context,
+        Guid salesId,
+        Guid productionId,
+        ProductionRequestStatus status,
+        string priority)
+    {
+        var projectId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var request = CreateProductionRequest(projectId, orderId, productionId, status);
+        request.Priority = priority;
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = salesId,
+            ProjectName = "Other Project",
+            Status = ProjectStatus.IN_PRODUCTION
+        });
+        context.OrderSet.Add(new Order
+        {
+            OrderId = orderId,
+            ProjectId = projectId,
+            QuotationId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            SalesId = salesId,
+            OrderCode = $"ORD-{orderId:N}",
+            Status = OrderStatus.IN_PRODUCTION
+        });
+        context.ProductionRequestSet.Add(request);
+        return request;
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -401,6 +702,7 @@ public sealed class ProductionRequestServiceTests
             ProductNameSnapshot = productName,
             ProductVersionNameSnapshot = $"{productName} Version",
             Quantity = 2,
+            Status = OrderItemStatus.PENDING,
             ProductionNote = "Use premium finish"
         };
     }
@@ -418,6 +720,22 @@ public sealed class ProductionRequestServiceTests
             OrderId = orderId,
             AssignedTo = assignedTo,
             Status = status
+        };
+    }
+
+    private static ProductionItem CreateProductionItem(Guid productionRequestId, OrderItem orderItem)
+    {
+        return new ProductionItem
+        {
+            ProductionItemId = Guid.NewGuid(),
+            ProductionRequestId = productionRequestId,
+            OrderItemId = orderItem.OrderItemId,
+            ProductVersionId = orderItem.ProductVersionId,
+            ProductNameSnapshot = orderItem.ProductNameSnapshot,
+            ProductVersionNameSnapshot = orderItem.ProductVersionNameSnapshot,
+            Quantity = orderItem.Quantity,
+            Status = ProductionItemStatus.PENDING,
+            ProductionNote = orderItem.ProductionNote
         };
     }
 

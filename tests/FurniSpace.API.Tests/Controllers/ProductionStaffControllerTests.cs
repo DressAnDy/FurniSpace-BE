@@ -116,5 +116,30 @@ public sealed class ProductionStaffControllerTests
             return Task.FromResult(
                 _availableResult ?? ServiceResult<List<AvailableProductionStaffDto>>.Unauthorized());
         }
+
+        public Task<ServiceResult<ProductionRequestAssignmentDto>> AssignAsync(
+            Guid productionRequestId,
+            Guid currentUserId,
+            AssignProductionRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProductionRequestAssignmentDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<ProductionRequestListResponseDto>> GetQueueAsync(
+            Guid currentUserId,
+            ProductionRequestQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProductionRequestListResponseDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<ProductionRequestDetailDto>> GetDetailAsync(
+            Guid productionRequestId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProductionRequestDetailDto>.Unauthorized());
+        }
     }
 }

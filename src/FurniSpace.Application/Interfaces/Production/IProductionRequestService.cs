@@ -17,4 +17,20 @@ public interface IProductionRequestService
         Guid currentUserId,
         AvailableProductionStaffQueryDto query,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductionRequestAssignmentDto>> AssignAsync(
+        Guid productionRequestId,
+        Guid currentUserId,
+        AssignProductionRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductionRequestListResponseDto>> GetQueueAsync(
+        Guid currentUserId,
+        ProductionRequestQueryDto query,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductionRequestDetailDto>> GetDetailAsync(
+        Guid productionRequestId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
 }

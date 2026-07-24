@@ -3,8 +3,10 @@
 using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.Orders;
+using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Orders;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.Production;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,11 +18,16 @@ public sealed class OrdersController : BaseApiController
 {
     private readonly IOrderService _orders;
     private readonly IPaymentService _payments;
+    private readonly IProductionRequestService _productionRequests;
 
-    public OrdersController(IOrderService orders, IPaymentService payments)
+    public OrdersController(
+        IOrderService orders,
+        IPaymentService payments,
+        IProductionRequestService productionRequests)
     {
         _orders = orders;
         _payments = payments;
+        _productionRequests = productionRequests;
     }
 
     [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
@@ -106,6 +113,26 @@ public sealed class OrdersController : BaseApiController
         }
 
         var result = await _payments.CreateRemainingPaymentForOrderAsync(
+            orderId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPost("orders/{orderId:guid}/production-request")]
+    public async Task<IActionResult> CreateProductionRequest(
+        Guid orderId,
+        [FromBody] CreateProductionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _productionRequests.CreateAsync(
             orderId,
             currentUserId,
             request,

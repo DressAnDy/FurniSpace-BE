@@ -24,5 +24,6 @@ public enum NotificationType
     ProjectScheduleConfirmed,
     ProjectScheduleCompleted,
     ProjectScheduleCancelled,
-    OrderDepositPaid
+    OrderDepositPaid,
+    ProductionRequestAssigned
 }

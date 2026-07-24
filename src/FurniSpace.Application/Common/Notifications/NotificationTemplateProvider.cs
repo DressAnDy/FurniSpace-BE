@@ -132,6 +132,12 @@ public static class NotificationTemplateProvider
                 "The {ScheduleType} schedule for project \"{ProjectName}\" has been cancelled.",
                 NotificationDeliveryLevel.InAppRealtime),
 
+            NotificationType.ProductionRequestAssigned => new NotificationTemplate(
+                "Production request assigned",
+                "Production request \"{ProductionCode}\" for project \"{ProjectName}\" has been assigned to you.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "production_request.assigned"),
+
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown notification type.")
         };
     }

@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading;
@@ -9,8 +10,10 @@ using FurniSpace.API.Controllers.Projects;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
+using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Orders;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.Production;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -49,6 +52,15 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
+    public void CreateProductionRequest_RequiresSalesOrAdmin()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.CreateProductionRequest));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public async Task UpdateFinancialAdjustment_ReturnsServiceResult()
     {
         var orderId = Guid.NewGuid();
@@ -57,7 +69,7 @@ public sealed class OrdersControllerTests
             updateFinancialAdjustmentResult: ServiceResult<OrderDetailDto>.Success(
                 new OrderDetailDto { OrderId = orderId, FinalTotalAmount = 95_000_000m },
                 "updated"));
-        var controller = CreateController(orderService, new FakePaymentService(), userId);
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
 
         var result = await controller.UpdateFinancialAdjustment(
             orderId,
@@ -74,7 +86,7 @@ public sealed class OrdersControllerTests
     [Fact]
     public async Task GetByProject_WithoutUser_ReturnsUnauthorized()
     {
-        var controller = CreateController(new FakeOrderService(), new FakePaymentService(), userId: null);
+        var controller = CreateController(new FakeOrderService(), new FakePaymentService(), new FakeProductionRequestService(), userId: null);
 
         var result = await controller.GetByProject(Guid.NewGuid());
 
@@ -90,7 +102,7 @@ public sealed class OrdersControllerTests
             getByProjectResult: ServiceResult<OrderListResponseDto>.Success(
                 new OrderListResponseDto { Items = [] },
                 "ok"));
-        var controller = CreateController(orderService, new FakePaymentService(), userId);
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
 
         var result = await controller.GetByProject(projectId);
 
@@ -107,7 +119,7 @@ public sealed class OrdersControllerTests
             createDepositResult: ServiceResult<PaymentDetailDto>.Created(
                 new PaymentDetailDto { PaymentId = Guid.NewGuid(), PaymentType = PaymentType.DEPOSIT },
                 "created"));
-        var controller = CreateController(new FakeOrderService(), paymentService, userId);
+        var controller = CreateController(new FakeOrderService(), paymentService, new FakeProductionRequestService(), userId);
 
         var result = await controller.CreateDepositPayment(
             orderId,
@@ -120,7 +132,7 @@ public sealed class OrdersControllerTests
     [Fact]
     public async Task GetDetail_WithoutUser_ReturnsUnauthorized()
     {
-        var controller = CreateController(new FakeOrderService(), new FakePaymentService(), userId: null);
+        var controller = CreateController(new FakeOrderService(), new FakePaymentService(), new FakeProductionRequestService(), userId: null);
 
         var result = await controller.GetDetail(Guid.NewGuid());
 
@@ -136,7 +148,7 @@ public sealed class OrdersControllerTests
             getDetailResult: ServiceResult<OrderDetailDto>.Success(
                 new OrderDetailDto { OrderId = orderId },
                 "ok"));
-        var controller = CreateController(orderService, new FakePaymentService(), userId);
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
 
         var result = await controller.GetDetail(orderId);
 
@@ -153,7 +165,7 @@ public sealed class OrdersControllerTests
             createRemainingResult: ServiceResult<PaymentDetailDto>.Created(
                 new PaymentDetailDto { PaymentType = PaymentType.REMAINING_PAYMENT },
                 "created"));
-        var controller = CreateController(new FakeOrderService(), paymentService, userId);
+        var controller = CreateController(new FakeOrderService(), paymentService, new FakeProductionRequestService(), userId);
 
         var result = await controller.CreateRemainingPayment(
             orderId,
@@ -161,6 +173,43 @@ public sealed class OrdersControllerTests
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(201, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateProductionRequest_ReturnsServiceResultAndPassesRequest()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new CreateProductionRequestDto { AssignedTo = Guid.NewGuid(), Priority = "NORMAL" };
+        var productionService = new FakeProductionRequestService(
+            createResult: ServiceResult<ProductionRequestCreatedDto>.Created(
+                new ProductionRequestCreatedDto { OrderId = orderId },
+                "created"));
+        var controller = CreateController(new FakeOrderService(), new FakePaymentService(), productionService, userId);
+
+        var result = await controller.CreateProductionRequest(orderId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(orderId, productionService.OrderId);
+        Assert.Equal(userId, productionService.CurrentUserId);
+        Assert.Same(request, productionService.CreateRequest);
+    }
+
+    [Fact]
+    public async Task CreateProductionRequest_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.CreateProductionRequest(
+            Guid.NewGuid(),
+            new CreateProductionRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(result);
     }
 
     private static AuthorizeAttribute? GetMethodAuthorizeAttribute(string methodName)
@@ -177,9 +226,10 @@ public sealed class OrdersControllerTests
     private static OrdersController CreateController(
         FakeOrderService orderService,
         FakePaymentService paymentService,
+        FakeProductionRequestService productionService,
         Guid? userId)
     {
-        var controller = new OrdersController(orderService, paymentService);
+        var controller = new OrdersController(orderService, paymentService, productionService);
         if (userId.HasValue)
         {
             controller.ControllerContext = new ControllerContext
@@ -195,6 +245,41 @@ public sealed class OrdersControllerTests
         }
 
         return controller;
+    }
+
+    private sealed class FakeProductionRequestService : IProductionRequestService
+    {
+        private readonly ServiceResult<ProductionRequestCreatedDto>? _createResult;
+
+        public FakeProductionRequestService(ServiceResult<ProductionRequestCreatedDto>? createResult = null)
+        {
+            _createResult = createResult;
+        }
+
+        public Guid OrderId { get; private set; }
+        public Guid CurrentUserId { get; private set; }
+        public CreateProductionRequestDto? CreateRequest { get; private set; }
+
+        public Task<ServiceResult<ProductionRequestCreatedDto>> CreateAsync(
+            Guid orderId,
+            Guid currentUserId,
+            CreateProductionRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            CreateRequest = request;
+            return Task.FromResult(
+                _createResult ?? ServiceResult<ProductionRequestCreatedDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<List<AvailableProductionStaffDto>>> GetAvailableStaffAsync(
+            Guid currentUserId,
+            AvailableProductionStaffQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<List<AvailableProductionStaffDto>>.Unauthorized());
+        }
     }
 
     private sealed class FakeOrderService : IOrderService

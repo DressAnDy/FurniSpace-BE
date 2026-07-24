@@ -305,6 +305,33 @@ public sealed class OrdersControllerTests
         {
             return Task.FromResult(ServiceResult<ProductionRequestDetailDto>.Unauthorized());
         }
+
+        public Task<ServiceResult<ProductionRequestStatusDto>> MarkFeasibleAsync(
+            Guid productionRequestId,
+            Guid currentUserId,
+            MarkProductionRequestFeasibleDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProductionRequestStatusDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<ProductionRequestStatusDto>> StartAsync(
+            Guid productionRequestId,
+            Guid currentUserId,
+            StartProductionRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProductionRequestStatusDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<ProductionItemStatusDto>> UpdateItemStatusAsync(
+            Guid productionItemId,
+            Guid currentUserId,
+            UpdateProductionItemStatusDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProductionItemStatusDto>.Unauthorized());
+        }
     }
 
     private sealed class FakeOrderService : IOrderService

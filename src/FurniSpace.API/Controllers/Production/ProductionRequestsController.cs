@@ -74,6 +74,46 @@ public sealed class ProductionRequestsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "PRODUCTION,ADMIN")]
+    [HttpPatch("{productionRequestId:guid}/mark-feasible")]
+    public async Task<IActionResult> MarkFeasible(
+        Guid productionRequestId,
+        [FromBody] MarkProductionRequestFeasibleDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _productionRequests.MarkFeasibleAsync(
+            productionRequestId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "PRODUCTION,ADMIN")]
+    [HttpPatch("{productionRequestId:guid}/start")]
+    public async Task<IActionResult> Start(
+        Guid productionRequestId,
+        [FromBody] StartProductionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _productionRequests.StartAsync(
+            productionRequestId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

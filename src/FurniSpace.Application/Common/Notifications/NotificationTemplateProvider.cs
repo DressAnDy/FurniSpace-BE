@@ -138,6 +138,12 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "production_request.assigned"),
 
+            NotificationType.ProductionItemCancelled => new NotificationTemplate(
+                "Production item cancelled",
+                "Production item \"{ProductName}\" in production request \"{ProductionCode}\" was cancelled.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "production_item.cancelled"),
+
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown notification type.")
         };
     }

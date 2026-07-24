@@ -199,6 +199,34 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         return detail;
     }
 
+    public Task<ProductionItem?> GetItemByIdAsync(
+        Guid productionItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProductionItemSet.FirstOrDefaultAsync(
+            item => item.ProductionItemId == productionItemId,
+            cancellationToken);
+    }
+
+    public async Task<ProductionRequestDetailReadModel?> GetDetailByItemIdAsync(
+        Guid productionItemId,
+        CancellationToken cancellationToken = default)
+    {
+        var productionRequestId = await DbContext.ProductionItemSet
+            .Where(item => item.ProductionItemId == productionItemId)
+            .Select(item => (Guid?)item.ProductionRequestId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return productionRequestId.HasValue
+            ? await GetDetailAsync(productionRequestId.Value, cancellationToken)
+            : null;
+    }
+
+    public void UpdateItem(ProductionItem item)
+    {
+        DbContext.ProductionItemSet.Update(item);
+    }
+
     private IQueryable<ProductionRequestListItemReadModel> BuildQueueQuery()
     {
         return from request in DbContext.ProductionRequestSet

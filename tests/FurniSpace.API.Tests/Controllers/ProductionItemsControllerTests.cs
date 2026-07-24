@@ -10,6 +10,7 @@ using FurniSpace.API.Controllers.Production;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Production;
+using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -17,56 +18,56 @@ using Xunit;
 
 namespace FurniSpace.API.Tests.Controllers;
 
-public sealed class ProductionStaffControllerTests
+public sealed class ProductionItemsControllerTests
 {
     [Fact]
-    public void Controller_RequiresSalesOrAdmin()
+    public void Controller_RequiresProductionOrAdmin()
     {
-        var authorize = typeof(ProductionStaffController)
+        var authorize = typeof(ProductionItemsController)
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
             .Cast<AuthorizeAttribute>()
             .Single();
 
-        Assert.Equal("SALES,ADMIN", authorize.Roles);
+        Assert.Equal("PRODUCTION,ADMIN", authorize.Roles);
     }
 
     [Fact]
-    public async Task GetAvailable_ReturnsServiceResultAndPassesQuery()
+    public async Task UpdateStatus_ReturnsServiceResultAndPassesRequest()
     {
         var userId = Guid.NewGuid();
-        var projectId = Guid.NewGuid();
-        var service = new FakeProductionRequestService(
-            ServiceResult<List<AvailableProductionStaffDto>>.Success([], "ok"));
+        var itemId = Guid.NewGuid();
+        var request = new UpdateProductionItemStatusDto
+        {
+            Status = ProductionItemStatus.IN_PRODUCTION,
+            ProductionNote = "Started"
+        };
+        var service = new FakeProductionRequestService();
         var controller = BuildController(service, userId);
 
-        var result = await controller.GetAvailable(new AvailableProductionStaffQueryDto
-        {
-            ProjectId = projectId,
-            Search = "prod"
-        });
+        var result = await controller.UpdateStatus(itemId, request);
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(200, objectResult.StatusCode);
         Assert.Equal(userId, service.CurrentUserId);
-        Assert.Equal(projectId, service.Query!.ProjectId);
-        Assert.Equal("prod", service.Query.Search);
+        Assert.Equal(itemId, service.ProductionItemId);
+        Assert.Same(request, service.UpdateRequest);
     }
 
     [Fact]
-    public async Task GetAvailable_WithoutUser_ReturnsUnauthorized()
+    public async Task UpdateStatus_WithoutUser_ReturnsUnauthorized()
     {
         var controller = BuildController(new FakeProductionRequestService(), userId: null);
 
-        var result = await controller.GetAvailable(new AvailableProductionStaffQueryDto());
+        var result = await controller.UpdateStatus(Guid.NewGuid(), new UpdateProductionItemStatusDto());
 
         Assert.IsType<UnauthorizedResult>(result);
     }
 
-    private static ProductionStaffController BuildController(
+    private static ProductionItemsController BuildController(
         IProductionRequestService service,
         Guid? userId)
     {
-        var controller = new ProductionStaffController(service);
+        var controller = new ProductionItemsController(service);
         if (userId.HasValue)
         {
             controller.ControllerContext = new ControllerContext
@@ -86,16 +87,9 @@ public sealed class ProductionStaffControllerTests
 
     private sealed class FakeProductionRequestService : IProductionRequestService
     {
-        private readonly ServiceResult<List<AvailableProductionStaffDto>>? _availableResult;
-
-        public FakeProductionRequestService(
-            ServiceResult<List<AvailableProductionStaffDto>>? availableResult = null)
-        {
-            _availableResult = availableResult;
-        }
-
         public Guid CurrentUserId { get; private set; }
-        public AvailableProductionStaffQueryDto? Query { get; private set; }
+        public Guid ProductionItemId { get; private set; }
+        public UpdateProductionItemStatusDto? UpdateRequest { get; private set; }
 
         public Task<ServiceResult<ProductionRequestCreatedDto>> CreateAsync(
             Guid orderId,
@@ -111,10 +105,7 @@ public sealed class ProductionStaffControllerTests
             AvailableProductionStaffQueryDto query,
             CancellationToken cancellationToken = default)
         {
-            CurrentUserId = currentUserId;
-            Query = query;
-            return Task.FromResult(
-                _availableResult ?? ServiceResult<List<AvailableProductionStaffDto>>.Unauthorized());
+            return Task.FromResult(ServiceResult<List<AvailableProductionStaffDto>>.Unauthorized());
         }
 
         public Task<ServiceResult<ProductionRequestAssignmentDto>> AssignAsync(
@@ -166,7 +157,11 @@ public sealed class ProductionStaffControllerTests
             UpdateProductionItemStatusDto request,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(ServiceResult<ProductionItemStatusDto>.Unauthorized());
+            CurrentUserId = currentUserId;
+            ProductionItemId = productionItemId;
+            UpdateRequest = request;
+            return Task.FromResult(ServiceResult<ProductionItemStatusDto>.Success(
+                new ProductionItemStatusDto()));
         }
     }
 }

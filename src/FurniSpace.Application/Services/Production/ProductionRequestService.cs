@@ -25,6 +25,7 @@ public sealed class ProductionRequestService : IProductionRequestService
     private const string OrderNotFoundMessage = "Order not found.";
     private const string ProjectNotFoundMessage = "Project not found.";
     private const string ProductionRequestNotFoundMessage = "Production request not found.";
+    private const string ProductionItemNotFoundMessage = "Production item not found.";
     private static readonly ProductionRequestStatus[] AssignableStatuses =
     [
         ProductionRequestStatus.PENDING_REVIEW,
@@ -347,6 +348,140 @@ public sealed class ProductionRequestService : IProductionRequestService
             "Production request detail retrieved successfully.");
     }
 
+    public async Task<ServiceResult<ProductionRequestStatusDto>> MarkFeasibleAsync(
+        Guid productionRequestId,
+        Guid currentUserId,
+        MarkProductionRequestFeasibleDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var accessError = await ValidateProductionAdminAsync<ProductionRequestStatusDto>(
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var productionRequest = await _productionRequests.GetByIdAsync(productionRequestId, cancellationToken);
+        if (productionRequest is null)
+        {
+            return NotFound<ProductionRequestStatusDto>(
+                ProductionErrorCodes.ProductionRequestNotFound,
+                ProductionRequestNotFoundMessage);
+        }
+
+        if (productionRequest.Status != ProductionRequestStatus.PENDING_REVIEW)
+        {
+            return InvalidRequestTransition<ProductionRequestStatusDto>();
+        }
+
+        var now = DateTime.UtcNow;
+        productionRequest.Status = ProductionRequestStatus.FEASIBLE;
+        productionRequest.Note = MergeNote(productionRequest.Note, request.Note);
+        productionRequest.UpdatedAt = now;
+        _productionRequests.Update(productionRequest);
+        await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<ProductionRequestStatusDto>.Success(
+            ToStatusDto(productionRequest),
+            "Production request marked feasible successfully.");
+    }
+
+    public async Task<ServiceResult<ProductionRequestStatusDto>> StartAsync(
+        Guid productionRequestId,
+        Guid currentUserId,
+        StartProductionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var accessError = await ValidateProductionAdminAsync<ProductionRequestStatusDto>(
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var productionRequest = await _productionRequests.GetByIdAsync(productionRequestId, cancellationToken);
+        if (productionRequest is null)
+        {
+            return NotFound<ProductionRequestStatusDto>(
+                ProductionErrorCodes.ProductionRequestNotFound,
+                ProductionRequestNotFoundMessage);
+        }
+
+        if (productionRequest.Status is not (ProductionRequestStatus.FEASIBLE or ProductionRequestStatus.BLOCKED))
+        {
+            return InvalidRequestTransition<ProductionRequestStatusDto>();
+        }
+
+        var now = DateTime.UtcNow;
+        productionRequest.Status = ProductionRequestStatus.IN_PRODUCTION;
+        productionRequest.ActualStartDate = request.ActualStartDate ?? DateOnly.FromDateTime(now);
+        productionRequest.UpdatedAt = now;
+        _productionRequests.Update(productionRequest);
+        await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<ProductionRequestStatusDto>.Success(
+            ToStatusDto(productionRequest),
+            "Production request started successfully.");
+    }
+
+    public async Task<ServiceResult<ProductionItemStatusDto>> UpdateItemStatusAsync(
+        Guid productionItemId,
+        Guid currentUserId,
+        UpdateProductionItemStatusDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var accessError = await ValidateProductionAdminAsync<ProductionItemStatusDto>(
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        if (!request.Status.HasValue)
+        {
+            return InvalidItemTransition();
+        }
+
+        var item = await _productionRequests.GetItemByIdAsync(productionItemId, cancellationToken);
+        if (item is null)
+        {
+            return NotFound<ProductionItemStatusDto>(
+                ProductionErrorCodes.ProductionItemNotFound,
+                ProductionItemNotFoundMessage);
+        }
+
+        if (!CanMoveProductionItem(item.Status, request.Status.Value))
+        {
+            return InvalidItemTransition();
+        }
+
+        var cancellationReason = request.CancellationReason?.Trim();
+        if (request.Status == ProductionItemStatus.CANCELLED && string.IsNullOrWhiteSpace(cancellationReason))
+        {
+            return BadRequest<ProductionItemStatusDto>(
+                ProductionErrorCodes.ProductionCancellationReasonRequired,
+                "Cancellation reason is required.");
+        }
+
+        var detail = await _productionRequests.GetDetailByItemIdAsync(productionItemId, cancellationToken);
+        var now = DateTime.UtcNow;
+        ApplyItemStatus(item, request, cancellationReason, now);
+        _productionRequests.UpdateItem(item);
+        await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
+
+        if (request.Status == ProductionItemStatus.CANCELLED && detail is not null)
+        {
+            await DispatchItemCancelledNotificationAsync(item, detail, cancellationToken);
+        }
+
+        return ServiceResult<ProductionItemStatusDto>.Success(
+            ToItemStatusDto(item),
+            "Production item status updated successfully.");
+    }
+
     private async Task<ProductionRequest> BuildProductionRequestAsync(
         Order order,
         CreateProductionRequestDto request,
@@ -417,6 +552,24 @@ public sealed class ProductionRequestService : IProductionRequestService
         if (role is not (SalesRole or AdminRole))
         {
             return ServiceResult<T>.Forbidden("You do not have permission to manage production requests.");
+        }
+
+        return null;
+    }
+
+    private async Task<ServiceResult<T>?> ValidateProductionAdminAsync<T>(
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<T>.Unauthorized();
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role is not (ProductionRole or AdminRole))
+        {
+            return ServiceResult<T>.Forbidden("You do not have permission to update production status.");
         }
 
         return null;
@@ -522,6 +675,40 @@ public sealed class ProductionRequestService : IProductionRequestService
         }
     }
 
+    private async Task DispatchItemCancelledNotificationAsync(
+        ProductionItem item,
+        ProductionRequestDetailReadModel detail,
+        CancellationToken cancellationToken)
+    {
+        if (_dependencies.Notifications is null || detail.AssignedSalesId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _dependencies.Notifications.DispatchAsync(
+                NotificationType.ProductionItemCancelled,
+                new Dictionary<string, string>
+                {
+                    ["ProductName"] = item.ProductNameSnapshot ?? string.Empty,
+                    ["ProductionCode"] = detail.ProductionCode ?? string.Empty
+                },
+                [detail.AssignedSalesId.Value],
+                detail.ProjectId,
+                OrderReferenceType,
+                detail.OrderId,
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _dependencies.Logger?.LogWarning(
+                exception,
+                "Failed to dispatch production item cancelled notification for item {ProductionItemId}",
+                item.ProductionItemId);
+        }
+    }
+
     private static string NormalizePriority(string? priority)
     {
         return string.IsNullOrWhiteSpace(priority)
@@ -560,7 +747,12 @@ public sealed class ProductionRequestService : IProductionRequestService
 
     private static string? MergeAssignmentNote(string? currentNote, string? assignmentNote)
     {
-        var note = assignmentNote?.Trim();
+        return MergeNote(currentNote, assignmentNote);
+    }
+
+    private static string? MergeNote(string? currentNote, string? newNote)
+    {
+        var note = newNote?.Trim();
         if (string.IsNullOrWhiteSpace(note))
         {
             return currentNote;
@@ -569,6 +761,52 @@ public sealed class ProductionRequestService : IProductionRequestService
         return string.IsNullOrWhiteSpace(currentNote)
             ? note
             : $"{currentNote.Trim()}{Environment.NewLine}{note}";
+    }
+
+    private static bool CanMoveProductionItem(
+        ProductionItemStatus? currentStatus,
+        ProductionItemStatus targetStatus)
+    {
+        return currentStatus switch
+        {
+            ProductionItemStatus.PENDING => targetStatus is
+                ProductionItemStatus.IN_PRODUCTION or
+                ProductionItemStatus.CANCELLED,
+            ProductionItemStatus.IN_PRODUCTION => targetStatus is
+                ProductionItemStatus.BLOCKED or
+                ProductionItemStatus.COMPLETED or
+                ProductionItemStatus.CANCELLED,
+            ProductionItemStatus.BLOCKED => targetStatus is
+                ProductionItemStatus.IN_PRODUCTION or
+                ProductionItemStatus.CANCELLED,
+            _ => false
+        };
+    }
+
+    private static void ApplyItemStatus(
+        ProductionItem item,
+        UpdateProductionItemStatusDto request,
+        string? cancellationReason,
+        DateTime now)
+    {
+        var targetStatus = request.Status!.Value;
+        item.Status = targetStatus;
+        item.ProductionNote = MergeNote(item.ProductionNote, request.ProductionNote);
+
+        if (targetStatus == ProductionItemStatus.IN_PRODUCTION && item.StartedAt is null)
+        {
+            item.StartedAt = now;
+        }
+
+        if (targetStatus == ProductionItemStatus.COMPLETED)
+        {
+            item.CompletedAt = now;
+        }
+
+        if (targetStatus == ProductionItemStatus.CANCELLED)
+        {
+            item.CancellationReason = cancellationReason;
+        }
     }
 
     private static ProductionRequestListItemDto ToListItemDto(
@@ -623,6 +861,32 @@ public sealed class ProductionRequestService : IProductionRequestService
         };
     }
 
+    private static ProductionRequestStatusDto ToStatusDto(ProductionRequest productionRequest)
+    {
+        return new ProductionRequestStatusDto
+        {
+            ProductionRequestId = productionRequest.ProductionRequestId,
+            Status = productionRequest.Status.ToString() ?? string.Empty,
+            ActualStartDate = productionRequest.ActualStartDate,
+            UpdatedAt = productionRequest.UpdatedAt
+        };
+    }
+
+    private static ProductionItemStatusDto ToItemStatusDto(ProductionItem item)
+    {
+        return new ProductionItemStatusDto
+        {
+            ProductionItemId = item.ProductionItemId,
+            ProductionRequestId = item.ProductionRequestId,
+            OrderItemId = item.OrderItemId,
+            Status = item.Status.ToString() ?? string.Empty,
+            ProductionNote = item.ProductionNote,
+            CancellationReason = item.CancellationReason,
+            StartedAt = item.StartedAt,
+            CompletedAt = item.CompletedAt
+        };
+    }
+
     private static ProductionItemDto ToItemDto(ProductionItemReadModel item)
     {
         return new ProductionItemDto
@@ -653,6 +917,20 @@ public sealed class ProductionRequestService : IProductionRequestService
     {
         return ServiceResult<T>.Failure(Error.NotFound(code, message));
     }
+
+    private static ServiceResult<T> InvalidRequestTransition<T>()
+    {
+        return BadRequest<T>(
+            ProductionErrorCodes.InvalidProductionRequestTransition,
+            "Production request status transition is invalid.");
+    }
+
+    private static ServiceResult<ProductionItemStatusDto> InvalidItemTransition()
+    {
+        return BadRequest<ProductionItemStatusDto>(
+            ProductionErrorCodes.InvalidProductionItemTransition,
+            "Production item status transition is invalid.");
+    }
 }
 
 public sealed class ProductionRequestServiceDependencies
@@ -677,13 +955,17 @@ public static class ProductionErrorCodes
     public const string DepositNotPaid = "DEPOSIT_NOT_PAID";
     public const string InvalidOrderStatus = "INVALID_ORDER_STATUS";
     public const string InvalidProductionAssignee = "INVALID_PRODUCTION_ASSIGNEE";
+    public const string InvalidProductionItemTransition = "INVALID_PRODUCTION_ITEM_TRANSITION";
     public const string InvalidProductionRequestDate = "INVALID_PRODUCTION_REQUEST_DATE";
+    public const string InvalidProductionRequestTransition = "INVALID_PRODUCTION_REQUEST_TRANSITION";
     public const string InvalidProductionStaffFilter = "INVALID_PRODUCTION_STAFF_FILTER";
     public const string OrderNotFound = "ORDER_NOT_FOUND";
     public const string ProductionAssigneeNotActive = "PRODUCTION_ASSIGNEE_NOT_ACTIVE";
     public const string ProductionRequestAlreadyClosed = "PRODUCTION_REQUEST_ALREADY_CLOSED";
     public const string ProductionRequestAlreadyExists = "PRODUCTION_REQUEST_ALREADY_EXISTS";
     public const string ProductionRequestNotFound = "PRODUCTION_REQUEST_NOT_FOUND";
+    public const string ProductionItemNotFound = "PRODUCTION_ITEM_NOT_FOUND";
+    public const string ProductionCancellationReasonRequired = "PRODUCTION_CANCELLATION_REASON_REQUIRED";
     public const string ProductionStaffNotFound = "PRODUCTION_STAFF_NOT_FOUND";
     public const string ProjectNotFound = "PROJECT_NOT_FOUND";
 }

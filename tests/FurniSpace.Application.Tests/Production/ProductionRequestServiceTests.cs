@@ -533,6 +533,245 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(403, forbidden.Status);
     }
 
+    [Fact]
+    public async Task MarkFeasibleAsync_WhenPendingReview_UpdatesStatusAndNote()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.PENDING_REVIEW);
+        productionRequest.Note = "Initial";
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.MarkFeasibleAsync(
+            productionRequest.ProductionRequestId,
+            _productionId,
+            new MarkProductionRequestFeasibleDto { Note = "All materials available" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("FEASIBLE", result.Data!.Status);
+        Assert.Contains("All materials available", context.ProductionRequestSet.Single().Note, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task MarkFeasibleAsync_WhenInvalid_ReturnsExpectedError()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.FEASIBLE);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.MarkFeasibleAsync(
+            productionRequest.ProductionRequestId,
+            Guid.Empty,
+            new MarkProductionRequestFeasibleDto());
+        var forbidden = await service.MarkFeasibleAsync(
+            productionRequest.ProductionRequestId,
+            _salesId,
+            new MarkProductionRequestFeasibleDto());
+        var missing = await service.MarkFeasibleAsync(
+            Guid.NewGuid(),
+            _productionId,
+            new MarkProductionRequestFeasibleDto());
+        var invalidTransition = await service.MarkFeasibleAsync(
+            productionRequest.ProductionRequestId,
+            _productionId,
+            new MarkProductionRequestFeasibleDto());
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionRequestNotFound, missing.ErrorCode);
+        Assert.Equal(400, invalidTransition.Status);
+        Assert.Equal(ProductionErrorCodes.InvalidProductionRequestTransition, invalidTransition.ErrorCode);
+    }
+
+    [Theory]
+    [InlineData(ProductionRequestStatus.FEASIBLE)]
+    [InlineData(ProductionRequestStatus.BLOCKED)]
+    public async Task StartAsync_WhenAllowedStatus_UpdatesStatusAndActualStartDate(
+        ProductionRequestStatus currentStatus)
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var productionRequest = CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, currentStatus);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+        var startDate = new DateOnly(2026, 7, 25);
+
+        var result = await service.StartAsync(
+            productionRequest.ProductionRequestId,
+            _productionId,
+            new StartProductionRequestDto { ActualStartDate = startDate });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("IN_PRODUCTION", result.Data!.Status);
+        Assert.Equal(startDate, result.Data.ActualStartDate);
+        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenInvalidTransition_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.PENDING_REVIEW);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.StartAsync(
+            productionRequest.ProductionRequestId,
+            _productionId,
+            new StartProductionRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.InvalidProductionRequestTransition, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateItemStatusAsync_WhenPendingToInProduction_StartsItem()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.PENDING);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto
+            {
+                Status = ProductionItemStatus.IN_PRODUCTION,
+                ProductionNote = "Material preparation started."
+            });
+
+        var item = context.ProductionItemSet.Single();
+        Assert.Equal(200, result.Status);
+        Assert.Equal("IN_PRODUCTION", result.Data!.Status);
+        Assert.Equal(ProductionItemStatus.IN_PRODUCTION, item.Status);
+        Assert.NotNull(item.StartedAt);
+        Assert.Contains("Material preparation started.", item.ProductionNote, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UpdateItemStatusAsync_WhenInProductionToCompleted_CompletesItem()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.IN_PRODUCTION);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto
+            {
+                Status = ProductionItemStatus.COMPLETED,
+                ProductionNote = "Item completed in full."
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("COMPLETED", result.Data!.Status);
+        Assert.NotNull(result.Data.CompletedAt);
+    }
+
+    [Fact]
+    public async Task UpdateItemStatusAsync_WhenCancelled_NotifiesSalesAndKeepsOrderItemStatus()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.BLOCKED);
+        await context.SaveChangesAsync();
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(context, dispatcher);
+
+        var result = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto
+            {
+                Status = ProductionItemStatus.CANCELLED,
+                CancellationReason = "Material unavailable."
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("CANCELLED", result.Data!.Status);
+        Assert.Equal("Material unavailable.", result.Data.CancellationReason);
+        Assert.Equal(OrderItemStatus.PENDING, context.OrderItemSet.Single().Status);
+        Assert.Equal(NotificationType.ProductionItemCancelled, dispatcher.NotificationType);
+        Assert.Equal(_salesId, Assert.Single(dispatcher.ReceiverIds));
+    }
+
+    [Fact]
+    public async Task UpdateItemStatusAsync_WhenInvalid_ReturnsExpectedErrors()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.COMPLETED);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            Guid.Empty,
+            new UpdateProductionItemStatusDto { Status = ProductionItemStatus.CANCELLED });
+        var forbidden = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _salesId,
+            new UpdateProductionItemStatusDto { Status = ProductionItemStatus.CANCELLED });
+        var missing = await service.UpdateItemStatusAsync(
+            Guid.NewGuid(),
+            _productionId,
+            new UpdateProductionItemStatusDto { Status = ProductionItemStatus.CANCELLED });
+        var nullStatus = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto());
+        var terminal = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto { Status = ProductionItemStatus.CANCELLED });
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionItemNotFound, missing.ErrorCode);
+        Assert.Equal(ProductionErrorCodes.InvalidProductionItemTransition, nullStatus.ErrorCode);
+        Assert.Equal(ProductionErrorCodes.InvalidProductionItemTransition, terminal.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateItemStatusAsync_WhenCancellationReasonMissing_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.PENDING);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto { Status = ProductionItemStatus.CANCELLED });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionCancellationReasonRequired, result.ErrorCode);
+    }
+
     private ProductionRequestService BuildService(
         AppDbContext context,
         INotificationDispatcher? dispatcher = null)
@@ -650,6 +889,26 @@ public sealed class ProductionRequestServiceTests
         });
         context.ProductionRequestSet.Add(request);
         return request;
+    }
+
+    private SeededProductionItem SeedProductionItemScenario(
+        AppDbContext context,
+        ProductionItemStatus itemStatus)
+    {
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var orderItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Cafe Chair");
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.IN_PRODUCTION);
+        productionRequest.ProductionCode = "PRD-001";
+        var productionItem = CreateProductionItem(productionRequest.ProductionRequestId, orderItem);
+        productionItem.Status = itemStatus;
+        context.OrderItemSet.Add(orderItem);
+        context.ProductionRequestSet.Add(productionRequest);
+        context.ProductionItemSet.Add(productionItem);
+        return new SeededProductionItem(productionItem.ProductionItemId);
     }
 
     private static AppDbContext CreateContext()
@@ -797,4 +1056,6 @@ public sealed class ProductionRequestServiceTests
     }
 
     private sealed record SeededData(Guid ProjectId, Guid OrderId);
+
+    private sealed record SeededProductionItem(Guid ProductionItemId);
 }

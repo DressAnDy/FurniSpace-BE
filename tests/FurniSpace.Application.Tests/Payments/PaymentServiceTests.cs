@@ -147,6 +147,76 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
+    public async Task CreateRemainingPaymentForOrderAsync_WhenActivePaymentExists_ReturnsExistingPayment()
+    {
+        var paymentId = Guid.NewGuid();
+        var existing = CreatePayment(
+            paymentId,
+            PaymentType.REMAINING_PAYMENT,
+            PaymentStatus.PENDING,
+            70m,
+            orderId: _orderId);
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(existing, CreatePaymentDetail(paymentId, amount: 70m));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "SALES",
+            OrderDetail = CreateOrderDetail(OrderStatus.FINAL_PAYMENT_PENDING, remainingAmount: 70m),
+            Payments = repository
+        });
+
+        var result = await service.CreateRemainingPaymentForOrderAsync(
+            _orderId,
+            _salesId,
+            new CreateOrderRemainingPaymentRequestDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(paymentId, result.Data!.PaymentId);
+        Assert.True(result.Data.Reused);
+        Assert.Empty(repository.NewPayments);
+    }
+
+    [Theory]
+    [InlineData(OrderStatus.DELIVERED, 70, OrderErrorCodes.OrderNotReadyForRemainingPayment)]
+    [InlineData(OrderStatus.FINAL_PAYMENT_PENDING, 0, OrderErrorCodes.RemainingPaymentNotRequired)]
+    public async Task CreateRemainingPaymentForOrderAsync_WhenInvalid_ReturnsExpectedBadRequest(
+        OrderStatus status,
+        decimal remainingAmount,
+        string expectedCode)
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "SALES",
+            OrderDetail = CreateOrderDetail(status, remainingAmount: remainingAmount)
+        });
+
+        var result = await service.CreateRemainingPaymentForOrderAsync(
+            _orderId,
+            _salesId,
+            new CreateOrderRemainingPaymentRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedCode, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateRemainingPaymentForOrderAsync_WhenCustomerCalls_ReturnsForbidden()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            OrderDetail = CreateOrderDetail(OrderStatus.FINAL_PAYMENT_PENDING, remainingAmount: 70m)
+        });
+
+        var result = await service.CreateRemainingPaymentForOrderAsync(
+            _orderId,
+            _customerId,
+            new CreateOrderRemainingPaymentRequestDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
     public async Task CreateProjectStartFeePaymentAsync_WhenDesignerAssigned_ReturnsBadRequest()
     {
         var service = BuildService(new PaymentServiceTestOptions
@@ -891,14 +961,18 @@ public sealed class PaymentServiceTests
         };
     }
 
-    private PaymentDetailReadModel CreatePaymentDetail(Guid paymentId, string paymentCode = "FS12345678", Guid? customerId = null)
+    private PaymentDetailReadModel CreatePaymentDetail(
+        Guid paymentId,
+        string paymentCode = "FS12345678",
+        Guid? customerId = null,
+        decimal amount = 30m)
     {
         return new PaymentDetailReadModel
         {
             PaymentId = paymentId,
             ProjectId = _projectId,
             PaymentCode = paymentCode,
-            Amount = 30m,
+            Amount = amount,
             Currency = "VND",
             Status = PaymentStatus.PENDING,
             CustomerId = customerId ?? _customerId,

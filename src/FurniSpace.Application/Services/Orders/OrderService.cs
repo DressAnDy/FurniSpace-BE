@@ -588,6 +588,90 @@ public sealed class OrderService : IOrderService
             "Order item delivery confirmed successfully.");
     }
 
+    public async Task<ServiceResult<OrderFinalPaymentPreparationDto>> PrepareFinalPaymentAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<OrderFinalPaymentPreparationDto>.Unauthorized();
+        }
+
+        var detail = await _orders.GetDetailAsync(orderId, cancellationToken);
+        if (detail is null)
+        {
+            return NotFound<OrderFinalPaymentPreparationDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
+                role,
+                detail.AssignedSalesId,
+                currentUserId))
+        {
+            return ServiceResult<OrderFinalPaymentPreparationDto>.Forbidden(ForbiddenMessage);
+        }
+
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound<OrderFinalPaymentPreparationDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        if (order.Status != OrderStatus.DELIVERED)
+        {
+            return BadRequest<OrderFinalPaymentPreparationDto>(
+                OrderErrorCodes.OrderNotDelivered,
+                "Order must be DELIVERED before final payment preparation.");
+        }
+
+        if (!order.CustomerConfirmedDeliveryAt.HasValue)
+        {
+            return BadRequest<OrderFinalPaymentPreparationDto>(
+                OrderErrorCodes.DeliveryNotConfirmed,
+                "Customer delivery confirmation is required before final payment preparation.");
+        }
+
+        var adjustments = await _orders.GetAdjustmentsByOrderAsync(orderId, cancellationToken);
+        if (adjustments.Any(adjustment => adjustment.Status is not (OrderAdjustmentStatus.APPLIED or OrderAdjustmentStatus.CANCELLED)))
+        {
+            return BadRequest<OrderFinalPaymentPreparationDto>(
+                OrderErrorCodes.AdjustmentNotApplied,
+                "All order adjustments must be applied or cancelled before final payment preparation.");
+        }
+
+        ApplyFinalPaymentFinancialSummary(
+            order,
+            adjustments.Where(adjustment => adjustment.Status == OrderAdjustmentStatus.APPLIED));
+
+        var paidAmount = await _payments.SumOrderScopedPaidAmountAsync(orderId, cancellationToken);
+        var remainingAmount = order.FinalTotalAmount - Math.Max(0m, paidAmount);
+        if (remainingAmount < 0m)
+        {
+            return BadRequest<OrderFinalPaymentPreparationDto>(
+                OrderErrorCodes.NegativeRemainingAmount,
+                "Remaining amount must not be negative.");
+        }
+
+        order.PaidAmount = Math.Max(0m, paidAmount);
+        order.RemainingAmount = remainingAmount;
+        order.Status = remainingAmount > 0m
+            ? OrderStatus.FINAL_PAYMENT_PENDING
+            : OrderStatus.DELIVERED;
+        order.UpdatedAt = DateTime.UtcNow;
+        _orders.Update(order);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var requiresRemainingPayment = remainingAmount > 0m;
+        var message = requiresRemainingPayment
+            ? "Order is ready for remaining payment."
+            : "No remaining payment is required.";
+        return ServiceResult<OrderFinalPaymentPreparationDto>.Success(
+            ToFinalPaymentPreparationDto(order, requiresRemainingPayment),
+            message);
+    }
+
     private async Task<OrderAdjustmentAccess<T>> ValidateOrderAdjustmentAccessAsync<T>(
         Guid orderId,
         Guid currentUserId,
@@ -865,6 +949,24 @@ public sealed class OrderService : IOrderService
         depositPayment.UpdatedAt = DateTime.UtcNow;
     }
 
+    private static void ApplyFinalPaymentFinancialSummary(
+        Order order,
+        IEnumerable<OrderAdjustment> appliedAdjustments)
+    {
+        var applied = appliedAdjustments.ToList();
+        var itemAdjustmentAmount = applied.Sum(adjustment => adjustment.ItemAdjustmentAmount);
+        var additionalDiscountAmount = applied.Sum(adjustment => adjustment.AdditionalDiscountAmount);
+        var baseBeforeDiscount = OrderFinancialAdjustmentCalculator.CalculateBaseBeforeAdditionalDiscount(
+            order.OriginalTotalAmount,
+            itemAdjustmentAmount);
+
+        order.ItemAdjustmentAmount = itemAdjustmentAmount;
+        order.AdditionalDiscountAmount = additionalDiscountAmount;
+        order.FinalTotalAmount = OrderFinancialAdjustmentCalculator.CalculateFinalTotalAmount(
+            baseBeforeDiscount,
+            additionalDiscountAmount);
+    }
+
     private static ServiceResult<OrderDetailDto>? ValidateFinancialAdjustment(
         Order order,
         UpdateOrderFinancialAdjustmentRequestDto request)
@@ -1122,6 +1224,21 @@ public sealed class OrderService : IOrderService
             Status = item.Status.ToString() ?? string.Empty,
             CustomerConfirmedAt = item.CustomerConfirmedAt,
             OrderStatus = order.Status.ToString() ?? string.Empty
+        };
+    }
+
+    private static OrderFinalPaymentPreparationDto ToFinalPaymentPreparationDto(
+        Order order,
+        bool requiresRemainingPayment)
+    {
+        return new OrderFinalPaymentPreparationDto
+        {
+            OrderId = order.OrderId,
+            Status = order.Status?.ToString() ?? string.Empty,
+            FinalTotalAmount = order.FinalTotalAmount,
+            PaidAmount = order.PaidAmount ?? 0m,
+            RemainingAmount = order.RemainingAmount ?? 0m,
+            RequiresRemainingPayment = requiresRemainingPayment
         };
     }
 

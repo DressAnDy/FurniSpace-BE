@@ -673,6 +673,115 @@ public sealed class OrderAdjustmentServiceTests
         Assert.Equal(OrderErrorCodes.OrderNotDelivering, orderNotDelivering.ErrorCode);
     }
 
+    [Fact]
+    public async Task PrepareFinalPaymentAsync_WhenRemainingPositive_MovesToFinalPaymentPending()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        AddPaidPayment(context, seeded.OrderId, amount: 10m);
+        context.OrderAdjustmentSet.Add(CreateAppliedAdjustment(seeded.OrderId, itemAdjustment: 0m, discount: 5m));
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.PrepareFinalPaymentAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.True(result.Data!.RequiresRemainingPayment);
+        Assert.Equal("FINAL_PAYMENT_PENDING", result.Data.Status);
+        Assert.Equal(95m, result.Data.FinalTotalAmount);
+        Assert.Equal(10m, result.Data.PaidAmount);
+        Assert.Equal(85m, result.Data.RemainingAmount);
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, context.OrderSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task PrepareFinalPaymentAsync_WhenRemainingZero_KeepsDelivered()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        AddPaidPayment(context, seeded.OrderId, amount: 100m);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.PrepareFinalPaymentAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.False(result.Data!.RequiresRemainingPayment);
+        Assert.Equal("DELIVERED", result.Data.Status);
+        Assert.Equal(0m, result.Data.RemainingAmount);
+        Assert.Equal(OrderStatus.DELIVERED, context.OrderSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task PrepareFinalPaymentAsync_WhenAdjustmentConfirmed_ReturnsAdjustmentNotApplied()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        context.OrderAdjustmentSet.Add(CreateAppliedAdjustment(
+            seeded.OrderId,
+            itemAdjustment: 0m,
+            discount: 5m,
+            status: OrderAdjustmentStatus.CONFIRMED));
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.PrepareFinalPaymentAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.AdjustmentNotApplied, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task PrepareFinalPaymentAsync_WhenInvalid_ReturnsExpectedErrors()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.PrepareFinalPaymentAsync(seeded.OrderId, Guid.Empty);
+        var forbidden = await service.PrepareFinalPaymentAsync(seeded.OrderId, _customerId);
+        var missing = await service.PrepareFinalPaymentAsync(Guid.NewGuid(), _salesId);
+        var orderNotDelivered = await service.PrepareFinalPaymentAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(OrderErrorCodes.OrderNotFound, missing.ErrorCode);
+        Assert.Equal(400, orderNotDelivered.Status);
+        Assert.Equal(OrderErrorCodes.OrderNotDelivered, orderNotDelivered.ErrorCode);
+    }
+
+    [Fact]
+    public async Task PrepareFinalPaymentAsync_WhenDeliveryNotConfirmed_ReturnsDeliveryNotConfirmed()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        context.OrderSet.Local.Single(order => order.OrderId == seeded.OrderId).CustomerConfirmedDeliveryAt = null;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.PrepareFinalPaymentAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliveryNotConfirmed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task PrepareFinalPaymentAsync_WhenPaidExceedsFinalTotal_ReturnsNegativeRemainingAmount()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        AddPaidPayment(context, seeded.OrderId, amount: 120m);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.PrepareFinalPaymentAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.NegativeRemainingAmount, result.ErrorCode);
+    }
+
     private OrderService BuildService(AppDbContext context)
     {
         return new OrderService(
@@ -728,6 +837,54 @@ public sealed class OrderAdjustmentServiceTests
         var seeded = SeedOrderScenario(context, orderStatus);
         context.ProjectSet.Local.Single(project => project.ProjectId == seeded.ProjectId).Status = projectStatus;
         return seeded;
+    }
+
+    private SeededOrder SeedDeliveredOrderScenario(AppDbContext context)
+    {
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERED, ProjectStatus.DELIVERED);
+        var order = context.OrderSet.Local.Single(order => order.OrderId == seeded.OrderId);
+        order.CustomerConfirmedDeliveryAt = DateTime.UtcNow.AddMinutes(-10);
+        order.OriginalTotalAmount = 100m;
+        order.FinalTotalAmount = 100m;
+        order.PaidAmount = 0m;
+        order.RemainingAmount = 100m;
+        return seeded;
+    }
+
+    private static void AddPaidPayment(AppDbContext context, Guid orderId, decimal amount)
+    {
+        context.PaymentSet.Add(new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            ProjectId = context.OrderSet.Local.Single(order => order.OrderId == orderId).ProjectId,
+            OrderId = orderId,
+            PaymentCode = $"PAY-{Guid.NewGuid():N}"[..20],
+            PaymentType = PaymentType.DEPOSIT,
+            Amount = amount,
+            Currency = "VND",
+            Status = PaymentStatus.PAID,
+            CreatedAt = DateTime.UtcNow
+        });
+    }
+
+    private static OrderAdjustment CreateAppliedAdjustment(
+        Guid orderId,
+        decimal itemAdjustment,
+        decimal discount,
+        OrderAdjustmentStatus status = OrderAdjustmentStatus.APPLIED)
+    {
+        return new OrderAdjustment
+        {
+            OrderAdjustmentId = Guid.NewGuid(),
+            OrderId = orderId,
+            Status = status,
+            ItemAdjustmentAmount = itemAdjustment,
+            AdditionalDiscountAmount = discount,
+            TotalAdjustmentAmount = itemAdjustment + discount,
+            Reason = "Final adjustment",
+            CreatedBy = Guid.NewGuid(),
+            CreatedAt = DateTime.UtcNow
+        };
     }
 
     private static void AddDeliverySchedule(

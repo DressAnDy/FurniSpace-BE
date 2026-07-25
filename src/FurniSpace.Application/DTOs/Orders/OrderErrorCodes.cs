@@ -25,4 +25,10 @@ public static class OrderErrorCodes
     public const string ItemNotDeliverable = "ITEM_NOT_DELIVERABLE";
     public const string OrderNotDelivering = "ORDER_NOT_DELIVERING";
     public const string ItemNotFullyDelivered = "ITEM_NOT_FULLY_DELIVERED";
+    public const string OrderNotDelivered = "ORDER_NOT_DELIVERED";
+    public const string DeliveryNotConfirmed = "DELIVERY_NOT_CONFIRMED";
+    public const string AdjustmentNotApplied = "ADJUSTMENT_NOT_APPLIED";
+    public const string NegativeRemainingAmount = "NEGATIVE_REMAINING_AMOUNT";
+    public const string OrderNotReadyForRemainingPayment = "ORDER_NOT_READY_FOR_REMAINING_PAYMENT";
+    public const string RemainingPaymentNotRequired = "REMAINING_PAYMENT_NOT_REQUIRED";
 }

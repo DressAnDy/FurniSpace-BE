@@ -205,9 +205,8 @@ public sealed class PaymentService : IPaymentService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!OrderAccessEvaluator.CanManageDepositPayment(
+        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
                 role,
-                order.CustomerId,
                 order.AssignedSalesId,
                 currentUserId))
         {
@@ -216,13 +215,17 @@ public sealed class PaymentService : IPaymentService
 
         if (order.Status != OrderStatus.FINAL_PAYMENT_PENDING)
         {
-            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, "Order is not pending final payment.");
+            return BadRequestDetail(
+                OrderErrorCodes.OrderNotReadyForRemainingPayment,
+                "Order is not ready for remaining payment.");
         }
 
         var remainingAmount = order.RemainingAmount ?? 0m;
         if (remainingAmount <= 0m)
         {
-            return BadRequestDetail(PaymentErrorCodes.InvalidPaymentAmount, "Remaining amount must be greater than zero.");
+            return BadRequestDetail(
+                OrderErrorCodes.RemainingPaymentNotRequired,
+                "Remaining payment is not required.");
         }
 
         var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.REMAINING_PAYMENT, cancellationToken);

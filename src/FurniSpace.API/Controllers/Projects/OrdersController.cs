@@ -100,7 +100,7 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [Authorize(Roles = "SALES,ADMIN")]
     [HttpPost("orders/{orderId:guid}/payments/remaining")]
     public async Task<IActionResult> CreateRemainingPayment(
         Guid orderId,
@@ -116,6 +116,24 @@ public sealed class OrdersController : BaseApiController
             orderId,
             currentUserId,
             request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("orders/{orderId:guid}/prepare-final-payment")]
+    public async Task<IActionResult> PrepareFinalPayment(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.PrepareFinalPaymentAsync(
+            orderId,
+            currentUserId,
             cancellationToken);
         return ToActionResult(result);
     }

@@ -55,6 +55,20 @@ public interface IOrderRepository : IGenericRepository<Order>
         return Task.FromResult<IReadOnlyList<OrderAdjustmentItem>>([]);
     }
 
+    Task<IReadOnlyList<OrderAdjustment>> GetAdjustmentsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<OrderAdjustment>>([]);
+    }
+
+    Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<OrderAdjustmentItem>>([]);
+    }
+
     Task<bool> HasCancelledProductionItemAsync(
         Guid orderItemId,
         CancellationToken cancellationToken = default)
@@ -81,6 +95,10 @@ public interface IOrderRepository : IGenericRepository<Order>
     }
 
     void UpdateAdjustmentItem(OrderAdjustmentItem item)
+    {
+    }
+
+    void UpdateItem(OrderItem item)
     {
     }
 

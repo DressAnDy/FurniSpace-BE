@@ -286,6 +286,86 @@ public sealed class OrderAdjustmentServiceTests
         Assert.Equal(0m, result.Data!.TotalAdjustmentAmount);
     }
 
+    [Fact]
+    public async Task ConfirmAdjustmentAsync_WhenDraftWithItems_ConfirmsAdjustment()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedAdjustmentItemScenario(context, ProductionItemStatus.CANCELLED);
+        context.OrderAdjustmentItemSet.Add(CreateAdjustmentItem(
+            seeded.AdjustmentId,
+            OrderAdjustmentItemType.ADDITIONAL_DISCOUNT,
+            250_000m));
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.ConfirmAdjustmentAsync(seeded.AdjustmentId, _customerId);
+
+        var adjustment = context.OrderAdjustmentSet.Single();
+        Assert.Equal(200, result.Status);
+        Assert.Equal("CONFIRMED", result.Data!.Status);
+        Assert.Equal(_customerId, result.Data.ConfirmedBy);
+        Assert.Equal(OrderAdjustmentStatus.CONFIRMED, adjustment.Status);
+        Assert.NotNull(adjustment.ConfirmedAt);
+    }
+
+    [Fact]
+    public async Task ConfirmAdjustmentAsync_WhenNoItems_ReturnsAdjustmentItemRequired()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedAdjustmentItemScenario(context, ProductionItemStatus.CANCELLED);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.ConfirmAdjustmentAsync(seeded.AdjustmentId, _customerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.AdjustmentItemRequired, result.ErrorCode);
+        Assert.Equal(OrderAdjustmentStatus.DRAFT, context.OrderAdjustmentSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task ConfirmAdjustmentAsync_WhenAlreadyConfirmed_IsIdempotent()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedAdjustmentItemScenario(context, ProductionItemStatus.CANCELLED);
+        var confirmedAt = DateTime.UtcNow.AddMinutes(-5);
+        var adjustment = context.OrderAdjustmentSet.Local.Single();
+        adjustment.Status = OrderAdjustmentStatus.CONFIRMED;
+        adjustment.ConfirmedBy = _customerId;
+        adjustment.ConfirmedAt = confirmedAt;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.ConfirmAdjustmentAsync(seeded.AdjustmentId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("CONFIRMED", result.Data!.Status);
+        Assert.Equal(confirmedAt, result.Data.ConfirmedAt);
+    }
+
+    [Fact]
+    public async Task ConfirmAdjustmentAsync_WhenInvalid_ReturnsExpectedErrors()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedAdjustmentItemScenario(context, ProductionItemStatus.CANCELLED);
+        var adjustment = context.OrderAdjustmentSet.Local.Single();
+        adjustment.Status = OrderAdjustmentStatus.APPLIED;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.ConfirmAdjustmentAsync(seeded.AdjustmentId, Guid.Empty);
+        var forbidden = await service.ConfirmAdjustmentAsync(seeded.AdjustmentId, _salesId);
+        var missing = await service.ConfirmAdjustmentAsync(Guid.NewGuid(), _customerId);
+        var invalidStatus = await service.ConfirmAdjustmentAsync(seeded.AdjustmentId, _customerId);
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(OrderErrorCodes.OrderAdjustmentNotFound, missing.ErrorCode);
+        Assert.Equal(400, invalidStatus.Status);
+        Assert.Equal(OrderErrorCodes.InvalidAdjustmentStatus, invalidStatus.ErrorCode);
+    }
+
     private OrderService BuildService(AppDbContext context)
     {
         return new OrderService(

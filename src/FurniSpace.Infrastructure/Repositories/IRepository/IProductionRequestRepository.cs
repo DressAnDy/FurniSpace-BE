@@ -48,6 +48,13 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         Guid productionItemId,
         CancellationToken cancellationToken = default);
 
+    Task<List<ProductionItem>> GetItemsByRequestIdAsync(
+        Guid productionRequestId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new List<ProductionItem>());
+    }
+
     Task<ProductionRequestDetailReadModel?> GetDetailByItemIdAsync(
         Guid productionItemId,
         CancellationToken cancellationToken = default);

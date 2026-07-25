@@ -772,6 +772,120 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(ProductionErrorCodes.ProductionCancellationReasonRequired, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task CompleteAsync_WhenItemsResolved_AppliesAdjustmentsAndMovesToDelivery()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("COMPLETED", result.Data!.ProductionStatus);
+        Assert.Equal("READY_FOR_DELIVERY", result.Data.OrderStatus);
+        Assert.Equal("READY_FOR_DELIVERY", result.Data.ProjectStatus);
+        Assert.Equal(1, result.Data.AppliedAdjustmentCount);
+        Assert.Equal(7_500_000m, result.Data.FinalTotalAmount);
+        Assert.Equal(3_000_000m, result.Data.PaidAmount);
+        Assert.Equal(4_500_000m, result.Data.RemainingAmount);
+        Assert.Equal(OrderAdjustmentStatus.APPLIED, context.OrderAdjustmentSet.Single().Status);
+        Assert.Equal(OrderItemStatus.UNAVAILABLE, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CancelledOrderItemId).Status);
+        Assert.Equal(ProjectStatus.READY_FOR_DELIVERY, context.ProjectSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenAlreadyCompleted_ReturnsCurrentStateIdempotently()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        var request = context.ProductionRequestSet.Local.Single();
+        var order = context.OrderSet.Local.Single();
+        var project = context.ProjectSet.Local.Single();
+        context.OrderAdjustmentSet.Local.Single().Status = OrderAdjustmentStatus.APPLIED;
+        request.Status = ProductionRequestStatus.COMPLETED;
+        order.Status = OrderStatus.READY_FOR_DELIVERY;
+        project.Status = ProjectStatus.READY_FOR_DELIVERY;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("COMPLETED", result.Data!.ProductionStatus);
+        Assert.Equal(1, result.Data.AppliedAdjustmentCount);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenItemsNotResolved_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        context.ProductionItemSet.Local.First().Status = ProductionItemStatus.IN_PRODUCTION;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionItemsNotResolved, result.ErrorCode);
+        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenCancelledItemHasNoConfirmedAdjustment_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context, includeAdjustment: false);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.AdjustmentConfirmationRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenAdjustmentRequiresRefund_ReturnsBadRequestWithoutMutating()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context, paidAmount: 8_000_000m);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.AdjustmentRequiresRefundFlow, result.ErrorCode);
+        Assert.Equal(OrderAdjustmentStatus.CONFIRMED, context.OrderAdjustmentSet.Single().Status);
+        Assert.Equal(OrderStatus.IN_PRODUCTION, context.OrderSet.Single().Status);
+        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenInvalid_ReturnsExpectedErrors()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        context.ProductionRequestSet.Local.Single().Status = ProductionRequestStatus.FEASIBLE;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.CompleteAsync(seeded.ProductionRequestId, Guid.Empty);
+        var forbidden = await service.CompleteAsync(seeded.ProductionRequestId, _salesId);
+        var missing = await service.CompleteAsync(Guid.NewGuid(), _productionId);
+        var invalidTransition = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionRequestNotFound, missing.ErrorCode);
+        Assert.Equal(400, invalidTransition.Status);
+        Assert.Equal(ProductionErrorCodes.InvalidProductionRequestTransition, invalidTransition.ErrorCode);
+    }
+
     private ProductionRequestService BuildService(
         AppDbContext context,
         INotificationDispatcher? dispatcher = null)
@@ -808,6 +922,10 @@ public sealed class ProductionRequestServiceTests
             CustomerId = Guid.NewGuid(),
             SalesId = _salesId,
             OrderCode = "ORD-001",
+            OriginalTotalAmount = 10_000_000m,
+            FinalTotalAmount = 10_000_000m,
+            PaidAmount = 0m,
+            RemainingAmount = 10_000_000m,
             Status = orderStatus
         });
         context.PaymentSet.Add(new Payment
@@ -909,6 +1027,87 @@ public sealed class ProductionRequestServiceTests
         context.ProductionRequestSet.Add(productionRequest);
         context.ProductionItemSet.Add(productionItem);
         return new SeededProductionItem(productionItem.ProductionItemId);
+    }
+
+    private SeededCompletion SeedCompletionScenario(
+        AppDbContext context,
+        bool includeAdjustment = true,
+        decimal paidAmount = 3_000_000m)
+    {
+        var data = SeedBase(context, OrderStatus.IN_PRODUCTION, PaymentStatus.PAID);
+        var order = context.OrderSet.Local.Single();
+        var project = context.ProjectSet.Local.Single();
+        order.PaidAmount = paidAmount;
+        order.RemainingAmount = order.FinalTotalAmount - paidAmount;
+        project.Status = ProjectStatus.IN_PRODUCTION;
+        var completedItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Counter");
+        var cancelledItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Chair");
+        completedItem.SubtotalAmount = 3_000_000m;
+        cancelledItem.SubtotalAmount = 2_000_000m;
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.IN_PRODUCTION);
+        var completedProductionItem = CreateProductionItem(productionRequest.ProductionRequestId, completedItem);
+        var cancelledProductionItem = CreateProductionItem(productionRequest.ProductionRequestId, cancelledItem);
+        completedProductionItem.Status = ProductionItemStatus.COMPLETED;
+        cancelledProductionItem.Status = ProductionItemStatus.CANCELLED;
+        context.OrderItemSet.AddRange(completedItem, cancelledItem);
+        context.ProductionRequestSet.Add(productionRequest);
+        context.ProductionItemSet.AddRange(completedProductionItem, cancelledProductionItem);
+
+        if (includeAdjustment)
+        {
+            AddConfirmedAdjustment(context, data.OrderId, cancelledItem.OrderItemId);
+        }
+
+        return new SeededCompletion(productionRequest.ProductionRequestId, cancelledItem.OrderItemId);
+    }
+
+    private void AddConfirmedAdjustment(
+        AppDbContext context,
+        Guid orderId,
+        Guid cancelledOrderItemId)
+    {
+        var adjustmentId = Guid.NewGuid();
+        context.OrderAdjustmentSet.Add(new OrderAdjustment
+        {
+            OrderAdjustmentId = adjustmentId,
+            OrderId = orderId,
+            Status = OrderAdjustmentStatus.CONFIRMED,
+            ItemAdjustmentAmount = 2_000_000m,
+            AdditionalDiscountAmount = 500_000m,
+            TotalAdjustmentAmount = 2_500_000m,
+            Reason = "Production cancellation adjustment.",
+            CreatedBy = _salesId,
+            CreatedAt = DateTime.UtcNow,
+            ConfirmedBy = Guid.NewGuid(),
+            ConfirmedAt = DateTime.UtcNow
+        });
+        context.OrderAdjustmentItemSet.AddRange(
+            new OrderAdjustmentItem
+            {
+                OrderAdjustmentItemId = Guid.NewGuid(),
+                OrderAdjustmentId = adjustmentId,
+                OrderItemId = cancelledOrderItemId,
+                AdjustmentType = OrderAdjustmentItemType.UNAVAILABLE_ITEM,
+                PreviousItemAmount = 2_000_000m,
+                AdjustmentAmount = 2_000_000m,
+                Reason = "Item unavailable.",
+                CreatedBy = _salesId,
+                CreatedAt = DateTime.UtcNow
+            },
+            new OrderAdjustmentItem
+            {
+                OrderAdjustmentItemId = Guid.NewGuid(),
+                OrderAdjustmentId = adjustmentId,
+                AdjustmentType = OrderAdjustmentItemType.ADDITIONAL_DISCOUNT,
+                AdjustmentAmount = 500_000m,
+                Reason = "Compensation discount.",
+                CreatedBy = _salesId,
+                CreatedAt = DateTime.UtcNow
+            });
     }
 
     private static AppDbContext CreateContext()
@@ -1058,4 +1257,6 @@ public sealed class ProductionRequestServiceTests
     private sealed record SeededData(Guid ProjectId, Guid OrderId);
 
     private sealed record SeededProductionItem(Guid ProductionItemId);
+
+    private sealed record SeededCompletion(Guid ProductionRequestId, Guid CancelledOrderItemId);
 }

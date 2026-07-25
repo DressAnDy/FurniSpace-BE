@@ -120,6 +120,28 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<OrderAdjustment>> GetAdjustmentsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.OrderAdjustmentSet
+            .Where(adjustment => adjustment.OrderId == orderId)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return await (
+                from item in DbContext.OrderAdjustmentItemSet
+                join adjustment in DbContext.OrderAdjustmentSet
+                    on item.OrderAdjustmentId equals adjustment.OrderAdjustmentId
+                where adjustment.OrderId == orderId
+                select item)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<bool> HasCancelledProductionItemAsync(
         Guid orderItemId,
         CancellationToken cancellationToken = default)
@@ -151,6 +173,11 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
     public void UpdateAdjustmentItem(OrderAdjustmentItem item)
     {
         DbContext.OrderAdjustmentItemSet.Update(item);
+    }
+
+    public void UpdateItem(OrderItem item)
+    {
+        DbContext.OrderItemSet.Update(item);
     }
 
     public void RemoveAdjustmentItem(OrderAdjustmentItem item)

@@ -482,6 +482,119 @@ public sealed class ProductionRequestService : IProductionRequestService
             "Production item status updated successfully.");
     }
 
+    public async Task<ServiceResult<ProductionCompletionDto>> CompleteAsync(
+        Guid productionRequestId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var accessError = await ValidateProductionAdminAsync<ProductionCompletionDto>(
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var productionRequest = await _productionRequests.GetByIdAsync(productionRequestId, cancellationToken);
+        if (productionRequest is null)
+        {
+            return NotFound<ProductionCompletionDto>(
+                ProductionErrorCodes.ProductionRequestNotFound,
+                ProductionRequestNotFoundMessage);
+        }
+
+        var order = await _orders.GetByIdAsync(productionRequest.OrderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound<ProductionCompletionDto>(ProductionErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(productionRequest.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound<ProductionCompletionDto>(ProductionErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
+        }
+
+        var adjustments = (await _orders.GetAdjustmentsByOrderAsync(order.OrderId, cancellationToken)).ToList();
+        if (productionRequest.Status == ProductionRequestStatus.COMPLETED)
+        {
+            return ServiceResult<ProductionCompletionDto>.Success(
+                ToCompletionDto(productionRequest, order, project, CountAppliedAdjustments(adjustments)),
+                "Production completed and confirmed adjustments applied successfully.");
+        }
+
+        if (productionRequest.Status != ProductionRequestStatus.IN_PRODUCTION)
+        {
+            return InvalidRequestTransition<ProductionCompletionDto>();
+        }
+
+        var productionItems = await _productionRequests.GetItemsByRequestIdAsync(
+            productionRequestId,
+            cancellationToken);
+        if (productionItems.Any(item => !IsResolvedProductionItem(item)))
+        {
+            return BadRequest<ProductionCompletionDto>(
+                ProductionErrorCodes.ProductionItemsNotResolved,
+                "All production items must be completed or cancelled before completing production.");
+        }
+
+        var adjustmentItems = (await _orders.GetAdjustmentItemsByOrderAsync(order.OrderId, cancellationToken)).ToList();
+        var adjustmentContext = BuildAdjustmentApplicationContext(adjustments, adjustmentItems);
+        var cancelledOrderItemIds = productionItems
+            .Where(item => item.Status == ProductionItemStatus.CANCELLED)
+            .Select(item => item.OrderItemId)
+            .Distinct()
+            .ToList();
+
+        if (!CancelledItemsHaveConfirmedAdjustments(cancelledOrderItemIds, adjustmentContext.UnavailableItemsByOrderItemId))
+        {
+            return BadRequest<ProductionCompletionDto>(
+                ProductionErrorCodes.AdjustmentConfirmationRequired,
+                "Cancelled production items must have confirmed order adjustments.");
+        }
+
+        var finalTotalAmount = CalculateAdjustedFinalTotal(order, adjustmentContext.ApplicableAdjustments);
+        var paidAmount = order.PaidAmount ?? 0m;
+        if (finalTotalAmount < paidAmount)
+        {
+            return BadRequest<ProductionCompletionDto>(
+                ProductionErrorCodes.AdjustmentRequiresRefundFlow,
+                "Adjustment requires refund flow before production can be completed.");
+        }
+
+        var now = DateTime.UtcNow;
+        try
+        {
+            await _dependencies.UnitOfWork.BeginTransactionAsync(cancellationToken);
+            ApplyConfirmedAdjustments(adjustmentContext.ConfirmedAdjustments, currentUserId, now);
+            await MarkCancelledOrderItemsUnavailableAsync(
+                cancelledOrderItemIds,
+                adjustmentContext.UnavailableItemsByOrderItemId,
+                currentUserId,
+                now,
+                cancellationToken);
+            CompleteWorkflow(
+                productionRequest,
+                order,
+                project,
+                adjustmentContext.ApplicableAdjustments,
+                finalTotalAmount,
+                paidAmount,
+                now);
+            await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
+            await _dependencies.UnitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _dependencies.UnitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+
+        return ServiceResult<ProductionCompletionDto>.Success(
+            ToCompletionDto(productionRequest, order, project, adjustmentContext.ConfirmedAdjustments.Count),
+            "Production completed and confirmed adjustments applied successfully.");
+    }
+
     private async Task<ProductionRequest> BuildProductionRequestAsync(
         Order order,
         CreateProductionRequestDto request,
@@ -537,6 +650,130 @@ public sealed class ProductionRequestService : IProductionRequestService
         order.UpdatedAt = now;
         project.Status = ProjectStatus.IN_PRODUCTION;
         project.UpdatedAt = now;
+    }
+
+    private static bool IsResolvedProductionItem(ProductionItem item)
+    {
+        return item.Status is ProductionItemStatus.COMPLETED or ProductionItemStatus.CANCELLED;
+    }
+
+    private static ProductionAdjustmentApplicationContext BuildAdjustmentApplicationContext(
+        List<OrderAdjustment> adjustments,
+        List<OrderAdjustmentItem> adjustmentItems)
+    {
+        var applicableAdjustments = adjustments
+            .Where(IsApplicableAdjustment)
+            .ToList();
+        var applicableAdjustmentIds = applicableAdjustments
+            .Select(adjustment => adjustment.OrderAdjustmentId)
+            .ToHashSet();
+        var unavailableItemsByOrderItemId = adjustmentItems
+            .Where(item =>
+                item.AdjustmentType == OrderAdjustmentItemType.UNAVAILABLE_ITEM &&
+                item.OrderItemId.HasValue &&
+                applicableAdjustmentIds.Contains(item.OrderAdjustmentId))
+            .GroupBy(item => item.OrderItemId!.Value)
+            .ToDictionary(group => group.Key, group => group.First());
+
+        return new ProductionAdjustmentApplicationContext(
+            applicableAdjustments,
+            applicableAdjustments
+                .Where(adjustment => adjustment.Status == OrderAdjustmentStatus.CONFIRMED)
+                .ToList(),
+            unavailableItemsByOrderItemId);
+    }
+
+    private static bool IsApplicableAdjustment(OrderAdjustment adjustment)
+    {
+        return adjustment.Status is OrderAdjustmentStatus.CONFIRMED or OrderAdjustmentStatus.APPLIED;
+    }
+
+    private static bool CancelledItemsHaveConfirmedAdjustments(
+        List<Guid> cancelledOrderItemIds,
+        Dictionary<Guid, OrderAdjustmentItem> unavailableItemsByOrderItemId)
+    {
+        return cancelledOrderItemIds.All(unavailableItemsByOrderItemId.ContainsKey);
+    }
+
+    private static decimal CalculateAdjustedFinalTotal(
+        Order order,
+        List<OrderAdjustment> applicableAdjustments)
+    {
+        var itemAdjustmentAmount = applicableAdjustments.Sum(adjustment => adjustment.ItemAdjustmentAmount);
+        var additionalDiscountAmount = applicableAdjustments.Sum(adjustment => adjustment.AdditionalDiscountAmount);
+        return order.OriginalTotalAmount - itemAdjustmentAmount - additionalDiscountAmount;
+    }
+
+    private static int CountAppliedAdjustments(List<OrderAdjustment> adjustments)
+    {
+        return adjustments.Count(adjustment => adjustment.Status == OrderAdjustmentStatus.APPLIED);
+    }
+
+    private static void ApplyConfirmedAdjustments(
+        List<OrderAdjustment> confirmedAdjustments,
+        Guid currentUserId,
+        DateTime now)
+    {
+        foreach (var adjustment in confirmedAdjustments)
+        {
+            adjustment.Status = OrderAdjustmentStatus.APPLIED;
+            adjustment.AppliedBy = currentUserId;
+            adjustment.AppliedAt = now;
+            adjustment.UpdatedBy = currentUserId;
+            adjustment.UpdatedAt = now;
+        }
+    }
+
+    private async Task MarkCancelledOrderItemsUnavailableAsync(
+        List<Guid> cancelledOrderItemIds,
+        Dictionary<Guid, OrderAdjustmentItem> unavailableItemsByOrderItemId,
+        Guid currentUserId,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        foreach (var orderItemId in cancelledOrderItemIds)
+        {
+            var orderItem = await _orders.GetItemByIdAsync(orderItemId, cancellationToken);
+            if (orderItem is null)
+            {
+                continue;
+            }
+
+            var adjustmentItem = unavailableItemsByOrderItemId[orderItemId];
+            orderItem.Status = OrderItemStatus.UNAVAILABLE;
+            orderItem.AdjustmentAmount = adjustmentItem.AdjustmentAmount;
+            orderItem.UnavailableReason = adjustmentItem.Reason;
+            orderItem.UnavailableConfirmedBy = currentUserId;
+            orderItem.UnavailableConfirmedAt = now;
+            _orders.UpdateItem(orderItem);
+        }
+    }
+
+    private void CompleteWorkflow(
+        ProductionRequest productionRequest,
+        Order order,
+        Project project,
+        List<OrderAdjustment> applicableAdjustments,
+        decimal finalTotalAmount,
+        decimal paidAmount,
+        DateTime now)
+    {
+        order.ItemAdjustmentAmount = applicableAdjustments.Sum(adjustment => adjustment.ItemAdjustmentAmount);
+        order.AdditionalDiscountAmount = applicableAdjustments.Sum(adjustment => adjustment.AdditionalDiscountAmount);
+        order.FinalTotalAmount = finalTotalAmount;
+        order.PaidAmount = paidAmount;
+        order.RemainingAmount = finalTotalAmount - paidAmount;
+        order.Status = OrderStatus.READY_FOR_DELIVERY;
+        order.UpdatedAt = now;
+        productionRequest.Status = ProductionRequestStatus.COMPLETED;
+        productionRequest.ActualCompletionDate = DateOnly.FromDateTime(now);
+        productionRequest.UpdatedAt = now;
+        project.Status = ProjectStatus.READY_FOR_DELIVERY;
+        project.UpdatedAt = now;
+
+        _orders.Update(order);
+        _productionRequests.Update(productionRequest);
+        _projects.Update(project);
     }
 
     private async Task<ServiceResult<T>?> ValidateSalesAdminAsync<T>(
@@ -931,6 +1168,30 @@ public sealed class ProductionRequestService : IProductionRequestService
             ProductionErrorCodes.InvalidProductionItemTransition,
             "Production item status transition is invalid.");
     }
+
+    private static ProductionCompletionDto ToCompletionDto(
+        ProductionRequest productionRequest,
+        Order order,
+        Project project,
+        int appliedAdjustmentCount)
+    {
+        return new ProductionCompletionDto
+        {
+            ProductionRequestId = productionRequest.ProductionRequestId,
+            ProductionStatus = productionRequest.Status.ToString() ?? string.Empty,
+            OrderStatus = order.Status.ToString() ?? string.Empty,
+            ProjectStatus = project.Status.ToString() ?? string.Empty,
+            AppliedAdjustmentCount = appliedAdjustmentCount,
+            FinalTotalAmount = order.FinalTotalAmount,
+            PaidAmount = order.PaidAmount,
+            RemainingAmount = order.RemainingAmount
+        };
+    }
+
+    private sealed record ProductionAdjustmentApplicationContext(
+        List<OrderAdjustment> ApplicableAdjustments,
+        List<OrderAdjustment> ConfirmedAdjustments,
+        Dictionary<Guid, OrderAdjustmentItem> UnavailableItemsByOrderItemId);
 }
 
 public sealed class ProductionRequestServiceDependencies
@@ -961,11 +1222,14 @@ public static class ProductionErrorCodes
     public const string InvalidProductionStaffFilter = "INVALID_PRODUCTION_STAFF_FILTER";
     public const string OrderNotFound = "ORDER_NOT_FOUND";
     public const string ProductionAssigneeNotActive = "PRODUCTION_ASSIGNEE_NOT_ACTIVE";
+    public const string ProductionItemsNotResolved = "PRODUCTION_ITEMS_NOT_RESOLVED";
     public const string ProductionRequestAlreadyClosed = "PRODUCTION_REQUEST_ALREADY_CLOSED";
     public const string ProductionRequestAlreadyExists = "PRODUCTION_REQUEST_ALREADY_EXISTS";
     public const string ProductionRequestNotFound = "PRODUCTION_REQUEST_NOT_FOUND";
     public const string ProductionItemNotFound = "PRODUCTION_ITEM_NOT_FOUND";
     public const string ProductionCancellationReasonRequired = "PRODUCTION_CANCELLATION_REASON_REQUIRED";
     public const string ProductionStaffNotFound = "PRODUCTION_STAFF_NOT_FOUND";
+    public const string AdjustmentConfirmationRequired = "ADJUSTMENT_CONFIRMATION_REQUIRED";
+    public const string AdjustmentRequiresRefundFlow = "ADJUSTMENT_REQUIRES_REFUND_FLOW";
     public const string ProjectNotFound = "PROJECT_NOT_FOUND";
 }

@@ -208,6 +208,16 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             cancellationToken);
     }
 
+    public Task<List<ProductionItem>> GetItemsByRequestIdAsync(
+        Guid productionRequestId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProductionItemSet
+            .Where(item => item.ProductionRequestId == productionRequestId)
+            .OrderBy(item => item.ProductionItemId)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<ProductionRequestDetailReadModel?> GetDetailByItemIdAsync(
         Guid productionItemId,
         CancellationToken cancellationToken = default)

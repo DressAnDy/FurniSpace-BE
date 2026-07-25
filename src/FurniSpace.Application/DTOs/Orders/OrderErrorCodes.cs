@@ -15,6 +15,8 @@ public static class OrderErrorCodes
     public const string InvalidUnavailableItemAmount = "INVALID_UNAVAILABLE_ITEM_AMOUNT";
     public const string ProductionItemNotCancelled = "PRODUCTION_ITEM_NOT_CANCELLED";
     public const string AdjustmentAlreadyConfirmed = "ADJUSTMENT_ALREADY_CONFIRMED";
+    public const string AdjustmentItemRequired = "ADJUSTMENT_ITEM_REQUIRED";
+    public const string InvalidAdjustmentStatus = "INVALID_ADJUSTMENT_STATUS";
     public const string OrderAdjustmentNotFound = "ORDER_ADJUSTMENT_NOT_FOUND";
     public const string OrderItemNotFound = "ORDER_ITEM_NOT_FOUND";
 }

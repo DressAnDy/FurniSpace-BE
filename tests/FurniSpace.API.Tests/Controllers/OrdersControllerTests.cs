@@ -74,6 +74,15 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
+    public void ConfirmAdjustment_RequiresCustomer()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.ConfirmAdjustment));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER", authorize.Roles);
+    }
+
+    [Fact]
     public async Task UpdateFinancialAdjustment_ReturnsServiceResult()
     {
         var orderId = Guid.NewGuid();
@@ -291,6 +300,39 @@ public sealed class OrdersControllerTests
         Assert.IsType<UnauthorizedResult>(delete);
     }
 
+    [Fact]
+    public async Task ConfirmAdjustment_ReturnsServiceResult()
+    {
+        var userId = Guid.NewGuid();
+        var adjustmentId = Guid.NewGuid();
+        var orderService = new FakeOrderService(
+            confirmAdjustmentResult: ServiceResult<OrderAdjustmentConfirmationDto>.Success(
+                new OrderAdjustmentConfirmationDto { OrderAdjustmentId = adjustmentId },
+                "confirmed"));
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
+
+        var result = await controller.ConfirmAdjustment(adjustmentId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(adjustmentId, orderService.OrderAdjustmentId);
+        Assert.Equal(userId, orderService.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task ConfirmAdjustment_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.ConfirmAdjustment(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
     private static AuthorizeAttribute? GetMethodAuthorizeAttribute(string methodName)
     {
         var method = typeof(OrdersController)
@@ -422,6 +464,7 @@ public sealed class OrdersControllerTests
         private readonly ServiceResult<OrderAdjustmentItemDto>? _addAdjustmentItemResult;
         private readonly ServiceResult<OrderAdjustmentItemDto>? _updateAdjustmentItemResult;
         private readonly ServiceResult<OrderAdjustmentDto>? _deleteAdjustmentItemResult;
+        private readonly ServiceResult<OrderAdjustmentConfirmationDto>? _confirmAdjustmentResult;
 
         public FakeOrderService(
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
@@ -430,7 +473,8 @@ public sealed class OrdersControllerTests
             ServiceResult<OrderAdjustmentDto>? createAdjustmentResult = null,
             ServiceResult<OrderAdjustmentItemDto>? addAdjustmentItemResult = null,
             ServiceResult<OrderAdjustmentItemDto>? updateAdjustmentItemResult = null,
-            ServiceResult<OrderAdjustmentDto>? deleteAdjustmentItemResult = null)
+            ServiceResult<OrderAdjustmentDto>? deleteAdjustmentItemResult = null,
+            ServiceResult<OrderAdjustmentConfirmationDto>? confirmAdjustmentResult = null)
         {
             _getByProjectResult = getByProjectResult;
             _getDetailResult = getDetailResult;
@@ -439,6 +483,7 @@ public sealed class OrdersControllerTests
             _addAdjustmentItemResult = addAdjustmentItemResult;
             _updateAdjustmentItemResult = updateAdjustmentItemResult;
             _deleteAdjustmentItemResult = deleteAdjustmentItemResult;
+            _confirmAdjustmentResult = confirmAdjustmentResult;
         }
 
         public Guid OrderId { get; private set; }
@@ -520,6 +565,17 @@ public sealed class OrdersControllerTests
             OrderAdjustmentItemId = orderAdjustmentItemId;
             CurrentUserId = currentUserId;
             return Task.FromResult(_deleteAdjustmentItemResult ?? ServiceResult<OrderAdjustmentDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderAdjustmentConfirmationDto>> ConfirmAdjustmentAsync(
+            Guid orderAdjustmentId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            OrderAdjustmentId = orderAdjustmentId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(
+                _confirmAdjustmentResult ?? ServiceResult<OrderAdjustmentConfirmationDto>.Unauthorized());
         }
     }
 

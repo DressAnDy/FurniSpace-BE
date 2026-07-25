@@ -337,6 +337,74 @@ public sealed class OrderService : IOrderService
             OrderAdjustmentItemDeletedMessage);
     }
 
+    public async Task<ServiceResult<OrderAdjustmentConfirmationDto>> ConfirmAdjustmentAsync(
+        Guid orderAdjustmentId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<OrderAdjustmentConfirmationDto>.Unauthorized();
+        }
+
+        var adjustment = await _orders.GetAdjustmentByIdAsync(orderAdjustmentId, cancellationToken);
+        if (adjustment is null)
+        {
+            return NotFound<OrderAdjustmentConfirmationDto>(
+                OrderErrorCodes.OrderAdjustmentNotFound,
+                OrderAdjustmentNotFoundMessage);
+        }
+
+        var order = await _orders.GetDetailAsync(adjustment.OrderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound<OrderAdjustmentConfirmationDto>(
+                OrderErrorCodes.OrderAdjustmentNotFound,
+                OrderAdjustmentNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != "CUSTOMER" || order.CustomerId != currentUserId)
+        {
+            return ServiceResult<OrderAdjustmentConfirmationDto>.Forbidden(ForbiddenMessage);
+        }
+
+        if (adjustment.Status == OrderAdjustmentStatus.CONFIRMED)
+        {
+            return ServiceResult<OrderAdjustmentConfirmationDto>.Success(
+                ToConfirmationDto(adjustment),
+                "Order adjustment confirmed successfully.");
+        }
+
+        if (adjustment.Status != OrderAdjustmentStatus.DRAFT)
+        {
+            return BadRequest<OrderAdjustmentConfirmationDto>(
+                OrderErrorCodes.InvalidAdjustmentStatus,
+                "Order adjustment status is invalid for confirmation.");
+        }
+
+        var items = await _orders.GetAdjustmentItemsAsync(orderAdjustmentId, cancellationToken);
+        if (items.Count == 0)
+        {
+            return BadRequest<OrderAdjustmentConfirmationDto>(
+                OrderErrorCodes.AdjustmentItemRequired,
+                "Order adjustment must contain at least one item.");
+        }
+
+        var now = DateTime.UtcNow;
+        adjustment.Status = OrderAdjustmentStatus.CONFIRMED;
+        adjustment.ConfirmedBy = currentUserId;
+        adjustment.ConfirmedAt = now;
+        adjustment.UpdatedBy = currentUserId;
+        adjustment.UpdatedAt = now;
+        _orders.UpdateAdjustment(adjustment);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<OrderAdjustmentConfirmationDto>.Success(
+            ToConfirmationDto(adjustment),
+            "Order adjustment confirmed successfully.");
+    }
+
     private async Task<OrderAdjustmentAccess<T>> ValidateOrderAdjustmentAccessAsync<T>(
         Guid orderId,
         Guid currentUserId,
@@ -727,6 +795,17 @@ public sealed class OrderService : IOrderService
             PreviousItemAmount = item.PreviousItemAmount,
             AdjustmentAmount = item.AdjustmentAmount,
             Reason = item.Reason
+        };
+    }
+
+    private static OrderAdjustmentConfirmationDto ToConfirmationDto(OrderAdjustment adjustment)
+    {
+        return new OrderAdjustmentConfirmationDto
+        {
+            OrderAdjustmentId = adjustment.OrderAdjustmentId,
+            Status = adjustment.Status.ToString(),
+            ConfirmedBy = adjustment.ConfirmedBy,
+            ConfirmedAt = adjustment.ConfirmedAt
         };
     }
 

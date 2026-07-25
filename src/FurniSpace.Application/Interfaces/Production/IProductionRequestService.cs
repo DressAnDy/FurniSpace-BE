@@ -51,4 +51,12 @@ public interface IProductionRequestService
         Guid currentUserId,
         UpdateProductionItemStatusDto request,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductionCompletionDto>> CompleteAsync(
+        Guid productionRequestId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<ProductionCompletionDto>.Unauthorized());
+    }
 }

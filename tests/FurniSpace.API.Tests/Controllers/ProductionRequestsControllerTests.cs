@@ -47,6 +47,7 @@ public sealed class ProductionRequestsControllerTests
     [Theory]
     [InlineData(nameof(ProductionRequestsController.MarkFeasible))]
     [InlineData(nameof(ProductionRequestsController.Start))]
+    [InlineData(nameof(ProductionRequestsController.Complete))]
     public void ProductionStatusActions_RequireProductionOrAdmin(string methodName)
     {
         var authorize = typeof(ProductionRequestsController)
@@ -148,6 +149,22 @@ public sealed class ProductionRequestsControllerTests
     }
 
     [Fact]
+    public async Task Complete_ReturnsServiceResultAndPassesId()
+    {
+        var userId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        var service = new FakeProductionRequestService();
+        var controller = BuildController(service, userId);
+
+        var result = await controller.Complete(requestId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(requestId, service.ProductionRequestId);
+        Assert.Equal(userId, service.CurrentUserId);
+    }
+
+    [Fact]
     public async Task Actions_WithoutUser_ReturnUnauthorized()
     {
         var controller = BuildController(new FakeProductionRequestService(), userId: null);
@@ -157,12 +174,14 @@ public sealed class ProductionRequestsControllerTests
         var assign = await controller.Assign(Guid.NewGuid(), new AssignProductionRequestDto());
         var markFeasible = await controller.MarkFeasible(Guid.NewGuid(), new MarkProductionRequestFeasibleDto());
         var start = await controller.Start(Guid.NewGuid(), new StartProductionRequestDto());
+        var complete = await controller.Complete(Guid.NewGuid());
 
         Assert.IsType<UnauthorizedResult>(queue);
         Assert.IsType<UnauthorizedResult>(detail);
         Assert.IsType<UnauthorizedResult>(assign);
         Assert.IsType<UnauthorizedResult>(markFeasible);
         Assert.IsType<UnauthorizedResult>(start);
+        Assert.IsType<UnauthorizedResult>(complete);
     }
 
     private static ProductionRequestsController BuildController(
@@ -281,6 +300,17 @@ public sealed class ProductionRequestsControllerTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(ServiceResult<ProductionItemStatusDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<ProductionCompletionDto>> CompleteAsync(
+            Guid productionRequestId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            CurrentUserId = currentUserId;
+            ProductionRequestId = productionRequestId;
+            return Task.FromResult(ServiceResult<ProductionCompletionDto>.Success(
+                new ProductionCompletionDto()));
         }
     }
 }

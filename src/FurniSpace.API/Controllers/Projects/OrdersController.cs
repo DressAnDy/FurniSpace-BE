@@ -218,6 +218,24 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPatch("order-adjustments/{orderAdjustmentId:guid}/confirm")]
+    public async Task<IActionResult> ConfirmAdjustment(
+        Guid orderAdjustmentId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.ConfirmAdjustmentAsync(
+            orderAdjustmentId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

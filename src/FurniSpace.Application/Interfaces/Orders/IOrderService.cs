@@ -43,4 +43,12 @@ public interface IOrderService
         Guid orderAdjustmentItemId,
         Guid currentUserId,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<OrderAdjustmentConfirmationDto>> ConfirmAdjustmentAsync(
+        Guid orderAdjustmentId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<OrderAdjustmentConfirmationDto>.Unauthorized());
+    }
 }

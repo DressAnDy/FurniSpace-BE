@@ -114,6 +114,24 @@ public sealed class ProductionRequestsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "PRODUCTION,ADMIN")]
+    [HttpPatch("{productionRequestId:guid}/complete")]
+    public async Task<IActionResult> Complete(
+        Guid productionRequestId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _productionRequests.CompleteAsync(
+            productionRequestId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

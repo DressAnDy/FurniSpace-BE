@@ -42,6 +42,13 @@ public interface IOrderRepository : IGenericRepository<Order>
         return Task.FromResult<OrderItem?>(null);
     }
 
+    Task<IReadOnlyList<OrderItem>> GetItemsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<OrderItem>>([]);
+    }
+
     Task<OrderAdjustment?> GetAdjustmentByIdAsync(
         Guid orderAdjustmentId,
         CancellationToken cancellationToken = default)

@@ -473,6 +473,121 @@ public sealed class OrderService : IOrderService
             "Delivery started successfully.");
     }
 
+    public async Task<ServiceResult<OrderItemDeliveredQuantityDto>> UpdateDeliveredQuantityAsync(
+        Guid orderItemId,
+        Guid currentUserId,
+        UpdateDeliveredQuantityRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<OrderItemDeliveredQuantityDto>.Unauthorized();
+        }
+
+        var increment = request.DeliveredQuantityIncrement ?? 0;
+        if (increment <= 0)
+        {
+            return BadRequest<OrderItemDeliveredQuantityDto>(
+                OrderErrorCodes.InvalidDeliveredQuantity,
+                "Delivered quantity increment must be greater than zero.");
+        }
+
+        var context = await ValidateOrderItemDeliveryContextAsync<OrderItemDeliveredQuantityDto>(
+            orderItemId,
+            currentUserId,
+            requireCustomerOwner: false,
+            cancellationToken);
+        if (context.Error is not null)
+        {
+            return context.Error;
+        }
+
+        var quantity = context.Item!.Quantity ?? 0;
+        var deliveredQuantity = context.Item.DeliveredQuantity ?? 0;
+        if (quantity <= 0)
+        {
+            return BadRequest<OrderItemDeliveredQuantityDto>(
+                OrderErrorCodes.InvalidDeliveredQuantity,
+                "Order item quantity must be greater than zero.");
+        }
+
+        if (deliveredQuantity + increment > quantity)
+        {
+            return BadRequest<OrderItemDeliveredQuantityDto>(
+                OrderErrorCodes.DeliveredQuantityExceeded,
+                "Delivered quantity cannot exceed ordered quantity.");
+        }
+
+        var now = DateTime.UtcNow;
+        context.Item.DeliveredQuantity = deliveredQuantity + increment;
+        context.Item.DeliveryNote = request.DeliveryNote?.Trim();
+        context.Item.LastDeliveredAt = now;
+        context.Item.LastDeliveredBy = currentUserId;
+        _orders.UpdateItem(context.Item);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<OrderItemDeliveredQuantityDto>.Success(
+            ToDeliveredQuantityDto(context.Item),
+            "Delivered quantity updated successfully.");
+    }
+
+    public async Task<ServiceResult<OrderItemDeliveryConfirmationDto>> ConfirmItemDeliveryAsync(
+        Guid orderItemId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<OrderItemDeliveryConfirmationDto>.Unauthorized();
+        }
+
+        var context = await ValidateOrderItemDeliveryContextAsync<OrderItemDeliveryConfirmationDto>(
+            orderItemId,
+            currentUserId,
+            requireCustomerOwner: true,
+            cancellationToken);
+        if (context.Error is not null)
+        {
+            return context.Error;
+        }
+
+        if (context.Item!.Status == OrderItemStatus.DELIVERED)
+        {
+            return ServiceResult<OrderItemDeliveryConfirmationDto>.Success(
+                ToDeliveryConfirmationDto(context.Item, context.Order!),
+                "Order item delivery confirmed successfully.");
+        }
+
+        if (!IsFullyDelivered(context.Item))
+        {
+            return BadRequest<OrderItemDeliveryConfirmationDto>(
+                OrderErrorCodes.ItemNotFullyDelivered,
+                "Order item must be fully delivered before confirmation.");
+        }
+
+        var now = DateTime.UtcNow;
+        context.Item.Status = OrderItemStatus.DELIVERED;
+        context.Item.CustomerConfirmedAt = now;
+        _orders.UpdateItem(context.Item);
+
+        if (await AllDeliverableItemsConfirmedAsync(context.Item, cancellationToken))
+        {
+            context.Order!.Status = OrderStatus.DELIVERED;
+            context.Order.CustomerConfirmedDeliveryAt = now;
+            context.Order.UpdatedAt = now;
+            context.Project!.Status = ProjectStatus.DELIVERED;
+            context.Project.UpdatedAt = now;
+            _orders.Update(context.Order);
+            _projects.Update(context.Project);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<OrderItemDeliveryConfirmationDto>.Success(
+            ToDeliveryConfirmationDto(context.Item, context.Order!),
+            "Order item delivery confirmed successfully.");
+    }
+
     private async Task<OrderAdjustmentAccess<T>> ValidateOrderAdjustmentAccessAsync<T>(
         Guid orderId,
         Guid currentUserId,
@@ -824,6 +939,104 @@ public sealed class OrderService : IOrderService
             .ToList();
     }
 
+    private async Task<OrderItemDeliveryContext<T>> ValidateOrderItemDeliveryContextAsync<T>(
+        Guid orderItemId,
+        Guid currentUserId,
+        bool requireCustomerOwner,
+        CancellationToken cancellationToken)
+    {
+        var item = await _orders.GetItemByIdAsync(orderItemId, cancellationToken);
+        if (item is null)
+        {
+            return OrderItemDeliveryContext<T>.WithError(
+                NotFound<T>(OrderErrorCodes.OrderItemNotFound, "Order item not found."));
+        }
+
+        var order = await _orders.GetByIdAsync(item.OrderId, cancellationToken);
+        if (order is null)
+        {
+            return OrderItemDeliveryContext<T>.WithError(
+                NotFound<T>(OrderErrorCodes.OrderItemNotFound, "Order item not found."));
+        }
+
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return OrderItemDeliveryContext<T>.WithError(
+                NotFound<T>(OrderErrorCodes.OrderItemNotFound, "Order item not found."));
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        var accessError = requireCustomerOwner
+            ? ValidateCustomerDeliveryAccess<T>(role, project.CustomerId, currentUserId)
+            : ValidateStaffDeliveryAccess<T>(role, project.AssignedSalesId, currentUserId);
+        if (accessError is not null)
+        {
+            return OrderItemDeliveryContext<T>.WithError(accessError);
+        }
+
+        if (order.Status != OrderStatus.DELIVERING)
+        {
+            return OrderItemDeliveryContext<T>.WithError(
+                BadRequest<T>(
+                    OrderErrorCodes.OrderNotDelivering,
+                    "Order must be DELIVERING before item delivery can be updated."));
+        }
+
+        if (!IsDeliverableItem(item))
+        {
+            return OrderItemDeliveryContext<T>.WithError(
+                BadRequest<T>(
+                    OrderErrorCodes.ItemNotDeliverable,
+                    "Order item is not deliverable."));
+        }
+
+        return new OrderItemDeliveryContext<T>(item, order, project, null);
+    }
+
+    private static ServiceResult<T>? ValidateStaffDeliveryAccess<T>(
+        string? role,
+        Guid? assignedSalesId,
+        Guid currentUserId)
+    {
+        return CanStartDelivery(role, assignedSalesId, currentUserId)
+            ? null
+            : ServiceResult<T>.Forbidden(ForbiddenMessage);
+    }
+
+    private static ServiceResult<T>? ValidateCustomerDeliveryAccess<T>(
+        string? role,
+        Guid customerId,
+        Guid currentUserId)
+    {
+        return role == ProjectAssignmentAccessEvaluator.CustomerRole && customerId == currentUserId
+            ? null
+            : ServiceResult<T>.Forbidden(ForbiddenMessage);
+    }
+
+    private static bool IsDeliverableItem(OrderItem item)
+    {
+        return item.ItemType == QuotationItemType.PRODUCT_ITEM &&
+            item.Status is not (OrderItemStatus.UNAVAILABLE or OrderItemStatus.CANCELLED);
+    }
+
+    private static bool IsFullyDelivered(OrderItem item)
+    {
+        return (item.DeliveredQuantity ?? 0) >= (item.Quantity ?? 0) && (item.Quantity ?? 0) > 0;
+    }
+
+    private async Task<bool> AllDeliverableItemsConfirmedAsync(
+        OrderItem currentItem,
+        CancellationToken cancellationToken)
+    {
+        var items = await _orders.GetItemsByOrderAsync(currentItem.OrderId, cancellationToken);
+        return items
+            .Where(IsDeliverableItem)
+            .All(item =>
+                item.OrderItemId == currentItem.OrderItemId ||
+                item.Status == OrderItemStatus.DELIVERED);
+    }
+
     private static ServiceResult<OrderListResponseDto> NotFoundList(string errorCode, string message)
     {
         return ServiceResult<OrderListResponseDto>.Failure(Error.NotFound(errorCode, message));
@@ -889,6 +1102,29 @@ public sealed class OrderService : IOrderService
         };
     }
 
+    private static OrderItemDeliveredQuantityDto ToDeliveredQuantityDto(OrderItem item)
+    {
+        return new OrderItemDeliveredQuantityDto
+        {
+            OrderItemId = item.OrderItemId,
+            Quantity = item.Quantity ?? 0,
+            DeliveredQuantity = item.DeliveredQuantity ?? 0,
+            LastDeliveredAt = item.LastDeliveredAt,
+            LastDeliveredBy = item.LastDeliveredBy
+        };
+    }
+
+    private static OrderItemDeliveryConfirmationDto ToDeliveryConfirmationDto(OrderItem item, Order order)
+    {
+        return new OrderItemDeliveryConfirmationDto
+        {
+            OrderItemId = item.OrderItemId,
+            Status = item.Status.ToString() ?? string.Empty,
+            CustomerConfirmedAt = item.CustomerConfirmedAt,
+            OrderStatus = order.Status.ToString() ?? string.Empty
+        };
+    }
+
     private static bool CanStartDelivery(
         string? role,
         Guid? assignedSalesId,
@@ -926,4 +1162,16 @@ public sealed class OrderService : IOrderService
     private sealed record OrderAdjustmentItemBuildResult(
         OrderAdjustmentItem? Item,
         ServiceResult<OrderAdjustmentItemDto>? Error);
+
+    private sealed record OrderItemDeliveryContext<T>(
+        OrderItem? Item,
+        Order? Order,
+        Project? Project,
+        ServiceResult<T>? Error)
+    {
+        public static OrderItemDeliveryContext<T> WithError(ServiceResult<T> error)
+        {
+            return new OrderItemDeliveryContext<T>(null, null, null, error);
+        }
+    }
 }

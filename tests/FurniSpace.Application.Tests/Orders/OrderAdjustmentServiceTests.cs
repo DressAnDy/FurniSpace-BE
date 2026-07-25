@@ -467,6 +467,212 @@ public sealed class OrderAdjustmentServiceTests
         Assert.Equal(OrderErrorCodes.ProjectNotFound, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task UpdateDeliveredQuantityAsync_WhenValid_IncrementsDeliveredQuantity()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
+        var item = AddOrderItem(context, seeded.OrderId, quantity: 4, deliveredQuantity: 2);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.UpdateDeliveredQuantityAsync(
+            item.OrderItemId,
+            _productionId,
+            new UpdateDeliveredQuantityRequestDto
+            {
+                DeliveredQuantityIncrement = 2,
+                DeliveryNote = " Delivered two chairs. "
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(4, result.Data!.Quantity);
+        Assert.Equal(4, result.Data.DeliveredQuantity);
+        Assert.Equal(4, item.DeliveredQuantity);
+        Assert.Equal("Delivered two chairs.", item.DeliveryNote);
+        Assert.Equal(_productionId, item.LastDeliveredBy);
+        Assert.NotNull(item.LastDeliveredAt);
+    }
+
+    [Theory]
+    [InlineData(0, OrderErrorCodes.InvalidDeliveredQuantity)]
+    [InlineData(3, OrderErrorCodes.DeliveredQuantityExceeded)]
+    public async Task UpdateDeliveredQuantityAsync_WhenQuantityInvalid_ReturnsBadRequest(
+        int increment,
+        string expectedCode)
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
+        var item = AddOrderItem(context, seeded.OrderId, quantity: 4, deliveredQuantity: 2);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.UpdateDeliveredQuantityAsync(
+            item.OrderItemId,
+            _salesId,
+            new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = increment });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedCode, result.ErrorCode);
+    }
+
+    [Theory]
+    [InlineData(QuotationItemType.MANUAL_ITEM, OrderItemStatus.PENDING, OrderErrorCodes.ItemNotDeliverable)]
+    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.CANCELLED, OrderErrorCodes.ItemNotDeliverable)]
+    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.PENDING, OrderErrorCodes.OrderNotDelivering)]
+    public async Task UpdateDeliveredQuantityAsync_WhenNotDeliverable_ReturnsExpectedError(
+        QuotationItemType itemType,
+        OrderItemStatus itemStatus,
+        string expectedCode)
+    {
+        await using var context = CreateContext();
+        var orderStatus = expectedCode == OrderErrorCodes.OrderNotDelivering
+            ? OrderStatus.READY_FOR_DELIVERY
+            : OrderStatus.DELIVERING;
+        var seeded = SeedDeliveryScenario(context, orderStatus, ProjectStatus.DELIVERING);
+        var item = AddOrderItem(context, seeded.OrderId, itemType, itemStatus);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.UpdateDeliveredQuantityAsync(
+            item.OrderItemId,
+            _salesId,
+            new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = 1 });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedCode, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateDeliveredQuantityAsync_WhenMissingUnauthorizedOrForbidden_ReturnsExpectedStatus()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
+        var item = AddOrderItem(context, seeded.OrderId);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.UpdateDeliveredQuantityAsync(
+            item.OrderItemId,
+            Guid.Empty,
+            new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = 1 });
+        var forbidden = await service.UpdateDeliveredQuantityAsync(
+            item.OrderItemId,
+            _customerId,
+            new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = 1 });
+        var missing = await service.UpdateDeliveredQuantityAsync(
+            Guid.NewGuid(),
+            _salesId,
+            new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = 1 });
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(OrderErrorCodes.OrderItemNotFound, missing.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmItemDeliveryAsync_WhenFullyDelivered_ConfirmsItem()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
+        var item = AddOrderItem(context, seeded.OrderId, quantity: 4, deliveredQuantity: 4);
+        AddOrderItem(context, seeded.OrderId, quantity: 1, deliveredQuantity: 0);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.ConfirmItemDeliveryAsync(item.OrderItemId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("DELIVERED", result.Data!.Status);
+        Assert.Equal("DELIVERING", result.Data.OrderStatus);
+        Assert.Equal(OrderItemStatus.DELIVERED, item.Status);
+        Assert.NotNull(item.CustomerConfirmedAt);
+        Assert.Equal(OrderStatus.DELIVERING, context.OrderSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task ConfirmItemDeliveryAsync_WhenFinalDeliverableItem_CompletesOrderAndProjectDelivery()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
+        var finalItem = AddOrderItem(context, seeded.OrderId, quantity: 2, deliveredQuantity: 2);
+        AddOrderItem(context, seeded.OrderId, status: OrderItemStatus.DELIVERED);
+        AddOrderItem(context, seeded.OrderId, QuotationItemType.MANUAL_ITEM);
+        AddOrderItem(context, seeded.OrderId, status: OrderItemStatus.UNAVAILABLE);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.ConfirmItemDeliveryAsync(finalItem.OrderItemId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("DELIVERED", result.Data!.OrderStatus);
+        Assert.Equal(OrderStatus.DELIVERED, context.OrderSet.Single().Status);
+        Assert.Equal(ProjectStatus.DELIVERED, context.ProjectSet.Single().Status);
+        Assert.NotNull(context.OrderSet.Single().CustomerConfirmedDeliveryAt);
+    }
+
+    [Fact]
+    public async Task ConfirmItemDeliveryAsync_WhenAlreadyDelivered_IsIdempotent()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
+        var item = AddOrderItem(context, seeded.OrderId, status: OrderItemStatus.DELIVERED);
+        item.CustomerConfirmedAt = DateTime.UtcNow.AddMinutes(-5);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.ConfirmItemDeliveryAsync(item.OrderItemId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("DELIVERED", result.Data!.Status);
+        Assert.Equal(item.CustomerConfirmedAt, result.Data.CustomerConfirmedAt);
+    }
+
+    [Theory]
+    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.PENDING, 2, 1, OrderErrorCodes.ItemNotFullyDelivered)]
+    [InlineData(QuotationItemType.MANUAL_ITEM, OrderItemStatus.PENDING, 1, 1, OrderErrorCodes.ItemNotDeliverable)]
+    public async Task ConfirmItemDeliveryAsync_WhenInvalid_ReturnsExpectedBadRequest(
+        QuotationItemType itemType,
+        OrderItemStatus status,
+        int quantity,
+        int deliveredQuantity,
+        string expectedCode)
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
+        var item = AddOrderItem(context, seeded.OrderId, itemType, status, quantity, deliveredQuantity);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.ConfirmItemDeliveryAsync(item.OrderItemId, _customerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedCode, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmItemDeliveryAsync_WhenMissingUnauthorizedOrForbidden_ReturnsExpectedStatus()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.READY_FOR_DELIVERY, ProjectStatus.READY_FOR_DELIVERY);
+        var item = AddOrderItem(context, seeded.OrderId, quantity: 1, deliveredQuantity: 1);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.ConfirmItemDeliveryAsync(item.OrderItemId, Guid.Empty);
+        var forbidden = await service.ConfirmItemDeliveryAsync(item.OrderItemId, _salesId);
+        var missing = await service.ConfirmItemDeliveryAsync(Guid.NewGuid(), _customerId);
+        var orderNotDelivering = await service.ConfirmItemDeliveryAsync(item.OrderItemId, _customerId);
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(OrderErrorCodes.OrderItemNotFound, missing.ErrorCode);
+        Assert.Equal(400, orderNotDelivering.Status);
+        Assert.Equal(OrderErrorCodes.OrderNotDelivering, orderNotDelivering.ErrorCode);
+    }
+
     private OrderService BuildService(AppDbContext context)
     {
         return new OrderService(
@@ -538,6 +744,28 @@ public sealed class OrderAdjustmentServiceTests
             Title = "Delivery",
             ScheduledStart = DateTime.UtcNow.AddDays(1)
         });
+    }
+
+    private static OrderItem AddOrderItem(
+        AppDbContext context,
+        Guid orderId,
+        QuotationItemType itemType = QuotationItemType.PRODUCT_ITEM,
+        OrderItemStatus status = OrderItemStatus.PENDING,
+        int quantity = 4,
+        int deliveredQuantity = 0)
+    {
+        var item = new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ItemType = itemType,
+            ProductNameSnapshot = "Chair",
+            Quantity = quantity,
+            DeliveredQuantity = deliveredQuantity,
+            Status = status
+        };
+        context.OrderItemSet.Add(item);
+        return item;
     }
 
     private SeededAdjustmentItem SeedAdjustmentItemScenario(

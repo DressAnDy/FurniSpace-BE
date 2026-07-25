@@ -254,6 +254,44 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [HttpPatch("order-items/{orderItemId:guid}/delivered-quantity")]
+    public async Task<IActionResult> UpdateDeliveredQuantity(
+        Guid orderItemId,
+        [FromBody] UpdateDeliveredQuantityRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.UpdateDeliveredQuantityAsync(
+            orderItemId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPatch("order-items/{orderItemId:guid}/confirm-delivery")]
+    public async Task<IActionResult> ConfirmItemDelivery(
+        Guid orderItemId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.ConfirmItemDeliveryAsync(
+            orderItemId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

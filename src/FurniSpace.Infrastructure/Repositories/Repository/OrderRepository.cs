@@ -106,6 +106,15 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<OrderItem>> GetItemsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.OrderItemSet
+            .Where(item => item.OrderId == orderId)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<OrderAdjustment?> GetAdjustmentByIdAsync(
         Guid orderAdjustmentId,
         CancellationToken cancellationToken = default)

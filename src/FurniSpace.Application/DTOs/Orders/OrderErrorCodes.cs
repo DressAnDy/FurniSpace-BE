@@ -20,4 +20,9 @@ public static class OrderErrorCodes
     public const string OrderAdjustmentNotFound = "ORDER_ADJUSTMENT_NOT_FOUND";
     public const string OrderItemNotFound = "ORDER_ITEM_NOT_FOUND";
     public const string DeliveryScheduleNotConfirmed = "DELIVERY_SCHEDULE_NOT_CONFIRMED";
+    public const string InvalidDeliveredQuantity = "INVALID_DELIVERED_QUANTITY";
+    public const string DeliveredQuantityExceeded = "DELIVERED_QUANTITY_EXCEEDED";
+    public const string ItemNotDeliverable = "ITEM_NOT_DELIVERABLE";
+    public const string OrderNotDelivering = "ORDER_NOT_DELIVERING";
+    public const string ItemNotFullyDelivered = "ITEM_NOT_FULLY_DELIVERED";
 }

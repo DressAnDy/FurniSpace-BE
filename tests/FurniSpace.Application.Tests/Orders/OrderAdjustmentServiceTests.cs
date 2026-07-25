@@ -20,6 +20,8 @@ public sealed class OrderAdjustmentServiceTests
 {
     private readonly Guid _salesId = Guid.NewGuid();
     private readonly Guid _customerId = Guid.NewGuid();
+    private readonly Guid _adminId = Guid.NewGuid();
+    private readonly Guid _productionId = Guid.NewGuid();
 
     [Fact]
     public async Task CreateAdjustmentAsync_WhenOrderInProduction_CreatesDraftAdjustment()
@@ -366,12 +368,112 @@ public sealed class OrderAdjustmentServiceTests
         Assert.Equal(OrderErrorCodes.InvalidAdjustmentStatus, invalidStatus.ErrorCode);
     }
 
+    [Fact]
+    public async Task StartDeliveryAsync_WhenReadyAndScheduleConfirmed_MovesOrderAndProjectToDelivering()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.READY_FOR_DELIVERY, ProjectStatus.READY_FOR_DELIVERY);
+        AddDeliverySchedule(context, seeded.ProjectId, ProjectScheduleStatus.CONFIRMED);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.StartDeliveryAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("DELIVERING", result.Data!.OrderStatus);
+        Assert.Equal("DELIVERING", result.Data.ProjectStatus);
+        Assert.Equal(OrderStatus.DELIVERING, context.OrderSet.Single().Status);
+        Assert.Equal(ProjectStatus.DELIVERING, context.ProjectSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task StartDeliveryAsync_ProductionCanStartDelivery()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.READY_FOR_DELIVERY, ProjectStatus.READY_FOR_DELIVERY);
+        AddDeliverySchedule(context, seeded.ProjectId, ProjectScheduleStatus.CONFIRMED);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.StartDeliveryAsync(seeded.OrderId, _productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("DELIVERING", result.Data!.OrderStatus);
+    }
+
+    [Fact]
+    public async Task StartDeliveryAsync_WhenAlreadyDelivering_IsIdempotent()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.StartDeliveryAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("DELIVERING", result.Data!.OrderStatus);
+    }
+
+    [Fact]
+    public async Task StartDeliveryAsync_WhenNoConfirmedDeliverySchedule_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.READY_FOR_DELIVERY, ProjectStatus.READY_FOR_DELIVERY);
+        AddDeliverySchedule(context, seeded.ProjectId, ProjectScheduleStatus.PENDING_CONFIRMATION);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.StartDeliveryAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliveryScheduleNotConfirmed, result.ErrorCode);
+        Assert.Equal(OrderStatus.READY_FOR_DELIVERY, context.OrderSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task StartDeliveryAsync_WhenInvalid_ReturnsExpectedErrors()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.IN_PRODUCTION, ProjectStatus.IN_PRODUCTION);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.StartDeliveryAsync(seeded.OrderId, Guid.Empty);
+        var forbidden = await service.StartDeliveryAsync(seeded.OrderId, _customerId);
+        var missing = await service.StartDeliveryAsync(Guid.NewGuid(), _salesId);
+        var invalidStatus = await service.StartDeliveryAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(OrderErrorCodes.OrderNotFound, missing.ErrorCode);
+        Assert.Equal(400, invalidStatus.Status);
+        Assert.Equal(OrderErrorCodes.InvalidOrderStatus, invalidStatus.ErrorCode);
+    }
+
+    [Fact]
+    public async Task StartDeliveryAsync_WhenProjectMissing_ReturnsProjectNotFound()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveryScenario(context, OrderStatus.READY_FOR_DELIVERY, ProjectStatus.READY_FOR_DELIVERY);
+        context.ProjectSet.Remove(context.ProjectSet.Local.Single(project => project.ProjectId == seeded.ProjectId));
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.StartDeliveryAsync(seeded.OrderId, _adminId);
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(OrderErrorCodes.ProjectNotFound, result.ErrorCode);
+    }
+
     private OrderService BuildService(AppDbContext context)
     {
         return new OrderService(
             new OrderRepository(context),
             new ProjectRepository(context),
             new PaymentRepository(context),
+            new ProjectScheduleRepository(context),
             new InMemoryUnitOfWork(context));
     }
 
@@ -380,12 +482,14 @@ public sealed class OrderAdjustmentServiceTests
         var salesRole = CreateRole("SALES");
         var adminRole = CreateRole("ADMIN");
         var customerRole = CreateRole("CUSTOMER");
+        var productionRole = CreateRole("PRODUCTION");
         var projectId = Guid.NewGuid();
         var orderId = Guid.NewGuid();
-        context.RoleSet.AddRange(salesRole, adminRole, customerRole);
+        context.RoleSet.AddRange(salesRole, adminRole, customerRole, productionRole);
         context.AccountSet.AddRange(
             CreateAccount(_salesId, salesRole.RoleId, "sales@example.com"),
-            CreateAccount(Guid.NewGuid(), adminRole.RoleId, "admin@example.com"),
+            CreateAccount(_adminId, adminRole.RoleId, "admin@example.com"),
+            CreateAccount(_productionId, productionRole.RoleId, "production@example.com"),
             CreateAccount(_customerId, customerRole.RoleId, "customer@example.com"));
         context.ProjectSet.Add(new Project
         {
@@ -408,6 +512,32 @@ public sealed class OrderAdjustmentServiceTests
             Status = orderStatus
         });
         return new SeededOrder(orderId, projectId);
+    }
+
+    private SeededOrder SeedDeliveryScenario(
+        AppDbContext context,
+        OrderStatus orderStatus,
+        ProjectStatus projectStatus)
+    {
+        var seeded = SeedOrderScenario(context, orderStatus);
+        context.ProjectSet.Local.Single(project => project.ProjectId == seeded.ProjectId).Status = projectStatus;
+        return seeded;
+    }
+
+    private static void AddDeliverySchedule(
+        AppDbContext context,
+        Guid projectId,
+        ProjectScheduleStatus status)
+    {
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = Guid.NewGuid(),
+            ProjectId = projectId,
+            ScheduleType = ProjectScheduleType.DELIVERY,
+            Status = status,
+            Title = "Delivery",
+            ScheduledStart = DateTime.UtcNow.AddDays(1)
+        });
     }
 
     private SeededAdjustmentItem SeedAdjustmentItemScenario(

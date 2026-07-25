@@ -21,6 +21,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectRepository _projects;
     private readonly IProjectFileRepository _files;
+    private readonly IOrderRepository _orders;
     private readonly INotificationDispatcher _dispatcher;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ProjectWorkflowSettings _workflowSettings;
@@ -29,6 +30,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         IProjectScheduleRepository schedules,
         IProjectRepository projects,
         IProjectFileRepository files,
+        IOrderRepository orders,
         INotificationDispatcher dispatcher,
         IUnitOfWork unitOfWork,
         IOptions<ProjectWorkflowSettings> workflowSettings)
@@ -36,6 +38,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         _schedules = schedules;
         _projects = projects;
         _files = files;
+        _orders = orders;
         _dispatcher = dispatcher;
         _unitOfWork = unitOfWork;
         _workflowSettings = workflowSettings.Value;
@@ -107,6 +110,17 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             if (measurementError is not null)
             {
                 return measurementError;
+            }
+        }
+
+        if (request.ScheduleType == ProjectScheduleType.DELIVERY)
+        {
+            var deliveryError = await ValidateDeliveryScheduleCreateAsync(
+                project,
+                cancellationToken);
+            if (deliveryError is not null)
+            {
+                return deliveryError;
             }
         }
 
@@ -567,6 +581,30 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         return null;
     }
 
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateDeliveryScheduleCreateAsync(
+        FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
+        CancellationToken cancellationToken)
+    {
+        if (!IsDeliveryReadyProject(project.Status))
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.OrderNotReadyForDelivery,
+                    "Project and order must be ready for delivery before creating a delivery schedule."));
+        }
+
+        var hasReadyOrder = await _orders.HasProjectOrderInStatusesAsync(
+            project.ProjectId,
+            DeliveryReadyOrderStatuses,
+            cancellationToken);
+        return hasReadyOrder
+            ? null
+            : ServiceResult<ProjectScheduleDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.OrderNotReadyForDelivery,
+                    "Project and order must be ready for delivery before creating a delivery schedule."));
+    }
+
     private static ServiceResult<ProjectScheduleDto>? ValidateUpdatePermission(
         string? role,
         ProjectScheduleDetailReadModel detail,
@@ -973,6 +1011,11 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private static bool IsProductionStatusType(ProjectScheduleType? scheduleType)
     {
         return scheduleType.HasValue && ProductionStatusScheduleTypes.Contains(scheduleType.Value);
+    }
+
+    private static bool IsDeliveryReadyProject(ProjectStatus? status)
+    {
+        return status is ProjectStatus.READY_FOR_DELIVERY or ProjectStatus.DELIVERING;
     }
 
     private static ServiceResult<ProjectScheduleDto> InvalidScheduleTypeResult(string message)

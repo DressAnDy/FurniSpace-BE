@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.Services.Orders;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
@@ -150,6 +151,7 @@ public sealed class OrderServiceTests
             new FakeOrderRepository(options.Orders, options.OrderDetail),
             new FakeProjectRepository(options.ProjectDetail, options.Role),
             new EmptyPaymentRepository(),
+            new EmptyProjectScheduleRepository(),
             new FakeUnitOfWork());
     }
 
@@ -449,4 +451,5 @@ public sealed class OrderServiceTests
         public Task RollbackTransactionAsync(CancellationToken cancellationToken = default)
             => Task.CompletedTask;
     }
+
 }

@@ -19,4 +19,10 @@ internal static class ProjectScheduleServiceConstants
         ProjectScheduleType.DELIVERY,
         ProjectScheduleType.HANDOVER
     ];
+
+    internal static readonly OrderStatus[] DeliveryReadyOrderStatuses =
+    [
+        OrderStatus.READY_FOR_DELIVERY,
+        OrderStatus.DELIVERING
+    ];
 }

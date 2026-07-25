@@ -83,6 +83,15 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
+    public void StartDelivery_RequiresSalesProductionOrAdmin()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.StartDelivery));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,PRODUCTION,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public async Task UpdateFinancialAdjustment_ReturnsServiceResult()
     {
         var orderId = Guid.NewGuid();
@@ -333,6 +342,39 @@ public sealed class OrdersControllerTests
         Assert.IsType<UnauthorizedResult>(result);
     }
 
+    [Fact]
+    public async Task StartDelivery_ReturnsServiceResult()
+    {
+        var userId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var orderService = new FakeOrderService(
+            startDeliveryResult: ServiceResult<OrderDeliveryStartDto>.Success(
+                new OrderDeliveryStartDto { OrderId = orderId },
+                "started"));
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
+
+        var result = await controller.StartDelivery(orderId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, orderService.OrderId);
+        Assert.Equal(userId, orderService.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task StartDelivery_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.StartDelivery(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
     private static AuthorizeAttribute? GetMethodAuthorizeAttribute(string methodName)
     {
         var method = typeof(OrdersController)
@@ -465,6 +507,7 @@ public sealed class OrdersControllerTests
         private readonly ServiceResult<OrderAdjustmentItemDto>? _updateAdjustmentItemResult;
         private readonly ServiceResult<OrderAdjustmentDto>? _deleteAdjustmentItemResult;
         private readonly ServiceResult<OrderAdjustmentConfirmationDto>? _confirmAdjustmentResult;
+        private readonly ServiceResult<OrderDeliveryStartDto>? _startDeliveryResult;
 
         public FakeOrderService(
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
@@ -474,7 +517,8 @@ public sealed class OrdersControllerTests
             ServiceResult<OrderAdjustmentItemDto>? addAdjustmentItemResult = null,
             ServiceResult<OrderAdjustmentItemDto>? updateAdjustmentItemResult = null,
             ServiceResult<OrderAdjustmentDto>? deleteAdjustmentItemResult = null,
-            ServiceResult<OrderAdjustmentConfirmationDto>? confirmAdjustmentResult = null)
+            ServiceResult<OrderAdjustmentConfirmationDto>? confirmAdjustmentResult = null,
+            ServiceResult<OrderDeliveryStartDto>? startDeliveryResult = null)
         {
             _getByProjectResult = getByProjectResult;
             _getDetailResult = getDetailResult;
@@ -484,6 +528,7 @@ public sealed class OrdersControllerTests
             _updateAdjustmentItemResult = updateAdjustmentItemResult;
             _deleteAdjustmentItemResult = deleteAdjustmentItemResult;
             _confirmAdjustmentResult = confirmAdjustmentResult;
+            _startDeliveryResult = startDeliveryResult;
         }
 
         public Guid OrderId { get; private set; }
@@ -576,6 +621,17 @@ public sealed class OrdersControllerTests
             CurrentUserId = currentUserId;
             return Task.FromResult(
                 _confirmAdjustmentResult ?? ServiceResult<OrderAdjustmentConfirmationDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderDeliveryStartDto>> StartDeliveryAsync(
+            Guid orderId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(
+                _startDeliveryResult ?? ServiceResult<OrderDeliveryStartDto>.Unauthorized());
         }
     }
 

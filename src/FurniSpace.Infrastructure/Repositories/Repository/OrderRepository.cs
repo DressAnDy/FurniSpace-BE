@@ -79,6 +79,19 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
         return DbContext.OrderSet.AnyAsync(order => order.QuotationId == quotationId, cancellationToken);
     }
 
+    public Task<bool> HasProjectOrderInStatusesAsync(
+        Guid projectId,
+        IReadOnlyCollection<OrderStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.OrderSet.AnyAsync(
+            order =>
+                order.ProjectId == projectId &&
+                order.Status.HasValue &&
+                statuses.Contains(order.Status.Value),
+            cancellationToken);
+    }
+
     public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default)
     {
         return DbContext.OrderItemSet.AddAsync(item, cancellationToken).AsTask();

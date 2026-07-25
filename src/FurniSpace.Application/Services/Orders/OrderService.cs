@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Projects;
 using static FurniSpace.Application.Constants.Orders.OrderServiceConstants;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.Interfaces.Orders;
@@ -17,17 +18,20 @@ public sealed class OrderService : IOrderService
     private readonly IOrderRepository _orders;
     private readonly IProjectRepository _projects;
     private readonly IPaymentRepository _payments;
+    private readonly IProjectScheduleRepository _schedules;
     private readonly IUnitOfWork _unitOfWork;
 
     public OrderService(
         IOrderRepository orders,
         IProjectRepository projects,
         IPaymentRepository payments,
+        IProjectScheduleRepository schedules,
         IUnitOfWork unitOfWork)
     {
         _orders = orders;
         _projects = projects;
         _payments = payments;
+        _schedules = schedules;
         _unitOfWork = unitOfWork;
     }
 
@@ -403,6 +407,70 @@ public sealed class OrderService : IOrderService
         return ServiceResult<OrderAdjustmentConfirmationDto>.Success(
             ToConfirmationDto(adjustment),
             "Order adjustment confirmed successfully.");
+    }
+
+    public async Task<ServiceResult<OrderDeliveryStartDto>> StartDeliveryAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Unauthorized();
+        }
+
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound<OrderDeliveryStartDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound<OrderDeliveryStartDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanStartDelivery(role, project.AssignedSalesId, currentUserId))
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Forbidden(ForbiddenMessage);
+        }
+
+        if (order.Status == OrderStatus.DELIVERING)
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Success(
+                ToDeliveryStartDto(order, project),
+                "Delivery started successfully.");
+        }
+
+        if (order.Status != OrderStatus.READY_FOR_DELIVERY)
+        {
+            return BadRequest<OrderDeliveryStartDto>(
+                OrderErrorCodes.InvalidOrderStatus,
+                "Order must be READY_FOR_DELIVERY before delivery can start.");
+        }
+
+        if (!await _schedules.HasConfirmedDeliveryScheduleAsync(order.ProjectId, cancellationToken))
+        {
+            return BadRequest<OrderDeliveryStartDto>(
+                OrderErrorCodes.DeliveryScheduleNotConfirmed,
+                "At least one delivery schedule must be confirmed before delivery can start.");
+        }
+
+        var now = DateTime.UtcNow;
+        order.Status = OrderStatus.DELIVERING;
+        order.UpdatedAt = now;
+        project.Status = ProjectStatus.DELIVERING;
+        project.UpdatedAt = now;
+
+        _orders.Update(order);
+        _projects.Update(project);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<OrderDeliveryStartDto>.Success(
+            ToDeliveryStartDto(order, project),
+            "Delivery started successfully.");
     }
 
     private async Task<OrderAdjustmentAccess<T>> ValidateOrderAdjustmentAccessAsync<T>(
@@ -807,6 +875,27 @@ public sealed class OrderService : IOrderService
             ConfirmedBy = adjustment.ConfirmedBy,
             ConfirmedAt = adjustment.ConfirmedAt
         };
+    }
+
+    private static OrderDeliveryStartDto ToDeliveryStartDto(Order order, Project project)
+    {
+        return new OrderDeliveryStartDto
+        {
+            OrderId = order.OrderId,
+            ProjectId = project.ProjectId,
+            OrderStatus = order.Status.ToString() ?? string.Empty,
+            ProjectStatus = project.Status.ToString() ?? string.Empty,
+            UpdatedAt = order.UpdatedAt
+        };
+    }
+
+    private static bool CanStartDelivery(
+        string? role,
+        Guid? assignedSalesId,
+        Guid currentUserId)
+    {
+        return role is ProjectAssignmentAccessEvaluator.AdminRole or OrderAccessEvaluator.ProductionRole ||
+            role == ProjectAssignmentAccessEvaluator.SalesRole && assignedSalesId == currentUserId;
     }
 
     private static ServiceResult<T> BadRequest<T>(string errorCode, string message)

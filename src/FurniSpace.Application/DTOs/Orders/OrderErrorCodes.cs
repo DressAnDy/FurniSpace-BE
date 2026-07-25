@@ -19,4 +19,5 @@ public static class OrderErrorCodes
     public const string InvalidAdjustmentStatus = "INVALID_ADJUSTMENT_STATUS";
     public const string OrderAdjustmentNotFound = "ORDER_ADJUSTMENT_NOT_FOUND";
     public const string OrderItemNotFound = "ORDER_ITEM_NOT_FOUND";
+    public const string DeliveryScheduleNotConfirmed = "DELIVERY_SCHEDULE_NOT_CONFIRMED";
 }

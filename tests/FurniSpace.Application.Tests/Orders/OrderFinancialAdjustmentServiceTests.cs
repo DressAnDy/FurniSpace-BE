@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.Services.Orders;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
@@ -139,6 +140,7 @@ public sealed class OrderFinancialAdjustmentServiceTests
             new TrackingOrderRepository(options.Order, options.OrderDetail),
             new FakeProjectRepository(options.ProjectDetail, options.Role),
             options.PaymentRepository,
+            new EmptyProjectScheduleRepository(),
             options.UnitOfWork);
     }
 
@@ -525,4 +527,5 @@ public sealed class OrderFinancialAdjustmentServiceTests
         public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
     }
+
 }

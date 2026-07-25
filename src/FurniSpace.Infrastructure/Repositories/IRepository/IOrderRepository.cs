@@ -23,6 +23,14 @@ public interface IOrderRepository : IGenericRepository<Order>
         Guid quotationId,
         CancellationToken cancellationToken = default);
 
+    Task<bool> HasProjectOrderInStatusesAsync(
+        Guid projectId,
+        IReadOnlyCollection<OrderStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
     new Task AddAsync(Order order, CancellationToken cancellationToken = default);
 
     Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default);

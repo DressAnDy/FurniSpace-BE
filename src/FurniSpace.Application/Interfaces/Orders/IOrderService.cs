@@ -51,4 +51,12 @@ public interface IOrderService
     {
         return Task.FromResult(ServiceResult<OrderAdjustmentConfirmationDto>.Unauthorized());
     }
+
+    Task<ServiceResult<OrderDeliveryStartDto>> StartDeliveryAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<OrderDeliveryStartDto>.Unauthorized());
+    }
 }

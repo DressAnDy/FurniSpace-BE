@@ -672,6 +672,72 @@ public sealed class OrderService : IOrderService
             message);
     }
 
+    public async Task<ServiceResult<OrderCompletionDto>> CompleteAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<OrderCompletionDto>.Unauthorized();
+        }
+
+        var detail = await _orders.GetDetailAsync(orderId, cancellationToken);
+        if (detail is null)
+        {
+            return NotFound<OrderCompletionDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
+                role,
+                detail.AssignedSalesId,
+                currentUserId))
+        {
+            return ServiceResult<OrderCompletionDto>.Forbidden(ForbiddenMessage);
+        }
+
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound<OrderCompletionDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound<OrderCompletionDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
+        }
+
+        if (order.Status == OrderStatus.COMPLETED)
+        {
+            return ServiceResult<OrderCompletionDto>.Success(
+                ToCompletionDto(order, project, order.UpdatedAt ?? DateTime.UtcNow),
+                "Order and project completed successfully.");
+        }
+
+        var validationError = await ValidateCompletionReadinessAsync<OrderCompletionDto>(
+            order,
+            cancellationToken);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        var now = DateTime.UtcNow;
+        order.Status = OrderStatus.COMPLETED;
+        order.UpdatedAt = now;
+        project.Status = ProjectStatus.COMPLETED;
+        project.UpdatedAt = now;
+        _orders.Update(order);
+        _projects.Update(project);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<OrderCompletionDto>.Success(
+            ToCompletionDto(order, project, now),
+            "Order and project completed successfully.");
+    }
+
     private async Task<OrderAdjustmentAccess<T>> ValidateOrderAdjustmentAccessAsync<T>(
         Guid orderId,
         Guid currentUserId,
@@ -967,6 +1033,56 @@ public sealed class OrderService : IOrderService
             additionalDiscountAmount);
     }
 
+    private async Task<ServiceResult<T>?> ValidateCompletionReadinessAsync<T>(
+        Order order,
+        CancellationToken cancellationToken)
+    {
+        if (order.Status is not (OrderStatus.DELIVERED or OrderStatus.FINAL_PAYMENT_PENDING))
+        {
+            return BadRequest<T>(
+                OrderErrorCodes.OrderNotReadyToComplete,
+                "Order is not ready to complete.");
+        }
+
+        if (!order.CustomerConfirmedDeliveryAt.HasValue)
+        {
+            return BadRequest<T>(
+                OrderErrorCodes.DeliveryNotCompleted,
+                "Delivery must be fully confirmed before order completion.");
+        }
+
+        var items = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+        if (items.Where(IsDeliverableItem).Any(item => item.Status != OrderItemStatus.DELIVERED))
+        {
+            return BadRequest<T>(
+                OrderErrorCodes.DeliveryNotCompleted,
+                "Delivery must be fully confirmed before order completion.");
+        }
+
+        var adjustments = await _orders.GetAdjustmentsByOrderAsync(order.OrderId, cancellationToken);
+        if (adjustments.Any(adjustment => adjustment.Status is not (OrderAdjustmentStatus.APPLIED or OrderAdjustmentStatus.CANCELLED)))
+        {
+            return BadRequest<T>(
+                OrderErrorCodes.AdjustmentNotApplied,
+                "All order adjustments must be applied or cancelled before order completion.");
+        }
+
+        var paidAmount = await _payments.SumOrderScopedPaidAmountAsync(order.OrderId, cancellationToken);
+        var (recalculatedPaidAmount, remainingAmount) = OrderPaidAmountRecalculator.Calculate(
+            order.FinalTotalAmount,
+            paidAmount);
+        if (remainingAmount > 0m)
+        {
+            return BadRequest<T>(
+                OrderErrorCodes.RemainingPaymentNotPaid,
+                "Remaining payment must be paid before order completion.");
+        }
+
+        order.PaidAmount = recalculatedPaidAmount;
+        order.RemainingAmount = remainingAmount;
+        return null;
+    }
+
     private static ServiceResult<OrderDetailDto>? ValidateFinancialAdjustment(
         Order order,
         UpdateOrderFinancialAdjustmentRequestDto request)
@@ -1239,6 +1355,21 @@ public sealed class OrderService : IOrderService
             PaidAmount = order.PaidAmount ?? 0m,
             RemainingAmount = order.RemainingAmount ?? 0m,
             RequiresRemainingPayment = requiresRemainingPayment
+        };
+    }
+
+    private static OrderCompletionDto ToCompletionDto(
+        Order order,
+        Project project,
+        DateTime completedAt)
+    {
+        return new OrderCompletionDto
+        {
+            OrderId = order.OrderId,
+            OrderStatus = order.Status?.ToString() ?? string.Empty,
+            ProjectId = project.ProjectId,
+            ProjectStatus = project.Status?.ToString() ?? string.Empty,
+            CompletedAt = completedAt
         };
     }
 

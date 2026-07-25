@@ -139,6 +139,24 @@ public sealed class OrdersController : BaseApiController
     }
 
     [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("orders/{orderId:guid}/complete")]
+    public async Task<IActionResult> Complete(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.CompleteAsync(
+            orderId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
     [HttpPost("orders/{orderId:guid}/production-request")]
     public async Task<IActionResult> CreateProductionRequest(
         Guid orderId,

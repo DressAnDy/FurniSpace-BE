@@ -782,6 +782,141 @@ public sealed class OrderAdjustmentServiceTests
         Assert.Equal(OrderErrorCodes.NegativeRemainingAmount, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task CompleteAsync_WhenReady_CompletesOrderAndProject()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        var item = AddOrderItem(context, seeded.OrderId, status: OrderItemStatus.DELIVERED);
+        item.DeliveredQuantity = item.Quantity;
+        context.OrderSet.Local.Single(order => order.OrderId == seeded.OrderId).Status = OrderStatus.FINAL_PAYMENT_PENDING;
+        AddPaidPayment(context, seeded.OrderId, amount: 100m);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("COMPLETED", result.Data!.OrderStatus);
+        Assert.Equal("COMPLETED", result.Data.ProjectStatus);
+        Assert.Equal(OrderStatus.COMPLETED, context.OrderSet.Single().Status);
+        Assert.Equal(ProjectStatus.COMPLETED, context.ProjectSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenAlreadyCompleted_ReturnsSuccess()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        var completedAt = DateTime.UtcNow.AddMinutes(-3);
+        var order = context.OrderSet.Local.Single(order => order.OrderId == seeded.OrderId);
+        order.Status = OrderStatus.COMPLETED;
+        order.UpdatedAt = completedAt;
+        context.ProjectSet.Local.Single(project => project.ProjectId == seeded.ProjectId).Status = ProjectStatus.COMPLETED;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("COMPLETED", result.Data!.OrderStatus);
+        Assert.Equal(OrderStatus.COMPLETED, context.OrderSet.Single().Status);
+        Assert.Equal(ProjectStatus.COMPLETED, context.ProjectSet.Single().Status);
+        Assert.True(result.Data.CompletedAt >= completedAt);
+    }
+
+    [Theory]
+    [InlineData(OrderStatus.READY_FOR_DELIVERY, OrderErrorCodes.OrderNotReadyToComplete)]
+    [InlineData(OrderStatus.DELIVERED, OrderErrorCodes.DeliveryNotCompleted)]
+    public async Task CompleteAsync_WhenOrderNotReady_ReturnsExpectedError(
+        OrderStatus status,
+        string expectedCode)
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        var order = context.OrderSet.Local.Single(order => order.OrderId == seeded.OrderId);
+        order.Status = status;
+        if (expectedCode == OrderErrorCodes.DeliveryNotCompleted)
+        {
+            order.CustomerConfirmedDeliveryAt = null;
+        }
+
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedCode, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenDeliverableItemNotConfirmed_ReturnsDeliveryNotCompleted()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        AddOrderItem(context, seeded.OrderId, status: OrderItemStatus.READY, quantity: 1, deliveredQuantity: 1);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliveryNotCompleted, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenAdjustmentNotApplied_ReturnsAdjustmentNotApplied()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        context.OrderAdjustmentSet.Add(CreateAppliedAdjustment(
+            seeded.OrderId,
+            itemAdjustment: 0m,
+            discount: 5m,
+            status: OrderAdjustmentStatus.CONFIRMED));
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.AdjustmentNotApplied, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenRemainingPaymentNotPaid_ReturnsRemainingPaymentNotPaid()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        context.OrderSet.Local.Single(order => order.OrderId == seeded.OrderId).Status = OrderStatus.FINAL_PAYMENT_PENDING;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.OrderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.RemainingPaymentNotPaid, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenMissingUnauthorizedOrForbidden_ReturnsExpectedStatus()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedDeliveredOrderScenario(context);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var unauthorized = await service.CompleteAsync(seeded.OrderId, Guid.Empty);
+        var forbidden = await service.CompleteAsync(seeded.OrderId, _customerId);
+        var missing = await service.CompleteAsync(Guid.NewGuid(), _salesId);
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(403, forbidden.Status);
+        Assert.Equal(404, missing.Status);
+        Assert.Equal(OrderErrorCodes.OrderNotFound, missing.ErrorCode);
+    }
+
     private OrderService BuildService(AppDbContext context)
     {
         return new OrderService(

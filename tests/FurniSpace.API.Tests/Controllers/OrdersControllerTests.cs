@@ -70,6 +70,15 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
+    public void Complete_RequiresSalesOrAdmin()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.Complete));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public void CreateProductionRequest_RequiresSalesOrAdmin()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.CreateProductionRequest));
@@ -271,6 +280,39 @@ public sealed class OrdersControllerTests
             userId: null);
 
         var result = await controller.PrepareFinalPayment(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task Complete_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var orderService = new FakeOrderService(
+            completeResult: ServiceResult<OrderCompletionDto>.Success(
+                new OrderCompletionDto { OrderId = orderId, OrderStatus = "COMPLETED" },
+                "completed"));
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
+
+        var result = await controller.Complete(orderId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, orderService.OrderId);
+        Assert.Equal(userId, orderService.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task Complete_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.Complete(Guid.NewGuid());
 
         Assert.IsType<UnauthorizedResult>(result);
     }
@@ -650,6 +692,7 @@ public sealed class OrdersControllerTests
         private readonly ServiceResult<OrderItemDeliveredQuantityDto>? _updateDeliveredQuantityResult;
         private readonly ServiceResult<OrderItemDeliveryConfirmationDto>? _confirmItemDeliveryResult;
         private readonly ServiceResult<OrderFinalPaymentPreparationDto>? _prepareFinalPaymentResult;
+        private readonly ServiceResult<OrderCompletionDto>? _completeResult;
 
         public FakeOrderService(
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
@@ -663,7 +706,8 @@ public sealed class OrdersControllerTests
             ServiceResult<OrderDeliveryStartDto>? startDeliveryResult = null,
             ServiceResult<OrderItemDeliveredQuantityDto>? updateDeliveredQuantityResult = null,
             ServiceResult<OrderItemDeliveryConfirmationDto>? confirmItemDeliveryResult = null,
-            ServiceResult<OrderFinalPaymentPreparationDto>? prepareFinalPaymentResult = null)
+            ServiceResult<OrderFinalPaymentPreparationDto>? prepareFinalPaymentResult = null,
+            ServiceResult<OrderCompletionDto>? completeResult = null)
         {
             _getByProjectResult = getByProjectResult;
             _getDetailResult = getDetailResult;
@@ -677,6 +721,7 @@ public sealed class OrdersControllerTests
             _updateDeliveredQuantityResult = updateDeliveredQuantityResult;
             _confirmItemDeliveryResult = confirmItemDeliveryResult;
             _prepareFinalPaymentResult = prepareFinalPaymentResult;
+            _completeResult = completeResult;
         }
 
         public Guid OrderId { get; private set; }
@@ -817,6 +862,17 @@ public sealed class OrdersControllerTests
             CurrentUserId = currentUserId;
             return Task.FromResult(
                 _prepareFinalPaymentResult ?? ServiceResult<OrderFinalPaymentPreparationDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderCompletionDto>> CompleteAsync(
+            Guid orderId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(
+                _completeResult ?? ServiceResult<OrderCompletionDto>.Unauthorized());
         }
     }
 

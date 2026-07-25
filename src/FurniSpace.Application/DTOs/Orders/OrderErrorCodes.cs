@@ -31,4 +31,8 @@ public static class OrderErrorCodes
     public const string NegativeRemainingAmount = "NEGATIVE_REMAINING_AMOUNT";
     public const string OrderNotReadyForRemainingPayment = "ORDER_NOT_READY_FOR_REMAINING_PAYMENT";
     public const string RemainingPaymentNotRequired = "REMAINING_PAYMENT_NOT_REQUIRED";
+    public const string DeliveryNotCompleted = "DELIVERY_NOT_COMPLETED";
+    public const string RemainingPaymentNotPaid = "REMAINING_PAYMENT_NOT_PAID";
+    public const string OrderNotReadyToComplete = "ORDER_NOT_READY_TO_COMPLETE";
+    public const string LegacyAutoCompletePathDetected = "LEGACY_AUTO_COMPLETE_PATH_DETECTED";
 }

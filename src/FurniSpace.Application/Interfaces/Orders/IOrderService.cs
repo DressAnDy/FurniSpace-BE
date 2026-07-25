@@ -84,4 +84,12 @@ public interface IOrderService
     {
         return Task.FromResult(ServiceResult<OrderFinalPaymentPreparationDto>.Unauthorized());
     }
+
+    Task<ServiceResult<OrderCompletionDto>> CompleteAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<OrderCompletionDto>.Unauthorized());
+    }
 }

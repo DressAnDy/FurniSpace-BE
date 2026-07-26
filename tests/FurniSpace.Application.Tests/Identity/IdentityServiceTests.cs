@@ -25,6 +25,51 @@ public sealed class IdentityServiceTests
     private const string ValidPassword = "Password1";
 
     [Fact]
+    public async Task RegisterAsync_WhenEmailDeliveryFails_ReturnsCreatedWithInactiveAccount()
+    {
+        var accounts = new FakeIdentityAccountRepository { RoleId = Guid.NewGuid() };
+        var email = new FakeEmailService
+        {
+            VerificationException = new EmailDeliveryException("Provider unavailable")
+        };
+        var service = CreateService(accounts: accounts, email: email);
+
+        var result = await service.RegisterAsync(new RegisterRequestDto
+        {
+            Email = "new-user@furnispace.com",
+            FullName = "New User",
+            Password = ValidPassword
+        });
+
+        Assert.Equal(201, result.Status);
+        Assert.Contains("could not be sent", result.Message, StringComparison.Ordinal);
+        Assert.Equal("failed", result.Data?.GetType().GetProperty("EmailDeliveryStatus")?.GetValue(result.Data));
+        Assert.NotNull(accounts.AddedAccount);
+        Assert.Equal(AccountStatus.INACTIVE, accounts.AddedAccount.Status);
+        Assert.Equal(1, email.SendVerificationCallCount);
+    }
+
+    [Fact]
+    public async Task ResendVerificationOtpAsync_WhenEmailDeliveryFails_ReturnsNeutralResponse()
+    {
+        var account = CreateInactiveAccount();
+        var email = new FakeEmailService
+        {
+            VerificationException = new EmailDeliveryException("Provider unavailable")
+        };
+        var service = CreateService(
+            accounts: new FakeIdentityAccountRepository { AccountByEmail = account },
+            email: email);
+
+        var result = await service.ResendVerificationOtpAsync(
+            new ResendVerificationOtpRequestDto { Email = account.Email });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("If the account requires verification, an OTP has been sent.", result.Message);
+        Assert.Equal(1, email.SendVerificationCallCount);
+    }
+
+    [Fact]
     public async Task VerifyEmailAsync_WhenOtpConsumeFails_ReturnsBadRequest()
     {
         var account = CreateInactiveAccount();
@@ -128,6 +173,26 @@ public sealed class IdentityServiceTests
         Assert.Equal(account.AccountId, passwordResetStore.LastUserId);
         Assert.Equal(1, email.SendPasswordResetCallCount);
         Assert.Equal(account.Email, email.LastPasswordResetEmail);
+    }
+
+    [Fact]
+    public async Task ForgotPasswordAsync_WhenEmailDeliveryFails_ReturnsNeutralResponse()
+    {
+        var account = CreateActiveAccount();
+        var email = new FakeEmailService
+        {
+            PasswordResetException = new EmailDeliveryException("Provider unavailable")
+        };
+        var service = CreateService(
+            accounts: new FakeIdentityAccountRepository { AccountByEmail = account },
+            email: email);
+
+        var result = await service.ForgotPasswordAsync(
+            new ForgotPasswordRequestDto { Email = account.Email });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("If the account exists, a password reset email has been sent.", result.Message);
+        Assert.Equal(1, email.SendPasswordResetCallCount);
     }
 
     [Fact]
@@ -241,6 +306,8 @@ public sealed class IdentityServiceTests
     {
         public Account? AccountByEmail { get; set; }
         public Account? AccountById { get; set; }
+        public Account? AddedAccount { get; private set; }
+        public Guid? RoleId { get; set; }
         public string? RoleName { get; set; }
 
         public Task<Account?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
@@ -263,13 +330,17 @@ public sealed class IdentityServiceTests
 
         public IQueryable<Account> Query() => Array.Empty<Account>().AsQueryable();
         public Task<IReadOnlyList<Account>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Account>>([]);
-        public Task AddAsync(Account entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddAsync(Account entity, CancellationToken cancellationToken = default)
+        {
+            AddedAccount = entity;
+            return Task.CompletedTask;
+        }
         public Task AddRangeAsync(IEnumerable<Account> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public void Update(Account entity) { }
         public void Remove(Account entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
         public Task<Infrastructure.ReadModels.Accounts.AccountDetailReadModel?> GetDetailAsync(Guid accountId, CancellationToken cancellationToken = default) => Task.FromResult<Infrastructure.ReadModels.Accounts.AccountDetailReadModel?>(null);
-        public Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default) => Task.FromResult<Guid?>(null);
+        public Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default) => Task.FromResult(RoleId);
         public Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<IReadOnlyList<Infrastructure.ReadModels.Accounts.AvailableDesignerReadModel>> GetAvailableDesignersAsync(int page, int pageSize, int maxActiveProjects, string? search, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Accounts.AvailableDesignerReadModel>>([]);
@@ -384,16 +455,27 @@ public sealed class IdentityServiceTests
 
     private sealed class FakeEmailService : IEmailService
     {
+        public Exception? PasswordResetException { get; set; }
+        public Exception? VerificationException { get; set; }
         public int SendPasswordResetCallCount { get; private set; }
+        public int SendVerificationCallCount { get; private set; }
         public string? LastPasswordResetEmail { get; private set; }
 
         public Task SendPasswordResetAsync(string recipientEmail, string recipientName, string resetToken, CancellationToken cancellationToken = default)
         {
             SendPasswordResetCallCount++;
             LastPasswordResetEmail = recipientEmail;
-            return Task.CompletedTask;
+            return PasswordResetException is null
+                ? Task.CompletedTask
+                : Task.FromException(PasswordResetException);
         }
 
-        public Task SendEmailVerificationOtpAsync(string recipientEmail, string recipientName, string otpCode, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task SendEmailVerificationOtpAsync(string recipientEmail, string recipientName, string otpCode, CancellationToken cancellationToken = default)
+        {
+            SendVerificationCallCount++;
+            return VerificationException is null
+                ? Task.CompletedTask
+                : Task.FromException(VerificationException);
+        }
     }
 }

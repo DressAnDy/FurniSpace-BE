@@ -184,6 +184,7 @@ public sealed record ProductSearchDocument(
 | `productName` | `text` + `keyword` subfield | Full-text + sort exact |
 | `description` | `text` | |
 | `categoryName`, `material`, `color`, `status` | `keyword` | Filter facet |
+| `businessTypeIds` | `integer` | Terms filter. Mirrors `products.business_type_ids`; no join table is indexed. |
 | `estimatedPrice`, `width`, `height`, `depth` | `double` | Range filter/sort |
 | `isPublic` | `boolean` | Filter catalog công khai |
 | `createdAt` | `date` | Sort |
@@ -194,8 +195,16 @@ File mapping: `Infrastructure/Search/Mappings/products-index.json`
 
 | Route | Permission | Mô tả |
 |-------|------------|--------|
-| `GET /Products/search` | Public (chỉ `isPublic`) | `q`, `categoryId`, `material`, `color`, `minPrice`, `maxPrice`, `sort`, `page`, `limit` |
+| `GET /Products/search` | Public (chỉ `isPublic`) | `q`, `categoryId`, `businessTypeIds`, `material`, `color`, `minPrice`, `maxPrice`, `sort`, `page`, `limit` |
 | (internal) | — | Index sau `ProductService` / `ProductVersionService` create/update/delete |
+
+Business Type filter uses Elasticsearch `terms` semantics on `businessTypeIds`.
+This must stay equivalent to the PostgreSQL fallback behavior:
+
+- repeated query values are normalized, for example `businessTypeIds=2&businessTypeIds=1&businessTypeIds=2` becomes `[1, 2]`.
+- ANY semantics are used: a Product matches when any stored Business Type ID matches any requested ID.
+- Product documents with `businessTypeIds` missing, `null`, or empty do not match a Business Type filter.
+- `businessTypeIds` is separate from Product Category and separate from `projects.business_type` free text.
 
 ## Luồng đồng bộ
 

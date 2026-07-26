@@ -54,16 +54,17 @@ public sealed class InfrastructureModelCoverageTests
     {
         var redis = new RedisSettings { ConnectionString = "localhost:6379" };
         var logging = new ElasticsearchLogSettings { Enabled = true, IndexFormat = "logs-{0:yyyy.MM.dd}" };
-        var smtp = new SmtpSettings
+        var gmailApi = new GmailApiSettings
         {
-            Host = "smtp.example.com",
-            Port = 2525,
-            EnableSsl = false,
-            Username = "user",
-            Password = "secret",
-            FromEmail = "noreply@example.com",
-            FromName = "FurniSpace Test",
-            ResetPasswordUrl = "https://example.com/reset"
+            ClientId = "client-id",
+            ClientSecret = "client-secret",
+            RefreshToken = "refresh-token",
+            BaseUrl = "https://gmail.example.com/v1/",
+            TokenUrl = "https://oauth.example.com/token",
+            SenderEmail = "sender@gmail.com",
+            SenderName = "FurniSpace Test",
+            ResetPasswordUrl = "https://example.com/reset",
+            TimeoutSeconds = 15
         };
 
         Assert.Equal("Redis", RedisSettings.SectionName);
@@ -71,15 +72,16 @@ public sealed class InfrastructureModelCoverageTests
         Assert.Equal("ElasticsearchLogging", ElasticsearchLogSettings.SectionName);
         Assert.True(logging.Enabled);
         Assert.Equal("logs-{0:yyyy.MM.dd}", logging.IndexFormat);
-        Assert.Equal("Smtp", SmtpSettings.SectionName);
-        Assert.Equal("smtp.example.com", smtp.Host);
-        Assert.Equal(2525, smtp.Port);
-        Assert.False(smtp.EnableSsl);
-        Assert.Equal("user", smtp.Username);
-        Assert.Equal("secret", smtp.Password);
-        Assert.Equal("noreply@example.com", smtp.FromEmail);
-        Assert.Equal("FurniSpace Test", smtp.FromName);
-        Assert.Equal("https://example.com/reset", smtp.ResetPasswordUrl);
+        Assert.Equal("GmailApi", GmailApiSettings.SectionName);
+        Assert.Equal("client-id", gmailApi.ClientId);
+        Assert.Equal("client-secret", gmailApi.ClientSecret);
+        Assert.Equal("refresh-token", gmailApi.RefreshToken);
+        Assert.Equal("https://gmail.example.com/v1/", gmailApi.BaseUrl);
+        Assert.Equal("https://oauth.example.com/token", gmailApi.TokenUrl);
+        Assert.Equal("sender@gmail.com", gmailApi.SenderEmail);
+        Assert.Equal("FurniSpace Test", gmailApi.SenderName);
+        Assert.Equal("https://example.com/reset", gmailApi.ResetPasswordUrl);
+        Assert.Equal(15, gmailApi.TimeoutSeconds);
     }
 
     [Fact]

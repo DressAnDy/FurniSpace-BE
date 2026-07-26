@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Identity;
+using static FurniSpace.Application.Constants.Accounts.AccountServiceConstants;
 using FurniSpace.Application.DTOs.Accounts;
 using FurniSpace.Application.DTOs.Search;
 using FurniSpace.Application.Interfaces.Accounts;
@@ -20,18 +21,6 @@ namespace FurniSpace.Application.Services.Accounts;
 
 public sealed class AccountService : IAccountService
 {
-    private const string AccountIndexName = "accounts";
-    private const string AccountItemCachePrefix = "furnispace:accounts:item:";
-    private const string AccountListCachePrefix = "furnispace:accounts:list:";
-    private const string AccountNotFoundCode = "ACCOUNT_NOT_FOUND";
-    private const string AccountNotFoundMessage = "Account not found.";
-    private const string AccountDetailRetrievedMessage = "Account detail retrieved successfully.";
-    private const string ProfileUpdatedMessage = "Profile updated successfully.";
-    private const string AvailableDesignersRetrievedMessage = "Available designers retrieved successfully.";
-    private const int MaxActiveDesignerProjects = 2;
-    private static readonly TimeSpan AccountItemCacheTtl = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(5);
-
     private readonly IAccountRepository _accounts;
     private readonly IAuthService _auth;
     private readonly IUnitOfWork _unitOfWork;

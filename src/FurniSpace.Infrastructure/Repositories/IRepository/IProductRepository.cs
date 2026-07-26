@@ -17,9 +17,12 @@ public interface IProductRepository : IGenericRepository<Product>
     Task<IReadOnlyList<ProductListItemReadModel>> GetPublicListAsync(
         int page,
         int limit,
+        IReadOnlyCollection<int>? businessTypeIds = null,
         CancellationToken cancellationToken = default);
 
-    Task<int> CountAsync(CancellationToken cancellationToken = default);
+    Task<int> CountAsync(
+        IReadOnlyCollection<int>? businessTypeIds = null,
+        CancellationToken cancellationToken = default);
 
     Task<ProductCategoryReadModel?> GetCategoryAsync(
         Guid categoryId,

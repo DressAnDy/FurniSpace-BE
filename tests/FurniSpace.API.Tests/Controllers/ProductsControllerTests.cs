@@ -181,6 +181,21 @@ public sealed class ProductsControllerTests
     }
 
     [Fact]
+    public async Task GetAll_PassesBusinessTypeIdsToService()
+    {
+        var service = new FakeProductService(
+            ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty));
+        var controller = new ProductsController(service, new FakeProductPreviewImageService());
+        var businessTypeIds = new[] { 2, 1, 2 };
+
+        await controller.GetAll(page: 2, limit: 10, businessTypeIds: businessTypeIds);
+
+        Assert.Equal(2, service.Page);
+        Assert.Equal(10, service.Limit);
+        Assert.Same(businessTypeIds, service.BusinessTypeIds);
+    }
+
+    [Fact]
     public async Task GetById_ReturnsServiceResultThroughBaseController()
     {
         var productId = Guid.NewGuid();

@@ -28,6 +28,7 @@ public static class ProductSearchDocumentMapper
         {
             ProductId = item.ProductId,
             CategoryId = item.CategoryId,
+            BusinessTypeIds = item.BusinessTypeIds,
             CategoryName = item.CategoryName,
             ProductCode = item.ProductCode,
             ProductName = item.ProductName,

@@ -6,6 +6,8 @@ public sealed class ProductSearchQueryReadModel
 
     public Guid? CategoryId { get; init; }
 
+    public int[]? BusinessTypeIds { get; init; }
+
     public string? Material { get; init; }
 
     public string? Color { get; init; }

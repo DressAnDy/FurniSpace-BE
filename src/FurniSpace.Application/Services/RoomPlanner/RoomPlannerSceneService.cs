@@ -1,4 +1,6 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Constants.Common;
+using static FurniSpace.Application.Constants.RoomPlanner.RoomPlannerSceneServiceConstants;
 using FurniSpace.Application.DTOs.RoomPlanner;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Interfaces.RoomPlanner;
@@ -12,15 +14,6 @@ namespace FurniSpace.Application.Services.RoomPlanner;
 
 public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 {
-    private const string AdminRole = "ADMIN";
-    private const string CustomerRole = "CUSTOMER";
-    private const string DesignerRole = "DESIGNER";
-    private const string SalesRole = "SALES";
-    private const string SceneNotFoundMessage = "Proposal scene not found.";
-    private const string InvalidSceneDataCode = "INVALID_SCENE_DATA";
-    private const string ProposalNotEditableCode = "PROPOSAL_NOT_EDITABLE";
-    private const string ProposalNotEditableMessage = "Room Planner scene can only be saved for editable proposal.";
-    private const string ProductVersionReferenceType = "PRODUCT_VERSION";
     private readonly RoomPlannerSqlSceneRepository _proposalScenes;
     private readonly ApplicationRoomPlannerSceneRepository _sceneDocuments;
     private readonly IUnitOfWork _unitOfWork;
@@ -243,12 +236,12 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         Guid currentUserId,
         string role)
     {
-        if (IsRole(role, AdminRole))
+        if (IsRole(role, ApplicationRoles.Admin))
         {
             return true;
         }
 
-        return IsRole(role, DesignerRole) && context.AssignedDesignerId == currentUserId;
+        return IsRole(role, ApplicationRoles.Designer) && context.AssignedDesignerId == currentUserId;
     }
 
     private static bool CanViewScene(
@@ -256,12 +249,12 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         Guid currentUserId,
         string role)
     {
-        if (IsRole(role, AdminRole) || IsAssignedStaff(context, currentUserId, role))
+        if (IsRole(role, ApplicationRoles.Admin) || IsAssignedStaff(context, currentUserId, role))
         {
             return true;
         }
 
-        return IsRole(role, CustomerRole) &&
+        return IsRole(role, ApplicationRoles.Customer) &&
             context.CustomerId == currentUserId &&
             IsCustomerVisible(context.ProposalStatus);
     }
@@ -271,8 +264,8 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         Guid currentUserId,
         string role)
     {
-        return IsRole(role, DesignerRole) && context.AssignedDesignerId == currentUserId ||
-            IsRole(role, SalesRole) && context.AssignedSalesId == currentUserId;
+        return IsRole(role, ApplicationRoles.Designer) && context.AssignedDesignerId == currentUserId ||
+            IsRole(role, ApplicationRoles.Sales) && context.AssignedSalesId == currentUserId;
     }
 
     private static bool IsCustomerVisible(ProposalStatus? status)
@@ -285,7 +278,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
     private static bool IsEditableProposal(ProposalStatus? status)
     {
-        return status is ProposalStatus.DRAFT or ProposalStatus.REVISION_REQUESTED;
+        return status is ProposalStatus.DRAFT
+            or ProposalStatus.PUBLISHED
+            or ProposalStatus.REVISION_REQUESTED;
     }
 
     private async Task<Error?> ValidateSceneReferencesAsync(

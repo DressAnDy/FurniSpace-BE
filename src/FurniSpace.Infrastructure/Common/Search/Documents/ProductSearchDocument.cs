@@ -4,6 +4,7 @@ public sealed class ProductSearchDocument
 {
     public Guid ProductId { get; set; }
     public Guid? CategoryId { get; set; }
+    public int[]? BusinessTypeIds { get; set; }
     public string? CategoryName { get; set; }
     public string? ProductCode { get; set; }
     public string ProductName { get; set; } = string.Empty;

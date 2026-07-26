@@ -37,6 +37,7 @@ public sealed class ProductSearchDocumentMapperTests
         Assert.Equal("Oak", document.Material);
         Assert.Equal("Brown", document.Color);
         Assert.Equal(1200m, document.EstimatedPrice);
+        Assert.Equal([1, 2], document.BusinessTypeIds);
         Assert.True(document.IsPublic);
     }
 
@@ -49,6 +50,7 @@ public sealed class ProductSearchDocumentMapperTests
         {
             ProductId = Guid.NewGuid(),
             CategoryId = Guid.NewGuid(),
+            BusinessTypeIds = [1, 2],
             CategoryName = "Tables",
             ProductCode = "TBL-001",
             ProductName = "Work Table",

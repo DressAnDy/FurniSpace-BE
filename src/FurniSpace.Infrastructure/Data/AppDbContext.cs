@@ -85,6 +85,7 @@ public class AppDbContext : DbContext
 
     public DbSet<Role> RoleSet => Set<Role>();
     public DbSet<Account> AccountSet => Set<Account>();
+    public DbSet<BusinessType> BusinessTypeSet => Set<BusinessType>();
     public DbSet<Category> CategorySet => Set<Category>();
     public DbSet<Product> ProductSet => Set<Product>();
     public DbSet<ProductVersion> ProductVersionSet => Set<ProductVersion>();
@@ -150,6 +151,7 @@ public class AppDbContext : DbContext
 
         ConfigureRoles(modelBuilder);
         ConfigureAccounts(modelBuilder);
+        ConfigureBusinessTypes(modelBuilder);
         ConfigureCategories(modelBuilder);
         ConfigureProducts(modelBuilder);
         ConfigureProductVersions(modelBuilder);
@@ -222,6 +224,24 @@ public class AppDbContext : DbContext
         });
     }
 
+    private static void ConfigureBusinessTypes(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<BusinessType>(entity =>
+        {
+            entity.ToTable("business_types");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").HasColumnType(IntegerColumnType);
+            entity.Property(e => e.Code).HasColumnName("code").HasColumnType(Varchar50ColumnType).IsRequired();
+            entity.Property(e => e.Name).HasColumnName("name").HasColumnType(Varchar150ColumnType).IsRequired();
+            entity.Property(e => e.Description).HasColumnName(DescriptionColumnName).HasColumnType(TextColumnType);
+            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(BooleanColumnType).HasDefaultValue(true);
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => e.Code).IsUnique();
+            entity.HasIndex(e => e.Status);
+        });
+    }
+
     private static void ConfigureCategories(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Category>(entity =>
@@ -247,6 +267,7 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.ProductId);
             entity.Property(e => e.ProductId).HasColumnName("product_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.CategoryId).HasColumnName("category_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.BusinessTypeIds).HasColumnName("business_type_ids").HasColumnType("integer[]");
             entity.Property(e => e.ProductCode).HasColumnName("product_code").HasColumnType(Varchar50ColumnType);
             entity.Property(e => e.ProductName).HasColumnName("product_name").HasColumnType(Varchar150ColumnType).IsRequired();
             entity.Property(e => e.Description).HasColumnName(DescriptionColumnName).HasColumnType(TextColumnType);
@@ -254,6 +275,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => e.ProductCode).IsUnique();
+            entity.HasIndex(e => e.BusinessTypeIds)
+                .HasDatabaseName("idx_products_business_type_ids")
+                .HasMethod("gin");
             entity.HasIndex(e => new { e.CreatedAt, e.ProductName })
                 .HasDatabaseName("idx_products_list_sort")
                 .IsDescending(true, false);

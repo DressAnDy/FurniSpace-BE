@@ -35,7 +35,7 @@ public sealed class DataSeederTests
             },
             expectedToken);
 
-        Assert.Equal(26, rawCommands.Count);
+        Assert.Equal(27, rawCommands.Count);
         Assert.Single(interpolatedCommands);
         AssertTablesAreSeededInOrder(rawCommands);
 
@@ -45,6 +45,21 @@ public sealed class DataSeederTests
         Assert.Contains("production3@furnispace.local", accountSeed.Format);
         Assert.Contains("ON CONFLICT (email) DO UPDATE", accountSeed.Format);
         Assert.True(accountSeed.ArgumentCount > 10);
+
+        var businessTypeSeed = rawCommands.Single(command => ExtractTableName(command) == "business_types");
+        Assert.Contains("CAFE", businessTypeSeed);
+        Assert.Contains("FASHION_STORE", businessTypeSeed);
+        Assert.Contains("ON CONFLICT (code) DO NOTHING", businessTypeSeed);
+        Assert.Contains("pg_get_serial_sequence('business_types', 'id')", businessTypeSeed);
+
+        var productSeed = rawCommands.Single(command => ExtractTableName(command) == "products");
+        Assert.Contains("business_type_ids", productSeed);
+        Assert.Contains("ARRAY[1, 2, 6]::integer[]", productSeed);
+        Assert.Contains("ARRAY[5, 6, 9]::integer[]", productSeed);
+        Assert.Contains("ARRAY[1, 2, 7]::integer[]", productSeed);
+        Assert.Contains("ARRAY[3, 4, 5, 6]::integer[]", productSeed);
+        Assert.Contains("ON CONFLICT (product_code) DO UPDATE", productSeed);
+        Assert.Contains("COALESCE(products.business_type_ids, EXCLUDED.business_type_ids)", productSeed);
     }
 
     [Fact]
@@ -69,7 +84,7 @@ public sealed class DataSeederTests
 
         Assert.Equal("seed failed", exception.Message);
         Assert.Equal(
-            ["roles", "categories", "products", "product_versions", "projects", "project_areas", "project_schedules"],
+            ["roles", "business_types", "categories", "products", "product_versions", "projects", "project_areas", "project_schedules"],
             executedTables);
     }
 
@@ -80,6 +95,7 @@ public sealed class DataSeederTests
         Assert.Equal(
             [
                 "roles",
+                "business_types",
                 "categories",
                 "products",
                 "product_versions",

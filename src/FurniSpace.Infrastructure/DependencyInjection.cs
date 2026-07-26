@@ -15,6 +15,7 @@ using FurniSpace.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Npgsql.NameTranslation;
 using StackExchange.Redis;
@@ -27,7 +28,7 @@ public static class DependencyInjection
     {
         services.Configure<RedisSettings>(configuration.GetSection(RedisSettings.SectionName));
         services.Configure<ElasticsearchSettings>(configuration.GetSection(ElasticsearchSettings.SectionName));
-        services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
+        services.Configure<GmailApiSettings>(configuration.GetSection(GmailApiSettings.SectionName));
         services.Configure<MongoDbSettings>(settings =>
         {
             var section = configuration.GetSection(MongoDbSettings.SectionName);
@@ -65,6 +66,7 @@ public static class DependencyInjection
         services.AddElasticsearch(configuration);
         services.AddMongoRoomPlanner();
         services.AddScoped<IAccountRepository, AccountRepository>();
+        services.AddScoped<IBusinessTypeRepository, BusinessTypeRepository>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IProductRepository, ProductRepository>();
         services.AddScoped<IProductVersionRepository, ProductVersionRepository>();
@@ -83,7 +85,22 @@ public static class DependencyInjection
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepository>();
         services.AddScoped<IRoomPlannerProposalSceneRepository, RoomPlannerProposalSceneRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
-        services.AddScoped<IEmailService, SmtpEmailService>();
+        services.AddHttpClient(GmailEmailClientNames.OAuth, (serviceProvider, client) =>
+        {
+            var settings = serviceProvider.GetRequiredService<IOptions<GmailApiSettings>>().Value;
+            client.Timeout = TimeSpan.FromSeconds(Math.Clamp(settings.TimeoutSeconds, 1, 60));
+        });
+        services.AddSingleton<IGmailAccessTokenProvider, GmailAccessTokenProvider>();
+        services.AddHttpClient<IEmailService, GmailApiEmailService>((serviceProvider, client) =>
+        {
+            var settings = serviceProvider.GetRequiredService<IOptions<GmailApiSettings>>().Value;
+            var baseUrl = settings.BaseUrl.EndsWith("/", StringComparison.Ordinal)
+                ? settings.BaseUrl
+                : $"{settings.BaseUrl}/";
+
+            client.BaseAddress = new Uri(baseUrl);
+            client.Timeout = TimeSpan.FromSeconds(Math.Clamp(settings.TimeoutSeconds, 1, 60));
+        });
         services.AddScoped<IFileStorageService, FirebaseStorageService>();
 
         return services;

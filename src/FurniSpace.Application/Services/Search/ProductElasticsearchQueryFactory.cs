@@ -2,6 +2,7 @@ using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.ReadModels.Products;
+using static FurniSpace.Application.Constants.Search.ProductElasticsearchQueryFactoryConstants;
 
 namespace FurniSpace.Application.Services.Search;
 
@@ -10,8 +11,6 @@ public static class ProductElasticsearchQueryFactory
     public const string CategoryFacetField = "categoryName.keyword";
     public const string MaterialFacetField = "material";
     public const string ColorFacetField = "color";
-    private const string EstimatedPriceField = "estimatedPrice";
-    private const string ProductNameKeywordField = "productName.keyword";
 
     private static readonly string[] ProductFacetFields =
     [
@@ -70,6 +69,12 @@ public static class ProductElasticsearchQueryFactory
             filters.Add(new SearchFilter("categoryId", SearchFilterOperator.Term, request.CategoryId.Value.ToString()));
         }
 
+        var businessTypeIds = NormalizeBusinessTypeIds(request.BusinessTypeIds);
+        if (businessTypeIds is not null)
+        {
+            filters.Add(new SearchFilter("businessTypeIds", SearchFilterOperator.Terms, Values: businessTypeIds.Cast<object>().ToArray()));
+        }
+
         if (!string.IsNullOrWhiteSpace(request.Material))
         {
             filters.Add(new SearchFilter("material", SearchFilterOperator.Term, request.Material.Trim()));
@@ -108,6 +113,7 @@ public static class ProductElasticsearchQueryFactory
         {
             Query = NormalizeOptional(request.Query),
             CategoryId = request.CategoryId,
+            BusinessTypeIds = NormalizeBusinessTypeIds(request.BusinessTypeIds),
             Material = NormalizeOptional(request.Material),
             Color = NormalizeOptional(request.Color),
             MinPrice = request.MinPrice,
@@ -176,5 +182,15 @@ public static class ProductElasticsearchQueryFactory
         }
 
         return value.Trim();
+    }
+
+    private static int[]? NormalizeBusinessTypeIds(int[]? businessTypeIds)
+    {
+        var normalized = businessTypeIds?
+            .Where(id => id > 0)
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+        return normalized is { Length: > 0 } ? normalized : null;
     }
 }

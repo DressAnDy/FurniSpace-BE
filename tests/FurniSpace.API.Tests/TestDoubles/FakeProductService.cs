@@ -42,6 +42,7 @@ internal sealed class FakeProductService : IProductService
     public Guid CategoryId { get; private set; }
     public int Page { get; private set; }
     public int Limit { get; private set; }
+    public int[]? BusinessTypeIds { get; private set; }
     public bool IncludeDefaultVersion { get; private set; }
 
     public Task<ServiceResult<ProductDto>> CreateAsync(
@@ -67,11 +68,13 @@ internal sealed class FakeProductService : IProductService
     public Task<ServiceResult<ProductListResponseDto>> GetAllAsync(
         int page,
         int limit,
+        int[]? businessTypeIds = null,
         CancellationToken cancellationToken = default)
     {
         _ = cancellationToken;
         Page = page;
         Limit = limit;
+        BusinessTypeIds = businessTypeIds;
         return Task.FromResult(_getAllResult);
     }
 

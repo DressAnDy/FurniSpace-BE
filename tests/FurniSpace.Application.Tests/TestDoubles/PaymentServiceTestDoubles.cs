@@ -91,7 +91,96 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
             items = items.Where(item => item.OrderId == query.OrderId.Value);
         }
 
+        items = items
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize);
+
         return Task.FromResult<IReadOnlyList<PaymentListItemReadModel>>(items.ToList());
+    }
+
+    public Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default)
+    {
+        var count = _listItems.Count;
+        if (query.ProjectId.HasValue)
+        {
+            count = _listItems.Count(item => item.ProjectId == query.ProjectId.Value);
+        }
+
+        if (query.OrderId.HasValue)
+        {
+            count = _listItems.Count(item => item.OrderId == query.OrderId.Value);
+        }
+
+        return Task.FromResult(count);
+    }
+
+    public Task<PaymentSummaryReadModel> GetSummaryAsync(
+        PaymentQueryReadModel query,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new PaymentSummaryReadModel());
+    }
+
+    public Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(
+        PaymentQueryReadModel query,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<Payment>>([]);
+    }
+
+    public Task<PaymentTransaction?> GetTransactionByIdAsync(
+        Guid paymentTransactionId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(_transactions.FirstOrDefault(
+            transaction => transaction.PaymentTransactionId == paymentTransactionId));
+    }
+
+    public Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(
+        Guid paymentId,
+        PaymentProvider provider,
+        PaymentMethod method,
+        CancellationToken cancellationToken = default)
+    {
+        var transaction = _transactions
+            .Where(item =>
+                item.PaymentId == paymentId &&
+                item.Status == PaymentTransactionStatus.PENDING &&
+                item.PaymentProvider == provider &&
+                item.PaymentMethod == method)
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstOrDefault();
+
+        return Task.FromResult(transaction is null ? null : MapTransaction(transaction));
+    }
+
+    public Task<PaymentTransactionReadModel?> GetLatestTransactionAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        var transaction = _transactions
+            .Where(item => item.PaymentId == paymentId)
+            .OrderByDescending(item => item.CreatedAt)
+            .FirstOrDefault();
+
+        return Task.FromResult(transaction is null ? null : MapTransaction(transaction));
+    }
+
+    public Task<IReadOnlySet<Guid>> GetPaymentIdsWithSuccessfulTransactionAsync(
+        IReadOnlyCollection<Guid> paymentIds,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = _transactions
+            .Where(transaction =>
+                paymentIds.Contains(transaction.PaymentId) &&
+                transaction.Status == PaymentTransactionStatus.SUCCESS)
+            .Select(transaction => transaction.PaymentId)
+            .Distinct()
+            .ToHashSet();
+
+        return Task.FromResult<IReadOnlySet<Guid>>(ids);
     }
 
     public Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdAsync(
@@ -113,11 +202,37 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
                 ProviderTransactionId = transaction.ProviderTransactionId,
                 ProviderReferenceCode = transaction.ProviderReferenceCode,
                 Status = transaction.Status,
+                PaymentUrl = transaction.PaymentUrl,
+                QrContent = transaction.QrContent,
+                FailureReason = transaction.FailureReason,
                 TransactionTime = transaction.TransactionTime,
                 CreatedAt = transaction.CreatedAt
             })
             .ToList();
         return Task.FromResult<IReadOnlyList<PaymentTransactionReadModel>>(items);
+    }
+
+    private static PaymentTransactionReadModel MapTransaction(PaymentTransaction transaction)
+    {
+        return new PaymentTransactionReadModel
+        {
+            PaymentTransactionId = transaction.PaymentTransactionId,
+            PaymentId = transaction.PaymentId,
+            TransactionCode = transaction.TransactionCode,
+            TransactionType = transaction.TransactionType,
+            Amount = transaction.Amount,
+            Currency = transaction.Currency,
+            PaymentProvider = transaction.PaymentProvider,
+            PaymentMethod = transaction.PaymentMethod,
+            ProviderTransactionId = transaction.ProviderTransactionId,
+            ProviderReferenceCode = transaction.ProviderReferenceCode,
+            Status = transaction.Status,
+            PaymentUrl = transaction.PaymentUrl,
+            QrContent = transaction.QrContent,
+            FailureReason = transaction.FailureReason,
+            TransactionTime = transaction.TransactionTime,
+            CreatedAt = transaction.CreatedAt
+        };
     }
 
     public Task<bool> PaymentCodeExistsAsync(string paymentCode, CancellationToken cancellationToken = default)

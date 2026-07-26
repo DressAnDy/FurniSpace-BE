@@ -22,9 +22,44 @@ public class PaymentDto
     public DateTime? UpdatedAt { get; set; }
 }
 
+public sealed class PaymentListItemDto
+{
+    public Guid PaymentId { get; set; }
+    public string PaymentCode { get; set; } = string.Empty;
+    public Guid ProjectId { get; set; }
+    public string? ProjectCode { get; set; }
+    public string? ProjectName { get; set; }
+    public Guid? OrderId { get; set; }
+    public string? OrderCode { get; set; }
+    public PaymentType? PaymentType { get; set; }
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "VND";
+    public PaymentStatus? Status { get; set; }
+    public DateTime? ExpiredAt { get; set; }
+    public DateTime? PaidAt { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public bool IsPayable { get; set; }
+}
+
 public sealed class PaymentListResponseDto
 {
-    public IReadOnlyList<PaymentDto> Items { get; init; } = [];
+    public IReadOnlyList<PaymentListItemDto> Items { get; init; } = [];
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+    public int TotalItems { get; init; }
+    public int TotalPages { get; init; }
+}
+
+public sealed class PaymentSummaryResponseDto
+{
+    public int PendingCount { get; set; }
+    public int ProcessingCount { get; set; }
+    public int PaidCount { get; set; }
+    public int ExpiredCount { get; set; }
+    public int CancelledCount { get; set; }
+    public int PayableCount { get; set; }
+    public decimal PendingAmount { get; set; }
+    public string Currency { get; set; } = "VND";
 }
 
 public sealed class PaymentTransactionDto
@@ -40,6 +75,9 @@ public sealed class PaymentTransactionDto
     public string? ProviderTransactionId { get; set; }
     public string? ProviderReferenceCode { get; set; }
     public PaymentTransactionStatus? Status { get; set; }
+    public string? PaymentUrl { get; set; }
+    public string? QrContent { get; set; }
+    public string? FailureReason { get; set; }
     public DateTime? TransactionTime { get; set; }
     public DateTime? CreatedAt { get; set; }
 }
@@ -73,6 +111,13 @@ public sealed class PaymentQueryDto
     public Guid? OrderId { get; set; }
     public PaymentStatus? Status { get; set; }
     public PaymentType? PaymentType { get; set; }
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+}
+
+public sealed class CancelPaymentTransactionRequestDto
+{
+    public string? CancelReason { get; set; }
 }
 
 public sealed class SePayVietQrResponseDto

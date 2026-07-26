@@ -25,6 +25,13 @@ public enum NotificationType
     ProjectScheduleCompleted,
     ProjectScheduleCancelled,
     OrderDepositPaid,
+    PaymentCreated,
+    PaymentProcessing,
+    PaymentPaid,
+    PaymentExpired,
+    PaymentCancelled,
+    PaymentTransactionFailed,
+    PaymentTransactionCancelled,
     ProductionRequestAssigned,
     ProductionItemCancelled
 }

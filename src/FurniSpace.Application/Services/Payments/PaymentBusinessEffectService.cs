@@ -1,6 +1,6 @@
 using FurniSpace.Application.Common.Notifications;
-using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
 using static FurniSpace.Application.Constants.Payments.PaymentBusinessEffectServiceConstants;
@@ -44,6 +44,8 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
         {
             return;
         }
+
+        await DispatchCustomerPaymentPaidNotificationAsync(payment, cancellationToken);
 
         switch (payment.PaymentType)
         {
@@ -210,6 +212,18 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
                 "Failed to dispatch order deposit paid notification for order {OrderId}",
                 order.OrderId);
         }
+    }
+
+    private Task DispatchCustomerPaymentPaidNotificationAsync(
+        Payment payment,
+        CancellationToken cancellationToken)
+    {
+        return PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentPaid,
+            payment,
+            cancellationToken: cancellationToken);
     }
 
     private static bool IsOrderScopedPayment(PaymentType? paymentType)

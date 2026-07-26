@@ -1,6 +1,8 @@
 using System.Globalization;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.DTOs.Payments;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -17,6 +19,7 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
     private readonly IPayOsClient _payOsClient;
     private readonly IPaymentRealtimeService _paymentRealtime;
     private readonly IPaymentBusinessEffectService _paymentBusinessEffects;
+    private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<PayOsWebhookHandler>? _logger;
 
     public PayOsWebhookHandler(
@@ -25,6 +28,7 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
         IPayOsClient payOsClient,
         IPaymentRealtimeService paymentRealtime,
         IPaymentBusinessEffectService paymentBusinessEffects,
+        INotificationDispatcher? notifications = null,
         ILogger<PayOsWebhookHandler>? logger = null)
     {
         _payments = payments;
@@ -32,6 +36,7 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
         _payOsClient = payOsClient;
         _paymentRealtime = paymentRealtime;
         _paymentBusinessEffects = paymentBusinessEffects;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -211,6 +216,13 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
             "PayOS webhook marked transaction failed. PaymentId={PaymentId}, PaymentTransactionId={PaymentTransactionId}",
             payment.PaymentId,
             transaction.PaymentTransactionId);
+
+        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentTransactionFailed,
+            payment,
+            cancellationToken: cancellationToken);
     }
 
     private static bool IsSuccessfulWebhook(string? code)

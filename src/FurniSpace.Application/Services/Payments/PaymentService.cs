@@ -7,13 +7,16 @@ using static FurniSpace.Application.Constants.Payments.PaymentServiceConstants;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Payments;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Globalization;
 
@@ -30,12 +33,16 @@ public sealed class PaymentService : IPaymentService
     private readonly SePayVietQrUrlBuilder _vietQrUrlBuilder;
     private readonly IPayOsClient _payOsClient;
     private readonly ProjectWorkflowSettings _projectWorkflowSettings;
+    private readonly INotificationDispatcher? _notifications;
+    private readonly ILogger<PaymentService>? _logger;
 
     public PaymentService(
         IPaymentRepository payments,
         IProjectRepository projects,
         IOrderRepository orders,
-        PaymentServiceDependencies dependencies)
+        PaymentServiceDependencies dependencies,
+        INotificationDispatcher? notifications = null,
+        ILogger<PaymentService>? logger = null)
     {
         _payments = payments;
         _projects = projects;
@@ -46,6 +53,8 @@ public sealed class PaymentService : IPaymentService
         _projectWorkflowSettings = dependencies.ProjectWorkflowSettings;
         _vietQrUrlBuilder = dependencies.VietQrUrlBuilder;
         _payOsClient = dependencies.PayOsClient;
+        _notifications = notifications;
+        _logger = logger;
     }
 
     public async Task<ServiceResult<PaymentDetailDto>> CreateTestPaymentAsync(
@@ -181,6 +190,13 @@ public sealed class PaymentService : IPaymentService
         await _payments.AddPaymentAsync(payment, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentCreated,
+            payment,
+            cancellationToken: cancellationToken);
+
         var detail = await _payments.GetDetailAsync(payment.PaymentId, cancellationToken);
         return ServiceResult<PaymentDetailDto>.Created(
             detail?.Adapt<PaymentDetailDto>() ?? payment.Adapt<PaymentDetailDto>(),
@@ -271,6 +287,13 @@ public sealed class PaymentService : IPaymentService
 
         await _payments.AddPaymentAsync(payment, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentCreated,
+            payment,
+            cancellationToken: cancellationToken);
 
         var detail = await _payments.GetDetailAsync(payment.PaymentId, cancellationToken);
         return ServiceResult<PaymentDetailDto>.Created(
@@ -373,6 +396,13 @@ public sealed class PaymentService : IPaymentService
         await _payments.AddPaymentAsync(payment, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentCreated,
+            payment,
+            cancellationToken: cancellationToken);
+
         var detail = await _payments.GetDetailAsync(payment.PaymentId, cancellationToken);
         return ServiceResult<PaymentDetailDto>.Created(
             detail?.Adapt<PaymentDetailDto>() ?? payment.Adapt<PaymentDetailDto>(),
@@ -439,9 +469,15 @@ public sealed class PaymentService : IPaymentService
             return accessError;
         }
 
+        var payment = await SyncPaymentExpiryAsync(paymentId, cancellationToken);
+        if (payment is null)
+        {
+            return NotFoundDetail(PaymentErrorCodes.PaymentNotFound, PaymentNotFoundMessage);
+        }
+
         return ServiceResult<PaymentDetailDto>.Success(
-            detail.Adapt<PaymentDetailDto>(),
-            "Payment retrieved successfully.");
+            await BuildPaymentDetailDtoAsync(detail, payment, cancellationToken),
+            "Customer payment detail retrieved successfully.");
     }
 
     public async Task<ServiceResult<PaymentListResponseDto>> GetListAsync(
@@ -454,6 +490,16 @@ public sealed class PaymentService : IPaymentService
             return ServiceResult<PaymentListResponseDto>.Unauthorized();
         }
 
+        var paginationError = PaymentServiceManagementSupport.ValidatePagination(query.Page, query.PageSize);
+        if (paginationError is not null)
+        {
+            return Failure<PaymentListResponseDto>(
+                PaymentErrorCodes.InvalidPaymentFilter,
+                paginationError,
+                isBadRequest: true);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (query.ProjectId.HasValue)
         {
             var project = await _projects.GetDetailAsync(query.ProjectId.Value, cancellationToken);
@@ -462,18 +508,76 @@ public sealed class PaymentService : IPaymentService
                 return ServiceResult<PaymentListResponseDto>.NotFound(ProjectNotFoundMessage);
             }
 
-            var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
             if (!CanAccessProject(role, project.CustomerId, project.AssignedSalesId, project.AssignedDesignerId, currentUserId))
             {
                 return ServiceResult<PaymentListResponseDto>.Forbidden("You do not have access to this project's payments.");
             }
         }
 
-        var readQuery = query.Adapt<PaymentQueryReadModel>();
+        var readQuery = PaymentServiceManagementSupport.BuildScopedQuery(query, role, currentUserId);
+        await SyncExpiredPaymentsInScopeAsync(readQuery, cancellationToken);
+
         var items = await _payments.GetListAsync(readQuery, cancellationToken);
+        var totalItems = await _payments.CountAsync(readQuery, cancellationToken);
+        var successPaymentIds = await _payments.GetPaymentIdsWithSuccessfulTransactionAsync(
+            items.Select(item => item.PaymentId).ToList(),
+            cancellationToken);
+        var utcNow = DateTime.UtcNow;
+        var responseItems = items
+            .Select(item => PaymentServiceManagementSupport.ToListItemDto(
+                item,
+                successPaymentIds.Contains(item.PaymentId),
+                utcNow))
+            .ToList();
+        var totalPages = totalItems == 0
+            ? 0
+            : (int)Math.Ceiling(totalItems / (double)query.PageSize);
+
         return ServiceResult<PaymentListResponseDto>.Success(
-            new PaymentListResponseDto { Items = items.Adapt<List<PaymentDto>>() },
-            "Payments retrieved successfully.");
+            new PaymentListResponseDto
+            {
+                Items = responseItems,
+                Page = query.Page,
+                PageSize = query.PageSize,
+                TotalItems = totalItems,
+                TotalPages = totalPages
+            },
+            "Customer payments retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<PaymentSummaryResponseDto>> GetSummaryAsync(
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PaymentSummaryResponseDto>.Unauthorized();
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role is ProjectAssignmentAccessEvaluator.DesignerRole)
+        {
+            return ServiceResult<PaymentSummaryResponseDto>.Forbidden(
+                "You do not have permission to view payment summary.");
+        }
+
+        var readQuery = PaymentServiceManagementSupport.BuildScopeOnly(role, currentUserId);
+        await SyncExpiredPaymentsInScopeAsync(readQuery, cancellationToken);
+
+        var summary = await _payments.GetSummaryAsync(readQuery, DateTime.UtcNow, cancellationToken);
+        return ServiceResult<PaymentSummaryResponseDto>.Success(
+            new PaymentSummaryResponseDto
+            {
+                PendingCount = summary.PendingCount,
+                ProcessingCount = summary.ProcessingCount,
+                PaidCount = summary.PaidCount,
+                ExpiredCount = summary.ExpiredCount,
+                CancelledCount = summary.CancelledCount,
+                PayableCount = summary.PayableCount,
+                PendingAmount = summary.PayablePendingAmount,
+                Currency = _sePayOptions.Currency
+            },
+            "Customer payment summary retrieved successfully.");
     }
 
     public async Task<ServiceResult<PaymentTransactionListResponseDto>> GetTransactionsAsync(
@@ -798,19 +902,26 @@ public sealed class PaymentService : IPaymentService
             return ServiceResult<PaymentTransactionAttemptResponseDto>.Unauthorized();
         }
 
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.CustomerRole)
+        {
+            return ServiceResult<PaymentTransactionAttemptResponseDto>.Forbidden(
+                "Only customers can create online payment attempts.");
+        }
+
         var detail = await _payments.GetDetailAsync(paymentId, cancellationToken);
         if (detail is null)
         {
             return NotFound<PaymentTransactionAttemptResponseDto>(PaymentErrorCodes.PaymentNotFound, PaymentNotFoundMessage);
         }
 
-        var accessError = await ValidateAccessAsync(detail, currentUserId, cancellationToken);
-        if (accessError is not null)
+        if (!PaymentServiceManagementSupport.IsCustomerOwner(detail, currentUserId))
         {
-            return ServiceResult<PaymentTransactionAttemptResponseDto>.Forbidden(accessError.Message ?? ForbiddenMessage);
+            return ServiceResult<PaymentTransactionAttemptResponseDto>.Forbidden(
+                "You do not have access to this payment.");
         }
 
-        var payment = await _payments.GetByIdAsync(paymentId, cancellationToken);
+        var payment = await SyncPaymentExpiryAsync(paymentId, cancellationToken);
         if (payment is null)
         {
             return NotFound<PaymentTransactionAttemptResponseDto>(PaymentErrorCodes.PaymentNotFound, PaymentNotFoundMessage);
@@ -836,6 +947,27 @@ public sealed class PaymentService : IPaymentService
         if (request.PaymentProvider == PaymentProvider.PAYOS &&
             request.PaymentMethod == PaymentMethod.PAYMENT_LINK)
         {
+            if (!PaymentServiceManagementSupport.IsValidHttpsUrl(request.ReturnUrl) ||
+                !PaymentServiceManagementSupport.IsValidHttpsUrl(request.CancelUrl))
+            {
+                return Failure<PaymentTransactionAttemptResponseDto>(
+                    PaymentErrorCodes.PayOsCreateLinkFailed,
+                    "PayOS return and cancel URLs must be valid HTTPS URLs.",
+                    isBadRequest: true);
+            }
+
+            var reusablePayOs = await _payments.GetLatestPendingTransactionAsync(
+                paymentId,
+                PaymentProvider.PAYOS,
+                PaymentMethod.PAYMENT_LINK,
+                cancellationToken);
+            if (IsReusablePendingTransaction(reusablePayOs))
+            {
+                return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
+                    PaymentServiceManagementSupport.ToAttemptResponse(reusablePayOs!, payment),
+                    "Payment transaction attempt created successfully.");
+            }
+
             var linkResult = await CreatePayOsPaymentLinkAsync(
                 paymentId,
                 currentUserId,
@@ -855,6 +987,13 @@ public sealed class PaymentService : IPaymentService
                     ErrorCode = linkResult.ErrorCode
                 };
             }
+
+            await PaymentCustomerNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentProcessing,
+                payment,
+                cancellationToken: cancellationToken);
 
             return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
                 new PaymentTransactionAttemptResponseDto
@@ -885,6 +1024,18 @@ public sealed class PaymentService : IPaymentService
                     isBadRequest: true);
             }
 
+            var reusableSePay = await _payments.GetLatestPendingTransactionAsync(
+                paymentId,
+                PaymentProvider.SEPAY,
+                PaymentMethod.QR_CODE,
+                cancellationToken);
+            if (IsReusablePendingTransaction(reusableSePay))
+            {
+                return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
+                    PaymentServiceManagementSupport.ToAttemptResponse(reusableSePay!, payment),
+                    "Payment transaction attempt created successfully.");
+            }
+
             var now = DateTime.UtcNow;
             var transaction = new PaymentTransaction
             {
@@ -910,27 +1061,214 @@ public sealed class PaymentService : IPaymentService
             _payments.UpdatePayment(payment);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+            await PaymentCustomerNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentProcessing,
+                payment,
+                cancellationToken: cancellationToken);
+
+            var createdTransaction = new PaymentTransactionReadModel
+            {
+                PaymentTransactionId = transaction.PaymentTransactionId,
+                PaymentId = transaction.PaymentId,
+                TransactionCode = transaction.TransactionCode,
+                Amount = transaction.Amount,
+                Currency = transaction.Currency,
+                Status = transaction.Status,
+                PaymentProvider = transaction.PaymentProvider,
+                PaymentMethod = transaction.PaymentMethod,
+                PaymentUrl = transaction.PaymentUrl
+            };
+
             return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
-                new PaymentTransactionAttemptResponseDto
-                {
-                    PaymentTransactionId = transaction.PaymentTransactionId,
-                    PaymentId = payment.PaymentId,
-                    TransactionCode = transaction.TransactionCode,
-                    Amount = transaction.Amount,
-                    Currency = transaction.Currency,
-                    Status = transaction.Status,
-                    PaymentProvider = transaction.PaymentProvider,
-                    PaymentMethod = transaction.PaymentMethod,
-                    PaymentUrl = vietQrUrl,
-                    PaymentStatus = payment.Status
-                },
+                PaymentServiceManagementSupport.ToAttemptResponse(createdTransaction, payment),
                 "Payment transaction attempt created successfully.");
         }
 
+        if (request.PaymentProvider != PaymentProvider.PAYOS && request.PaymentProvider != PaymentProvider.SEPAY)
+        {
+            return Failure<PaymentTransactionAttemptResponseDto>(
+                PaymentErrorCodes.UnsupportedPaymentProvider,
+                "Unsupported payment provider.",
+                isBadRequest: true);
+        }
+
         return Failure<PaymentTransactionAttemptResponseDto>(
-            PaymentErrorCodes.PaymentNotPayable,
-            "Unsupported payment provider or method.",
+            PaymentErrorCodes.UnsupportedPaymentMethod,
+            "Unsupported payment method.",
             isBadRequest: true);
+    }
+
+    public async Task<ServiceResult<PaymentTransactionDto?>> GetActiveTransactionAsync(
+        Guid paymentId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PaymentTransactionDto?>.Unauthorized();
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.CustomerRole)
+        {
+            return ServiceResult<PaymentTransactionDto?>.Forbidden(
+                "Only customers can view active payment attempts.");
+        }
+
+        var detail = await _payments.GetDetailAsync(paymentId, cancellationToken);
+        if (detail is null)
+        {
+            return ServiceResult<PaymentTransactionDto?>.NotFound(PaymentNotFoundMessage);
+        }
+
+        if (!PaymentServiceManagementSupport.IsCustomerOwner(detail, currentUserId))
+        {
+            return ServiceResult<PaymentTransactionDto?>.Forbidden(
+                "You do not have access to this payment.");
+        }
+
+        var payment = await SyncPaymentExpiryAsync(paymentId, cancellationToken);
+        if (payment is null)
+        {
+            return ServiceResult<PaymentTransactionDto?>.NotFound(PaymentNotFoundMessage);
+        }
+
+        if (!PaymentPayableEvaluator.IsPayable(
+                payment,
+                await _payments.HasSuccessfulTransactionAsync(paymentId, cancellationToken),
+                DateTime.UtcNow))
+        {
+            return ServiceResult<PaymentTransactionDto?>.Success(
+                null,
+                "Active payment transaction retrieved successfully.");
+        }
+
+        var activeTransaction = await _payments.GetLatestPendingTransactionAsync(
+            paymentId,
+            PaymentProvider.PAYOS,
+            PaymentMethod.PAYMENT_LINK,
+            cancellationToken);
+        if (!IsReusablePendingTransaction(activeTransaction))
+        {
+            activeTransaction = await _payments.GetLatestPendingTransactionAsync(
+                paymentId,
+                PaymentProvider.SEPAY,
+                PaymentMethod.QR_CODE,
+                cancellationToken);
+        }
+
+        if (!IsReusablePendingTransaction(activeTransaction))
+        {
+            return ServiceResult<PaymentTransactionDto?>.Success(
+                null,
+                "Active payment transaction retrieved successfully.");
+        }
+
+        return ServiceResult<PaymentTransactionDto?>.Success(
+            activeTransaction!.Adapt<PaymentTransactionDto>(),
+            "Active payment transaction retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<PaymentTransactionDto>> CancelTransactionAsync(
+        Guid paymentId,
+        Guid paymentTransactionId,
+        Guid currentUserId,
+        CancelPaymentTransactionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PaymentTransactionDto>.Unauthorized();
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.CustomerRole)
+        {
+            return ServiceResult<PaymentTransactionDto>.Forbidden(
+                "Only customers can cancel payment attempts.");
+        }
+
+        var detail = await _payments.GetDetailAsync(paymentId, cancellationToken);
+        if (detail is null)
+        {
+            return NotFound<PaymentTransactionDto>(PaymentErrorCodes.PaymentNotFound, PaymentNotFoundMessage);
+        }
+
+        if (!PaymentServiceManagementSupport.IsCustomerOwner(detail, currentUserId))
+        {
+            return ServiceResult<PaymentTransactionDto>.Forbidden(
+                "You do not have access to this payment.");
+        }
+
+        var transaction = await _payments.GetTransactionByIdAsync(paymentTransactionId, cancellationToken);
+        if (transaction is null || transaction.PaymentId != paymentId)
+        {
+            return NotFound<PaymentTransactionDto>(
+                PaymentErrorCodes.PaymentTransactionNotFound,
+                "Payment transaction not found.");
+        }
+
+        if (transaction.Status == PaymentTransactionStatus.SUCCESS)
+        {
+            return Failure<PaymentTransactionDto>(
+                PaymentErrorCodes.SuccessTransactionCannotBeCancelled,
+                "Successful payment transactions cannot be cancelled.",
+                isBadRequest: true);
+        }
+
+        if (transaction.Status == PaymentTransactionStatus.CANCELLED)
+        {
+            return ServiceResult<PaymentTransactionDto>.Success(
+                transaction.Adapt<PaymentTransactionDto>(),
+                "Payment transaction cancelled successfully.");
+        }
+
+        if (transaction.Status != PaymentTransactionStatus.PENDING)
+        {
+            return Failure<PaymentTransactionDto>(
+                PaymentErrorCodes.PaymentTransactionNotCancellable,
+                "Payment transaction cannot be cancelled.",
+                isBadRequest: true);
+        }
+
+        var payment = await _payments.GetByIdAsync(paymentId, cancellationToken);
+        if (payment is null)
+        {
+            return NotFound<PaymentTransactionDto>(PaymentErrorCodes.PaymentNotFound, PaymentNotFoundMessage);
+        }
+
+        var now = DateTime.UtcNow;
+        transaction.Status = PaymentTransactionStatus.CANCELLED;
+        if (!string.IsNullOrWhiteSpace(request.CancelReason))
+        {
+            transaction.FailureReason = request.CancelReason.Trim();
+        }
+
+        var hasOtherPending = await HasOtherPendingTransactionsAsync(
+            paymentId,
+            paymentTransactionId,
+            cancellationToken);
+        if (!hasOtherPending)
+        {
+            PaymentSummaryCalculator.RevertToPendingIfCollectable(payment, now);
+            _payments.UpdatePayment(payment);
+        }
+
+        _payments.UpdateTransaction(transaction);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentTransactionCancelled,
+            payment,
+            cancellationToken: cancellationToken);
+
+        return ServiceResult<PaymentTransactionDto>.Success(
+            transaction.Adapt<PaymentTransactionDto>(),
+            "Payment transaction cancelled successfully.");
     }
 
     public async Task<ServiceResult<PayOsConfirmWebhookResponseDto>> ConfirmPayOsWebhookAsync(
@@ -1045,6 +1383,126 @@ public sealed class PaymentService : IPaymentService
     private static string ResolveUrl(string? requestedUrl, string configuredUrl)
     {
         return string.IsNullOrWhiteSpace(requestedUrl) ? configuredUrl : requestedUrl.Trim();
+    }
+
+    private async Task<PaymentDetailDto> BuildPaymentDetailDtoAsync(
+        PaymentDetailReadModel detail,
+        Payment payment,
+        CancellationToken cancellationToken)
+    {
+        var hasSuccessfulTransaction = await _payments.HasSuccessfulTransactionAsync(
+            payment.PaymentId,
+            cancellationToken);
+        var dto = detail.Adapt<PaymentDetailDto>();
+        dto.IsPayable = PaymentPayableEvaluator.IsPayable(payment, hasSuccessfulTransaction, DateTime.UtcNow);
+
+        var project = await _projects.GetDetailAsync(payment.ProjectId, cancellationToken);
+        if (project is not null)
+        {
+            dto.Project = new PaymentProjectSummaryDto
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName
+            };
+        }
+
+        if (payment.OrderId.HasValue)
+        {
+            var order = await _orders.GetDetailAsync(payment.OrderId.Value, cancellationToken);
+            if (order is not null)
+            {
+                dto.Order = new PaymentOrderSummaryDto
+                {
+                    OrderId = order.OrderId,
+                    OrderCode = order.OrderCode,
+                    Status = order.Status,
+                    FinalTotalAmount = order.FinalTotalAmount,
+                    DepositAmount = order.DepositAmount,
+                    PaidAmount = order.PaidAmount,
+                    RemainingAmount = order.RemainingAmount
+                };
+            }
+        }
+
+        var latestTransaction = await _payments.GetLatestTransactionAsync(payment.PaymentId, cancellationToken);
+        dto.LatestTransaction = PaymentServiceManagementSupport.ToLatestTransactionDto(latestTransaction);
+        return dto;
+    }
+
+    private async Task<Payment?> SyncPaymentExpiryAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken)
+    {
+        var payment = await _payments.GetByIdAsync(paymentId, cancellationToken);
+        if (payment is null)
+        {
+            return null;
+        }
+
+        if (!PaymentExpirySynchronizer.TryMarkExpiredIfNeeded(payment, DateTime.UtcNow))
+        {
+            return payment;
+        }
+
+        _payments.UpdatePayment(payment);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentExpired,
+            payment,
+            cancellationToken: cancellationToken);
+        return payment;
+    }
+
+    private async Task SyncExpiredPaymentsInScopeAsync(
+        PaymentQueryReadModel scope,
+        CancellationToken cancellationToken)
+    {
+        var expiredPayments = await _payments.GetExpiredPaymentsForSyncAsync(
+            scope,
+            DateTime.UtcNow,
+            cancellationToken);
+        if (expiredPayments.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var payment in expiredPayments)
+        {
+            PaymentExpirySynchronizer.TryMarkExpiredIfNeeded(payment, DateTime.UtcNow);
+            _payments.UpdatePayment(payment);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        foreach (var payment in expiredPayments)
+        {
+            await PaymentCustomerNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentExpired,
+                payment,
+                cancellationToken: cancellationToken);
+        }
+    }
+
+    private async Task<bool> HasOtherPendingTransactionsAsync(
+        Guid paymentId,
+        Guid excludedTransactionId,
+        CancellationToken cancellationToken)
+    {
+        var transactions = await _payments.GetTransactionsByPaymentIdAsync(paymentId, cancellationToken);
+        return transactions.Any(transaction =>
+            transaction.PaymentTransactionId != excludedTransactionId &&
+            transaction.Status == PaymentTransactionStatus.PENDING);
+    }
+
+    private static bool IsReusablePendingTransaction(PaymentTransactionReadModel? transaction)
+    {
+        return transaction is not null &&
+            transaction.Status == PaymentTransactionStatus.PENDING &&
+            !string.IsNullOrWhiteSpace(transaction.PaymentUrl);
     }
 
     private async Task<ServiceResult<PaymentDetailDto>?> ValidateAccessAsync(

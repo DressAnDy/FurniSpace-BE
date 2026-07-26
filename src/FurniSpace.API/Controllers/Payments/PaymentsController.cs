@@ -41,6 +41,8 @@ public sealed class PaymentsController : BaseApiController
         [FromQuery] Guid? orderId = null,
         [FromQuery] PaymentStatus? status = null,
         [FromQuery] PaymentType? paymentType = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -55,9 +57,24 @@ public sealed class PaymentsController : BaseApiController
                 ProjectId = projectId,
                 OrderId = orderId,
                 Status = status,
-                PaymentType = paymentType
+                PaymentType = paymentType,
+                Page = page,
+                PageSize = pageSize
             },
             cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [HttpGet("summary")]
+    public async Task<IActionResult> GetSummary(CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _payments.GetSummaryAsync(currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -71,6 +88,19 @@ public sealed class PaymentsController : BaseApiController
         }
 
         var result = await _payments.GetTransactionsAsync(paymentId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpGet("{paymentId:guid}/transactions/active")]
+    public async Task<IActionResult> GetActiveTransaction(Guid paymentId, CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _payments.GetActiveTransactionAsync(paymentId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -100,7 +130,7 @@ public sealed class PaymentsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [Authorize(Roles = "CUSTOMER")]
     [HttpPost("{paymentId:guid}/transactions")]
     public async Task<IActionResult> CreatePaymentTransactionAttempt(
         Guid paymentId,
@@ -114,6 +144,28 @@ public sealed class PaymentsController : BaseApiController
 
         var result = await _payments.CreatePaymentTransactionAttemptAsync(
             paymentId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPatch("{paymentId:guid}/transactions/{paymentTransactionId:guid}/cancel")]
+    public async Task<IActionResult> CancelTransaction(
+        Guid paymentId,
+        Guid paymentTransactionId,
+        [FromBody] CancelPaymentTransactionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _payments.CancelTransactionAsync(
+            paymentId,
+            paymentTransactionId,
             currentUserId,
             request,
             cancellationToken);

@@ -136,6 +136,47 @@ internal sealed class FakeProjectPaymentRepository : IPaymentRepository
     public Task<bool> HasSuccessfulTransactionAsync(Guid paymentId, CancellationToken cancellationToken = default)
         => Task.FromResult(false);
 
+    public Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default)
+        => PaymentRepositoryStubMethods.CountAsync(query, cancellationToken);
+
+    public Task<PaymentSummaryReadModel> GetSummaryAsync(
+        PaymentQueryReadModel query,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+        => PaymentRepositoryStubMethods.GetSummaryAsync(query, utcNow, cancellationToken);
+
+    public Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(
+        PaymentQueryReadModel query,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default)
+        => PaymentRepositoryStubMethods.GetExpiredPaymentsForSyncAsync(query, utcNow, cancellationToken);
+
+    public Task<PaymentTransaction?> GetTransactionByIdAsync(
+        Guid paymentTransactionId,
+        CancellationToken cancellationToken = default)
+        => PaymentRepositoryStubMethods.GetTransactionByIdAsync(paymentTransactionId, cancellationToken);
+
+    public Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(
+        Guid paymentId,
+        PaymentProvider provider,
+        PaymentMethod method,
+        CancellationToken cancellationToken = default)
+        => PaymentRepositoryStubMethods.GetLatestPendingTransactionAsync(
+            paymentId,
+            provider,
+            method,
+            cancellationToken);
+
+    public Task<PaymentTransactionReadModel?> GetLatestTransactionAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+        => PaymentRepositoryStubMethods.GetLatestTransactionAsync(paymentId, cancellationToken);
+
+    public Task<IReadOnlySet<Guid>> GetPaymentIdsWithSuccessfulTransactionAsync(
+        IReadOnlyCollection<Guid> paymentIds,
+        CancellationToken cancellationToken = default)
+        => PaymentRepositoryStubMethods.GetPaymentIdsWithSuccessfulTransactionAsync(paymentIds, cancellationToken);
+
     public void UpdatePayment(Payment payment)
     {
     }

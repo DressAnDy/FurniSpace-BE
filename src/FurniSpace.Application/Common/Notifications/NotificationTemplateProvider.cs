@@ -132,6 +132,54 @@ public static class NotificationTemplateProvider
                 "The {ScheduleType} schedule for project \"{ProjectName}\" has been cancelled.",
                 NotificationDeliveryLevel.InAppRealtime),
 
+            NotificationType.OrderDepositPaid => new NotificationTemplate(
+                "Order deposit paid",
+                "Deposit for order \"{OrderCode}\" has been paid.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "order.deposit.paid"),
+
+            NotificationType.PaymentCreated => new NotificationTemplate(
+                "New payment required",
+                "Payment \"{PaymentCode}\" ({PaymentType}) for {Amount} {Currency} is ready for payment.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "payment.created"),
+
+            NotificationType.PaymentProcessing => new NotificationTemplate(
+                "Payment in progress",
+                "Your payment \"{PaymentCode}\" is being processed.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "payment.processing"),
+
+            NotificationType.PaymentPaid => new NotificationTemplate(
+                "Payment completed",
+                "Payment \"{PaymentCode}\" has been paid successfully.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "payment.paid"),
+
+            NotificationType.PaymentExpired => new NotificationTemplate(
+                "Payment expired",
+                "Payment \"{PaymentCode}\" has expired. Please contact sales if you still need to pay.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "payment.expired"),
+
+            NotificationType.PaymentCancelled => new NotificationTemplate(
+                "Payment cancelled",
+                "Payment \"{PaymentCode}\" has been cancelled.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "payment.cancelled"),
+
+            NotificationType.PaymentTransactionFailed => new NotificationTemplate(
+                "Payment attempt failed",
+                "Your payment attempt for \"{PaymentCode}\" failed. You can retry while the payment is still active.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "payment.transaction.failed"),
+
+            NotificationType.PaymentTransactionCancelled => new NotificationTemplate(
+                "Payment attempt cancelled",
+                "Your payment attempt for \"{PaymentCode}\" was cancelled.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "payment.transaction.cancelled"),
+
             NotificationType.ProductionRequestAssigned => new NotificationTemplate(
                 "Production request assigned",
                 "Production request \"{ProductionCode}\" for project \"{ProjectName}\" has been assigned to you.",

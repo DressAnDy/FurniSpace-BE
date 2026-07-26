@@ -11,7 +11,20 @@ public interface IPaymentRepository
     Task<PaymentDetailReadModel?> GetDetailByPaymentCodeAsync(string paymentCode, CancellationToken cancellationToken = default);
     Task<PaymentStatusByCodeReadModel?> GetStatusByPaymentCodeAsync(string paymentCode, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PaymentListItemReadModel>> GetListAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default);
+    Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default);
+    Task<PaymentSummaryReadModel> GetSummaryAsync(PaymentQueryReadModel query, DateTime utcNow, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(PaymentQueryReadModel query, DateTime utcNow, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default);
+    Task<PaymentTransaction?> GetTransactionByIdAsync(Guid paymentTransactionId, CancellationToken cancellationToken = default);
+    Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(
+        Guid paymentId,
+        PaymentProvider provider,
+        PaymentMethod method,
+        CancellationToken cancellationToken = default);
+    Task<PaymentTransactionReadModel?> GetLatestTransactionAsync(Guid paymentId, CancellationToken cancellationToken = default);
+    Task<IReadOnlySet<Guid>> GetPaymentIdsWithSuccessfulTransactionAsync(
+        IReadOnlyCollection<Guid> paymentIds,
+        CancellationToken cancellationToken = default);
     Task<bool> PaymentCodeExistsAsync(string paymentCode, CancellationToken cancellationToken = default);
     Task<bool> TransactionCodeExistsAsync(string transactionCode, CancellationToken cancellationToken = default);
     Task<bool> ProviderTransactionExistsAsync(PaymentProvider provider, string providerTransactionId, CancellationToken cancellationToken = default);

@@ -46,6 +46,25 @@ public sealed class PayOsAdminPaymentsControllerTests
 
     private sealed class FakePaymentService(ServiceResult<PayOsConfirmWebhookResponseDto> result) : IPaymentService
     {
+        public Task<ServiceResult<PaymentSummaryResponseDto>> GetSummaryAsync(
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PaymentSummaryResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<PaymentTransactionDto?>> GetActiveTransactionAsync(
+            Guid paymentId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PaymentTransactionDto?>.Unauthorized());
+
+        public Task<ServiceResult<PaymentTransactionDto>> CancelTransactionAsync(
+            Guid paymentId,
+            Guid paymentTransactionId,
+            Guid currentUserId,
+            CancelPaymentTransactionRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PaymentTransactionDto>.Unauthorized());
+
         public Task<ServiceResult<PayOsConfirmWebhookResponseDto>> ConfirmPayOsWebhookAsync(
             PayOsConfirmWebhookRequestDto request,
             CancellationToken cancellationToken = default)

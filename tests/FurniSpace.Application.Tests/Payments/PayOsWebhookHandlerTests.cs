@@ -52,7 +52,7 @@ public sealed class PayOsWebhookHandlerTests
         Assert.Equal(200, result.StatusCode);
         Assert.Equal(PaymentTransactionStatus.SUCCESS, repository.Transaction!.Status);
         Assert.Equal(PaymentStatus.PAID, repository.Payment!.Status);
-        Assert.Equal(10000m, repository.Payment.PaidAmount);
+        Assert.Equal(10000m, repository.Payment.Amount);
         Assert.NotNull(realtime.LastPayload);
         Assert.Equal(PaymentStatus.PAID, realtime.LastPayload!.Status);
     }
@@ -87,7 +87,7 @@ public sealed class PayOsWebhookHandlerTests
         var result = await handler.ProcessAsync("{}");
 
         Assert.Equal(200, result.StatusCode);
-        Assert.Equal(0m, repository.Payment!.PaidAmount);
+        Assert.Equal(PaymentStatus.PENDING, repository.Payment!.Status);
     }
 
     [Fact]
@@ -230,7 +230,28 @@ public sealed class PayOsWebhookHandlerTests
         var result = await handler.ProcessAsync("{}");
 
         Assert.Equal(200, result.StatusCode);
-        Assert.Equal(0m, repository.Payment!.PaidAmount);
+        Assert.Equal(PaymentStatus.PENDING, repository.Payment!.Status);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithMissingTransaction_ReturnsSuccessWithoutUpdating()
+    {
+        var handler = CreateHandler(
+            new FakePayOsPaymentRepository(),
+            new FakePayOsClient
+            {
+                VerifiedWebhook = new PayOsVerifiedWebhookData
+                {
+                    OrderCode = 202607080006L,
+                    Amount = 10000,
+                    Code = "00"
+                }
+            },
+            new FakePaymentRealtimeService());
+
+        var result = await handler.ProcessAsync("{}");
+
+        Assert.Equal(200, result.StatusCode);
     }
 
     private static PayOsWebhookHandler CreateHandler(
@@ -268,8 +289,6 @@ public sealed class PayOsWebhookHandlerTests
             ProjectId = projectId,
             PaymentCode = "FS12345678",
             Amount = amount,
-            PaidAmount = 0m,
-            RemainingAmount = amount,
             Currency = "VND",
             Status = PaymentStatus.PENDING
         };
@@ -376,6 +395,47 @@ public sealed class PayOsWebhookHandlerTests
             return Task.CompletedTask;
         }
 
+        public Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.CountAsync(query, cancellationToken);
+
+        public Task<PaymentSummaryReadModel> GetSummaryAsync(
+            PaymentQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetSummaryAsync(query, utcNow, cancellationToken);
+
+        public Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(
+            PaymentQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetExpiredPaymentsForSyncAsync(query, utcNow, cancellationToken);
+
+        public Task<PaymentTransaction?> GetTransactionByIdAsync(
+            Guid paymentTransactionId,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetTransactionByIdAsync(paymentTransactionId, cancellationToken);
+
+        public Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(
+            Guid paymentId,
+            PaymentProvider provider,
+            PaymentMethod method,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetLatestPendingTransactionAsync(
+                paymentId,
+                provider,
+                method,
+                cancellationToken);
+
+        public Task<PaymentTransactionReadModel?> GetLatestTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetLatestTransactionAsync(paymentId, cancellationToken);
+
+        public Task<IReadOnlySet<Guid>> GetPaymentIdsWithSuccessfulTransactionAsync(
+            IReadOnlyCollection<Guid> paymentIds,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetPaymentIdsWithSuccessfulTransactionAsync(paymentIds, cancellationToken);
+
         public void UpdatePayment(Payment payment)
         {
             Payment = payment;
@@ -407,6 +467,16 @@ public sealed class PayOsWebhookHandlerTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(0m);
+        }
+
+        public Task<bool> HasSuccessfulTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                Transaction is not null &&
+                Transaction.PaymentId == paymentId &&
+                Transaction.Status == PaymentTransactionStatus.SUCCESS);
         }
     }
 

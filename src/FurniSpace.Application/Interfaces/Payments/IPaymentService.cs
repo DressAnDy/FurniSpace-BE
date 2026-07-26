@@ -44,6 +44,10 @@ public interface IPaymentService
         PaymentQueryDto query,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<PaymentSummaryResponseDto>> GetSummaryAsync(
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<PaymentTransactionListResponseDto>> GetTransactionsAsync(
         Guid paymentId,
         Guid currentUserId,
@@ -68,6 +72,24 @@ public interface IPaymentService
         Guid paymentId,
         Guid currentUserId,
         CreatePayOsPaymentLinkRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<PaymentTransactionAttemptResponseDto>> CreatePaymentTransactionAttemptAsync(
+        Guid paymentId,
+        Guid currentUserId,
+        CreatePaymentTransactionAttemptRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<PaymentTransactionDto?>> GetActiveTransactionAsync(
+        Guid paymentId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<PaymentTransactionDto>> CancelTransactionAsync(
+        Guid paymentId,
+        Guid paymentTransactionId,
+        Guid currentUserId,
+        CancelPaymentTransactionRequestDto request,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<PayOsConfirmWebhookResponseDto>> ConfirmPayOsWebhookAsync(

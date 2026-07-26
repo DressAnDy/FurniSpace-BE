@@ -1362,6 +1362,13 @@ public sealed class ProductVersionServiceTests
             return Task.CompletedTask;
         }
 
+        public Task<int> CountProjectSpecificByProjectAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_versions.Count(version =>
+                version.ProjectId == projectId &&
+                version.VersionType == ProductVersionType.PROJECT_SPECIFIC));
+
         public IQueryable<ProductVersion> Query() => _versions.AsQueryable();
 
         public Task<ProductVersion?> GetByIdAsync(

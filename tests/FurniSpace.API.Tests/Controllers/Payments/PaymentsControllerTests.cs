@@ -193,6 +193,97 @@ public sealed class PaymentsControllerTests
         Assert.IsType<UnauthorizedResult>(result);
     }
 
+    [Fact]
+    public async Task GetSummary_ReturnsServiceResult()
+    {
+        var userId = Guid.NewGuid();
+        var service = new FakePaymentService(
+            getSummaryResult: ServiceResult<PaymentSummaryResponseDto>.Success(
+                new PaymentSummaryResponseDto { PendingCount = 2, Currency = "VND" },
+                "ok"));
+        var controller = CreateController(service, userId);
+
+        var result = await controller.GetSummary();
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetActiveTransaction_ReturnsServiceResult()
+    {
+        var paymentId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakePaymentService(
+            getActiveTransactionResult: ServiceResult<PaymentTransactionDto?>.Success(
+                new PaymentTransactionDto { PaymentId = paymentId, TransactionCode = "TXN-001" },
+                "ok"));
+        var controller = CreateController(service, userId);
+
+        var result = await controller.GetActiveTransaction(paymentId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreatePaymentTransactionAttempt_ReturnsServiceResult()
+    {
+        var paymentId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakePaymentService(
+            createAttemptResult: ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
+                new PaymentTransactionAttemptResponseDto { PaymentId = paymentId },
+                "ok"));
+        var controller = CreateController(service, userId);
+
+        var result = await controller.CreatePaymentTransactionAttempt(
+            paymentId,
+            new CreatePaymentTransactionAttemptRequestDto
+            {
+                PaymentProvider = PaymentProvider.SEPAY,
+                PaymentMethod = PaymentMethod.QR_CODE
+            });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task CancelTransaction_ReturnsServiceResult()
+    {
+        var paymentId = Guid.NewGuid();
+        var transactionId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakePaymentService(
+            cancelTransactionResult: ServiceResult<PaymentTransactionDto>.Success(
+                new PaymentTransactionDto
+                {
+                    PaymentId = paymentId,
+                    PaymentTransactionId = transactionId,
+                    Status = PaymentTransactionStatus.CANCELLED
+                },
+                "ok"));
+        var controller = CreateController(service, userId);
+
+        var result = await controller.CancelTransaction(
+            paymentId,
+            transactionId,
+            new CancelPaymentTransactionRequestDto());
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public void GetSummary_RequiresCustomerSalesAdminRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(PaymentsController.GetSummary));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,SALES,ADMIN", authorize.Roles);
+    }
+
     private static AuthorizeAttribute? GetMethodAuthorizeAttribute(string methodName)
     {
         var method = typeof(PaymentsController)
@@ -232,6 +323,10 @@ public sealed class PaymentsControllerTests
         private readonly ServiceResult<PaymentStatusByCodeDto>? _getStatusByCodeResult;
         private readonly ServiceResult<SePayVietQrResponseDto>? _generateVietQrResult;
         private readonly ServiceResult<PayOsPaymentLinkResponseDto>? _createPayOsLinkResult;
+        private readonly ServiceResult<PaymentSummaryResponseDto>? _getSummaryResult;
+        private readonly ServiceResult<PaymentTransactionDto?>? _getActiveTransactionResult;
+        private readonly ServiceResult<PaymentTransactionAttemptResponseDto>? _createAttemptResult;
+        private readonly ServiceResult<PaymentTransactionDto>? _cancelTransactionResult;
 
         public FakePaymentService(
             ServiceResult<PaymentDetailDto>? getByIdResult = null,
@@ -239,7 +334,11 @@ public sealed class PaymentsControllerTests
             ServiceResult<PaymentTransactionListResponseDto>? getTransactionsResult = null,
             ServiceResult<PaymentStatusByCodeDto>? getStatusByCodeResult = null,
             ServiceResult<SePayVietQrResponseDto>? generateVietQrResult = null,
-            ServiceResult<PayOsPaymentLinkResponseDto>? createPayOsLinkResult = null)
+            ServiceResult<PayOsPaymentLinkResponseDto>? createPayOsLinkResult = null,
+            ServiceResult<PaymentSummaryResponseDto>? getSummaryResult = null,
+            ServiceResult<PaymentTransactionDto?>? getActiveTransactionResult = null,
+            ServiceResult<PaymentTransactionAttemptResponseDto>? createAttemptResult = null,
+            ServiceResult<PaymentTransactionDto>? cancelTransactionResult = null)
         {
             _getByIdResult = getByIdResult;
             _getListResult = getListResult;
@@ -247,6 +346,10 @@ public sealed class PaymentsControllerTests
             _getStatusByCodeResult = getStatusByCodeResult;
             _generateVietQrResult = generateVietQrResult;
             _createPayOsLinkResult = createPayOsLinkResult;
+            _getSummaryResult = getSummaryResult;
+            _getActiveTransactionResult = getActiveTransactionResult;
+            _createAttemptResult = createAttemptResult;
+            _cancelTransactionResult = cancelTransactionResult;
         }
 
         public Task<ServiceResult<PaymentDetailDto>> GetByIdAsync(
@@ -285,6 +388,32 @@ public sealed class PaymentsControllerTests
             CreatePayOsPaymentLinkRequestDto request,
             CancellationToken cancellationToken = default)
             => Task.FromResult(_createPayOsLinkResult ?? ServiceResult<PayOsPaymentLinkResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<PaymentSummaryResponseDto>> GetSummaryAsync(
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_getSummaryResult ?? ServiceResult<PaymentSummaryResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<PaymentTransactionDto?>> GetActiveTransactionAsync(
+            Guid paymentId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_getActiveTransactionResult ?? ServiceResult<PaymentTransactionDto?>.Unauthorized());
+
+        public Task<ServiceResult<PaymentTransactionAttemptResponseDto>> CreatePaymentTransactionAttemptAsync(
+            Guid paymentId,
+            Guid currentUserId,
+            CreatePaymentTransactionAttemptRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_createAttemptResult ?? ServiceResult<PaymentTransactionAttemptResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<PaymentTransactionDto>> CancelTransactionAsync(
+            Guid paymentId,
+            Guid paymentTransactionId,
+            Guid currentUserId,
+            CancelPaymentTransactionRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_cancelTransactionResult ?? ServiceResult<PaymentTransactionDto>.Unauthorized());
 
         public Task<ServiceResult<PaymentDetailDto>> CreateDepositPaymentForOrderAsync(
             Guid orderId,

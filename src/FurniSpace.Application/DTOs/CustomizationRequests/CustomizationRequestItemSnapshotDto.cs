@@ -5,6 +5,7 @@ public sealed class CustomizationRequestItemSnapshotDto
     public Guid ProposalItemId { get; set; }
     public Guid ProposalId { get; set; }
     public Guid? ProductVersionId { get; set; }
+    public Guid? ApprovedProductVersionId { get; set; }
     public string ItemName { get; set; } = string.Empty;
     public string? ItemType { get; set; }
     public int? Quantity { get; set; }

@@ -12,7 +12,7 @@ public sealed class PaymentCollectableStateValidatorTests
     [Fact]
     public void Validate_WithPendingPayment_ReturnsValid()
     {
-        var payment = CreatePayment(PaymentStatus.PENDING, remainingAmount: 100m);
+        var payment = CreatePayment(PaymentStatus.PENDING, amount: 100m);
 
         var result = PaymentCollectableStateValidator.Validate(payment);
 
@@ -26,18 +26,18 @@ public sealed class PaymentCollectableStateValidatorTests
     [InlineData(PaymentStatus.REFUNDED)]
     public void Validate_WithNonCollectableStatus_ReturnsInvalidStatus(PaymentStatus status)
     {
-        var payment = CreatePayment(status, remainingAmount: 100m);
+        var payment = CreatePayment(status, amount: 100m);
 
         var result = PaymentCollectableStateValidator.Validate(payment);
 
         Assert.False(result.IsValid);
-        Assert.Equal(PaymentErrorCodes.InvalidPaymentStatus, result.ErrorCode);
+        Assert.Equal(PaymentErrorCodes.PaymentNotPayable, result.ErrorCode);
     }
 
     [Fact]
     public void Validate_WithExpiredPayment_ReturnsPaymentExpired()
     {
-        var payment = CreatePayment(PaymentStatus.PENDING, remainingAmount: 100m);
+        var payment = CreatePayment(PaymentStatus.PENDING, amount: 100m);
         payment.ExpiredAt = DateTime.UtcNow.AddMinutes(-5);
 
         var result = PaymentCollectableStateValidator.Validate(payment);
@@ -47,9 +47,9 @@ public sealed class PaymentCollectableStateValidatorTests
     }
 
     [Fact]
-    public void Validate_WithZeroRemainingAmount_ReturnsInvalidAmount()
+    public void Validate_WithZeroAmount_ReturnsInvalidAmount()
     {
-        var payment = CreatePayment(PaymentStatus.PENDING, remainingAmount: 0m);
+        var payment = CreatePayment(PaymentStatus.PENDING, amount: 0m);
 
         var result = PaymentCollectableStateValidator.Validate(payment);
 
@@ -57,16 +57,14 @@ public sealed class PaymentCollectableStateValidatorTests
         Assert.Equal(PaymentErrorCodes.InvalidPaymentAmount, result.ErrorCode);
     }
 
-    private static Payment CreatePayment(PaymentStatus status, decimal remainingAmount)
+    private static Payment CreatePayment(PaymentStatus status, decimal amount)
     {
         return new Payment
         {
             PaymentId = Guid.NewGuid(),
             ProjectId = Guid.NewGuid(),
             PaymentCode = "FS12345678",
-            Amount = 100m,
-            PaidAmount = 100m - remainingAmount,
-            RemainingAmount = remainingAmount,
+            Amount = amount,
             Status = status
         };
     }

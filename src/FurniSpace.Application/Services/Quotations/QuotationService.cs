@@ -445,36 +445,44 @@ public sealed class QuotationService : IQuotationService
             return context.Result;
         }
 
-        await ExpireIfNeededAsync(context.Detail!, cancellationToken);
-        var validation = ValidateAcceptState(context.Detail!);
+        if (context.Detail is null || context.Quotation is null)
+        {
+            return NotFoundDetail(QuotationErrorCodes.QuotationNotFound, QuotationNotFoundMessage);
+        }
+
+        var detail = context.Detail;
+        var quotation = context.Quotation;
+
+        await ExpireIfNeededAsync(detail, cancellationToken);
+        var validation = ValidateAcceptState(detail);
         if (validation is not null)
         {
             return validation;
         }
 
-        if (await _orders.ExistsForQuotationAsync(context.Quotation!.QuotationId, cancellationToken))
+        if (await _orders.ExistsForQuotationAsync(quotation.QuotationId, cancellationToken))
         {
             return BadRequestDetail(
                 QuotationErrorCodes.OrderAlreadyCreated,
                 "Order has already been created for this quotation.");
         }
 
-        if (await _customizationRequests.HasPendingForProposalAsync(context.Detail!.ProposalId, cancellationToken))
+        if (await _customizationRequests.HasPendingForProposalAsync(detail.ProposalId, cancellationToken))
         {
             return BadRequestDetail(
                 CustomizationRequestErrorCodes.CustomizationRequestPending,
                 "Proposal has unresolved customization requests.");
         }
 
-        var project = await _projects.GetByIdAsync(context.Quotation!.ProjectId, cancellationToken);
+        var project = await _projects.GetByIdAsync(quotation.ProjectId, cancellationToken);
         if (project is null)
         {
             return NotFoundDetail(QuotationErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
         var now = DateTime.UtcNow;
-        var order = CreateOrder(context.Detail!, currentUserId, now, _orderWorkflowSettings.DepositPercent);
-        var orderItems = context.Detail!.Items
+        var order = CreateOrder(detail, currentUserId, now, _orderWorkflowSettings.DepositPercent);
+        var orderItems = detail.Items
             .Select(item => CreateOrderItem(order.OrderId, item))
             .ToList();
 
@@ -742,6 +750,7 @@ public sealed class QuotationService : IQuotationService
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
             QuotationItemId = quotationItem.QuotationItemId,
+            ItemType = quotationItem.ItemType ?? QuotationItemType.PRODUCT_ITEM,
             ProductVersionId = quotationItem.ProductVersionId,
             ProductNameSnapshot = quotationItem.ProductNameSnapshot ?? quotationItem.ItemName,
             ProductVersionNameSnapshot = quotationItem.ProductVersionNameSnapshot,
@@ -764,7 +773,7 @@ public sealed class QuotationService : IQuotationService
             QuotationId = quotationId,
             ItemType = QuotationItemType.PRODUCT_ITEM,
             ProposalItemId = item.ProposalItemId,
-            ProductVersionId = item.ProductVersionId,
+            ProductVersionId = item.ApprovedProductVersionId ?? item.ProductVersionId,
             ProductNameSnapshot = item.ItemName,
             ProductVersionNameSnapshot = item.ItemName,
             ItemName = item.ItemName,

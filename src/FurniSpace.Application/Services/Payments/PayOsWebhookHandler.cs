@@ -1,6 +1,8 @@
 using System.Globalization;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.DTOs.Payments;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -17,6 +19,7 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
     private readonly IPayOsClient _payOsClient;
     private readonly IPaymentRealtimeService _paymentRealtime;
     private readonly IPaymentBusinessEffectService _paymentBusinessEffects;
+    private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<PayOsWebhookHandler>? _logger;
 
     public PayOsWebhookHandler(
@@ -25,6 +28,7 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
         IPayOsClient payOsClient,
         IPaymentRealtimeService paymentRealtime,
         IPaymentBusinessEffectService paymentBusinessEffects,
+        INotificationDispatcher? notifications = null,
         ILogger<PayOsWebhookHandler>? logger = null)
     {
         _payments = payments;
@@ -32,6 +36,7 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
         _payOsClient = payOsClient;
         _paymentRealtime = paymentRealtime;
         _paymentBusinessEffects = paymentBusinessEffects;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -55,15 +60,6 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
             return new PayOsWebhookProcessResult(400, null, "PayOS order code is missing.");
         }
 
-        if (!IsSuccessfulWebhook(webhookData.Code))
-        {
-            _logger?.LogInformation(
-                "PayOS webhook ignored: payment not successful. OrderCode={OrderCode}, Code={Code}",
-                webhookData.OrderCode,
-                webhookData.Code);
-            return SuccessResult();
-        }
-
         var orderCode = webhookData.OrderCode.ToString(CultureInfo.InvariantCulture);
         var transaction = await _payments.GetTransactionByProviderReferenceAsync(
             PaymentProvider.PAYOS,
@@ -78,18 +74,24 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
             return SuccessResult();
         }
 
+        var payment = await _payments.GetByIdAsync(transaction.PaymentId, cancellationToken);
+        if (payment is null)
+        {
+            return SuccessResult();
+        }
+
+        if (!IsSuccessfulWebhook(webhookData.Code))
+        {
+            await HandleFailedWebhookAsync(payment, transaction, rawBody, cancellationToken);
+            return SuccessResult();
+        }
+
         if (transaction.Status == PaymentTransactionStatus.SUCCESS)
         {
             _logger?.LogInformation(
                 "PayOS webhook duplicate ignored. OrderCode={OrderCode}, PaymentTransactionId={PaymentTransactionId}",
                 webhookData.OrderCode,
                 transaction.PaymentTransactionId);
-            return SuccessResult();
-        }
-
-        var payment = await _payments.GetByIdAsync(transaction.PaymentId, cancellationToken);
-        if (payment is null)
-        {
             return SuccessResult();
         }
 
@@ -102,16 +104,30 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
             return SuccessResult();
         }
 
-        var transactionAmount = decimal.Truncate(transaction.Amount);
+        if (ActivePaymentResolver.IsExpired(payment, DateTime.UtcNow))
+        {
+            return new PayOsWebhookProcessResult(400, null, PaymentErrorCodes.PaymentExpired);
+        }
+
         var webhookAmount = webhookData.Amount;
-        if (webhookAmount != (long)transactionAmount)
+        if (webhookAmount != (long)decimal.Truncate(payment.Amount))
         {
             _logger?.LogWarning(
-                "PayOS amount mismatch. PaymentTransactionId={PaymentTransactionId}, TransactionAmount={TransactionAmount}, WebhookAmount={WebhookAmount}",
-                transaction.PaymentTransactionId,
-                transactionAmount,
+                "PayOS amount mismatch with payment. PaymentId={PaymentId}, PaymentAmount={PaymentAmount}, WebhookAmount={WebhookAmount}",
+                payment.PaymentId,
+                payment.Amount,
                 webhookAmount);
-            return new PayOsWebhookProcessResult(400, null, "PayOS webhook amount does not match transaction amount.");
+            return new PayOsWebhookProcessResult(400, null, PaymentErrorCodes.PaymentAmountMismatch);
+        }
+
+        if (transaction.Amount != payment.Amount)
+        {
+            return new PayOsWebhookProcessResult(400, null, PaymentErrorCodes.PaymentAmountMismatch);
+        }
+
+        if (await _payments.HasSuccessfulTransactionAsync(payment.PaymentId, cancellationToken))
+        {
+            return new PayOsWebhookProcessResult(409, null, PaymentErrorCodes.PaymentAlreadyPaid);
         }
 
         var providerTransactionId = ResolveProviderTransactionId(webhookData);
@@ -125,15 +141,21 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
         }
 
         var now = DateTime.UtcNow;
-        var appliedAmount = Math.Min(transactionAmount, payment.RemainingAmount);
-
         transaction.Status = PaymentTransactionStatus.SUCCESS;
         transaction.ProviderTransactionId = providerTransactionId;
         transaction.ProviderReferenceCode = orderCode;
         transaction.TransactionTime = ParseTransactionTime(webhookData.TransactionDateTime) ?? now;
         transaction.RawProviderPayload = rawBody;
 
-        PaymentSummaryCalculator.ApplyCharge(payment, appliedAmount, now);
+        if (!PaymentSummaryCalculator.TryApplySuccessfulCharge(
+                payment,
+                transaction.Amount,
+                transaction.Currency,
+                now,
+                out var errorCode))
+        {
+            return new PayOsWebhookProcessResult(400, null, errorCode);
+        }
 
         await PaymentWebhookChargeSupport.CommitSuccessfulChargeAsync(
             _unitOfWork,
@@ -145,10 +167,9 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
             cancellationToken);
 
         _logger?.LogInformation(
-            "PayOS webhook processed. PaymentId={PaymentId}, OrderCode={OrderCode}, AppliedAmount={AppliedAmount}, Status={Status}",
+            "PayOS webhook processed. PaymentId={PaymentId}, OrderCode={OrderCode}, Status={Status}",
             payment.PaymentId,
             webhookData.OrderCode,
-            appliedAmount,
             payment.Status);
 
         await PaymentWebhookChargeSupport.PushPaymentUpdatedAsync(
@@ -156,10 +177,52 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
             _logger,
             payment,
             transaction,
-            appliedAmount,
             now,
             cancellationToken);
         return SuccessResult();
+    }
+
+    private async Task HandleFailedWebhookAsync(
+        Payment payment,
+        PaymentTransaction transaction,
+        string rawBody,
+        CancellationToken cancellationToken)
+    {
+        if (transaction.Status is PaymentTransactionStatus.SUCCESS or PaymentTransactionStatus.CANCELLED)
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        transaction.Status = PaymentTransactionStatus.FAILED;
+        transaction.RawProviderPayload = rawBody;
+        PaymentSummaryCalculator.RevertToPendingIfCollectable(payment, now);
+
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            _payments.UpdateTransaction(transaction);
+            _payments.UpdatePayment(payment);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+
+        _logger?.LogInformation(
+            "PayOS webhook marked transaction failed. PaymentId={PaymentId}, PaymentTransactionId={PaymentTransactionId}",
+            payment.PaymentId,
+            transaction.PaymentTransactionId);
+
+        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentTransactionFailed,
+            payment,
+            cancellationToken: cancellationToken);
     }
 
     private static bool IsSuccessfulWebhook(string? code)

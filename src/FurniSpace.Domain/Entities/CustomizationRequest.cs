@@ -27,7 +27,6 @@ public class CustomizationRequest
     public string? AdditionalCostReason { get; set; }
     public bool? MaterialAvailable { get; set; }
     public string? ProductionRiskNote { get; set; }
-    public Guid? SalesReviewBy { get; set; }
     public Guid? ApprovedProductVersionId { get; set; }
     public CustomizationStatus? Status { get; set; }
     public DateTime? CustomerAcceptedAt { get; set; }

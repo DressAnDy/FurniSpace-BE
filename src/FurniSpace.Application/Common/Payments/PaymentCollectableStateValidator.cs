@@ -6,41 +6,34 @@ namespace FurniSpace.Application.Common.Payments;
 
 internal static class PaymentCollectableStateValidator
 {
-    private static readonly PaymentStatus[] CollectableStatuses =
-    [
-        PaymentStatus.PENDING,
-        PaymentStatus.PROCESSING,
-        PaymentStatus.PARTIALLY_PAID
-    ];
-
     internal static PaymentStateValidationResult Validate(Payment payment)
     {
         if (payment.Status is PaymentStatus.CANCELLED or PaymentStatus.PAID or PaymentStatus.EXPIRED or PaymentStatus.REFUNDED)
         {
             return PaymentStateValidationResult.Invalid(
-                PaymentErrorCodes.InvalidPaymentStatus,
+                PaymentErrorCodes.PaymentNotPayable,
                 "Payment is not eligible for collection.");
         }
 
-        if (!payment.Status.HasValue || !CollectableStatuses.Contains(payment.Status.Value))
+        if (!payment.Status.HasValue || !ActivePaymentResolver.ActiveStatuses.Contains(payment.Status.Value))
         {
             return PaymentStateValidationResult.Invalid(
-                PaymentErrorCodes.InvalidPaymentStatus,
+                PaymentErrorCodes.PaymentNotPayable,
                 "Payment is not eligible for collection.");
         }
 
-        if (payment.ExpiredAt.HasValue && payment.ExpiredAt.Value <= DateTime.UtcNow)
+        if (ActivePaymentResolver.IsExpired(payment, DateTime.UtcNow))
         {
             return PaymentStateValidationResult.Invalid(
                 PaymentErrorCodes.PaymentExpired,
                 "Payment has expired.");
         }
 
-        if (payment.RemainingAmount <= 0m)
+        if (payment.Amount <= 0m)
         {
             return PaymentStateValidationResult.Invalid(
                 PaymentErrorCodes.InvalidPaymentAmount,
-                "Payment has no remaining amount.");
+                "Payment amount must be greater than zero.");
         }
 
         return PaymentStateValidationResult.Valid();

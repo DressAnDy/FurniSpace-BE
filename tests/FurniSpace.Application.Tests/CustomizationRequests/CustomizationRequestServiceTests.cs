@@ -13,8 +13,10 @@ using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
+using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.ReadModels.Proposals;
 using FurniSpace.Infrastructure.ReadModels.Projects;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 
@@ -403,6 +405,100 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
+    public async Task GetByProjectAsync_IncludesApprovedProductVersion()
+    {
+        var ids = CreateIds();
+        var approvedVersionId = Guid.NewGuid();
+        var request = CreateRequest(ids, CustomizationStatus.ACCEPTED);
+        request.ApprovedProductVersionId = approvedVersionId;
+        var approvedVersion = new ProductVersion
+        {
+            ProductVersionId = approvedVersionId,
+            ProductId = Guid.NewGuid(),
+            ProjectId = ids.ProjectId,
+            VersionCode = "PV-PRJ-000001-CUST-001",
+            VersionName = "Custom Chair",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            Material = "Oak",
+            Color = "Natural",
+            EstimatedPrice = 1700000m,
+            IsPublic = false,
+            IsProjectSpecific = true,
+            Status = ProductStatus.ACTIVE
+        };
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Items = [request] },
+            new FakeProposalRepository(project: CreateProject(ids)),
+            new FakeProjectRepository(CustomerRole),
+            productVersions: new FakeProductVersionRepository([approvedVersion]));
+
+        var result = await service.GetByProjectAsync(ids.ProjectId, ids.CustomerId, new CustomizationRequestQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data!.Items[0].ApprovedProductVersion);
+        Assert.Equal(approvedVersionId, result.Data.Items[0].ApprovedProductVersion!.ProductVersionId);
+        Assert.Equal("PV-PRJ-000001-CUST-001", result.Data.Items[0].ApprovedProductVersion.VersionCode);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_IncludesApprovedProductVersion()
+    {
+        var ids = CreateIds();
+        var approvedVersionId = Guid.NewGuid();
+        var detail = CreateDetail(ids, status: CustomizationStatus.ACCEPTED);
+        detail.ApprovedProductVersionId = approvedVersionId;
+        var approvedVersion = new ProductVersion
+        {
+            ProductVersionId = approvedVersionId,
+            ProductId = Guid.NewGuid(),
+            ProjectId = ids.ProjectId,
+            VersionCode = "PV-PRJ-000001-CUST-001",
+            VersionName = "Custom Chair",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            Material = "Oak",
+            Color = "Natural",
+            EstimatedPrice = 1700000m,
+            IsPublic = false,
+            IsProjectSpecific = true,
+            Status = ProductStatus.ACTIVE
+        };
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Detail = detail },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole),
+            productVersions: new FakeProductVersionRepository([approvedVersion]));
+
+        var result = await service.GetDetailAsync(detail.CustomizationRequestId, ids.CustomerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data!.ApprovedProductVersion);
+        Assert.Equal(approvedVersionId, result.Data.ApprovedProductVersion!.ProductVersionId);
+        Assert.Equal(ProductVersionType.PROJECT_SPECIFIC, result.Data.ApprovedProductVersion.VersionType);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_AdminCreatesRequestForProjectCustomer()
+    {
+        var ids = CreateIds();
+        var adminId = Guid.NewGuid();
+        var repo = new FakeCustomizationRequestRepository
+        {
+            SubmitContext = CreateSubmitContext(ids),
+            DetailFactory = entity => CreateDetail(ids, entity.CustomizationRequestId)
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, adminId, ValidSubmitRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(ids.CustomerId, repo.AddedRequest!.RequestedByCustomerId);
+        Assert.Equal(CustomizationStatus.SUBMITTED, repo.AddedRequest.Status);
+    }
+
+    [Fact]
     public async Task SubmitAsync_CustomerOwnsPublishedProposal_CreatesSubmittedRequestAndNotifies()
     {
         var ids = CreateIds();
@@ -422,9 +518,11 @@ public sealed class CustomizationRequestServiceTests
 
         Assert.Equal(201, result.Status);
         Assert.Equal(CustomizationStatus.SUBMITTED, repo.AddedRequest!.Status);
+        Assert.Equal(ids.CustomerId, repo.AddedRequest.RequestedByCustomerId);
         Assert.Equal(ids.ProjectId, repo.AddedRequest.ProjectId);
         Assert.Equal(1, repo.SaveChangesCallCount);
         Assert.Equal(NotificationType.CustomizationRequestSubmitted, dispatcher.LastType);
+        Assert.Contains(ids.CustomerId, dispatcher.LastReceivers);
         Assert.Contains(ids.SalesId, dispatcher.LastReceivers);
         Assert.Contains(ids.DesignerId, dispatcher.LastReceivers);
     }
@@ -443,16 +541,71 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
-    public async Task SubmitAsync_NonCustomerReturnsForbidden()
+    public async Task SubmitAsync_NonAuthorizedRoleReturnsForbidden()
     {
         var service = CreateService(
             new FakeCustomizationRequestRepository(),
             new FakeProposalRepository(),
-            new FakeProjectRepository(AdminRole));
+            new FakeProjectRepository(ProductionRole));
 
         var result = await service.SubmitAsync(Guid.NewGuid(), Guid.NewGuid(), ValidSubmitRequest());
 
         Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_AssignedDesignerCreatesRequestForProjectCustomer()
+    {
+        var ids = CreateIds();
+        var repo = new FakeCustomizationRequestRepository
+        {
+            SubmitContext = CreateSubmitContext(ids),
+            DetailFactory = entity => CreateDetail(ids, entity.CustomizationRequestId)
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, ids.DesignerId, ValidSubmitRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(ids.CustomerId, repo.AddedRequest!.RequestedByCustomerId);
+        Assert.Equal(CustomizationStatus.SUBMITTED, repo.AddedRequest.Status);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_UnassignedDesignerReturnsDesignerNotAssignedError()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { SubmitContext = CreateSubmitContext(ids) },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, Guid.NewGuid(), ValidSubmitRequest());
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.DesignerNotAssignedToProject, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_ActiveRequestExistsReturnsBusinessError()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                SubmitContext = CreateSubmitContext(ids),
+                HasActiveRequest = true
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, ids.CustomerId, ValidSubmitRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestAlreadyActive, result.ErrorCode);
     }
 
     [Fact]
@@ -1002,9 +1155,23 @@ public sealed class CustomizationRequestServiceTests
     public async Task CustomerDecisionAsync_AcceptUpdatesProposalItemPriceAndStatus()
     {
         var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
         var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
         entity.EstimatedAdditionalCost = 250000m;
         var proposalItem = CreateProposalItem(ids);
+        proposalItem.ProductVersionId = originalVersionId;
+        var originalVersion = new ProductVersion
+        {
+            ProductVersionId = originalVersionId,
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-STD-001",
+            VersionName = "Standard Chair",
+            Material = "Oak",
+            Color = "Natural",
+            EstimatedPrice = 1000000m,
+            Status = ProductStatus.ACTIVE
+        };
+        var productVersions = new FakeProductVersionRepository([originalVersion]);
         var repo = new FakeCustomizationRequestRepository
         {
             ExistingEntity = entity,
@@ -1016,7 +1183,13 @@ public sealed class CustomizationRequestServiceTests
         var service = CreateService(
             repo,
             new FakeProposalRepository(proposalItem: proposalItem),
-            new FakeProjectRepository(CustomerRole));
+            new FakeProjectRepository(CustomerRole, project: CreateProjectEntity(ids)),
+            productVersions: productVersions,
+            unitOfWork: TestUnitOfWork.ForTransaction(
+                _ => Task.CompletedTask,
+                repo.SaveChangesAsync,
+                _ => Task.CompletedTask,
+                _ => Task.CompletedTask));
 
         var result = await service.CustomerDecisionAsync(
             entity.CustomizationRequestId,
@@ -1028,6 +1201,10 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(1250000m, proposalItem.UnitPriceSnapshot);
         Assert.Equal(2500000m, proposalItem.TotalPriceSnapshot);
         Assert.True(proposalItem.IsCustomized);
+        Assert.NotNull(proposalItem.ApprovedProductVersionId);
+        Assert.Equal(originalVersionId, proposalItem.ProductVersionId);
+        Assert.Equal(proposalItem.ApprovedProductVersionId, entity.ApprovedProductVersionId);
+        Assert.Equal(1, productVersions.AddCallCount);
         Assert.NotNull(entity.CustomerAcceptedAt);
         Assert.Equal(1, repo.UpdateCallCount);
         Assert.Equal(1, repo.SaveChangesCallCount);
@@ -1261,6 +1438,75 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
+    public async Task CustomerDecisionAsync_AlreadyAcceptedIsIdempotent()
+    {
+        var ids = CreateIds();
+        var approvedVersionId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.ACCEPTED);
+        entity.ApprovedProductVersionId = approvedVersionId;
+        entity.EstimatedAdditionalCost = 250000m;
+        var approvedVersion = new ProductVersion
+        {
+            ProductVersionId = approvedVersionId,
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-PRJ-000001-CUST-001",
+            VersionName = "Custom Chair",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            Status = ProductStatus.ACTIVE
+        };
+        var productVersions = new FakeProductVersionRepository([approvedVersion]);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.ACCEPTED);
+        detail.ApprovedProductVersionId = approvedVersionId;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = detail
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole),
+            productVersions: productVersions);
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(0, productVersions.AddCallCount);
+        Assert.NotNull(result.Data!.ApprovedProductVersion);
+        Assert.Equal(approvedVersionId, result.Data.ApprovedProductVersion!.ProductVersionId);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_MissingOriginalProductVersionReturnsNotFound()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
+        entity.EstimatedAdditionalCost = 250000m;
+        var proposalItem = CreateProposalItem(ids);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(
+                    ids,
+                    entity.CustomizationRequestId,
+                    CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+            },
+            new FakeProposalRepository(proposalItem: proposalItem),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.OriginalProductVersionNotFound, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task CancelAsync_CustomerOwnerCancelsSubmittedRequest()
     {
         var ids = CreateIds();
@@ -1411,18 +1657,28 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationTransition, result.ErrorCode);
     }
 
+    private static Project CreateProjectEntity(TestIds ids) => new()
+    {
+        ProjectId = ids.ProjectId,
+        ProjectCode = "PRJ-000001",
+        CustomerId = ids.CustomerId
+    };
+
     private static CustomizationRequestService CreateService(
         FakeCustomizationRequestRepository customizationRequests,
         FakeProposalRepository proposals,
         FakeProjectRepository projects,
-        FakeNotificationDispatcher? dispatcher = null)
+        FakeNotificationDispatcher? dispatcher = null,
+        FakeProductVersionRepository? productVersions = null,
+        IUnitOfWork? unitOfWork = null)
     {
         return new CustomizationRequestService(
             customizationRequests,
             proposals,
             projects,
+            productVersions ?? new FakeProductVersionRepository(),
             dispatcher ?? new FakeNotificationDispatcher(),
-            TestUnitOfWork.ForSaveChanges(customizationRequests.SaveChangesAsync));
+            unitOfWork ?? TestUnitOfWork.ForSaveChanges(customizationRequests.SaveChangesAsync));
     }
 
     private static TestIds CreateIds() => new(
@@ -1596,6 +1852,7 @@ public sealed class CustomizationRequestServiceTests
         public Func<CustomizationRequest, CustomizationRequestDetailReadModel>? DetailFactory { get; init; }
         public CustomizationSubmitContextReadModel? SubmitContext { get; init; }
         public bool HasQuotation { get; init; }
+        public bool HasActiveRequest { get; init; }
         public bool HasProductionVisibleRequest { get; init; }
         public CustomizationRequest? ExistingEntity { get; init; }
         public CustomizationRequest? AddedRequest { get; private set; }
@@ -1652,6 +1909,11 @@ public sealed class CustomizationRequestServiceTests
             Guid proposalId,
             CancellationToken cancellationToken = default)
             => Task.FromResult(false);
+
+        public Task<bool> HasActiveRequestForProposalItemAsync(
+            Guid proposalItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(HasActiveRequest);
 
         public Task<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>> GetProductionQueueAsync(
             ProductionCustomizationRequestQueueQueryReadModel query,
@@ -1823,18 +2085,24 @@ public sealed class CustomizationRequestServiceTests
     {
         private readonly string? _role;
         private readonly IReadOnlyList<Guid> _activeAccountIds;
+        private readonly Project? _project;
 
-        public FakeProjectRepository(string? role, IReadOnlyList<Guid>? activeAccountIds = null)
+        public FakeProjectRepository(
+            string? role,
+            IReadOnlyList<Guid>? activeAccountIds = null,
+            Project? project = null)
         {
             _role = role;
             _activeAccountIds = activeAccountIds ?? [];
+            _project = project;
         }
 
         public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
             => Task.FromResult(_role);
 
         public IQueryable<Project> Query() => Enumerable.Empty<Project>().AsQueryable();
-        public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<Project?>(null);
+        public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult(_project?.ProjectId == id ? _project : null);
         public Task<IReadOnlyList<Project>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>([]);
         public Task AddAsync(Project entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AddRangeAsync(IEnumerable<Project> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -1852,6 +2120,86 @@ public sealed class CustomizationRequestServiceTests
         public Task<int> CountByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
         public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
+    }
+
+    private sealed class FakeProductVersionRepository : IProductVersionRepository
+    {
+        private readonly List<ProductVersion> _versions;
+
+        public FakeProductVersionRepository(IReadOnlyList<ProductVersion>? versions = null)
+        {
+            _versions = versions?.ToList() ?? [];
+        }
+
+        public int AddCallCount { get; private set; }
+
+        public Task<bool> VersionCodeExistsAsync(string versionCode, CancellationToken cancellationToken = default)
+            => Task.FromResult(_versions.Any(version =>
+                string.Equals(version.VersionCode, versionCode, StringComparison.Ordinal)));
+
+        public Task<bool> ProductExistsAsync(Guid productId, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<ProductVersionDetailReadModel?> GetPublicDetailAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductVersionDetailReadModel?>(null);
+
+        public Task<IReadOnlyList<ProductVersionDetailReadModel>> GetValidDetailsAsync(
+            IReadOnlyCollection<Guid> productVersionIds,
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<ProductVersionDetailReadModel>>(
+                _versions
+                    .Where(version => productVersionIds.Contains(version.ProductVersionId))
+                    .Select(version => new ProductVersionDetailReadModel
+                    {
+                        ProductVersionId = version.ProductVersionId,
+                        ProductId = version.ProductId,
+                        VersionCode = version.VersionCode,
+                        VersionName = version.VersionName,
+                        VersionType = version.VersionType,
+                        Material = version.Material,
+                        Color = version.Color,
+                        Width = version.Width,
+                        Height = version.Height,
+                        Depth = version.Depth,
+                        EstimatedPrice = version.EstimatedPrice,
+                        IsDefault = version.IsDefault,
+                        IsPublic = version.IsPublic,
+                        IsProjectSpecific = version.IsProjectSpecific,
+                        Status = version.Status
+                    })
+                    .ToList());
+        }
+
+        public Task SetDefaultAsync(ProductVersion productVersion, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<int> CountProjectSpecificByProjectAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_versions.Count(version =>
+                version.ProjectId == projectId &&
+                version.VersionType == ProductVersionType.PROJECT_SPECIFIC));
+
+        public IQueryable<ProductVersion> Query() => _versions.AsQueryable();
+        public Task<ProductVersion?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult(_versions.FirstOrDefault(version => version.ProductVersionId == id));
+        public Task<IReadOnlyList<ProductVersion>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProductVersion>>(_versions);
+        public Task AddAsync(ProductVersion entity, CancellationToken cancellationToken = default)
+        {
+            AddCallCount++;
+            _versions.Add(entity);
+            return Task.CompletedTask;
+        }
+        public Task AddRangeAsync(IEnumerable<ProductVersion> entities, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+        public void Update(ProductVersion entity) { }
+        public void Remove(ProductVersion entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
     }
 
     private sealed class FakeNotificationDispatcher : INotificationDispatcher

@@ -23,9 +23,103 @@ public interface IOrderRepository : IGenericRepository<Order>
         Guid quotationId,
         CancellationToken cancellationToken = default);
 
+    Task<bool> HasProjectOrderInStatusesAsync(
+        Guid projectId,
+        IReadOnlyCollection<OrderStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
     new Task AddAsync(Order order, CancellationToken cancellationToken = default);
 
     Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default);
+
+    Task<OrderItem?> GetItemByIdAsync(
+        Guid orderItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<OrderItem?>(null);
+    }
+
+    Task<IReadOnlyList<OrderItem>> GetItemsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<OrderItem>>([]);
+    }
+
+    Task<OrderAdjustment?> GetAdjustmentByIdAsync(
+        Guid orderAdjustmentId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<OrderAdjustment?>(null);
+    }
+
+    Task<OrderAdjustmentItem?> GetAdjustmentItemByIdAsync(
+        Guid orderAdjustmentItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<OrderAdjustmentItem?>(null);
+    }
+
+    Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsAsync(
+        Guid orderAdjustmentId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<OrderAdjustmentItem>>([]);
+    }
+
+    Task<IReadOnlyList<OrderAdjustment>> GetAdjustmentsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<OrderAdjustment>>([]);
+    }
+
+    Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<OrderAdjustmentItem>>([]);
+    }
+
+    Task<bool> HasCancelledProductionItemAsync(
+        Guid orderItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
+    Task AddAdjustmentAsync(
+        OrderAdjustment adjustment,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
+
+    Task AddAdjustmentItemAsync(
+        OrderAdjustmentItem item,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
+
+    void UpdateAdjustment(OrderAdjustment adjustment)
+    {
+    }
+
+    void UpdateAdjustmentItem(OrderAdjustmentItem item)
+    {
+    }
+
+    void UpdateItem(OrderItem item)
+    {
+    }
+
+    void RemoveAdjustmentItem(OrderAdjustmentItem item)
+    {
+    }
 
     new void Update(Order order);
 }

@@ -7,10 +7,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.Services.Orders;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Orders;
+using FurniSpace.Infrastructure.ReadModels.Payments;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
@@ -38,12 +40,12 @@ public sealed class OrderFinancialAdjustmentServiceTests
     }
 
     [Fact]
-    public async Task UpdateFinancialAdjustmentAsync_WhenDepositPartiallyPaid_ReturnsOrderPaymentAlreadyStarted()
+    public async Task UpdateFinancialAdjustmentAsync_WhenDepositProcessing_ReturnsOrderPaymentAlreadyStarted()
     {
         var service = BuildService(new TestOptions
         {
             Role = "SALES",
-            DepositPayment = CreateDepositPayment(PaymentStatus.PARTIALLY_PAID, paidAmount: 10_000_000m)
+            DepositPayment = CreateDepositPayment(PaymentStatus.PROCESSING)
         });
 
         var result = await service.UpdateFinancialAdjustmentAsync(
@@ -58,9 +60,8 @@ public sealed class OrderFinancialAdjustmentServiceTests
     [Fact]
     public async Task UpdateFinancialAdjustmentAsync_WhenDepositPending_UpdatesOrderAndPayment()
     {
-        var depositPayment = CreateDepositPayment(PaymentStatus.PENDING, paidAmount: 0m);
+        var depositPayment = CreateDepositPayment(PaymentStatus.PENDING);
         depositPayment.Amount = 30_000_000m;
-        depositPayment.RemainingAmount = 30_000_000m;
         var options = new TestOptions
         {
             Role = "SALES",
@@ -82,7 +83,6 @@ public sealed class OrderFinancialAdjustmentServiceTests
         Assert.Equal(100_000_000m, options.Order.OriginalTotalAmount);
         Assert.NotNull(options.DepositPayment);
         Assert.Equal(25_000_000m, options.DepositPayment.Amount);
-        Assert.Equal(25_000_000m, options.DepositPayment.RemainingAmount);
         Assert.Equal("Final discount approved by Sales Manager.", options.DepositPayment.Note);
         Assert.Equal(1, options.UnitOfWork.SaveChangesCount);
     }
@@ -141,6 +141,7 @@ public sealed class OrderFinancialAdjustmentServiceTests
             new TrackingOrderRepository(options.Order, options.OrderDetail),
             new FakeProjectRepository(options.ProjectDetail, options.Role),
             options.PaymentRepository,
+            new EmptyProjectScheduleRepository(),
             options.UnitOfWork);
     }
 
@@ -190,14 +191,12 @@ public sealed class OrderFinancialAdjustmentServiceTests
         Status = ProjectStatus.ORDER_CONFIRMED
     };
 
-    private static Payment CreateDepositPayment(PaymentStatus status, decimal paidAmount) => new()
+    private static Payment CreateDepositPayment(PaymentStatus status) => new()
     {
         PaymentId = Guid.NewGuid(),
         OrderId = Guid.NewGuid(),
         PaymentType = PaymentType.DEPOSIT,
         Amount = 30_000_000m,
-        PaidAmount = paidAmount,
-        RemainingAmount = 30_000_000m - paidAmount,
         Status = status
     };
 
@@ -268,6 +267,47 @@ public sealed class OrderFinancialAdjustmentServiceTests
         public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task<OrderItem?> GetItemByIdAsync(Guid orderItemId, CancellationToken cancellationToken = default)
+            => Task.FromResult<OrderItem?>(null);
+
+        public Task<OrderAdjustment?> GetAdjustmentByIdAsync(
+            Guid orderAdjustmentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<OrderAdjustment?>(null);
+
+        public Task<OrderAdjustmentItem?> GetAdjustmentItemByIdAsync(
+            Guid orderAdjustmentItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<OrderAdjustmentItem?>(null);
+
+        public Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsAsync(
+            Guid orderAdjustmentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<OrderAdjustmentItem>>([]);
+
+        public Task<bool> HasCancelledProductionItemAsync(
+            Guid orderItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task AddAdjustmentAsync(OrderAdjustment adjustment, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task AddAdjustmentItemAsync(OrderAdjustmentItem item, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public void UpdateAdjustment(OrderAdjustment adjustment)
+        {
+        }
+
+        public void UpdateAdjustmentItem(OrderAdjustmentItem item)
+        {
+        }
+
+        public void RemoveAdjustmentItem(OrderAdjustmentItem item)
+        {
+        }
+
         public IQueryable<Order> Query() => Enumerable.Empty<Order>().AsQueryable();
 
         public Task<IReadOnlyList<Order>> ListAsync(CancellationToken cancellationToken = default)
@@ -313,7 +353,54 @@ public sealed class OrderFinancialAdjustmentServiceTests
         public Task<decimal> SumOrderScopedPaidAmountAsync(
             Guid orderId,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(_depositPayment?.PaidAmount ?? 0m);
+            => Task.FromResult(
+                _depositPayment?.Status == PaymentStatus.PAID ? _depositPayment.Amount : 0m);
+
+        public Task<bool> HasSuccessfulTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.CountAsync(query, cancellationToken);
+
+        public Task<PaymentSummaryReadModel> GetSummaryAsync(
+            PaymentQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetSummaryAsync(query, utcNow, cancellationToken);
+
+        public Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(
+            PaymentQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetExpiredPaymentsForSyncAsync(query, utcNow, cancellationToken);
+
+        public Task<PaymentTransaction?> GetTransactionByIdAsync(
+            Guid paymentTransactionId,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetTransactionByIdAsync(paymentTransactionId, cancellationToken);
+
+        public Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(
+            Guid paymentId,
+            PaymentProvider provider,
+            PaymentMethod method,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetLatestPendingTransactionAsync(
+                paymentId,
+                provider,
+                method,
+                cancellationToken);
+
+        public Task<PaymentTransactionReadModel?> GetLatestTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetLatestTransactionAsync(paymentId, cancellationToken);
+
+        public Task<IReadOnlySet<Guid>> GetPaymentIdsWithSuccessfulTransactionAsync(
+            IReadOnlyCollection<Guid> paymentIds,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetPaymentIdsWithSuccessfulTransactionAsync(paymentIds, cancellationToken);
 
         public void UpdatePayment(Payment payment)
         {
@@ -482,4 +569,5 @@ public sealed class OrderFinancialAdjustmentServiceTests
         public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
     }
+
 }

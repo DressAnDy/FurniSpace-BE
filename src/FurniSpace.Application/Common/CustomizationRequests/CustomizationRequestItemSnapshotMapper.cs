@@ -12,6 +12,7 @@ internal static class CustomizationRequestItemSnapshotMapper
             ProposalItemId = item.ProposalItemId,
             ProposalId = item.ProposalId,
             ProductVersionId = item.ProductVersionId,
+            ApprovedProductVersionId = item.ApprovedProductVersionId,
             ItemName = item.ItemName,
             ItemType = item.ItemType,
             Quantity = item.Quantity,

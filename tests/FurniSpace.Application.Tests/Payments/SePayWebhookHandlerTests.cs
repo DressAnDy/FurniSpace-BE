@@ -51,8 +51,7 @@ public sealed class SePayWebhookHandlerTests
         Assert.True(result.Body!.Success);
         Assert.Single(repository.AddedTransactions);
         Assert.Equal(PaymentStatus.PAID, repository.Payment!.Status);
-        Assert.Equal(10000m, repository.Payment.PaidAmount);
-        Assert.Equal(0m, repository.Payment.RemainingAmount);
+        Assert.Equal(10000m, repository.Payment.Amount);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.NotNull(realtime.LastPayload);
         Assert.Equal(paymentId, realtime.LastPayload!.PaymentId);
@@ -61,7 +60,7 @@ public sealed class SePayWebhookHandlerTests
     }
 
     [Fact]
-    public async Task ProcessAsync_WithPartialPayment_PushesPartiallyPaidRealtimeEvent()
+    public async Task ProcessAsync_WithPartialPayment_ReturnsAmountMismatchWithoutUpdatingPayment()
     {
         var paymentId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -79,13 +78,10 @@ public sealed class SePayWebhookHandlerTests
 
         var result = await handler.ProcessAsync(rawBody, signature, timestamp);
 
-        Assert.Equal(200, result.StatusCode);
-        Assert.Equal(PaymentStatus.PARTIALLY_PAID, repository.Payment!.Status);
-        Assert.Equal(10000m, repository.Payment.PaidAmount);
-        Assert.Equal(20000m, repository.Payment.RemainingAmount);
-        Assert.NotNull(realtime.LastPayload);
-        Assert.Equal(PaymentStatus.PARTIALLY_PAID, realtime.LastPayload!.Status);
-        Assert.Equal(20000m, realtime.LastPayload.RemainingAmount);
+        Assert.Equal(400, result.StatusCode);
+        Assert.Equal(PaymentStatus.PENDING, repository.Payment!.Status);
+        Assert.Empty(repository.AddedTransactions);
+        Assert.Null(realtime.LastPayload);
     }
 
     [Fact]
@@ -108,7 +104,7 @@ public sealed class SePayWebhookHandlerTests
 
         Assert.Equal(200, result.StatusCode);
         Assert.Empty(repository.AddedTransactions);
-        Assert.Equal(0m, repository.Payment!.PaidAmount);
+        Assert.Equal(PaymentStatus.PENDING, repository.Payment!.Status);
     }
 
     [Fact]
@@ -211,8 +207,6 @@ public sealed class SePayWebhookHandlerTests
             ProjectId = projectId,
             PaymentCode = paymentCode,
             Amount = amount,
-            PaidAmount = 0m,
-            RemainingAmount = amount,
             Currency = "VND",
             Status = PaymentStatus.PENDING
         };
@@ -230,8 +224,6 @@ public sealed class SePayWebhookHandlerTests
             ProjectId = projectId,
             PaymentCode = paymentCode,
             Amount = amount,
-            PaidAmount = 0m,
-            RemainingAmount = amount,
             Currency = "VND",
             Status = PaymentStatus.PENDING,
             CustomerId = Guid.NewGuid()
@@ -347,6 +339,47 @@ public sealed class SePayWebhookHandlerTests
             return Task.CompletedTask;
         }
 
+        public Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.CountAsync(query, cancellationToken);
+
+        public Task<PaymentSummaryReadModel> GetSummaryAsync(
+            PaymentQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetSummaryAsync(query, utcNow, cancellationToken);
+
+        public Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(
+            PaymentQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetExpiredPaymentsForSyncAsync(query, utcNow, cancellationToken);
+
+        public Task<PaymentTransaction?> GetTransactionByIdAsync(
+            Guid paymentTransactionId,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetTransactionByIdAsync(paymentTransactionId, cancellationToken);
+
+        public Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(
+            Guid paymentId,
+            PaymentProvider provider,
+            PaymentMethod method,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetLatestPendingTransactionAsync(
+                paymentId,
+                provider,
+                method,
+                cancellationToken);
+
+        public Task<PaymentTransactionReadModel?> GetLatestTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetLatestTransactionAsync(paymentId, cancellationToken);
+
+        public Task<IReadOnlySet<Guid>> GetPaymentIdsWithSuccessfulTransactionAsync(
+            IReadOnlyCollection<Guid> paymentIds,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetPaymentIdsWithSuccessfulTransactionAsync(paymentIds, cancellationToken);
+
         public void UpdatePayment(Payment payment)
         {
             Payment = payment;
@@ -377,6 +410,13 @@ public sealed class SePayWebhookHandlerTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(0m);
+        }
+
+        public Task<bool> HasSuccessfulTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(false);
         }
     }
 

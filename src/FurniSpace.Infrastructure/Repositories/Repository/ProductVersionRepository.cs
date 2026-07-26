@@ -114,4 +114,15 @@ public sealed class ProductVersionRepository : GenericRepository<ProductVersion>
             version.IsDefault = version.ProductVersionId == productVersion.ProductVersionId;
         }
     }
+
+    public Task<int> CountProjectSpecificByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProductVersionSet.CountAsync(
+            version =>
+                version.ProjectId == projectId &&
+                version.VersionType == ProductVersionType.PROJECT_SPECIFIC,
+            cancellationToken);
+    }
 }

@@ -8,8 +8,10 @@ using System.Threading.Tasks;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.Payments;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.ReadModels.Payments;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Xunit;
 
@@ -41,7 +43,7 @@ public sealed class PaymentBusinessEffectServiceTests
     }
 
     [Fact]
-    public async Task ApplyAsync_RemainingPaidWithZeroRemaining_CompletesOrder()
+    public async Task ApplyAsync_RemainingPaid_DoesNotAutoCompleteOrder()
     {
         var orderId = Guid.NewGuid();
         var order = CreateOrder(orderId, Guid.NewGuid(), OrderStatus.FINAL_PAYMENT_PENDING);
@@ -67,8 +69,8 @@ public sealed class PaymentBusinessEffectServiceTests
 
         await service.ApplyAsync(payment);
 
-        Assert.Equal(OrderStatus.COMPLETED, orders.Order!.Status);
-        Assert.Equal(ProjectStatus.COMPLETED, projects.Project!.Status);
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, orders.Order!.Status);
+        Assert.Equal(ProjectStatus.ORDER_CONFIRMED, projects.Project!.Status);
     }
 
     [Fact]
@@ -113,7 +115,7 @@ public sealed class PaymentBusinessEffectServiceTests
             orders,
             new FakeProjectRepository());
 
-        var payment = CreatePayment(orderId, PaymentType.DEPOSIT, PaymentStatus.PARTIALLY_PAID);
+        var payment = CreatePayment(orderId, PaymentType.DEPOSIT, PaymentStatus.PROCESSING);
 
         await service.ApplyAsync(payment);
 
@@ -171,8 +173,6 @@ public sealed class PaymentBusinessEffectServiceTests
             PaymentCode = "FS12345678",
             PaymentType = paymentType,
             Amount = 100m,
-            PaidAmount = status == PaymentStatus.PAID ? 100m : 30m,
-            RemainingAmount = status == PaymentStatus.PAID ? 0m : 70m,
             Status = status
         };
     }
@@ -236,6 +236,47 @@ public sealed class PaymentBusinessEffectServiceTests
         public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
+        public Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.CountAsync(query, cancellationToken);
+
+        public Task<PaymentSummaryReadModel> GetSummaryAsync(
+            PaymentQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetSummaryAsync(query, utcNow, cancellationToken);
+
+        public Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(
+            PaymentQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetExpiredPaymentsForSyncAsync(query, utcNow, cancellationToken);
+
+        public Task<PaymentTransaction?> GetTransactionByIdAsync(
+            Guid paymentTransactionId,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetTransactionByIdAsync(paymentTransactionId, cancellationToken);
+
+        public Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(
+            Guid paymentId,
+            PaymentProvider provider,
+            PaymentMethod method,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetLatestPendingTransactionAsync(
+                paymentId,
+                provider,
+                method,
+                cancellationToken);
+
+        public Task<PaymentTransactionReadModel?> GetLatestTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetLatestTransactionAsync(paymentId, cancellationToken);
+
+        public Task<IReadOnlySet<Guid>> GetPaymentIdsWithSuccessfulTransactionAsync(
+            IReadOnlyCollection<Guid> paymentIds,
+            CancellationToken cancellationToken = default)
+            => PaymentRepositoryStubMethods.GetPaymentIdsWithSuccessfulTransactionAsync(paymentIds, cancellationToken);
+
         public void UpdatePayment(Payment payment)
         {
         }
@@ -260,6 +301,11 @@ public sealed class PaymentBusinessEffectServiceTests
             Guid orderId,
             CancellationToken cancellationToken = default)
             => Task.FromResult(SummedPaidAmount);
+
+        public Task<bool> HasSuccessfulTransactionAsync(
+            Guid paymentId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
     }
 
     private sealed class FakeOrderRepository : IOrderRepository

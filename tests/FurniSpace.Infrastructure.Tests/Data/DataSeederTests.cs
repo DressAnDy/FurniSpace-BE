@@ -35,16 +35,16 @@ public sealed class DataSeederTests
             },
             expectedToken);
 
-        Assert.Equal(27, rawCommands.Count);
+        Assert.Equal(25, rawCommands.Count);
         Assert.Single(interpolatedCommands);
         AssertTablesAreSeededInOrder(rawCommands);
 
         var accountSeed = interpolatedCommands[0];
         Assert.Contains("INSERT INTO accounts", accountSeed.Format);
-        Assert.Contains("customer1@furnispace.local", accountSeed.Format);
-        Assert.Contains("production3@furnispace.local", accountSeed.Format);
+        Assert.Contains("customer@furnispace.local", accountSeed.Format);
+        Assert.Contains("production@furnispace.local", accountSeed.Format);
         Assert.Contains("ON CONFLICT (email) DO UPDATE", accountSeed.Format);
-        Assert.True(accountSeed.ArgumentCount > 10);
+        Assert.Equal(6, accountSeed.ArgumentCount);
 
         var businessTypeSeed = rawCommands.Single(command => ExtractTableName(command) == "business_types");
         Assert.Contains("CAFE", businessTypeSeed);
@@ -115,8 +115,6 @@ public sealed class DataSeederTests
                 "quotation_items",
                 "orders",
                 "order_items",
-                "payments",
-                "payment_transactions",
                 "production_requests",
                 "production_items",
                 "notifications",

@@ -23,6 +23,7 @@ public sealed class ProjectSchedulesController : BaseApiController
 
     [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
     [HttpPost("{projectId:guid}")]
+    [HttpPost("/projects/{projectId:guid}/schedules")]
     public async Task<IActionResult> Create(
         Guid projectId,
         [FromBody] CreateProjectScheduleRequestDto request,

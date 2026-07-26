@@ -97,7 +97,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         string? search,
         CancellationToken cancellationToken = default)
     {
-        var normalizedSearch = search?.Trim().ToLowerInvariant();
+        var normalizedSearch = search?.Trim();
         var query =
             from account in DbContext.AccountSet
             join role in DbContext.RoleSet on account.RoleId equals role.RoleId
@@ -134,8 +134,8 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         if (!string.IsNullOrWhiteSpace(normalizedSearch))
         {
             query = query.Where(staff =>
-                staff.FullName.ToLower().Contains(normalizedSearch) ||
-                staff.Email.ToLower().Contains(normalizedSearch));
+                staff.FullName.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
+                staff.Email.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase));
         }
 
         return query

@@ -886,7 +886,7 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(ProductionErrorCodes.InvalidProductionRequestTransition, invalidTransition.ErrorCode);
     }
 
-    private ProductionRequestService BuildService(
+    private static ProductionRequestService BuildService(
         AppDbContext context,
         INotificationDispatcher? dispatcher = null)
     {

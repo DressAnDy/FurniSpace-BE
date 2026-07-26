@@ -8,6 +8,7 @@ using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -77,53 +78,19 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ServiceResult<ProjectScheduleDto>.Forbidden("You are not the assigned Sales for this project.");
         }
 
-        if (IsProduction(role))
+        var businessRuleError = await ValidateCreateScheduleBusinessRulesAsync(
+            role,
+            project,
+            projectId,
+            currentUserId,
+            request,
+            cancellationToken);
+        if (businessRuleError is not null)
         {
-            var productionAccessError = await ValidateProductionCreatePermissionAsync(
-                projectId,
-                currentUserId,
-                request,
-                cancellationToken);
-            if (productionAccessError is not null)
-            {
-                return productionAccessError;
-            }
+            return businessRuleError;
         }
 
         var now = DateTime.UtcNow;
-        if (request.ScheduledStart <= now)
-        {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time must not be in the past.");
-        }
-
-        if (request.ScheduledEnd.HasValue && request.ScheduledEnd.Value <= request.ScheduledStart)
-        {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
-        }
-
-        if (request.ScheduleType == ProjectScheduleType.MEASUREMENT)
-        {
-            var measurementError = ValidateMeasurementScheduleCreate(
-                role,
-                project,
-                request.AssignedStaffId);
-            if (measurementError is not null)
-            {
-                return measurementError;
-            }
-        }
-
-        if (request.ScheduleType == ProjectScheduleType.DELIVERY)
-        {
-            var deliveryError = await ValidateDeliveryScheduleCreateAsync(
-                project,
-                cancellationToken);
-            if (deliveryError is not null)
-            {
-                return deliveryError;
-            }
-        }
-
         var schedule = new ProjectSchedule
         {
             ScheduleId = Guid.NewGuid(),
@@ -492,6 +459,58 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         return false;
+    }
+
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateCreateScheduleBusinessRulesAsync(
+        string? role,
+        ProjectDetailReadModel project,
+        Guid projectId,
+        Guid currentUserId,
+        CreateProjectScheduleRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (IsProduction(role))
+        {
+            var productionAccessError = await ValidateProductionCreatePermissionAsync(
+                projectId,
+                currentUserId,
+                request,
+                cancellationToken);
+            if (productionAccessError is not null)
+            {
+                return productionAccessError;
+            }
+        }
+
+        var now = DateTime.UtcNow;
+        if (request.ScheduledStart <= now)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time must not be in the past.");
+        }
+
+        if (request.ScheduledEnd.HasValue && request.ScheduledEnd.Value <= request.ScheduledStart)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
+        }
+
+        if (request.ScheduleType == ProjectScheduleType.MEASUREMENT)
+        {
+            var measurementError = ValidateMeasurementScheduleCreate(
+                role,
+                project,
+                request.AssignedStaffId);
+            if (measurementError is not null)
+            {
+                return measurementError;
+            }
+        }
+
+        if (request.ScheduleType == ProjectScheduleType.DELIVERY)
+        {
+            return await ValidateDeliveryScheduleCreateAsync(project, cancellationToken);
+        }
+
+        return null;
     }
 
     private async Task<ServiceResult<ProjectScheduleDto>?> ValidateProductionCreatePermissionAsync(

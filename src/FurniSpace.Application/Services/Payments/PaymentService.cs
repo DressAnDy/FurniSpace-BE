@@ -897,44 +897,16 @@ public sealed class PaymentService : IPaymentService
         CreatePaymentTransactionAttemptRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (currentUserId == Guid.Empty)
+        var preparation = await PrepareCustomerPaymentAttemptAsync(
+            paymentId,
+            currentUserId,
+            cancellationToken);
+        if (preparation.Error is not null)
         {
-            return ServiceResult<PaymentTransactionAttemptResponseDto>.Unauthorized();
+            return preparation.Error;
         }
 
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role != ProjectAssignmentAccessEvaluator.CustomerRole)
-        {
-            return ServiceResult<PaymentTransactionAttemptResponseDto>.Forbidden(
-                "Only customers can create online payment attempts.");
-        }
-
-        var detail = await _payments.GetDetailAsync(paymentId, cancellationToken);
-        if (detail is null)
-        {
-            return NotFound<PaymentTransactionAttemptResponseDto>(PaymentErrorCodes.PaymentNotFound, PaymentNotFoundMessage);
-        }
-
-        if (!PaymentServiceManagementSupport.IsCustomerOwner(detail, currentUserId))
-        {
-            return ServiceResult<PaymentTransactionAttemptResponseDto>.Forbidden(
-                "You do not have access to this payment.");
-        }
-
-        var payment = await SyncPaymentExpiryAsync(paymentId, cancellationToken);
-        if (payment is null)
-        {
-            return NotFound<PaymentTransactionAttemptResponseDto>(PaymentErrorCodes.PaymentNotFound, PaymentNotFoundMessage);
-        }
-
-        var stateValidation = PaymentCollectableStateValidator.Validate(payment);
-        if (!stateValidation.IsValid)
-        {
-            return Failure<PaymentTransactionAttemptResponseDto>(
-                stateValidation.ErrorCode!,
-                stateValidation.ErrorMessage!,
-                isBadRequest: true);
-        }
+        var payment = preparation.Payment!;
 
         if (await _payments.HasSuccessfulTransactionAsync(paymentId, cancellationToken))
         {
@@ -947,143 +919,21 @@ public sealed class PaymentService : IPaymentService
         if (request.PaymentProvider == PaymentProvider.PAYOS &&
             request.PaymentMethod == PaymentMethod.PAYMENT_LINK)
         {
-            if (!PaymentServiceManagementSupport.IsValidHttpsUrl(request.ReturnUrl) ||
-                !PaymentServiceManagementSupport.IsValidHttpsUrl(request.CancelUrl))
-            {
-                return Failure<PaymentTransactionAttemptResponseDto>(
-                    PaymentErrorCodes.PayOsCreateLinkFailed,
-                    "PayOS return and cancel URLs must be valid HTTPS URLs.",
-                    isBadRequest: true);
-            }
-
-            var reusablePayOs = await _payments.GetLatestPendingTransactionAsync(
-                paymentId,
-                PaymentProvider.PAYOS,
-                PaymentMethod.PAYMENT_LINK,
-                cancellationToken);
-            if (IsReusablePendingTransaction(reusablePayOs))
-            {
-                return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
-                    PaymentServiceManagementSupport.ToAttemptResponse(reusablePayOs!, payment),
-                    "Payment transaction attempt created successfully.");
-            }
-
-            var linkResult = await CreatePayOsPaymentLinkAsync(
+            return await CreatePayOsTransactionAttemptAsync(
                 paymentId,
                 currentUserId,
-                new CreatePayOsPaymentLinkRequestDto
-                {
-                    ReturnUrl = request.ReturnUrl,
-                    CancelUrl = request.CancelUrl
-                },
-                cancellationToken);
-
-            if (linkResult.Status is not (200 or 201) || linkResult.Data is null)
-            {
-                return new ServiceResult<PaymentTransactionAttemptResponseDto>(
-                    linkResult.Status,
-                    linkResult.Message ?? "Failed to create payment transaction attempt.")
-                {
-                    ErrorCode = linkResult.ErrorCode
-                };
-            }
-
-            await PaymentCustomerNotificationSupport.TryDispatchAsync(
-                _notifications,
-                _logger,
-                NotificationType.PaymentProcessing,
                 payment,
-                cancellationToken: cancellationToken);
-
-            return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
-                new PaymentTransactionAttemptResponseDto
-                {
-                    PaymentTransactionId = linkResult.Data.PaymentTransactionId,
-                    PaymentId = linkResult.Data.PaymentId,
-                    TransactionCode = string.Empty,
-                    Amount = linkResult.Data.Amount,
-                    Currency = payment.Currency,
-                    Status = linkResult.Data.Status,
-                    PaymentProvider = PaymentProvider.PAYOS,
-                    PaymentMethod = PaymentMethod.PAYMENT_LINK,
-                    PaymentUrl = linkResult.Data.CheckoutUrl,
-                    QrContent = linkResult.Data.QrCode,
-                    PaymentStatus = linkResult.Data.PaymentStatus
-                },
-                "Payment transaction attempt created successfully.");
+                request,
+                cancellationToken);
         }
 
         if (request.PaymentProvider == PaymentProvider.SEPAY &&
             request.PaymentMethod == PaymentMethod.QR_CODE)
         {
-            if (!_sePayOptions.Enabled || !_sePayOptions.VietQrEnabled)
-            {
-                return Failure<PaymentTransactionAttemptResponseDto>(
-                    PaymentErrorCodes.SePayDisabled,
-                    "SePay VietQR is disabled.",
-                    isBadRequest: true);
-            }
-
-            var reusableSePay = await _payments.GetLatestPendingTransactionAsync(
+            return await CreateSePayTransactionAttemptAsync(
                 paymentId,
-                PaymentProvider.SEPAY,
-                PaymentMethod.QR_CODE,
-                cancellationToken);
-            if (IsReusablePendingTransaction(reusableSePay))
-            {
-                return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
-                    PaymentServiceManagementSupport.ToAttemptResponse(reusableSePay!, payment),
-                    "Payment transaction attempt created successfully.");
-            }
-
-            var now = DateTime.UtcNow;
-            var transaction = new PaymentTransaction
-            {
-                PaymentTransactionId = Guid.NewGuid(),
-                PaymentId = payment.PaymentId,
-                ProjectId = payment.ProjectId,
-                OrderId = payment.OrderId,
-                TransactionCode = await GenerateUniqueTransactionCodeAsync(cancellationToken),
-                TransactionType = PaymentTransactionType.CHARGE,
-                Amount = payment.Amount,
-                Currency = payment.Currency,
-                PaymentProvider = PaymentProvider.SEPAY,
-                PaymentMethod = PaymentMethod.QR_CODE,
-                Status = PaymentTransactionStatus.PENDING,
-                CreatedAt = now
-            };
-
-            var vietQrUrl = _vietQrUrlBuilder.Build(payment);
-            transaction.PaymentUrl = vietQrUrl;
-            PaymentSummaryCalculator.MarkProcessing(payment, now);
-
-            await _payments.AddTransactionAsync(transaction, cancellationToken);
-            _payments.UpdatePayment(payment);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-            await PaymentCustomerNotificationSupport.TryDispatchAsync(
-                _notifications,
-                _logger,
-                NotificationType.PaymentProcessing,
                 payment,
-                cancellationToken: cancellationToken);
-
-            var createdTransaction = new PaymentTransactionReadModel
-            {
-                PaymentTransactionId = transaction.PaymentTransactionId,
-                PaymentId = transaction.PaymentId,
-                TransactionCode = transaction.TransactionCode,
-                Amount = transaction.Amount,
-                Currency = transaction.Currency,
-                Status = transaction.Status,
-                PaymentProvider = transaction.PaymentProvider,
-                PaymentMethod = transaction.PaymentMethod,
-                PaymentUrl = transaction.PaymentUrl
-            };
-
-            return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
-                PaymentServiceManagementSupport.ToAttemptResponse(createdTransaction, payment),
-                "Payment transaction attempt created successfully.");
+                cancellationToken);
         }
 
         if (request.PaymentProvider != PaymentProvider.PAYOS && request.PaymentProvider != PaymentProvider.SEPAY)
@@ -1098,6 +948,204 @@ public sealed class PaymentService : IPaymentService
             PaymentErrorCodes.UnsupportedPaymentMethod,
             "Unsupported payment method.",
             isBadRequest: true);
+    }
+
+    private async Task<(ServiceResult<PaymentTransactionAttemptResponseDto>? Error, Payment? Payment)> PrepareCustomerPaymentAttemptAsync(
+        Guid paymentId,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return (ServiceResult<PaymentTransactionAttemptResponseDto>.Unauthorized(), null);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.CustomerRole)
+        {
+            return (ServiceResult<PaymentTransactionAttemptResponseDto>.Forbidden(
+                "Only customers can create online payment attempts."), null);
+        }
+
+        var detail = await _payments.GetDetailAsync(paymentId, cancellationToken);
+        if (detail is null)
+        {
+            return (NotFound<PaymentTransactionAttemptResponseDto>(
+                PaymentErrorCodes.PaymentNotFound,
+                PaymentNotFoundMessage), null);
+        }
+
+        if (!PaymentServiceManagementSupport.IsCustomerOwner(detail, currentUserId))
+        {
+            return (ServiceResult<PaymentTransactionAttemptResponseDto>.Forbidden(
+                PaymentAccessForbiddenMessage), null);
+        }
+
+        var payment = await SyncPaymentExpiryAsync(paymentId, cancellationToken);
+        if (payment is null)
+        {
+            return (NotFound<PaymentTransactionAttemptResponseDto>(
+                PaymentErrorCodes.PaymentNotFound,
+                PaymentNotFoundMessage), null);
+        }
+
+        var stateValidation = PaymentCollectableStateValidator.Validate(payment);
+        if (!stateValidation.IsValid)
+        {
+            return (Failure<PaymentTransactionAttemptResponseDto>(
+                stateValidation.ErrorCode!,
+                stateValidation.ErrorMessage!,
+                isBadRequest: true), null);
+        }
+
+        return (null, payment);
+    }
+
+    private async Task<ServiceResult<PaymentTransactionAttemptResponseDto>> CreatePayOsTransactionAttemptAsync(
+        Guid paymentId,
+        Guid currentUserId,
+        Payment payment,
+        CreatePaymentTransactionAttemptRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (!PaymentServiceManagementSupport.IsValidHttpsUrl(request.ReturnUrl) ||
+            !PaymentServiceManagementSupport.IsValidHttpsUrl(request.CancelUrl))
+        {
+            return Failure<PaymentTransactionAttemptResponseDto>(
+                PaymentErrorCodes.PayOsCreateLinkFailed,
+                "PayOS return and cancel URLs must be valid HTTPS URLs.",
+                isBadRequest: true);
+        }
+
+        var reusablePayOs = await _payments.GetLatestPendingTransactionAsync(
+            paymentId,
+            PaymentProvider.PAYOS,
+            PaymentMethod.PAYMENT_LINK,
+            cancellationToken);
+        if (IsReusablePendingTransaction(reusablePayOs))
+        {
+            return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
+                PaymentServiceManagementSupport.ToAttemptResponse(reusablePayOs!, payment),
+                PaymentTransactionAttemptCreatedMessage);
+        }
+
+        var linkResult = await CreatePayOsPaymentLinkAsync(
+            paymentId,
+            currentUserId,
+            new CreatePayOsPaymentLinkRequestDto
+            {
+                ReturnUrl = request.ReturnUrl,
+                CancelUrl = request.CancelUrl
+            },
+            cancellationToken);
+
+        if (linkResult.Status is not (200 or 201) || linkResult.Data is null)
+        {
+            return new ServiceResult<PaymentTransactionAttemptResponseDto>(
+                linkResult.Status,
+                linkResult.Message ?? "Failed to create payment transaction attempt.")
+            {
+                ErrorCode = linkResult.ErrorCode
+            };
+        }
+
+        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentProcessing,
+            payment,
+            cancellationToken: cancellationToken);
+
+        return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
+            new PaymentTransactionAttemptResponseDto
+            {
+                PaymentTransactionId = linkResult.Data.PaymentTransactionId,
+                PaymentId = linkResult.Data.PaymentId,
+                TransactionCode = string.Empty,
+                Amount = linkResult.Data.Amount,
+                Currency = payment.Currency,
+                Status = linkResult.Data.Status,
+                PaymentProvider = PaymentProvider.PAYOS,
+                PaymentMethod = PaymentMethod.PAYMENT_LINK,
+                PaymentUrl = linkResult.Data.CheckoutUrl,
+                QrContent = linkResult.Data.QrCode,
+                PaymentStatus = linkResult.Data.PaymentStatus
+            },
+            PaymentTransactionAttemptCreatedMessage);
+    }
+
+    private async Task<ServiceResult<PaymentTransactionAttemptResponseDto>> CreateSePayTransactionAttemptAsync(
+        Guid paymentId,
+        Payment payment,
+        CancellationToken cancellationToken)
+    {
+        if (!_sePayOptions.Enabled || !_sePayOptions.VietQrEnabled)
+        {
+            return Failure<PaymentTransactionAttemptResponseDto>(
+                PaymentErrorCodes.SePayDisabled,
+                "SePay VietQR is disabled.",
+                isBadRequest: true);
+        }
+
+        var reusableSePay = await _payments.GetLatestPendingTransactionAsync(
+            paymentId,
+            PaymentProvider.SEPAY,
+            PaymentMethod.QR_CODE,
+            cancellationToken);
+        if (IsReusablePendingTransaction(reusableSePay))
+        {
+            return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
+                PaymentServiceManagementSupport.ToAttemptResponse(reusableSePay!, payment),
+                PaymentTransactionAttemptCreatedMessage);
+        }
+
+        var now = DateTime.UtcNow;
+        var transaction = new PaymentTransaction
+        {
+            PaymentTransactionId = Guid.NewGuid(),
+            PaymentId = payment.PaymentId,
+            ProjectId = payment.ProjectId,
+            OrderId = payment.OrderId,
+            TransactionCode = await GenerateUniqueTransactionCodeAsync(cancellationToken),
+            TransactionType = PaymentTransactionType.CHARGE,
+            Amount = payment.Amount,
+            Currency = payment.Currency,
+            PaymentProvider = PaymentProvider.SEPAY,
+            PaymentMethod = PaymentMethod.QR_CODE,
+            Status = PaymentTransactionStatus.PENDING,
+            CreatedAt = now
+        };
+
+        transaction.PaymentUrl = _vietQrUrlBuilder.Build(payment);
+        PaymentSummaryCalculator.MarkProcessing(payment, now);
+
+        await _payments.AddTransactionAsync(transaction, cancellationToken);
+        _payments.UpdatePayment(payment);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentProcessing,
+            payment,
+            cancellationToken: cancellationToken);
+
+        var createdTransaction = new PaymentTransactionReadModel
+        {
+            PaymentTransactionId = transaction.PaymentTransactionId,
+            PaymentId = transaction.PaymentId,
+            TransactionCode = transaction.TransactionCode,
+            Amount = transaction.Amount,
+            Currency = transaction.Currency,
+            Status = transaction.Status,
+            PaymentProvider = transaction.PaymentProvider,
+            PaymentMethod = transaction.PaymentMethod,
+            PaymentUrl = transaction.PaymentUrl
+        };
+
+        return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
+            PaymentServiceManagementSupport.ToAttemptResponse(createdTransaction, payment),
+            PaymentTransactionAttemptCreatedMessage);
     }
 
     public async Task<ServiceResult<PaymentTransactionDto?>> GetActiveTransactionAsync(
@@ -1126,7 +1174,7 @@ public sealed class PaymentService : IPaymentService
         if (!PaymentServiceManagementSupport.IsCustomerOwner(detail, currentUserId))
         {
             return ServiceResult<PaymentTransactionDto?>.Forbidden(
-                "You do not have access to this payment.");
+                PaymentAccessForbiddenMessage);
         }
 
         var payment = await SyncPaymentExpiryAsync(paymentId, cancellationToken);
@@ -1199,7 +1247,7 @@ public sealed class PaymentService : IPaymentService
         if (!PaymentServiceManagementSupport.IsCustomerOwner(detail, currentUserId))
         {
             return ServiceResult<PaymentTransactionDto>.Forbidden(
-                "You do not have access to this payment.");
+                PaymentAccessForbiddenMessage);
         }
 
         var transaction = await _payments.GetTransactionByIdAsync(paymentTransactionId, cancellationToken);
@@ -1518,7 +1566,7 @@ public sealed class PaymentService : IPaymentService
                 detail.AssignedDesignerId,
                 currentUserId)
             ? null
-            : ServiceResult<PaymentDetailDto>.Forbidden("You do not have access to this payment.");
+            : ServiceResult<PaymentDetailDto>.Forbidden(PaymentAccessForbiddenMessage);
     }
 
     private static bool CanAccessProject(

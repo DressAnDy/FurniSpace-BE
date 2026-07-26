@@ -89,7 +89,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
             return SuccessResult();
         }
 
-        var validationError = ValidateTransfer(payment, payload, providerTransactionId);
+        var validationError = ValidateTransfer(payment, payload);
         if (validationError is not null)
         {
             _logger?.LogWarning(
@@ -209,8 +209,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
 
     private static string? ValidateTransfer(
         Payment payment,
-        SePayWebhookPayloadDto payload,
-        string providerTransactionId)
+        SePayWebhookPayloadDto payload)
     {
         if (payment.Status is PaymentStatus.CANCELLED or PaymentStatus.EXPIRED or PaymentStatus.REFUNDED or PaymentStatus.PAID)
         {

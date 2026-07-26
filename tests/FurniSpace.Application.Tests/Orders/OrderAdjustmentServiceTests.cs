@@ -917,7 +917,7 @@ public sealed class OrderAdjustmentServiceTests
         Assert.Equal(OrderErrorCodes.OrderNotFound, missing.ErrorCode);
     }
 
-    private OrderService BuildService(AppDbContext context)
+    private static OrderService BuildService(AppDbContext context)
     {
         return new OrderService(
             new OrderRepository(context),

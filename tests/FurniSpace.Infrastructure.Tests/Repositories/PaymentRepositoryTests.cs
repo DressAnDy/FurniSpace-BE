@@ -86,7 +86,8 @@ public sealed class PaymentRepositoryTests
 
         var items = await repository.GetListAsync(new PaymentQueryReadModel
         {
-            ProjectId = data.ProjectId
+            ProjectId = data.ProjectId,
+            AccessRole = "ADMIN"
         });
 
         Assert.Single(items);

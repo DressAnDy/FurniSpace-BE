@@ -984,22 +984,6 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         return receivers;
     }
 
-    private static List<Guid> BuildReceivers(Guid? first, Guid? second)
-    {
-        var receivers = new List<Guid>();
-        if (first.HasValue)
-        {
-            receivers.Add(first.Value);
-        }
-
-        if (second.HasValue && second.Value != first)
-        {
-            receivers.Add(second.Value);
-        }
-
-        return receivers;
-    }
-
     private static ServiceResult<ProductionCustomizationRequestListResponseDto>? ResolveProductionQueueStatuses(
         string? role,
         string? status,
@@ -1061,7 +1045,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     }
 
     private async Task<IReadOnlyList<CustomizationRequestDto>> MapListItemsAsync(
-        IReadOnlyList<CustomizationRequestReadModel> items,
+        List<CustomizationRequestReadModel> items,
         Guid projectId,
         CancellationToken cancellationToken)
     {

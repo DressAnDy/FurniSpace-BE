@@ -8,6 +8,8 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
+    private const string CancelledAtColumnName = "cancelled_at";
+    private const string CancellationReasonColumnName = "cancellation_reason";
     private const string UuidColumnType = "uuid";
     private const string TimestampWithTimeZoneColumnType = "timestamp with time zone";
     private const string TextColumnType = "text";
@@ -561,7 +563,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.InternalNote).HasColumnName("internal_note").HasColumnType(TextColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CancelledAt).HasColumnName(CancelledAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => new { e.ProjectId, e.ScheduledStart })
                 .HasDatabaseName("idx_project_schedules_project_sort")
                 .IsDescending(false, true);
@@ -847,8 +849,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CustomerConfirmedDeliveryAt).HasColumnName("customer_confirmed_delivery_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.ConfirmedBy).HasColumnName("confirmed_by").HasColumnType(UuidColumnType);
             entity.Property(e => e.ConfirmedAt).HasColumnName("confirmed_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CancellationReason).HasColumnName("cancellation_reason").HasColumnType(TextColumnType);
+            entity.Property(e => e.CancelledAt).HasColumnName(CancelledAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CancellationReason).HasColumnName(CancellationReasonColumnName).HasColumnType(TextColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => e.QuotationId).IsUnique();
@@ -923,8 +925,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.AppliedBy).HasColumnName("applied_by").HasColumnType(UuidColumnType);
             entity.Property(e => e.AppliedAt).HasColumnName("applied_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.CancelledBy).HasColumnName("cancelled_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CancellationReason).HasColumnName("cancellation_reason").HasColumnType(TextColumnType);
+            entity.Property(e => e.CancelledAt).HasColumnName(CancelledAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CancellationReason).HasColumnName(CancellationReasonColumnName).HasColumnType(TextColumnType);
             entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UpdatedBy).OnDelete(DeleteBehavior.Restrict);
@@ -977,7 +979,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(PaymentStatusColumnType).HasDefaultValueSql("'PENDING'::payment_status");
             entity.Property(e => e.ExpiredAt).HasColumnName("expired_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.PaidAt).HasColumnName("paid_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CancelledAt).HasColumnName("cancelled_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CancelledAt).HasColumnName(CancelledAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.Note).HasColumnName(NoteColumnName).HasColumnType(TextColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
@@ -1015,7 +1017,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.EstimatedCompletionDate).HasColumnName("estimated_completion_date").HasColumnType(DateColumnType);
             entity.Property(e => e.ActualStartDate).HasColumnName("actual_start_date").HasColumnType(DateColumnType);
             entity.Property(e => e.ActualCompletionDate).HasColumnName("actual_completion_date").HasColumnType(DateColumnType);
-            entity.Property(e => e.CancellationReason).HasColumnName("cancellation_reason").HasColumnType(TextColumnType);
+            entity.Property(e => e.CancellationReason).HasColumnName(CancellationReasonColumnName).HasColumnType(TextColumnType);
             entity.Property(e => e.Note).HasColumnName(NoteColumnName).HasColumnType(TextColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
@@ -1090,7 +1092,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(ProductionItemStatusColumnType).HasDefaultValueSql("'PENDING'::production_item_status");
             entity.Property(e => e.MaterialNote).HasColumnName("material_note").HasColumnType(TextColumnType);
             entity.Property(e => e.ProductionNote).HasColumnName("production_note").HasColumnType(TextColumnType);
-            entity.Property(e => e.CancellationReason).HasColumnName("cancellation_reason").HasColumnType(TextColumnType);
+            entity.Property(e => e.CancellationReason).HasColumnName(CancellationReasonColumnName).HasColumnType(TextColumnType);
             entity.Property(e => e.EstimatedCompletionDate).HasColumnName("estimated_completion_date").HasColumnType(DateColumnType);
             entity.Property(e => e.CompletedAt).HasColumnName("completed_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => new { e.ProductionRequestId, e.OrderItemId }).IsUnique();

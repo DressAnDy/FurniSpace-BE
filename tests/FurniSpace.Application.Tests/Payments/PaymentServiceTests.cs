@@ -1,14 +1,17 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.Payments;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -869,6 +872,279 @@ public sealed class PaymentServiceTests
         Assert.False(canAccess);
     }
 
+    [Fact]
+    public async Task GetSummaryAsync_WhenAuthorized_ReturnsSummary()
+    {
+        var repository = new PaymentServiceFakeRepository
+        {
+            Summary = new PaymentSummaryReadModel
+            {
+                PendingCount = 2,
+                PaidCount = 1,
+                PayableCount = 2,
+                PayablePendingAmount = 130m
+            }
+        };
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository
+        });
+
+        var result = await service.GetSummaryAsync(_customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, result.Data!.PendingCount);
+        Assert.Equal(130m, result.Data.PendingAmount);
+        Assert.Equal("VND", result.Data.Currency);
+    }
+
+    [Fact]
+    public async Task GetSummaryAsync_WhenDesigner_ReturnsForbidden()
+    {
+        var service = BuildService(new PaymentServiceTestOptions { Role = "DESIGNER" });
+
+        var result = await service.GetSummaryAsync(_customerId);
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CreatePaymentTransactionAttemptAsync_SePayQr_CreatesPendingTransaction()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m);
+        payment.PaidBy = _customerId;
+        repository.SeedPayment(payment, CreatePaymentDetail(paymentId, customerId: _customerId));
+        var dispatcher = new PaymentServiceFakeNotificationDispatcher();
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            SePayEnabled = true,
+            VietQrEnabled = true,
+            Notifications = dispatcher
+        });
+
+        var result = await service.CreatePaymentTransactionAttemptAsync(
+            paymentId,
+            _customerId,
+            new CreatePaymentTransactionAttemptRequestDto
+            {
+                PaymentProvider = PaymentProvider.SEPAY,
+                PaymentMethod = PaymentMethod.QR_CODE
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(PaymentProvider.SEPAY, result.Data!.PaymentProvider);
+        Assert.Equal(PaymentTransactionStatus.PENDING, result.Data.Status);
+        Assert.False(string.IsNullOrWhiteSpace(result.Data.PaymentUrl));
+        Assert.Equal(PaymentStatus.PROCESSING, payment.Status);
+        Assert.Single(dispatcher.Dispatched);
+    }
+
+    [Fact]
+    public async Task CreatePaymentTransactionAttemptAsync_UnsupportedProvider_ReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m);
+        payment.PaidBy = _customerId;
+        repository.SeedPayment(payment, CreatePaymentDetail(paymentId, customerId: _customerId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository
+        });
+
+        var result = await service.CreatePaymentTransactionAttemptAsync(
+            paymentId,
+            _customerId,
+            new CreatePaymentTransactionAttemptRequestDto
+            {
+                PaymentProvider = (PaymentProvider)999,
+                PaymentMethod = PaymentMethod.QR_CODE
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.UnsupportedPaymentProvider, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreatePaymentTransactionAttemptAsync_WhenSalesRole_ReturnsForbidden()
+    {
+        var service = BuildService(new PaymentServiceTestOptions { Role = "SALES" });
+
+        var result = await service.CreatePaymentTransactionAttemptAsync(
+            Guid.NewGuid(),
+            _salesId,
+            new CreatePaymentTransactionAttemptRequestDto
+            {
+                PaymentProvider = PaymentProvider.SEPAY,
+                PaymentMethod = PaymentMethod.QR_CODE
+            });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetActiveTransactionAsync_WhenPendingSePayExists_ReturnsTransaction()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PROCESSING, 30m);
+        payment.PaidBy = _customerId;
+        var detail = CreatePaymentDetail(paymentId, customerId: _customerId);
+        detail.PaidBy = _customerId;
+        repository.SeedPayment(payment, detail);
+        await repository.AddTransactionAsync(new PaymentTransaction
+        {
+            PaymentTransactionId = Guid.NewGuid(),
+            PaymentId = paymentId,
+            TransactionCode = "TXN-SEPAY",
+            Amount = 30m,
+            Currency = "VND",
+            PaymentProvider = PaymentProvider.SEPAY,
+            PaymentMethod = PaymentMethod.QR_CODE,
+            Status = PaymentTransactionStatus.PENDING,
+            PaymentUrl = "https://vietqr.test",
+            CreatedAt = DateTime.UtcNow
+        });
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository
+        });
+
+        var result = await service.GetActiveTransactionAsync(paymentId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal("TXN-SEPAY", result.Data!.TransactionCode);
+    }
+
+    [Fact]
+    public async Task GetActiveTransactionAsync_WhenPaymentNotPayable_ReturnsNullData()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PAID, 30m);
+        payment.PaidBy = _customerId;
+        var detail = CreatePaymentDetail(paymentId, customerId: _customerId);
+        detail.PaidBy = _customerId;
+        detail.Status = PaymentStatus.PAID;
+        repository.SeedPayment(payment, detail);
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository
+        });
+
+        var result = await service.GetActiveTransactionAsync(paymentId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(result.Data);
+    }
+
+    [Fact]
+    public async Task CancelTransactionAsync_WhenPending_CancelsTransactionAndRevertsPayment()
+    {
+        var paymentId = Guid.NewGuid();
+        var transactionId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PROCESSING, 30m);
+        payment.PaidBy = _customerId;
+        var detail = CreatePaymentDetail(paymentId, customerId: _customerId);
+        detail.PaidBy = _customerId;
+        repository.SeedPayment(payment, detail);
+        await repository.AddTransactionAsync(new PaymentTransaction
+        {
+            PaymentTransactionId = transactionId,
+            PaymentId = paymentId,
+            TransactionCode = "TXN-CANCEL",
+            Amount = 30m,
+            Currency = "VND",
+            Status = PaymentTransactionStatus.PENDING,
+            CreatedAt = DateTime.UtcNow
+        });
+        var dispatcher = new PaymentServiceFakeNotificationDispatcher();
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            Notifications = dispatcher
+        });
+
+        var result = await service.CancelTransactionAsync(
+            paymentId,
+            transactionId,
+            _customerId,
+            new CancelPaymentTransactionRequestDto { CancelReason = "Changed mind" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(PaymentTransactionStatus.CANCELLED, result.Data!.Status);
+        Assert.Equal(PaymentStatus.PENDING, payment.Status);
+        Assert.Single(dispatcher.Dispatched);
+    }
+
+    [Fact]
+    public async Task CancelTransactionAsync_WhenAlreadyCancelled_IsIdempotent()
+    {
+        var paymentId = Guid.NewGuid();
+        var transactionId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PROCESSING, 30m);
+        payment.PaidBy = _customerId;
+        var detail = CreatePaymentDetail(paymentId, customerId: _customerId);
+        detail.PaidBy = _customerId;
+        repository.SeedPayment(payment, detail);
+        await repository.AddTransactionAsync(new PaymentTransaction
+        {
+            PaymentTransactionId = transactionId,
+            PaymentId = paymentId,
+            TransactionCode = "TXN-CANCELLED",
+            Amount = 30m,
+            Currency = "VND",
+            Status = PaymentTransactionStatus.CANCELLED,
+            CreatedAt = DateTime.UtcNow
+        });
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository
+        });
+
+        var result = await service.CancelTransactionAsync(
+            paymentId,
+            transactionId,
+            _customerId,
+            new CancelPaymentTransactionRequestDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(PaymentTransactionStatus.CANCELLED, result.Data!.Status);
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_WhenExpiredPayment_SyncsExpiredStatus()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m);
+        payment.ExpiredAt = DateTime.UtcNow.AddMinutes(-10);
+        repository.SeedPayment(payment, CreatePaymentDetail(paymentId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository
+        });
+
+        var result = await service.GetByIdAsync(paymentId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(PaymentStatus.EXPIRED, payment.Status);
+    }
+
     private static PaymentService BuildService(PaymentServiceTestOptions? options = null)
     {
         options ??= new PaymentServiceTestOptions();
@@ -922,7 +1198,7 @@ public sealed class PaymentServiceTests
             })),
             payOsClient);
 
-        return new PaymentService(payments, projects, orders, dependencies);
+        return new PaymentService(payments, projects, orders, dependencies, options.Notifications);
     }
 
     private OrderDetailReadModel CreateOrderDetail(
@@ -976,6 +1252,7 @@ public sealed class PaymentServiceTests
             Currency = "VND",
             Status = PaymentStatus.PENDING,
             CustomerId = customerId ?? _customerId,
+            PaidBy = customerId ?? _customerId,
             AssignedSalesId = _salesId
         };
     }
@@ -1016,6 +1293,25 @@ public sealed class PaymentServiceTests
         public bool VietQrEnabled { get; init; }
         public bool PayOsEnabled { get; init; } = true;
         public decimal DefaultProjectStartFeeAmount { get; init; } = 500000m;
+        public INotificationDispatcher? Notifications { get; init; }
+    }
+
+    private sealed class PaymentServiceFakeNotificationDispatcher : INotificationDispatcher
+    {
+        public List<NotificationType> Dispatched { get; } = [];
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            Guid? projectId = null,
+            string? referenceType = null,
+            Guid? referenceId = null,
+            CancellationToken cancellationToken = default)
+        {
+            Dispatched.Add(type);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FailingConfirmPayOsClient : IPayOsClient

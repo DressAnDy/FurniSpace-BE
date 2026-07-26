@@ -345,6 +345,15 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 "You can only decide customization requests for your own project.");
         }
 
+        if (IsDecision(request.Decision, AcceptDecision) &&
+            context.Entity!.Status == CustomizationStatus.ACCEPTED)
+        {
+            return await ReloadUpdatedDetailAsync(
+                customizationRequestId,
+                "Customization request customer decision submitted successfully.",
+                cancellationToken);
+        }
+
         var validationError = ValidateCustomerDecision(context.Entity!, request);
         if (validationError is not null)
         {
@@ -353,16 +362,8 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
 
         if (IsDecision(request.Decision, AcceptDecision))
         {
-            if (context.Entity!.Status == CustomizationStatus.ACCEPTED)
-            {
-                return await ReloadUpdatedDetailAsync(
-                    customizationRequestId,
-                    "Customization request customer decision submitted successfully.",
-                    cancellationToken);
-            }
-
             var proposalItem = await _proposals.GetItemEntityAsync(
-                context.Entity.ProposalItemId,
+                context.Entity!.ProposalItemId,
                 cancellationToken);
             if (proposalItem is null)
             {

@@ -233,6 +233,27 @@ public sealed class PayOsWebhookHandlerTests
         Assert.Equal(PaymentStatus.PENDING, repository.Payment!.Status);
     }
 
+    [Fact]
+    public async Task ProcessAsync_WithMissingTransaction_ReturnsSuccessWithoutUpdating()
+    {
+        var handler = CreateHandler(
+            new FakePayOsPaymentRepository(),
+            new FakePayOsClient
+            {
+                VerifiedWebhook = new PayOsVerifiedWebhookData
+                {
+                    OrderCode = 202607080006L,
+                    Amount = 10000,
+                    Code = "00"
+                }
+            },
+            new FakePaymentRealtimeService());
+
+        var result = await handler.ProcessAsync("{}");
+
+        Assert.Equal(200, result.StatusCode);
+    }
+
     private static PayOsWebhookHandler CreateHandler(
         FakePayOsPaymentRepository repository,
         FakePayOsClient payOsClient,

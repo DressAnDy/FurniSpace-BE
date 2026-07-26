@@ -24,6 +24,10 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
 
     public List<Payment> NewPayments { get; } = [];
 
+    public PaymentSummaryReadModel? Summary { get; set; }
+
+    public List<Payment> ExpiredPayments { get; } = [];
+
     public int SaveChangesCallCount { get; set; }
 
     public void SeedPayment(Payment payment, PaymentDetailReadModel? detail = null)
@@ -119,7 +123,7 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(new PaymentSummaryReadModel());
+        return Task.FromResult(Summary ?? new PaymentSummaryReadModel());
     }
 
     public Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(
@@ -127,7 +131,7 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
         DateTime utcNow,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult<IReadOnlyList<Payment>>([]);
+        return Task.FromResult<IReadOnlyList<Payment>>(ExpiredPayments);
     }
 
     public Task<PaymentTransaction?> GetTransactionByIdAsync(
@@ -368,6 +372,7 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
             Status = payment.Status,
             ExpiredAt = payment.ExpiredAt,
             PaidAt = payment.PaidAt,
+            PaidBy = payment.PaidBy,
             CustomerId = payment.PaidBy ?? Guid.Empty
         };
     }

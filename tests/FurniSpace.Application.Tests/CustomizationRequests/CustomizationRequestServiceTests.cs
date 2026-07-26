@@ -405,6 +405,100 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
+    public async Task GetByProjectAsync_IncludesApprovedProductVersion()
+    {
+        var ids = CreateIds();
+        var approvedVersionId = Guid.NewGuid();
+        var request = CreateRequest(ids, CustomizationStatus.ACCEPTED);
+        request.ApprovedProductVersionId = approvedVersionId;
+        var approvedVersion = new ProductVersion
+        {
+            ProductVersionId = approvedVersionId,
+            ProductId = Guid.NewGuid(),
+            ProjectId = ids.ProjectId,
+            VersionCode = "PV-PRJ-000001-CUST-001",
+            VersionName = "Custom Chair",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            Material = "Oak",
+            Color = "Natural",
+            EstimatedPrice = 1700000m,
+            IsPublic = false,
+            IsProjectSpecific = true,
+            Status = ProductStatus.ACTIVE
+        };
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Items = [request] },
+            new FakeProposalRepository(project: CreateProject(ids)),
+            new FakeProjectRepository(CustomerRole),
+            productVersions: new FakeProductVersionRepository([approvedVersion]));
+
+        var result = await service.GetByProjectAsync(ids.ProjectId, ids.CustomerId, new CustomizationRequestQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data!.Items[0].ApprovedProductVersion);
+        Assert.Equal(approvedVersionId, result.Data.Items[0].ApprovedProductVersion!.ProductVersionId);
+        Assert.Equal("PV-PRJ-000001-CUST-001", result.Data.Items[0].ApprovedProductVersion.VersionCode);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_IncludesApprovedProductVersion()
+    {
+        var ids = CreateIds();
+        var approvedVersionId = Guid.NewGuid();
+        var detail = CreateDetail(ids, status: CustomizationStatus.ACCEPTED);
+        detail.ApprovedProductVersionId = approvedVersionId;
+        var approvedVersion = new ProductVersion
+        {
+            ProductVersionId = approvedVersionId,
+            ProductId = Guid.NewGuid(),
+            ProjectId = ids.ProjectId,
+            VersionCode = "PV-PRJ-000001-CUST-001",
+            VersionName = "Custom Chair",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            Material = "Oak",
+            Color = "Natural",
+            EstimatedPrice = 1700000m,
+            IsPublic = false,
+            IsProjectSpecific = true,
+            Status = ProductStatus.ACTIVE
+        };
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Detail = detail },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole),
+            productVersions: new FakeProductVersionRepository([approvedVersion]));
+
+        var result = await service.GetDetailAsync(detail.CustomizationRequestId, ids.CustomerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data!.ApprovedProductVersion);
+        Assert.Equal(approvedVersionId, result.Data.ApprovedProductVersion!.ProductVersionId);
+        Assert.Equal(ProductVersionType.PROJECT_SPECIFIC, result.Data.ApprovedProductVersion.VersionType);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_AdminCreatesRequestForProjectCustomer()
+    {
+        var ids = CreateIds();
+        var adminId = Guid.NewGuid();
+        var repo = new FakeCustomizationRequestRepository
+        {
+            SubmitContext = CreateSubmitContext(ids),
+            DetailFactory = entity => CreateDetail(ids, entity.CustomizationRequestId)
+        };
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(AdminRole));
+
+        var result = await service.SubmitAsync(ids.ProposalItemId, adminId, ValidSubmitRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(ids.CustomerId, repo.AddedRequest!.RequestedByCustomerId);
+        Assert.Equal(CustomizationStatus.SUBMITTED, repo.AddedRequest.Status);
+    }
+
+    [Fact]
     public async Task SubmitAsync_CustomerOwnsPublishedProposal_CreatesSubmittedRequestAndNotifies()
     {
         var ids = CreateIds();
@@ -1341,6 +1435,75 @@ public sealed class CustomizationRequestServiceTests
 
         Assert.Equal(404, result.Status);
         Assert.Equal(CustomizationRequestErrorCodes.ProposalItemNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_AlreadyAcceptedIsIdempotent()
+    {
+        var ids = CreateIds();
+        var approvedVersionId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.ACCEPTED);
+        entity.ApprovedProductVersionId = approvedVersionId;
+        entity.EstimatedAdditionalCost = 250000m;
+        var approvedVersion = new ProductVersion
+        {
+            ProductVersionId = approvedVersionId,
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-PRJ-000001-CUST-001",
+            VersionName = "Custom Chair",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            Status = ProductStatus.ACTIVE
+        };
+        var productVersions = new FakeProductVersionRepository([approvedVersion]);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.ACCEPTED);
+        detail.ApprovedProductVersionId = approvedVersionId;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = detail
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole),
+            productVersions: productVersions);
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(0, productVersions.AddCallCount);
+        Assert.NotNull(result.Data!.ApprovedProductVersion);
+        Assert.Equal(approvedVersionId, result.Data.ApprovedProductVersion!.ProductVersionId);
+    }
+
+    [Fact]
+    public async Task CustomerDecisionAsync_MissingOriginalProductVersionReturnsNotFound()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL);
+        entity.EstimatedAdditionalCost = 250000m;
+        var proposalItem = CreateProposalItem(ids);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(
+                    ids,
+                    entity.CustomizationRequestId,
+                    CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL)
+            },
+            new FakeProposalRepository(proposalItem: proposalItem),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CustomerDecisionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.OriginalProductVersionNotFound, result.ErrorCode);
     }
 
     [Fact]

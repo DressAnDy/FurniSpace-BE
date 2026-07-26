@@ -89,8 +89,6 @@ public sealed class OrdersMappingConfigTests
             ProjectId = Guid.NewGuid(),
             PaymentCode = "FS12345678",
             Amount = 100m,
-            PaidAmount = 0m,
-            RemainingAmount = 100m,
             Status = PaymentStatus.PENDING
         };
 

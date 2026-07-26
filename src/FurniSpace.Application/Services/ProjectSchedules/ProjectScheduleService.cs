@@ -8,6 +8,7 @@ using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -21,6 +22,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectRepository _projects;
     private readonly IProjectFileRepository _files;
+    private readonly IOrderRepository _orders;
     private readonly INotificationDispatcher _dispatcher;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ProjectWorkflowSettings _workflowSettings;
@@ -29,6 +31,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         IProjectScheduleRepository schedules,
         IProjectRepository projects,
         IProjectFileRepository files,
+        IOrderRepository orders,
         INotificationDispatcher dispatcher,
         IUnitOfWork unitOfWork,
         IOptions<ProjectWorkflowSettings> workflowSettings)
@@ -36,6 +39,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         _schedules = schedules;
         _projects = projects;
         _files = files;
+        _orders = orders;
         _dispatcher = dispatcher;
         _unitOfWork = unitOfWork;
         _workflowSettings = workflowSettings.Value;
@@ -74,42 +78,19 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ServiceResult<ProjectScheduleDto>.Forbidden("You are not the assigned Sales for this project.");
         }
 
-        if (IsProduction(role))
+        var businessRuleError = await ValidateCreateScheduleBusinessRulesAsync(
+            role,
+            project,
+            projectId,
+            currentUserId,
+            request,
+            cancellationToken);
+        if (businessRuleError is not null)
         {
-            var productionAccessError = await ValidateProductionCreatePermissionAsync(
-                projectId,
-                currentUserId,
-                request,
-                cancellationToken);
-            if (productionAccessError is not null)
-            {
-                return productionAccessError;
-            }
+            return businessRuleError;
         }
 
         var now = DateTime.UtcNow;
-        if (request.ScheduledStart <= now)
-        {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time must not be in the past.");
-        }
-
-        if (request.ScheduledEnd.HasValue && request.ScheduledEnd.Value <= request.ScheduledStart)
-        {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
-        }
-
-        if (request.ScheduleType == ProjectScheduleType.MEASUREMENT)
-        {
-            var measurementError = ValidateMeasurementScheduleCreate(
-                role,
-                project,
-                request.AssignedStaffId);
-            if (measurementError is not null)
-            {
-                return measurementError;
-            }
-        }
-
         var schedule = new ProjectSchedule
         {
             ScheduleId = Guid.NewGuid(),
@@ -480,6 +461,58 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         return false;
     }
 
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateCreateScheduleBusinessRulesAsync(
+        string? role,
+        ProjectDetailReadModel project,
+        Guid projectId,
+        Guid currentUserId,
+        CreateProjectScheduleRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (IsProduction(role))
+        {
+            var productionAccessError = await ValidateProductionCreatePermissionAsync(
+                projectId,
+                currentUserId,
+                request,
+                cancellationToken);
+            if (productionAccessError is not null)
+            {
+                return productionAccessError;
+            }
+        }
+
+        var now = DateTime.UtcNow;
+        if (request.ScheduledStart <= now)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time must not be in the past.");
+        }
+
+        if (request.ScheduledEnd.HasValue && request.ScheduledEnd.Value <= request.ScheduledStart)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
+        }
+
+        if (request.ScheduleType == ProjectScheduleType.MEASUREMENT)
+        {
+            var measurementError = ValidateMeasurementScheduleCreate(
+                role,
+                project,
+                request.AssignedStaffId);
+            if (measurementError is not null)
+            {
+                return measurementError;
+            }
+        }
+
+        if (request.ScheduleType == ProjectScheduleType.DELIVERY)
+        {
+            return await ValidateDeliveryScheduleCreateAsync(project, cancellationToken);
+        }
+
+        return null;
+    }
+
     private async Task<ServiceResult<ProjectScheduleDto>?> ValidateProductionCreatePermissionAsync(
         Guid projectId,
         Guid currentUserId,
@@ -565,6 +598,30 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         return null;
+    }
+
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateDeliveryScheduleCreateAsync(
+        FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
+        CancellationToken cancellationToken)
+    {
+        if (!IsDeliveryReadyProject(project.Status))
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.OrderNotReadyForDelivery,
+                    "Project and order must be ready for delivery before creating a delivery schedule."));
+        }
+
+        var hasReadyOrder = await _orders.HasProjectOrderInStatusesAsync(
+            project.ProjectId,
+            DeliveryReadyOrderStatuses,
+            cancellationToken);
+        return hasReadyOrder
+            ? null
+            : ServiceResult<ProjectScheduleDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.OrderNotReadyForDelivery,
+                    "Project and order must be ready for delivery before creating a delivery schedule."));
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateUpdatePermission(
@@ -973,6 +1030,11 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private static bool IsProductionStatusType(ProjectScheduleType? scheduleType)
     {
         return scheduleType.HasValue && ProductionStatusScheduleTypes.Contains(scheduleType.Value);
+    }
+
+    private static bool IsDeliveryReadyProject(ProjectStatus? status)
+    {
+        return status is ProjectStatus.READY_FOR_DELIVERY or ProjectStatus.DELIVERING;
     }
 
     private static ServiceResult<ProjectScheduleDto> InvalidScheduleTypeResult(string message)

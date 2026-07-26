@@ -60,6 +60,26 @@ public sealed class ProductVersionRepositoryTests
         Assert.Empty(result);
     }
 
+    [Fact]
+    public async Task CountProjectSpecificByProjectAsync_CountsOnlyProjectSpecificVersionsForProject()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        var otherProjectId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        context.ProductVersionSet.AddRange(
+            CreateVersion(Guid.NewGuid(), productId, projectId, isProjectSpecific: true),
+            CreateVersion(Guid.NewGuid(), productId, projectId, isProjectSpecific: true),
+            CreateVersion(Guid.NewGuid(), productId, otherProjectId, isProjectSpecific: true),
+            CreateVersion(Guid.NewGuid(), productId, projectId, isPublic: true));
+        await context.SaveChangesAsync();
+        var repository = new ProductVersionRepository(context);
+
+        var result = await repository.CountProjectSpecificByProjectAsync(projectId);
+
+        Assert.Equal(2, result);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -83,7 +103,7 @@ public sealed class ProductVersionRepositoryTests
             ProjectId = projectId,
             VersionCode = $"PV-{versionId:N}",
             VersionName = "Brown Wood",
-            VersionType = ProductVersionType.STANDARD,
+            VersionType = isProjectSpecific ? ProductVersionType.PROJECT_SPECIFIC : ProductVersionType.STANDARD,
             EstimatedPrice = 1200000m,
             IsPublic = isPublic,
             IsProjectSpecific = isProjectSpecific,

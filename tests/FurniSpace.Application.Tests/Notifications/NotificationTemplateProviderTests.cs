@@ -109,4 +109,14 @@ public sealed class NotificationTemplateProviderTests
         Assert.Equal("quotation.rejected", template.SignalREventName);
         Assert.Equal("Quotation rejected", template.TitleTemplate);
     }
+
+    [Fact]
+    public void Get_ProductionRequestAssigned_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProductionRequestAssigned);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("production_request.assigned", template.SignalREventName);
+        Assert.Equal("Production request assigned", template.TitleTemplate);
+    }
 }

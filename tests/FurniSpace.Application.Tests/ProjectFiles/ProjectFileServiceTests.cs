@@ -903,5 +903,9 @@ public sealed class ProjectFileServiceTests
         public Task<ProductVersionDetailReadModel?> GetPublicDetailAsync(Guid productVersionId, CancellationToken cancellationToken = default) => Task.FromResult<ProductVersionDetailReadModel?>(null);
         public Task<IReadOnlyList<ProductVersionDetailReadModel>> GetValidDetailsAsync(IReadOnlyCollection<Guid> productVersionIds, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductVersionDetailReadModel>>([]);
         public Task SetDefaultAsync(ProductVersion productVersion, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<int> CountProjectSpecificByProjectAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
 }

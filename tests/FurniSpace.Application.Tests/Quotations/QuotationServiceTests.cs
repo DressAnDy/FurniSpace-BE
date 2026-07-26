@@ -1165,6 +1165,11 @@ public sealed class QuotationServiceTests
         public Task<bool> HasQuotationForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<bool> HasProductionVisibleRequestAsync(Guid projectId, Guid productionUserId, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<bool> HasPendingForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(hasPending);
+
+        public Task<bool> HasActiveRequestForProposalItemAsync(
+            Guid proposalItemId,
+            CancellationToken cancellationToken = default) => Task.FromResult(false);
+
         public Task<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>> GetProductionQueueAsync(ProductionCustomizationRequestQueueQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>>([]);
         public Task<int> CountProductionQueueAsync(ProductionCustomizationRequestQueueQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
     }

@@ -13,8 +13,6 @@ public class Payment
     public Guid? PaidBy { get; set; }
     public PaymentType? PaymentType { get; set; }
     public decimal Amount { get; set; }
-    public decimal PaidAmount { get; set; }
-    public decimal RemainingAmount { get; set; }
     public string Currency { get; set; } = "VND";
     public PaymentStatus? Status { get; set; }
     public DateTime? ExpiredAt { get; set; }

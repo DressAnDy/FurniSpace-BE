@@ -16,6 +16,7 @@ public class ProductionRequest
     public DateOnly? EstimatedCompletionDate { get; set; }
     public DateOnly? ActualStartDate { get; set; }
     public DateOnly? ActualCompletionDate { get; set; }
+    public string? CancellationReason { get; set; }
     public string? Note { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

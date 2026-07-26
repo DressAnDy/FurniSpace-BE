@@ -28,7 +28,7 @@ public sealed class SePayVietQrUrlBuilderTests
         var payment = new Payment
         {
             PaymentCode = "FS12345678",
-            RemainingAmount = 10000m
+            Amount = 10000m
         };
 
         var url = builder.Build(payment);

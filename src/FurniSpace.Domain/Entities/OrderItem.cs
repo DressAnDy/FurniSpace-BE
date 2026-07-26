@@ -8,6 +8,7 @@ public class OrderItem
     public Guid OrderItemId { get; set; }
     public Guid OrderId { get; set; }
     public Guid? QuotationItemId { get; set; }
+    public QuotationItemType ItemType { get; set; }
     public Guid? ProductVersionId { get; set; }
     public string? ProductNameSnapshot { get; set; }
     public string? ProductVersionNameSnapshot { get; set; }
@@ -21,6 +22,8 @@ public class OrderItem
     public decimal? SubtotalAmount { get; set; }
     public decimal? AdjustmentAmount { get; set; }
     public string? UnavailableReason { get; set; }
+    public Guid? UnavailableConfirmedBy { get; set; }
+    public DateTime? UnavailableConfirmedAt { get; set; }
     public string? ProductionNote { get; set; }
     public string? DeliveryNote { get; set; }
     public DateTime? LastDeliveredAt { get; set; }

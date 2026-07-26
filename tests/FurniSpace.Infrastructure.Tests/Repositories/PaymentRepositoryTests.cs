@@ -43,7 +43,7 @@ public sealed class PaymentRepositoryTests
     }
 
     [Fact]
-    public async Task SumOrderScopedPaidAmountAsync_SumsPaidAndPartiallyPaidPayments()
+    public async Task SumOrderScopedPaidAmountAsync_SumsPaidPaymentsOnly()
     {
         await using var context = CreateContext();
         var data = await SeedAsync(context);
@@ -55,17 +55,26 @@ public sealed class PaymentRepositoryTests
             PaymentCode = "FS87654321",
             PaymentType = PaymentType.REMAINING_PAYMENT,
             Amount = 70m,
-            PaidAmount = 20m,
-            RemainingAmount = 50m,
-            Status = PaymentStatus.PARTIALLY_PAID,
+            Status = PaymentStatus.PAID,
             CreatedAt = DateTime.UtcNow.AddMinutes(1)
+        });
+        context.PaymentSet.Add(new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            ProjectId = data.ProjectId,
+            OrderId = data.OrderId,
+            PaymentCode = "FS87654322",
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = 20m,
+            Status = PaymentStatus.PROCESSING,
+            CreatedAt = DateTime.UtcNow.AddMinutes(2)
         });
         await context.SaveChangesAsync();
         var repository = new PaymentRepository(context);
 
         var sum = await repository.SumOrderScopedPaidAmountAsync(data.OrderId);
 
-        Assert.Equal(50m, sum);
+        Assert.Equal(100m, sum);
     }
 
     [Fact]
@@ -77,7 +86,8 @@ public sealed class PaymentRepositoryTests
 
         var items = await repository.GetListAsync(new PaymentQueryReadModel
         {
-            ProjectId = data.ProjectId
+            ProjectId = data.ProjectId,
+            AccessRole = "ADMIN"
         });
 
         Assert.Single(items);
@@ -135,8 +145,6 @@ public sealed class PaymentRepositoryTests
             PaymentCode = "FS99999999",
             PaymentType = PaymentType.PROJECT_START_FEE,
             Amount = 500000m,
-            PaidAmount = 0m,
-            RemainingAmount = 500000m,
             Status = PaymentStatus.PENDING,
             CreatedAt = DateTime.UtcNow
         });
@@ -175,6 +183,134 @@ public sealed class PaymentRepositoryTests
 
         Assert.Single(transactions);
         Assert.Equal("TXN-001", transactions[0].TransactionCode);
+    }
+
+    [Fact]
+    public async Task GetLatestPendingTransactionAsync_ReturnsMatchingPendingTransaction()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var transactionId = Guid.NewGuid();
+        context.PaymentTransactionSet.Add(new PaymentTransaction
+        {
+            PaymentTransactionId = transactionId,
+            PaymentId = data.PaymentId,
+            ProjectId = data.ProjectId,
+            TransactionCode = "TXN-PENDING",
+            TransactionType = PaymentTransactionType.CHARGE,
+            Amount = 30m,
+            Currency = "VND",
+            PaymentProvider = PaymentProvider.SEPAY,
+            PaymentMethod = PaymentMethod.QR_CODE,
+            Status = PaymentTransactionStatus.PENDING,
+            PaymentUrl = "https://vietqr.test",
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new PaymentRepository(context);
+
+        var transaction = await repository.GetLatestPendingTransactionAsync(
+            data.PaymentId,
+            PaymentProvider.SEPAY,
+            PaymentMethod.QR_CODE);
+
+        Assert.NotNull(transaction);
+        Assert.Equal(transactionId, transaction!.PaymentTransactionId);
+        Assert.Equal("TXN-PENDING", transaction.TransactionCode);
+    }
+
+    [Fact]
+    public async Task HasSuccessfulTransactionAsync_WhenSuccessExists_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        context.PaymentTransactionSet.Add(new PaymentTransaction
+        {
+            PaymentTransactionId = Guid.NewGuid(),
+            PaymentId = data.PaymentId,
+            ProjectId = data.ProjectId,
+            TransactionCode = "TXN-SUCCESS",
+            TransactionType = PaymentTransactionType.CHARGE,
+            Amount = 30m,
+            Currency = "VND",
+            Status = PaymentTransactionStatus.SUCCESS,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new PaymentRepository(context);
+
+        var hasSuccess = await repository.HasSuccessfulTransactionAsync(data.PaymentId);
+
+        Assert.True(hasSuccess);
+    }
+
+    [Fact]
+    public async Task GetSummaryAsync_CountsPayablePaymentsExcludingSuccessfulTransactions()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var pendingPaymentId = Guid.NewGuid();
+        context.PaymentSet.Add(new Payment
+        {
+            PaymentId = pendingPaymentId,
+            ProjectId = data.ProjectId,
+            OrderId = data.OrderId,
+            PaymentCode = "FS87654321",
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = 70m,
+            Status = PaymentStatus.PENDING,
+            CreatedAt = DateTime.UtcNow
+        });
+        context.PaymentTransactionSet.Add(new PaymentTransaction
+        {
+            PaymentTransactionId = Guid.NewGuid(),
+            PaymentId = pendingPaymentId,
+            ProjectId = data.ProjectId,
+            TransactionCode = "TXN-SUCCESS",
+            TransactionType = PaymentTransactionType.CHARGE,
+            Amount = 70m,
+            Currency = "VND",
+            Status = PaymentTransactionStatus.SUCCESS,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new PaymentRepository(context);
+
+        var summary = await repository.GetSummaryAsync(
+            new PaymentQueryReadModel { AccessRole = "ADMIN" },
+            DateTime.UtcNow);
+
+        Assert.Equal(1, summary.PaidCount);
+        Assert.Equal(0, summary.PayableCount);
+    }
+
+    [Fact]
+    public async Task GetExpiredPaymentsForSyncAsync_ReturnsExpiredPendingPayments()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var expiredPaymentId = Guid.NewGuid();
+        context.PaymentSet.Add(new Payment
+        {
+            PaymentId = expiredPaymentId,
+            ProjectId = data.ProjectId,
+            OrderId = data.OrderId,
+            PaymentCode = "FS87654323",
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = 70m,
+            Status = PaymentStatus.PENDING,
+            ExpiredAt = DateTime.UtcNow.AddMinutes(-10),
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new PaymentRepository(context);
+
+        var expiredPayments = await repository.GetExpiredPaymentsForSyncAsync(
+            new PaymentQueryReadModel { AccessRole = "ADMIN" },
+            DateTime.UtcNow);
+
+        Assert.Single(expiredPayments);
+        Assert.Equal(expiredPaymentId, expiredPayments[0].PaymentId);
     }
 
     private static AppDbContext CreateContext()
@@ -235,8 +371,6 @@ public sealed class PaymentRepositoryTests
             PaymentCode = paymentCode,
             PaymentType = PaymentType.DEPOSIT,
             Amount = 30m,
-            PaidAmount = 30m,
-            RemainingAmount = 0m,
             Status = PaymentStatus.PAID,
             CreatedAt = DateTime.UtcNow
         });

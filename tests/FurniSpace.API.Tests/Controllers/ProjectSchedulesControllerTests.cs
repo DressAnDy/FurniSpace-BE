@@ -44,6 +44,20 @@ public sealed class ProjectSchedulesControllerTests
     }
 
     [Fact]
+    public void Create_ExposesProjectNestedScheduleRoute()
+    {
+        var templates = typeof(ProjectSchedulesController)
+            .GetMethod(nameof(ProjectSchedulesController.Create))!
+            .GetCustomAttributes(typeof(HttpPostAttribute), inherit: false)
+            .Cast<HttpPostAttribute>()
+            .Select(attribute => attribute.Template)
+            .ToList();
+
+        Assert.Contains("{projectId:guid}", templates);
+        Assert.Contains("/projects/{projectId:guid}/schedules", templates);
+    }
+
+    [Fact]
     public void GetList_RequiresAllProjectParticipantRoles()
     {
         var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.GetList));

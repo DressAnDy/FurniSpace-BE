@@ -13,8 +13,7 @@ internal static class OrderPaidAmountRecalculator
 
     internal static readonly PaymentStatus[] CountablePaymentStatuses =
     [
-        PaymentStatus.PAID,
-        PaymentStatus.PARTIALLY_PAID
+        PaymentStatus.PAID
     ];
 
     internal static (decimal PaidAmount, decimal RemainingAmount) Calculate(

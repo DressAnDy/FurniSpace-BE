@@ -33,7 +33,7 @@ public sealed class CustomizationRequestsControllerTests
     [Theory]
     [InlineData(nameof(CustomizationRequestsController.GetByProject), "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [InlineData(nameof(CustomizationRequestsController.GetDetail), "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
-    [InlineData(nameof(CustomizationRequestsController.Submit), "CUSTOMER")]
+    [InlineData(nameof(CustomizationRequestsController.Submit), "CUSTOMER,DESIGNER,ADMIN")]
     [InlineData(nameof(CustomizationRequestsController.DesignerReview), "DESIGNER,ADMIN")]
     [InlineData(nameof(CustomizationRequestsController.ProductionReview), "PRODUCTION,ADMIN")]
     [InlineData(nameof(CustomizationRequestsController.CustomerDecision), "CUSTOMER")]

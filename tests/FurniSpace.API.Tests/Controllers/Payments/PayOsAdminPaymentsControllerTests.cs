@@ -46,6 +46,25 @@ public sealed class PayOsAdminPaymentsControllerTests
 
     private sealed class FakePaymentService(ServiceResult<PayOsConfirmWebhookResponseDto> result) : IPaymentService
     {
+        public Task<ServiceResult<PaymentSummaryResponseDto>> GetSummaryAsync(
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PaymentSummaryResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<PaymentTransactionDto?>> GetActiveTransactionAsync(
+            Guid paymentId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PaymentTransactionDto?>.Unauthorized());
+
+        public Task<ServiceResult<PaymentTransactionDto>> CancelTransactionAsync(
+            Guid paymentId,
+            Guid paymentTransactionId,
+            Guid currentUserId,
+            CancelPaymentTransactionRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PaymentTransactionDto>.Unauthorized());
+
         public Task<ServiceResult<PayOsConfirmWebhookResponseDto>> ConfirmPayOsWebhookAsync(
             PayOsConfirmWebhookRequestDto request,
             CancellationToken cancellationToken = default)
@@ -120,6 +139,13 @@ public sealed class PayOsAdminPaymentsControllerTests
             CreatePayOsPaymentLinkRequestDto request,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<PayOsPaymentLinkResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<PaymentTransactionAttemptResponseDto>> CreatePaymentTransactionAttemptAsync(
+            Guid paymentId,
+            Guid currentUserId,
+            CreatePaymentTransactionAttemptRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PaymentTransactionAttemptResponseDto>.Unauthorized());
 
         public Task<ServiceResult<PaymentDetailDto>> CreateTestPaymentAsync(
             Guid currentUserId,

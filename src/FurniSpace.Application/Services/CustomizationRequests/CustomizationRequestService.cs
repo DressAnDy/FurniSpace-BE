@@ -21,6 +21,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     private readonly ICustomizationRequestRepository _customizationRequests;
     private readonly IProposalRepository _proposals;
     private readonly IProjectRepository _projects;
+    private readonly IProductVersionRepository _productVersions;
     private readonly INotificationDispatcher _dispatcher;
     private readonly IUnitOfWork _unitOfWork;
 
@@ -28,12 +29,14 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         ICustomizationRequestRepository customizationRequests,
         IProposalRepository proposals,
         IProjectRepository projects,
+        IProductVersionRepository productVersions,
         INotificationDispatcher dispatcher,
         IUnitOfWork unitOfWork)
     {
         _customizationRequests = customizationRequests;
         _proposals = proposals;
         _projects = projects;
+        _productVersions = productVersions;
         _dispatcher = dispatcher;
         _unitOfWork = unitOfWork;
     }
@@ -65,13 +68,13 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         var readQuery = query.Adapt<CustomizationRequestQueryReadModel>();
         readQuery.ProjectId = projectId;
         var items = await _customizationRequests.GetByProjectAsync(readQuery, cancellationToken);
+        var filteredItems = FilterListByRole(items, role, currentUserId).ToList();
+        var listDtos = await MapListItemsAsync(filteredItems, projectId, cancellationToken);
 
         return ServiceResult<CustomizationRequestListResponseDto>.Success(
             new CustomizationRequestListResponseDto
             {
-                Items = FilterListByRole(items, role, currentUserId)
-                    .Select(item => item.Adapt<CustomizationRequestDto>())
-                    .ToList()
+                Items = listDtos
             },
             "Customization requests retrieved successfully.");
     }
@@ -157,7 +160,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         return ServiceResult<CustomizationRequestDetailDto>.Success(
-            ToDetailDto(detail),
+            await ToDetailDtoAsync(detail, cancellationToken),
             "Customization request detail retrieved successfully.");
     }
 
@@ -173,10 +176,10 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role != ApplicationRoles.Customer)
+        if (role is not (ApplicationRoles.Customer or ApplicationRoles.Designer or ApplicationRoles.Admin))
         {
             return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
-                "Only customers can submit customization requests.");
+                "You do not have permission to submit customization requests.");
         }
 
         var validationError = ValidateSubmitRequest(request);
@@ -195,6 +198,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
 
         var businessError = await ValidateSubmitBusinessRulesAsync(
             context,
+            role,
             currentUserId,
             cancellationToken);
         if (businessError is not null)
@@ -202,7 +206,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             return businessError;
         }
 
-        var entity = CreateCustomizationRequest(context, currentUserId, request);
+        var entity = CreateCustomizationRequest(context, request);
         await _customizationRequests.AddAsync(entity, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -213,7 +217,9 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             cancellationToken);
 
         return ServiceResult<CustomizationRequestDetailDto>.Created(
-            detail is null ? entity.Adapt<CustomizationRequestDetailDto>() : ToDetailDto(detail),
+            detail is null
+                ? entity.Adapt<CustomizationRequestDetailDto>()
+                : await ToDetailDtoAsync(detail, cancellationToken),
             "Customization request submitted successfully.");
     }
 
@@ -339,6 +345,15 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 "You can only decide customization requests for your own project.");
         }
 
+        if (IsDecision(request.Decision, AcceptDecision) &&
+            context.Entity!.Status == CustomizationStatus.ACCEPTED)
+        {
+            return await ReloadUpdatedDetailAsync(
+                customizationRequestId,
+                "Customization request customer decision submitted successfully.",
+                cancellationToken);
+        }
+
         var validationError = ValidateCustomerDecision(context.Entity!, request);
         if (validationError is not null)
         {
@@ -357,15 +372,21 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                     "Proposal item not found.");
             }
 
-            ApplyAcceptedCustomization(context.Entity, proposalItem);
+            var acceptError = await AcceptCustomizationAsync(
+                context.Entity,
+                proposalItem,
+                cancellationToken);
+            if (acceptError is not null)
+            {
+                return acceptError;
+            }
         }
         else
         {
             ApplyRejectedCustomization(context.Entity!, request);
+            _customizationRequests.Update(context.Entity!);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
         }
-
-        _customizationRequests.Update(context.Entity!);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return await ReloadUpdatedDetailAsync(
             customizationRequestId,
@@ -439,13 +460,14 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
 
     private async Task<ServiceResult<CustomizationRequestDetailDto>?> ValidateSubmitBusinessRulesAsync(
         CustomizationSubmitContextReadModel context,
+        string? role,
         Guid currentUserId,
         CancellationToken cancellationToken)
     {
-        if (context.CustomerId != currentUserId)
+        var roleError = ValidateSubmitRoleAccess(context, role, currentUserId);
+        if (roleError is not null)
         {
-            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
-                "You can only submit customization requests for your own project.");
+            return roleError;
         }
 
         if (IsProposalAlreadySelected(context))
@@ -455,11 +477,27 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 "Proposal has already been selected.");
         }
 
+        if (context.ProjectStatus != ProjectStatus.PROPOSAL_CONSULTING)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.InvalidCustomizationRequest,
+                "Customization request can only be submitted while the project is in proposal consulting.");
+        }
+
         if (context.ProposalStatus != ProposalStatus.PUBLISHED)
         {
             return BadRequestDetail(
                 CustomizationRequestErrorCodes.InvalidCustomizationRequest,
                 "Customization request can only be submitted for a published proposal.");
+        }
+
+        if (await _customizationRequests.HasActiveRequestForProposalItemAsync(
+                context.ProposalItemId,
+                cancellationToken))
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.CustomizationRequestAlreadyActive,
+                "An active customization request already exists for this proposal item.");
         }
 
         var hasQuotation = await _customizationRequests.HasQuotationForProposalAsync(
@@ -470,6 +508,38 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 CustomizationRequestErrorCodes.QuotationAlreadyCreated,
                 "Quotation has already been created for this proposal.")
             : null;
+    }
+
+    private static ServiceResult<CustomizationRequestDetailDto>? ValidateSubmitRoleAccess(
+        CustomizationSubmitContextReadModel context,
+        string? role,
+        Guid currentUserId)
+    {
+        if (role == ApplicationRoles.Customer)
+        {
+            return context.CustomerId != currentUserId
+                ? ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+                    "You can only submit customization requests for your own project.")
+                : null;
+        }
+
+        if (role == ApplicationRoles.Designer)
+        {
+            return context.AssignedDesignerId != currentUserId
+                ? ServiceResult<CustomizationRequestDetailDto>.Failure(
+                    Error.Forbidden(
+                        CustomizationRequestErrorCodes.DesignerNotAssignedToProject,
+                        "Designer is not assigned to this project."))
+                : null;
+        }
+
+        if (role == ApplicationRoles.Admin)
+        {
+            return null;
+        }
+
+        return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+            "You do not have permission to submit customization requests.");
     }
 
     private static ServiceResult<CustomizationRequestDetailDto>? ValidateSubmitRequest(
@@ -645,24 +715,6 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             : null;
     }
 
-    private static void ApplyAcceptedCustomization(
-        CustomizationRequest request,
-        ProposalItem proposalItem)
-    {
-        var originalUnitPrice = proposalItem.UnitPriceSnapshot ?? 0m;
-        var additionalCost = request.EstimatedAdditionalCost ?? 0m;
-        var customizedUnitPrice = originalUnitPrice + additionalCost;
-        var quantity = proposalItem.Quantity ?? 0;
-        proposalItem.UnitPriceSnapshot = customizedUnitPrice;
-        proposalItem.TotalPriceSnapshot = customizedUnitPrice * quantity;
-        proposalItem.IsCustomized = true;
-        proposalItem.UpdatedAt = DateTime.UtcNow;
-
-        request.Status = CustomizationStatus.ACCEPTED;
-        request.CustomerAcceptedAt = DateTime.UtcNow;
-        request.UpdatedAt = DateTime.UtcNow;
-    }
-
     private static void ApplyCancellation(
         CustomizationRequest request,
         CancelCustomizationRequestDto cancellation)
@@ -686,6 +738,71 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         request.UpdatedAt = DateTime.UtcNow;
     }
 
+    private async Task<ServiceResult<CustomizationRequestDetailDto>?> AcceptCustomizationAsync(
+        CustomizationRequest request,
+        ProposalItem proposalItem,
+        CancellationToken cancellationToken)
+    {
+        if (!proposalItem.ProductVersionId.HasValue)
+        {
+            return NotFoundDetail(
+                CustomizationRequestErrorCodes.OriginalProductVersionNotFound,
+                "Original product version not found for proposal item.");
+        }
+
+        var originalVersion = await _productVersions.GetByIdAsync(
+            proposalItem.ProductVersionId.Value,
+            cancellationToken);
+        if (originalVersion is null)
+        {
+            return NotFoundDetail(
+                CustomizationRequestErrorCodes.OriginalProductVersionNotFound,
+                "Original product version not found.");
+        }
+
+        var project = await _projects.GetByIdAsync(request.ProjectId, cancellationToken);
+        if (project is null || string.IsNullOrWhiteSpace(project.ProjectCode))
+        {
+            return NotFoundDetail(
+                CustomizationRequestErrorCodes.ProjectNotFound,
+                "Project not found.");
+        }
+
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var sequence = await _productVersions.CountProjectSpecificByProjectAsync(
+                request.ProjectId,
+                cancellationToken) + 1;
+            var approvedVersion = CustomizationAcceptedProductVersionFactory.Create(
+                request,
+                originalVersion,
+                proposalItem,
+                project.ProjectCode,
+                sequence);
+
+            await _productVersions.AddAsync(approvedVersion, cancellationToken);
+            CustomizationAcceptedProductVersionFactory.ApplyAcceptedChanges(
+                request,
+                proposalItem,
+                approvedVersion);
+            _customizationRequests.Update(request);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            return ServiceResult<CustomizationRequestDetailDto>.Failure(
+                Error.InternalServerError(
+                    CustomizationRequestErrorCodes.ProductVersionCreationFailed,
+                    "Failed to create approved product version."));
+        }
+
+        return null;
+    }
+
     private async Task<ServiceResult<CustomizationRequestDetailDto>> ReloadUpdatedDetailAsync(
         Guid customizationRequestId,
         string message,
@@ -696,12 +813,13 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             ? NotFoundDetail(
                 CustomizationRequestErrorCodes.CustomizationRequestNotFound,
                 "Customization request not found.")
-            : ServiceResult<CustomizationRequestDetailDto>.Success(ToDetailDto(detail), message);
+            : ServiceResult<CustomizationRequestDetailDto>.Success(
+                await ToDetailDtoAsync(detail, cancellationToken),
+                message);
     }
 
     private static CustomizationRequest CreateCustomizationRequest(
         CustomizationSubmitContextReadModel context,
-        Guid currentUserId,
         SubmitCustomizationRequestDto request)
     {
         var now = DateTime.UtcNow;
@@ -711,7 +829,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             ProjectId = context.ProjectId,
             ProposalId = context.ProposalId,
             ProposalItemId = context.ProposalItemId,
-            RequestedByCustomerId = currentUserId,
+            RequestedByCustomerId = context.CustomerId,
             RequestTitle = request.RequestTitle.Trim(),
             RequestDescription = request.RequestDescription,
             RequestedWidth = request.RequestedWidth,
@@ -731,7 +849,10 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         CustomizationSubmitContextReadModel context,
         CancellationToken cancellationToken)
     {
-        var receivers = BuildReceivers(context.AssignedSalesId, context.AssignedDesignerId);
+        var receivers = BuildSubmitReceivers(
+            context.CustomerId,
+            context.AssignedSalesId,
+            context.AssignedDesignerId);
         if (receivers.Count == 0)
         {
             return;
@@ -843,17 +964,22 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         return string.Equals(value?.Trim(), expected, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static List<Guid> BuildReceivers(Guid? first, Guid? second)
+    private static List<Guid> BuildSubmitReceivers(
+        Guid customerId,
+        Guid? salesId,
+        Guid? designerId)
     {
-        var receivers = new List<Guid>();
-        if (first.HasValue)
+        var receivers = new List<Guid> { customerId };
+        if (salesId.HasValue && salesId.Value != customerId)
         {
-            receivers.Add(first.Value);
+            receivers.Add(salesId.Value);
         }
 
-        if (second.HasValue && second.Value != first)
+        if (designerId.HasValue &&
+            designerId.Value != customerId &&
+            designerId.Value != salesId)
         {
-            receivers.Add(second.Value);
+            receivers.Add(designerId.Value);
         }
 
         return receivers;
@@ -919,12 +1045,63 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             : null;
     }
 
-    private static CustomizationRequestDetailDto ToDetailDto(
-        CustomizationRequestDetailReadModel detail)
+    private async Task<IReadOnlyList<CustomizationRequestDto>> MapListItemsAsync(
+        List<CustomizationRequestReadModel> items,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        if (items.Count == 0)
+        {
+            return [];
+        }
+
+        var approvedVersionIds = items
+            .Where(item => item.ApprovedProductVersionId.HasValue)
+            .Select(item => item.ApprovedProductVersionId!.Value)
+            .Distinct()
+            .ToList();
+
+        var approvedVersions = approvedVersionIds.Count == 0
+            ? []
+            : await _productVersions.GetValidDetailsAsync(approvedVersionIds, projectId, cancellationToken);
+
+        var approvedVersionLookup = approvedVersions.ToDictionary(version => version.ProductVersionId);
+
+        return items
+            .Select(item =>
+            {
+                var dto = item.Adapt<CustomizationRequestDto>();
+                if (item.ApprovedProductVersionId.HasValue &&
+                    approvedVersionLookup.TryGetValue(item.ApprovedProductVersionId.Value, out var version))
+                {
+                    dto.ApprovedProductVersion = ApprovedProductVersionSummaryMapper.ToDto(version, projectId);
+                }
+
+                return dto;
+            })
+            .ToList();
+    }
+
+    private async Task<CustomizationRequestDetailDto> ToDetailDtoAsync(
+        CustomizationRequestDetailReadModel detail,
+        CancellationToken cancellationToken)
     {
         var dto = detail.Adapt<CustomizationRequestDetailDto>();
-        var item = detail.ProposalItem;
-        dto.ProposalItem = CustomizationRequestItemSnapshotMapper.ToDto(item);
+        dto.ProposalItem = CustomizationRequestItemSnapshotMapper.ToDto(detail.ProposalItem);
+
+        if (!detail.ApprovedProductVersionId.HasValue)
+        {
+            return dto;
+        }
+
+        var approvedVersion = await _productVersions.GetByIdAsync(
+            detail.ApprovedProductVersionId.Value,
+            cancellationToken);
+        if (approvedVersion is not null)
+        {
+            dto.ApprovedProductVersion = ApprovedProductVersionSummaryMapper.ToDto(approvedVersion);
+        }
+
         return dto;
     }
 

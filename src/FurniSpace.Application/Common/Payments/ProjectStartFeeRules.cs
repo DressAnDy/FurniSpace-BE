@@ -19,8 +19,7 @@ public static class ProjectStartFeeRules
     public static readonly PaymentStatus[] CollectablePaymentStatuses =
     [
         PaymentStatus.PENDING,
-        PaymentStatus.PROCESSING,
-        PaymentStatus.PARTIALLY_PAID
+        PaymentStatus.PROCESSING
     ];
 
     public static bool RequiresProjectStartFee => true;

@@ -19,7 +19,7 @@ public sealed class SePayVietQrUrlBuilder
             "&",
             QueryPair("acc", _options.BankAccountNo),
             QueryPair("bank", _options.BankCode),
-            QueryPair("amount", FormatAmount(payment.RemainingAmount)),
+            QueryPair("amount", FormatAmount(payment.Amount)),
             QueryPair("des", payment.PaymentCode),
             QueryPair("template", _options.VietQrTemplate),
             QueryPair("showinfo", _options.VietQrShowInfo.ToString().ToLowerInvariant()),

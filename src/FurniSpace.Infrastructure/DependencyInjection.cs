@@ -108,11 +108,12 @@ public static class DependencyInjection
                 "PostgreSQL connection string is missing. Set ConnectionStrings__DefaultConnection.");
         }
 
-        var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
-        MapPostgresEnums(dataSourceBuilder);
-        var dataSource = dataSourceBuilder.Build();
-
-        services.AddSingleton(dataSource);
+        services.AddSingleton(_ =>
+        {
+            var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+            MapPostgresEnums(dataSourceBuilder);
+            return dataSourceBuilder.Build();
+        });
         services.AddDbContext<AppDbContext>((serviceProvider, options) =>
             options.UseNpgsql(serviceProvider.GetRequiredService<NpgsqlDataSource>(), npgsql =>
                 npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
@@ -195,7 +196,10 @@ public static class DependencyInjection
         services.AddSingleton(new ElasticsearchClient(settings));
         services.AddScoped<ISearchIndexService, ElasticsearchIndexService>();
         services.AddScoped<IIndexManager, ElasticsearchIndexManager>();
-        services.AddHostedService<ElasticsearchIndexInitializer>();
+        if (configuration.GetValue("Elasticsearch:InitializeIndices", true))
+        {
+            services.AddHostedService<ElasticsearchIndexInitializer>();
+        }
     }
 
     private static string AppendRedisPasswordIfNeeded(string connectionString)

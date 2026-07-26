@@ -29,7 +29,12 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 
-EnvLoader.LoadEnv(required: false);
+var bootstrapEnvironment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+    ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+if (!string.Equals(bootstrapEnvironment, "IntegrationTest", StringComparison.OrdinalIgnoreCase))
+{
+    EnvLoader.LoadEnv(required: false);
+}
 
 if (TryGetReindexModule(args, out var reindexModule))
 {
@@ -70,7 +75,7 @@ builder.Services.AddScoped<IPaymentRealtimeService, SignalRPaymentRealtimeServic
 
 var app = builder.Build();
 
-await MigrateAndSeedDatabaseAsync(app);
+await RunStartupDatabaseTasksAsync(app);
 UseDevelopmentSwagger(app);
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
@@ -133,18 +138,36 @@ static async Task CheckAccessTokenRevocationAsync(
     }
 }
 
-static async Task MigrateAndSeedDatabaseAsync(WebApplication app)
+static async Task RunStartupDatabaseTasksAsync(WebApplication app)
 {
+    var runMigrations = app.Configuration.GetValue("StartupTasks:RunMigrations", true);
+    var seedDemoData = app.Configuration.GetValue("StartupTasks:SeedDemoData", true);
+    if (!runMigrations && !seedDemoData)
+    {
+        return;
+    }
+
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        await dbContext.Database.MigrateAsync();
-        await DataSeeder.SeedAsync(dbContext);
+        if (runMigrations)
+        {
+            await dbContext.Database.MigrateAsync();
+        }
+
+        if (seedDemoData)
+        {
+            await DataSeeder.SeedAsync(dbContext);
+        }
     }
     catch (Exception exception)
     {
-        Log.Error(exception, "Failed to apply database migrations during startup.");
+        Log.Error(exception, "Failed to initialize the database during startup.");
+        if (app.Environment.IsEnvironment("IntegrationTest"))
+        {
+            throw;
+        }
     }
 }
 
@@ -464,3 +487,5 @@ static async Task RunReindexCommandAsync(string module)
 
     await Log.CloseAndFlushAsync();
 }
+
+public partial class Program;

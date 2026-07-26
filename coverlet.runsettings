@@ -5,7 +5,8 @@
       <DataCollector friendlyName="XPlat code coverage">
         <Configuration>
           <Format>opencover</Format>
-          <ExcludeByFile>**/Migrations/**</ExcludeByFile>
+          <ExcludeByFile>**/Migrations/**,**/FurniSpace.Testing/**,**/Program.cs</ExcludeByFile>
+          <Exclude>[FurniSpace.Testing]*</Exclude>
         </Configuration>
       </DataCollector>
     </DataCollectors>

@@ -54,10 +54,8 @@ public sealed class PaymentsApiIntegrationTests : IAsyncLifetime
                 PaidBy = customer.AccountId,
                 PaymentType = PaymentType.DEPOSIT,
                 Amount = 25_000_000m,
-                PaidAmount = 10_000_000m,
-                RemainingAmount = 15_000_000m,
                 Currency = "VND",
-                Status = PaymentStatus.PARTIALLY_PAID
+                Status = PaymentStatus.PENDING
             });
             await context.SaveChangesAsync();
         }
@@ -74,10 +72,10 @@ public sealed class PaymentsApiIntegrationTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(result?.Data);
-        Assert.Equal(PaymentStatus.PARTIALLY_PAID, result.Data.Status);
+        Assert.Equal(PaymentStatus.PENDING, result.Data.Status);
         Assert.Equal(25_000_000m, result.Data.Amount);
-        Assert.Equal(10_000_000m, result.Data.PaidAmount);
-        Assert.Equal(15_000_000m, result.Data.RemainingAmount);
+        Assert.Equal(paymentCode, result.Data.PaymentCode);
+        Assert.Null(result.Data.PaidAt);
     }
 
     [Fact]

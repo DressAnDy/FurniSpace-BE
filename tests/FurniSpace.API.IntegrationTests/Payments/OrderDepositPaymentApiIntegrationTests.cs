@@ -70,7 +70,8 @@ public sealed class OrderDepositPaymentApiIntegrationTests : IAsyncLifetime
         await using var verification = _fixture.Database.CreateDbContext();
         var payment = await verification.PaymentSet.SingleAsync();
         Assert.Equal(PaymentStatus.PENDING, payment.Status);
-        Assert.Equal(scenario.DepositAmount, payment.RemainingAmount);
+        Assert.Equal(scenario.DepositAmount, payment.Amount);
+        Assert.Equal(scenario.OrderId, payment.OrderId);
     }
 
     [Fact]

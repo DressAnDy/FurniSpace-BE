@@ -66,7 +66,7 @@ public sealed class CustomizationRequestsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER")]
+    [Authorize(Roles = "CUSTOMER,DESIGNER,ADMIN")]
     [HttpPost("proposal-items/{proposalItemId:guid}/customization-requests")]
     public async Task<IActionResult> Submit(
         Guid proposalItemId,

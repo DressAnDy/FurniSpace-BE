@@ -2099,6 +2099,10 @@ public sealed class ProposalServiceTests
             Guid proposalId,
             CancellationToken cancellationToken = default) => Task.FromResult(_hasPending);
 
+        public Task<bool> HasActiveRequestForProposalItemAsync(
+            Guid proposalItemId,
+            CancellationToken cancellationToken = default) => Task.FromResult(false);
+
         public Task<IReadOnlyList<CustomizationRequestReadModel>> GetByProjectAsync(
             CustomizationRequestQueryReadModel query,
             CancellationToken cancellationToken = default) =>
@@ -2499,6 +2503,10 @@ public sealed class ProposalServiceTests
         public Task<bool> ProductExistsAsync(Guid productId, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<ProductVersionDetailReadModel?> GetPublicDetailAsync(Guid productVersionId, CancellationToken cancellationToken = default) => Task.FromResult<ProductVersionDetailReadModel?>(null);
         public Task SetDefaultAsync(ProductVersion productVersion, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<int> CountProjectSpecificByProjectAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
 
     private sealed class FakeRoomPlannerSceneRepository : ApplicationRoomPlannerSceneRepository

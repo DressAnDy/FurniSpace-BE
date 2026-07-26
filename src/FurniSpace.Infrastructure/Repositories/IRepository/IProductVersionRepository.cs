@@ -26,4 +26,8 @@ public interface IProductVersionRepository : IGenericRepository<ProductVersion>
     Task SetDefaultAsync(
         ProductVersion productVersion,
         CancellationToken cancellationToken = default);
+
+    Task<int> CountProjectSpecificByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default);
 }

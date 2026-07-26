@@ -300,7 +300,12 @@ public class AppDbContext : DbContext
     {
         modelBuilder.Entity<ProductVersion>(entity =>
         {
-            entity.ToTable("product_versions");
+            entity.ToTable("product_versions", table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_product_versions_project_specific",
+                    "(version_type = 'PROJECT_SPECIFIC'::product_version_type AND project_id IS NOT NULL AND is_project_specific = TRUE AND is_public = FALSE AND is_default = FALSE) OR version_type <> 'PROJECT_SPECIFIC'::product_version_type");
+            });
             entity.HasKey(e => e.ProductVersionId);
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductId).HasColumnName("product_id").HasColumnType(UuidColumnType);

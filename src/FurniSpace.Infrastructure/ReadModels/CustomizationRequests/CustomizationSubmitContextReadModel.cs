@@ -13,5 +13,6 @@ public sealed class CustomizationSubmitContextReadModel
     public ProposalStatus? ProposalStatus { get; set; }
     public ProjectStatus? ProjectStatus { get; set; }
     public string ProjectName { get; set; } = string.Empty;
+    public string? ProjectCode { get; set; }
     public string ProposalName { get; set; } = string.Empty;
 }

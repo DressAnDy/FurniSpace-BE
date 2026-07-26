@@ -31,6 +31,10 @@ public interface ICustomizationRequestRepository : IGenericRepository<Customizat
         Guid proposalId,
         CancellationToken cancellationToken = default);
 
+    Task<bool> HasActiveRequestForProposalItemAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>> GetProductionQueueAsync(
         ProductionCustomizationRequestQueueQueryReadModel query,
         CancellationToken cancellationToken = default);

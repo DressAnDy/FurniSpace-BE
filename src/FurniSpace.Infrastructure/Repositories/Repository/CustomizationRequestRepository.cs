@@ -84,6 +84,7 @@ public sealed class CustomizationRequestRepository
                     ProposalStatus = joined.proposal.Status,
                     ProjectStatus = project.Status,
                     ProjectName = project.ProjectName,
+                    ProjectCode = project.ProjectCode,
                     ProposalName = joined.proposal.ProposalName
                 })
             .FirstOrDefaultAsync(cancellationToken);
@@ -118,6 +119,18 @@ public sealed class CustomizationRequestRepository
         return DbContext.CustomizationRequestSet.AnyAsync(
             request =>
                 request.ProposalId == proposalId &&
+                request.Status.HasValue &&
+                PendingFinalSelectionStatuses.Contains(request.Status.Value),
+            cancellationToken);
+    }
+
+    public Task<bool> HasActiveRequestForProposalItemAsync(
+        Guid proposalItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.CustomizationRequestSet.AnyAsync(
+            request =>
+                request.ProposalItemId == proposalItemId &&
                 request.Status.HasValue &&
                 PendingFinalSelectionStatuses.Contains(request.Status.Value),
             cancellationToken);

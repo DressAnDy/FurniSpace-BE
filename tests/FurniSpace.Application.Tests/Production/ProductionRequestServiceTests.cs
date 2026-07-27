@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -58,6 +59,12 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(OrderStatus.IN_PRODUCTION, context.OrderSet.Single().Status);
         Assert.Equal(ProjectStatus.IN_PRODUCTION, context.ProjectSet.Single().Status);
         Assert.Single(context.ProductionItemSet);
+        Assert.Equal(
+            OrderItemStatus.IN_PRODUCTION,
+            context.OrderItemSet.Single(item => item.ItemType == QuotationItemType.PRODUCT_ITEM).Status);
+        Assert.Equal(
+            OrderItemStatus.PENDING,
+            context.OrderItemSet.Single(item => item.ItemType == QuotationItemType.MANUAL_ITEM).Status);
         Assert.Equal("NORMAL", context.ProductionRequestSet.Single().Priority);
         Assert.Equal("Start soon", context.ProductionRequestSet.Single().Note);
         Assert.Equal(NotificationType.ProductionRequestAssigned, dispatcher.NotificationType);
@@ -110,6 +117,47 @@ public sealed class ProductionRequestServiceTests
 
         Assert.Equal(409, result.Status);
         Assert.Equal(ProductionErrorCodes.ProductionRequestAlreadyExists, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenNoProductItems_ReturnsOrderItemNotEligible()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        context.OrderItemSet.Add(CreateOrderItem(data.OrderId, QuotationItemType.MANUAL_ITEM, "Shipping"));
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CreateAsync(
+            data.OrderId,
+            _salesId,
+            new CreateProductionRequestDto { AssignedTo = _productionId });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.OrderItemNotEligibleForProduction, result.ErrorCode);
+        Assert.Empty(context.ProductionRequestSet);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenProductItemStatusInvalid_ReturnsInvalidOrderItemTransition()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var item = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Chair");
+        item.Status = OrderItemStatus.READY;
+        context.OrderItemSet.Add(item);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CreateAsync(
+            data.OrderId,
+            _salesId,
+            new CreateProductionRequestDto { AssignedTo = _productionId });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderItemStatusTransitionService.InvalidTransitionCode, result.ErrorCode);
+        Assert.Empty(context.ProductionRequestSet);
+        Assert.Equal(OrderItemStatus.READY, context.OrderItemSet.Single().Status);
     }
 
     [Fact]
@@ -690,6 +738,29 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(200, result.Status);
         Assert.Equal("COMPLETED", result.Data!.Status);
         Assert.NotNull(result.Data.CompletedAt);
+        Assert.Equal(OrderItemStatus.IN_PRODUCTION, context.OrderItemSet.Single().Status);
+    }
+
+    [Fact]
+    public async Task UpdateItemStatusAsync_WhenBlocked_KeepsOrderItemStatus()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.IN_PRODUCTION);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto
+            {
+                Status = ProductionItemStatus.BLOCKED,
+                ProductionNote = "Waiting for material."
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("BLOCKED", result.Data!.Status);
+        Assert.Equal(OrderItemStatus.IN_PRODUCTION, context.OrderItemSet.Single().Status);
     }
 
     [Fact]
@@ -713,7 +784,7 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(200, result.Status);
         Assert.Equal("CANCELLED", result.Data!.Status);
         Assert.Equal("Material unavailable.", result.Data.CancellationReason);
-        Assert.Equal(OrderItemStatus.PENDING, context.OrderItemSet.Single().Status);
+        Assert.Equal(OrderItemStatus.IN_PRODUCTION, context.OrderItemSet.Single().Status);
         Assert.Equal(NotificationType.ProductionItemCancelled, dispatcher.NotificationType);
         Assert.Equal(_salesId, Assert.Single(dispatcher.ReceiverIds));
     }
@@ -786,11 +857,14 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal("COMPLETED", result.Data!.ProductionStatus);
         Assert.Equal("READY_FOR_DELIVERY", result.Data.OrderStatus);
         Assert.Equal("READY_FOR_DELIVERY", result.Data.ProjectStatus);
+        Assert.Equal(1, result.Data.ReadyOrderItemCount);
+        Assert.Equal(1, result.Data.UnavailableOrderItemCount);
         Assert.Equal(1, result.Data.AppliedAdjustmentCount);
         Assert.Equal(7_500_000m, result.Data.FinalTotalAmount);
         Assert.Equal(3_000_000m, result.Data.PaidAmount);
         Assert.Equal(4_500_000m, result.Data.RemainingAmount);
         Assert.Equal(OrderAdjustmentStatus.APPLIED, context.OrderAdjustmentSet.Single().Status);
+        Assert.Equal(OrderItemStatus.READY, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CompletedOrderItemId).Status);
         Assert.Equal(OrderItemStatus.UNAVAILABLE, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CancelledOrderItemId).Status);
         Assert.Equal(ProjectStatus.READY_FOR_DELIVERY, context.ProjectSet.Single().Status);
     }
@@ -814,7 +888,26 @@ public sealed class ProductionRequestServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal("COMPLETED", result.Data!.ProductionStatus);
+        Assert.Equal(0, result.Data.ReadyOrderItemCount);
+        Assert.Equal(0, result.Data.UnavailableOrderItemCount);
         Assert.Equal(1, result.Data.AppliedAdjustmentCount);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenProductionItemOrderItemMissing_ReturnsMappingInvalid()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        var orderItem = context.OrderItemSet.Local.Single(item => item.OrderItemId == seeded.CompletedOrderItemId);
+        context.OrderItemSet.Remove(orderItem);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.OrderItemMappingInvalid, result.ErrorCode);
+        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
     }
 
     [Fact]
@@ -1015,6 +1108,7 @@ public sealed class ProductionRequestServiceTests
     {
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
         var orderItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Cafe Chair");
+        orderItem.Status = OrderItemStatus.IN_PRODUCTION;
         var productionRequest = CreateProductionRequest(
             data.ProjectId,
             data.OrderId,
@@ -1042,6 +1136,8 @@ public sealed class ProductionRequestServiceTests
         project.Status = ProjectStatus.IN_PRODUCTION;
         var completedItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Counter");
         var cancelledItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Chair");
+        completedItem.Status = OrderItemStatus.IN_PRODUCTION;
+        cancelledItem.Status = OrderItemStatus.IN_PRODUCTION;
         completedItem.SubtotalAmount = 3_000_000m;
         cancelledItem.SubtotalAmount = 2_000_000m;
         var productionRequest = CreateProductionRequest(
@@ -1062,7 +1158,10 @@ public sealed class ProductionRequestServiceTests
             AddConfirmedAdjustment(context, data.OrderId, cancelledItem.OrderItemId);
         }
 
-        return new SeededCompletion(productionRequest.ProductionRequestId, cancelledItem.OrderItemId);
+        return new SeededCompletion(
+            productionRequest.ProductionRequestId,
+            completedItem.OrderItemId,
+            cancelledItem.OrderItemId);
     }
 
     private void AddConfirmedAdjustment(
@@ -1258,5 +1357,8 @@ public sealed class ProductionRequestServiceTests
 
     private sealed record SeededProductionItem(Guid ProductionItemId);
 
-    private sealed record SeededCompletion(Guid ProductionRequestId, Guid CancelledOrderItemId);
+    private sealed record SeededCompletion(
+        Guid ProductionRequestId,
+        Guid CompletedOrderItemId,
+        Guid CancelledOrderItemId);
 }

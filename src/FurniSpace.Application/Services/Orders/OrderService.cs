@@ -502,6 +502,12 @@ public sealed class OrderService : IOrderService
             return context.Error;
         }
 
+        var readyError = ValidateReadyOrderItem<OrderItemDeliveredQuantityDto>(context.Item!);
+        if (readyError is not null)
+        {
+            return readyError;
+        }
+
         var quantity = context.Item!.Quantity ?? 0;
         var deliveredQuantity = context.Item.DeliveredQuantity ?? 0;
         if (quantity <= 0)
@@ -558,11 +564,28 @@ public sealed class OrderService : IOrderService
                 "Order item delivery confirmed successfully.");
         }
 
+        var readyError = ValidateReadyOrderItem<OrderItemDeliveryConfirmationDto>(context.Item);
+        if (readyError is not null)
+        {
+            return readyError;
+        }
+
         if (!IsFullyDelivered(context.Item))
         {
             return BadRequest<OrderItemDeliveryConfirmationDto>(
                 OrderErrorCodes.ItemNotFullyDelivered,
                 "Order item must be fully delivered before confirmation.");
+        }
+
+        var transitionError = OrderItemStatusTransitionService.Validate(
+            context.Item.Status,
+            OrderItemStatus.DELIVERED,
+            OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation);
+        if (transitionError is not null)
+        {
+            return BadRequest<OrderItemDeliveryConfirmationDto>(
+                transitionError.ErrorCode,
+                transitionError.Message);
         }
 
         var now = DateTime.UtcNow;
@@ -1236,6 +1259,15 @@ public sealed class OrderService : IOrderService
     {
         return item.ItemType == QuotationItemType.PRODUCT_ITEM &&
             item.Status is not (OrderItemStatus.UNAVAILABLE or OrderItemStatus.CANCELLED);
+    }
+
+    private static ServiceResult<T>? ValidateReadyOrderItem<T>(OrderItem item)
+    {
+        return item.Status == OrderItemStatus.READY
+            ? null
+            : BadRequest<T>(
+                OrderErrorCodes.OrderItemNotReady,
+                "Order item must be READY before delivery can be updated.");
     }
 
     private static bool IsFullyDelivered(OrderItem item)

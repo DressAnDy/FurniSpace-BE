@@ -857,6 +857,8 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal("COMPLETED", result.Data!.ProductionStatus);
         Assert.Equal("READY_FOR_DELIVERY", result.Data.OrderStatus);
         Assert.Equal("READY_FOR_DELIVERY", result.Data.ProjectStatus);
+        Assert.Equal(1, result.Data.ReadyOrderItemCount);
+        Assert.Equal(1, result.Data.UnavailableOrderItemCount);
         Assert.Equal(1, result.Data.AppliedAdjustmentCount);
         Assert.Equal(7_500_000m, result.Data.FinalTotalAmount);
         Assert.Equal(3_000_000m, result.Data.PaidAmount);
@@ -886,7 +888,26 @@ public sealed class ProductionRequestServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal("COMPLETED", result.Data!.ProductionStatus);
+        Assert.Equal(0, result.Data.ReadyOrderItemCount);
+        Assert.Equal(0, result.Data.UnavailableOrderItemCount);
         Assert.Equal(1, result.Data.AppliedAdjustmentCount);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenProductionItemOrderItemMissing_ReturnsMappingInvalid()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        var orderItem = context.OrderItemSet.Local.Single(item => item.OrderItemId == seeded.CompletedOrderItemId);
+        context.OrderItemSet.Remove(orderItem);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.OrderItemMappingInvalid, result.ErrorCode);
+        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
     }
 
     [Fact]

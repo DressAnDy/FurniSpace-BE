@@ -8,6 +8,8 @@ public sealed class ProductionCompletionDto
     public string ProductionStatus { get; set; } = string.Empty;
     public string OrderStatus { get; set; } = string.Empty;
     public string ProjectStatus { get; set; } = string.Empty;
+    public int ReadyOrderItemCount { get; set; }
+    public int UnavailableOrderItemCount { get; set; }
     public int AppliedAdjustmentCount { get; set; }
     public decimal FinalTotalAmount { get; set; }
     public decimal? PaidAmount { get; set; }

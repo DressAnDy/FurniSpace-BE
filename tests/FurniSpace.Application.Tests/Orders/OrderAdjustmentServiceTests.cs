@@ -473,7 +473,12 @@ public sealed class OrderAdjustmentServiceTests
     {
         await using var context = CreateContext();
         var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
-        var item = AddOrderItem(context, seeded.OrderId, quantity: 4, deliveredQuantity: 2);
+        var item = AddOrderItem(
+            context,
+            seeded.OrderId,
+            status: OrderItemStatus.READY,
+            quantity: 4,
+            deliveredQuantity: 2);
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -504,7 +509,12 @@ public sealed class OrderAdjustmentServiceTests
     {
         await using var context = CreateContext();
         var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
-        var item = AddOrderItem(context, seeded.OrderId, quantity: 4, deliveredQuantity: 2);
+        var item = AddOrderItem(
+            context,
+            seeded.OrderId,
+            status: OrderItemStatus.READY,
+            quantity: 4,
+            deliveredQuantity: 2);
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -520,6 +530,7 @@ public sealed class OrderAdjustmentServiceTests
     [Theory]
     [InlineData(QuotationItemType.MANUAL_ITEM, OrderItemStatus.PENDING, OrderErrorCodes.ItemNotDeliverable)]
     [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.CANCELLED, OrderErrorCodes.ItemNotDeliverable)]
+    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.IN_PRODUCTION, OrderErrorCodes.OrderItemNotReady)]
     [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.PENDING, OrderErrorCodes.OrderNotDelivering)]
     public async Task UpdateDeliveredQuantityAsync_WhenNotDeliverable_ReturnsExpectedError(
         QuotationItemType itemType,
@@ -549,7 +560,7 @@ public sealed class OrderAdjustmentServiceTests
     {
         await using var context = CreateContext();
         var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
-        var item = AddOrderItem(context, seeded.OrderId);
+        var item = AddOrderItem(context, seeded.OrderId, status: OrderItemStatus.READY);
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -632,7 +643,7 @@ public sealed class OrderAdjustmentServiceTests
 
     [Theory]
     [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.READY, 2, 1, OrderErrorCodes.ItemNotFullyDelivered)]
-    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.PENDING, 1, 1, OrderItemStatusTransitionService.InvalidTransitionCode)]
+    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.IN_PRODUCTION, 1, 1, OrderErrorCodes.OrderItemNotReady)]
     [InlineData(QuotationItemType.MANUAL_ITEM, OrderItemStatus.PENDING, 1, 1, OrderErrorCodes.ItemNotDeliverable)]
     public async Task ConfirmItemDeliveryAsync_WhenInvalid_ReturnsExpectedBadRequest(
         QuotationItemType itemType,

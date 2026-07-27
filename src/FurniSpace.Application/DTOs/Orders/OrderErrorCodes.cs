@@ -23,6 +23,7 @@ public static class OrderErrorCodes
     public const string InvalidDeliveredQuantity = "INVALID_DELIVERED_QUANTITY";
     public const string DeliveredQuantityExceeded = "DELIVERED_QUANTITY_EXCEEDED";
     public const string ItemNotDeliverable = "ITEM_NOT_DELIVERABLE";
+    public const string OrderItemNotReady = "ORDER_ITEM_NOT_READY";
     public const string OrderNotDelivering = "ORDER_NOT_DELIVERING";
     public const string ItemNotFullyDelivered = "ITEM_NOT_FULLY_DELIVERED";
     public const string OrderNotDelivered = "ORDER_NOT_DELIVERED";

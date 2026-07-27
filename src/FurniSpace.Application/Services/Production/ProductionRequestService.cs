@@ -539,8 +539,14 @@ public sealed class ProductionRequestService : IProductionRequestService
         var adjustments = (await _orders.GetAdjustmentsByOrderAsync(order.OrderId, cancellationToken)).ToList();
         if (productionRequest.Status == ProductionRequestStatus.COMPLETED)
         {
+            var completedCounts = await CountSynchronizedOrderItemsAsync(order.OrderId, cancellationToken);
             return ServiceResult<ProductionCompletionDto>.Success(
-                ToCompletionDto(productionRequest, order, project, CountAppliedAdjustments(adjustments)),
+                ToCompletionDto(
+                    productionRequest,
+                    order,
+                    project,
+                    CountAppliedAdjustments(adjustments),
+                    completedCounts),
                 "Production completed and confirmed adjustments applied successfully.");
         }
 
@@ -619,8 +625,14 @@ public sealed class ProductionRequestService : IProductionRequestService
             throw;
         }
 
+        var synchronizedCounts = await CountSynchronizedOrderItemsAsync(order.OrderId, cancellationToken);
         return ServiceResult<ProductionCompletionDto>.Success(
-            ToCompletionDto(productionRequest, order, project, adjustmentContext.ConfirmedAdjustments.Count),
+            ToCompletionDto(
+                productionRequest,
+                order,
+                project,
+                adjustmentContext.ConfirmedAdjustments.Count,
+                synchronizedCounts),
             "Production completed and confirmed adjustments applied successfully.");
     }
 
@@ -797,7 +809,9 @@ public sealed class ProductionRequestService : IProductionRequestService
             var orderItem = await _orders.GetItemByIdAsync(productionItem.OrderItemId, cancellationToken);
             if (orderItem is null)
             {
-                continue;
+                return BadRequest<T>(
+                    ProductionErrorCodes.OrderItemMappingInvalid,
+                    "Production item is not mapped to a valid order item.");
             }
 
             var targetStatus = ResolveCompletedOrderItemStatus(productionItem);
@@ -826,7 +840,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             var orderItem = await _orders.GetItemByIdAsync(productionItem.OrderItemId, cancellationToken);
             if (orderItem is null)
             {
-                continue;
+                throw new InvalidOperationException("Production item is not mapped to a valid order item.");
             }
 
             var targetStatus = ResolveCompletedOrderItemStatus(productionItem);
@@ -870,6 +884,28 @@ public sealed class ProductionRequestService : IProductionRequestService
         orderItem.UnavailableReason = adjustmentItem.Reason;
         orderItem.UnavailableConfirmedBy = currentUserId;
         orderItem.UnavailableConfirmedAt = now;
+    }
+
+    private async Task<OrderItemSynchronizationCounts> CountSynchronizedOrderItemsAsync(
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        var orderItems = await _orders.GetItemsByOrderAsync(orderId, cancellationToken);
+        return new OrderItemSynchronizationCounts(
+            orderItems.Count(IsReadyProductItem),
+            orderItems.Count(IsUnavailableProductItem));
+    }
+
+    private static bool IsReadyProductItem(OrderItem item)
+    {
+        return item.ItemType == QuotationItemType.PRODUCT_ITEM &&
+            item.Status == OrderItemStatus.READY;
+    }
+
+    private static bool IsUnavailableProductItem(OrderItem item)
+    {
+        return item.ItemType == QuotationItemType.PRODUCT_ITEM &&
+            item.Status == OrderItemStatus.UNAVAILABLE;
     }
 
     private void CompleteWorkflow(
@@ -1296,7 +1332,8 @@ public sealed class ProductionRequestService : IProductionRequestService
         ProductionRequest productionRequest,
         Order order,
         Project project,
-        int appliedAdjustmentCount)
+        int appliedAdjustmentCount,
+        OrderItemSynchronizationCounts counts)
     {
         return new ProductionCompletionDto
         {
@@ -1304,6 +1341,8 @@ public sealed class ProductionRequestService : IProductionRequestService
             ProductionStatus = productionRequest.Status.ToString() ?? string.Empty,
             OrderStatus = order.Status.ToString() ?? string.Empty,
             ProjectStatus = project.Status.ToString() ?? string.Empty,
+            ReadyOrderItemCount = counts.ReadyOrderItemCount,
+            UnavailableOrderItemCount = counts.UnavailableOrderItemCount,
             AppliedAdjustmentCount = appliedAdjustmentCount,
             FinalTotalAmount = order.FinalTotalAmount,
             PaidAmount = order.PaidAmount,
@@ -1315,6 +1354,10 @@ public sealed class ProductionRequestService : IProductionRequestService
         List<OrderAdjustment> ApplicableAdjustments,
         List<OrderAdjustment> ConfirmedAdjustments,
         Dictionary<Guid, OrderAdjustmentItem> UnavailableItemsByOrderItemId);
+
+    private sealed record OrderItemSynchronizationCounts(
+        int ReadyOrderItemCount,
+        int UnavailableOrderItemCount);
 }
 
 public sealed class ProductionRequestServiceDependencies
@@ -1345,6 +1388,7 @@ public static class ProductionErrorCodes
     public const string InvalidProductionStaffFilter = "INVALID_PRODUCTION_STAFF_FILTER";
     public const string OrderNotFound = "ORDER_NOT_FOUND";
     public const string OrderItemNotEligibleForProduction = "ORDER_ITEM_NOT_ELIGIBLE_FOR_PRODUCTION";
+    public const string OrderItemMappingInvalid = "ORDER_ITEM_MAPPING_INVALID";
     public const string ProductionAssigneeNotActive = "PRODUCTION_ASSIGNEE_NOT_ACTIVE";
     public const string ProductionItemsNotResolved = "PRODUCTION_ITEMS_NOT_RESOLVED";
     public const string ProductionRequestAlreadyClosed = "PRODUCTION_REQUEST_ALREADY_CLOSED";

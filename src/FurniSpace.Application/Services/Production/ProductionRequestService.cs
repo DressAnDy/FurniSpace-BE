@@ -2,6 +2,7 @@
 
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Production;
@@ -124,6 +125,22 @@ public sealed class ProductionRequestService : IProductionRequestService
         }
 
         var productOrderItems = await _productionRequests.GetProductOrderItemsAsync(orderId, cancellationToken);
+        if (productOrderItems.Count == 0)
+        {
+            return BadRequest<ProductionRequestCreatedDto>(
+                ProductionErrorCodes.OrderItemNotEligibleForProduction,
+                "Order must contain at least one product item eligible for production.");
+        }
+
+        var orderItemTransitionError = ValidateOrderItemTransitions<ProductionRequestCreatedDto>(
+            productOrderItems,
+            OrderItemStatus.IN_PRODUCTION,
+            OrderItemStatusTransitionOwner.ProductionRequestCreation);
+        if (orderItemTransitionError is not null)
+        {
+            return orderItemTransitionError;
+        }
+
         var now = DateTime.UtcNow;
         var productionRequest = await BuildProductionRequestAsync(order, request, now, cancellationToken);
         var productionItems = BuildProductionItems(productOrderItems, productionRequest.ProductionRequestId, request);
@@ -133,6 +150,10 @@ public sealed class ProductionRequestService : IProductionRequestService
             await _dependencies.UnitOfWork.BeginTransactionAsync(cancellationToken);
             await _productionRequests.AddAsync(productionRequest, cancellationToken);
             await _productionRequests.AddItemsAsync(productionItems, cancellationToken);
+            ApplyOrderItemStatusTransitions(
+                productOrderItems,
+                OrderItemStatus.IN_PRODUCTION,
+                OrderItemStatusTransitionOwner.ProductionRequestCreation);
             MoveOrderAndProjectToProduction(order, project, now);
             _orders.Update(order);
             _projects.Update(project);
@@ -553,6 +574,14 @@ public sealed class ProductionRequestService : IProductionRequestService
                 "Cancelled production items must have confirmed order adjustments.");
         }
 
+        var orderItemSyncError = await ValidateResolvedOrderItemTransitionsAsync<ProductionCompletionDto>(
+            productionItems,
+            cancellationToken);
+        if (orderItemSyncError is not null)
+        {
+            return orderItemSyncError;
+        }
+
         var finalTotalAmount = CalculateAdjustedFinalTotal(order, adjustmentContext.ApplicableAdjustments);
         var paidAmount = order.PaidAmount ?? 0m;
         if (finalTotalAmount < paidAmount)
@@ -567,8 +596,8 @@ public sealed class ProductionRequestService : IProductionRequestService
         {
             await _dependencies.UnitOfWork.BeginTransactionAsync(cancellationToken);
             ApplyConfirmedAdjustments(adjustmentContext.ConfirmedAdjustments, currentUserId, now);
-            await MarkCancelledOrderItemsUnavailableAsync(
-                cancelledOrderItemIds,
+            await SyncResolvedOrderItemsAsync(
+                productionItems,
                 adjustmentContext.UnavailableItemsByOrderItemId,
                 currentUserId,
                 now,
@@ -642,6 +671,41 @@ public sealed class ProductionRequestService : IProductionRequestService
                 CompletedAt = null
             })
             .ToList();
+    }
+
+    private static ServiceResult<T>? ValidateOrderItemTransitions<T>(
+        IEnumerable<OrderItem> orderItems,
+        OrderItemStatus targetStatus,
+        OrderItemStatusTransitionOwner owner)
+    {
+        foreach (var orderItem in orderItems)
+        {
+            var error = OrderItemStatusTransitionService.Validate(orderItem.Status, targetStatus, owner);
+            if (error is not null)
+            {
+                return BadRequest<T>(error.ErrorCode, error.Message);
+            }
+        }
+
+        return null;
+    }
+
+    private void ApplyOrderItemStatusTransitions(
+        IEnumerable<OrderItem> orderItems,
+        OrderItemStatus targetStatus,
+        OrderItemStatusTransitionOwner owner)
+    {
+        foreach (var orderItem in orderItems)
+        {
+            var error = OrderItemStatusTransitionService.Validate(orderItem.Status, targetStatus, owner);
+            if (error is not null)
+            {
+                throw new InvalidOperationException(error.Message);
+            }
+
+            orderItem.Status = targetStatus;
+            _orders.UpdateItem(orderItem);
+        }
     }
 
     private static void MoveOrderAndProjectToProduction(Order order, Project project, DateTime now)
@@ -724,29 +788,88 @@ public sealed class ProductionRequestService : IProductionRequestService
         }
     }
 
-    private async Task MarkCancelledOrderItemsUnavailableAsync(
-        List<Guid> cancelledOrderItemIds,
-        Dictionary<Guid, OrderAdjustmentItem> unavailableItemsByOrderItemId,
-        Guid currentUserId,
-        DateTime now,
+    private async Task<ServiceResult<T>?> ValidateResolvedOrderItemTransitionsAsync<T>(
+        List<ProductionItem> productionItems,
         CancellationToken cancellationToken)
     {
-        foreach (var orderItemId in cancelledOrderItemIds)
+        foreach (var productionItem in productionItems)
         {
-            var orderItem = await _orders.GetItemByIdAsync(orderItemId, cancellationToken);
+            var orderItem = await _orders.GetItemByIdAsync(productionItem.OrderItemId, cancellationToken);
             if (orderItem is null)
             {
                 continue;
             }
 
-            var adjustmentItem = unavailableItemsByOrderItemId[orderItemId];
-            orderItem.Status = OrderItemStatus.UNAVAILABLE;
-            orderItem.AdjustmentAmount = adjustmentItem.AdjustmentAmount;
-            orderItem.UnavailableReason = adjustmentItem.Reason;
-            orderItem.UnavailableConfirmedBy = currentUserId;
-            orderItem.UnavailableConfirmedAt = now;
+            var targetStatus = ResolveCompletedOrderItemStatus(productionItem);
+            var error = OrderItemStatusTransitionService.Validate(
+                orderItem.Status,
+                targetStatus,
+                OrderItemStatusTransitionOwner.ProductionRequestCompletion);
+            if (error is not null)
+            {
+                return BadRequest<T>(error.ErrorCode, error.Message);
+            }
+        }
+
+        return null;
+    }
+
+    private async Task SyncResolvedOrderItemsAsync(
+        List<ProductionItem> productionItems,
+        Dictionary<Guid, OrderAdjustmentItem> unavailableItemsByOrderItemId,
+        Guid currentUserId,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        foreach (var productionItem in productionItems)
+        {
+            var orderItem = await _orders.GetItemByIdAsync(productionItem.OrderItemId, cancellationToken);
+            if (orderItem is null)
+            {
+                continue;
+            }
+
+            var targetStatus = ResolveCompletedOrderItemStatus(productionItem);
+            var error = OrderItemStatusTransitionService.Validate(
+                orderItem.Status,
+                targetStatus,
+                OrderItemStatusTransitionOwner.ProductionRequestCompletion);
+            if (error is not null)
+            {
+                throw new InvalidOperationException(error.Message);
+            }
+
+            orderItem.Status = targetStatus;
+            if (targetStatus == OrderItemStatus.UNAVAILABLE)
+            {
+                ApplyUnavailableItemConfirmation(
+                    orderItem,
+                    unavailableItemsByOrderItemId[productionItem.OrderItemId],
+                    currentUserId,
+                    now);
+            }
+
             _orders.UpdateItem(orderItem);
         }
+    }
+
+    private static OrderItemStatus ResolveCompletedOrderItemStatus(ProductionItem productionItem)
+    {
+        return productionItem.Status == ProductionItemStatus.CANCELLED
+            ? OrderItemStatus.UNAVAILABLE
+            : OrderItemStatus.READY;
+    }
+
+    private static void ApplyUnavailableItemConfirmation(
+        OrderItem orderItem,
+        OrderAdjustmentItem adjustmentItem,
+        Guid currentUserId,
+        DateTime now)
+    {
+        orderItem.AdjustmentAmount = adjustmentItem.AdjustmentAmount;
+        orderItem.UnavailableReason = adjustmentItem.Reason;
+        orderItem.UnavailableConfirmedBy = currentUserId;
+        orderItem.UnavailableConfirmedAt = now;
     }
 
     private void CompleteWorkflow(
@@ -1221,6 +1344,7 @@ public static class ProductionErrorCodes
     public const string InvalidProductionRequestTransition = "INVALID_PRODUCTION_REQUEST_TRANSITION";
     public const string InvalidProductionStaffFilter = "INVALID_PRODUCTION_STAFF_FILTER";
     public const string OrderNotFound = "ORDER_NOT_FOUND";
+    public const string OrderItemNotEligibleForProduction = "ORDER_ITEM_NOT_ELIGIBLE_FOR_PRODUCTION";
     public const string ProductionAssigneeNotActive = "PRODUCTION_ASSIGNEE_NOT_ACTIVE";
     public const string ProductionItemsNotResolved = "PRODUCTION_ITEMS_NOT_RESOLVED";
     public const string ProductionRequestAlreadyClosed = "PRODUCTION_REQUEST_ALREADY_CLOSED";

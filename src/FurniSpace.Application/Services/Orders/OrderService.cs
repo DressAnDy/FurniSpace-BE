@@ -565,6 +565,17 @@ public sealed class OrderService : IOrderService
                 "Order item must be fully delivered before confirmation.");
         }
 
+        var transitionError = OrderItemStatusTransitionService.Validate(
+            context.Item.Status,
+            OrderItemStatus.DELIVERED,
+            OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation);
+        if (transitionError is not null)
+        {
+            return BadRequest<OrderItemDeliveryConfirmationDto>(
+                transitionError.ErrorCode,
+                transitionError.Message);
+        }
+
         var now = DateTime.UtcNow;
         context.Item.Status = OrderItemStatus.DELIVERED;
         context.Item.CustomerConfirmedAt = now;

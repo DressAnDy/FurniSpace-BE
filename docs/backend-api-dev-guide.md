@@ -6,6 +6,7 @@ Related guides (deeper topics):
 
 | Doc | When to use |
 | --- | --- |
+| `docs/api-reference.md` | Full REST + SignalR API reference (request / response) |
 | `docs/integration-test-build-guide.md` | Testcontainers, Core suite, fixtures |
 | `docs/payment-service-guide.md` | Deposit / PayOS / SePay flows |
 | `docs/redis-cache-guide.md` | Cache keys and TTL details |

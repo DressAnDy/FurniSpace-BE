@@ -125,6 +125,9 @@ public sealed class OrderServiceTests
                 OrderItemId = Guid.NewGuid(),
                 ItemName = "Counter",
                 Quantity = 1,
+                Status = OrderItemStatus.READY,
+                DeliveredQuantity = 1,
+                CustomerConfirmedAt = null,
                 UnitPrice = 100m,
                 SubtotalAmount = 100m
             }
@@ -143,6 +146,9 @@ public sealed class OrderServiceTests
         Assert.Equal("ORD-001", result.Data.OrderCode);
         Assert.Single(result.Data.Items);
         Assert.Equal("Counter", result.Data.Items[0].ItemName);
+        Assert.Equal(OrderItemStatus.READY, result.Data.Items[0].Status);
+        Assert.Equal(1, result.Data.Items[0].DeliveredQuantity);
+        Assert.Null(result.Data.Items[0].CustomerConfirmedAt);
     }
 
     private static OrderService BuildService(OrderServiceTestOptions? options = null)

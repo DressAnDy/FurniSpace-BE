@@ -65,6 +65,9 @@ public sealed class OrdersMappingConfigTests
                     OrderItemId = itemId,
                     ItemName = "Counter",
                     Quantity = 2,
+                    Status = OrderItemStatus.READY,
+                    DeliveredQuantity = 1,
+                    CustomerConfirmedAt = null,
                     UnitPrice = 50m,
                     SubtotalAmount = 100m
                 }
@@ -77,6 +80,9 @@ public sealed class OrdersMappingConfigTests
         var item = Assert.Single(result.Items);
         Assert.Equal(itemId, item.OrderItemId);
         Assert.Equal("Counter", item.ItemName);
+        Assert.Equal(OrderItemStatus.READY, item.Status);
+        Assert.Equal(1, item.DeliveredQuantity);
+        Assert.Null(item.CustomerConfirmedAt);
     }
 
     [Fact]

@@ -10,6 +10,9 @@ public abstract class OrderItemShape
     public string? ProductNameSnapshot { get; set; }
     public string? ItemName { get; set; }
     public int? Quantity { get; set; }
+    public OrderItemStatus? Status { get; set; }
+    public int? DeliveredQuantity { get; set; }
+    public DateTime? CustomerConfirmedAt { get; set; }
     public decimal? UnitPrice { get; set; }
     public decimal? CustomizationAdditionalCost { get; set; }
     public decimal? DiscountAmount { get; set; }

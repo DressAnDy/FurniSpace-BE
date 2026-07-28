@@ -43,6 +43,9 @@ public sealed class OrderRepositoryTests
         Assert.Equal(data.SalesId, detail.AssignedSalesId);
         Assert.Single(detail.Items);
         Assert.Equal("Counter", detail.Items[0].ItemName);
+        Assert.Equal(OrderItemStatus.READY, detail.Items[0].Status);
+        Assert.Equal(1, detail.Items[0].DeliveredQuantity);
+        Assert.Null(detail.Items[0].CustomerConfirmedAt);
     }
 
     [Fact]
@@ -145,8 +148,11 @@ public sealed class OrderRepositoryTests
             OrderItemId = orderItemId,
             OrderId = orderId,
             QuotationItemId = quotationItemId,
+            ItemType = QuotationItemType.PRODUCT_ITEM,
             ProductNameSnapshot = "Counter",
             Quantity = 1,
+            Status = OrderItemStatus.READY,
+            DeliveredQuantity = 1,
             UnitPrice = 100m,
             SubtotalAmount = 100m
         });

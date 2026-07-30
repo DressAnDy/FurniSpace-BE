@@ -48,7 +48,7 @@ public sealed class CustomizationRequestRepositoryProductionQueueTests
         Assert.Contains(items, item => item.Request.CustomizationRequestId == older.CustomizationRequestId);
         Assert.True(items[0].Request.UpdatedAt >= items[1].Request.UpdatedAt);
         Assert.Equal("Cafe Proposal", items[0].ProposalName);
-        Assert.Equal("Dining Chair", items[0].ProposalItem.ItemName);
+        Assert.Equal("Dining Chair", items[0].SourceProductVersion.VersionName);
         Assert.Equal(data.Project.ProjectName, items[0].Request.ProjectName);
     }
 
@@ -77,20 +77,21 @@ public sealed class CustomizationRequestRepositoryProductionQueueTests
             Status = ProposalStatus.PUBLISHED
         };
         context.ProposalSet.Add(otherProposal);
-        var otherItem = new ProposalItem
+        var otherVersion = new ProductVersion
         {
-            ProposalItemId = Guid.NewGuid(),
-            ProposalId = otherProposal.ProposalId,
-            ItemName = "Other Chair"
+            ProductVersionId = Guid.NewGuid(),
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-TEST-002",
+            VersionName = "Other Chair"
         };
-        context.ProposalItemSet.Add(otherItem);
+        context.ProductVersionSet.Add(otherVersion);
         context.CustomizationRequestSet.Add(matching);
         context.CustomizationRequestSet.Add(new CustomizationRequest
         {
             CustomizationRequestId = Guid.NewGuid(),
             ProjectId = otherProject.ProjectId,
             ProposalId = otherProposal.ProposalId,
-            ProposalItemId = otherItem.ProposalItemId,
+            ProductVersionId = otherVersion.ProductVersionId,
             RequestTitle = "Other request",
             Status = CustomizationStatus.PRODUCTION_REVIEWING,
             MaterialAvailable = false,
@@ -159,26 +160,24 @@ public sealed class CustomizationRequestRepositoryProductionQueueTests
             ProposalName = "Cafe Proposal",
             Status = ProposalStatus.PUBLISHED
         };
-        var proposalItem = new ProposalItem
+        var productVersion = new ProductVersion
         {
-            ProposalItemId = Guid.NewGuid(),
-            ProposalId = proposal.ProposalId,
-            ItemName = "Dining Chair",
-            ItemType = "PRODUCT_ITEM",
-            Quantity = 2,
+            ProductVersionId = Guid.NewGuid(),
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-TEST-001",
+            VersionName = "Dining Chair",
+            Material = "Oak",
+            Color = "Natural",
             Width = 45m,
             Height = 90m,
             Depth = 50m,
-            Material = "Oak",
-            Color = "Natural",
-            UnitPriceSnapshot = 1000000m,
-            TotalPriceSnapshot = 2000000m
+            EstimatedPrice = 1000000m
         };
         context.ProjectSet.Add(project);
         context.ProposalSet.Add(proposal);
-        context.ProposalItemSet.Add(proposalItem);
+        context.ProductVersionSet.Add(productVersion);
         await context.SaveChangesAsync();
-        return new QueueSeedData(project, proposal, proposalItem);
+        return new QueueSeedData(project, proposal, productVersion);
     }
 
     private static CustomizationRequest CreateQueueRequest(
@@ -190,7 +189,7 @@ public sealed class CustomizationRequestRepositoryProductionQueueTests
         CustomizationRequestId = Guid.NewGuid(),
         ProjectId = data.Project.ProjectId,
         ProposalId = data.Proposal.ProposalId,
-        ProposalItemId = data.ProposalItem.ProposalItemId,
+        ProductVersionId = data.ProductVersion.ProductVersionId,
         RequestTitle = "Change material",
         RequestDescription = "Use darker oak",
         RequestedMaterial = "Dark oak",
@@ -200,5 +199,5 @@ public sealed class CustomizationRequestRepositoryProductionQueueTests
         CreatedAt = DateTime.UtcNow.AddDays(-1)
     };
 
-    private sealed record QueueSeedData(Project Project, Proposal Proposal, ProposalItem ProposalItem);
+    private sealed record QueueSeedData(Project Project, Proposal Proposal, ProductVersion ProductVersion);
 }

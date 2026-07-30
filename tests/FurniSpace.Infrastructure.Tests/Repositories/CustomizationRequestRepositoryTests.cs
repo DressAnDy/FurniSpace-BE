@@ -44,51 +44,66 @@ public sealed class CustomizationRequestRepositoryTests
     }
 
     [Fact]
-    public async Task HasActiveRequestForProposalItemAsync_WithActiveStatus_ReturnsTrue()
+    public async Task HasActiveRequestForProductVersionAsync_WithActiveStatus_ReturnsTrue()
     {
         await using var context = CreateContext();
-        var proposalItemId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
         context.CustomizationRequestSet.Add(CreateRequest(
-            Guid.NewGuid(),
-            proposalItemId,
+            projectId,
+            proposalId,
+            productVersionId,
             CustomizationStatus.SUBMITTED));
         context.CustomizationRequestSet.Add(CreateRequest(
-            Guid.NewGuid(),
-            proposalItemId,
+            projectId,
+            proposalId,
+            productVersionId,
             CustomizationStatus.ACCEPTED));
         await context.SaveChangesAsync();
         var repository = new CustomizationRequestRepository(context);
 
-        var result = await repository.HasActiveRequestForProposalItemAsync(proposalItemId);
+        var result = await repository.HasActiveRequestForProductVersionAsync(
+            projectId,
+            proposalId,
+            productVersionId);
 
         Assert.True(result);
     }
 
     [Fact]
-    public async Task HasActiveRequestForProposalItemAsync_WithOnlyResolvedStatuses_ReturnsFalse()
+    public async Task HasActiveRequestForProductVersionAsync_WithOnlyResolvedStatuses_ReturnsFalse()
     {
         await using var context = CreateContext();
-        var proposalItemId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
         context.CustomizationRequestSet.Add(CreateRequest(
-            Guid.NewGuid(),
-            proposalItemId,
+            projectId,
+            proposalId,
+            productVersionId,
             CustomizationStatus.ACCEPTED));
         context.CustomizationRequestSet.Add(CreateRequest(
-            Guid.NewGuid(),
-            proposalItemId,
+            projectId,
+            proposalId,
+            productVersionId,
             CustomizationStatus.REJECTED_BY_CUSTOMER));
         await context.SaveChangesAsync();
         var repository = new CustomizationRequestRepository(context);
 
-        var result = await repository.HasActiveRequestForProposalItemAsync(proposalItemId);
+        var result = await repository.HasActiveRequestForProductVersionAsync(
+            projectId,
+            proposalId,
+            productVersionId);
 
         Assert.False(result);
     }
 
     [Fact]
-    public async Task GetSubmitContextAsync_ReturnsProjectCode()
+    public async Task GetSubmitContextAsync_ReturnsProjectCodeAndProductVersionId()
     {
         await using var context = CreateContext();
+        var productVersionId = Guid.NewGuid();
         var project = new Project
         {
             ProjectId = Guid.NewGuid(),
@@ -108,6 +123,7 @@ public sealed class CustomizationRequestRepositoryTests
         {
             ProposalItemId = Guid.NewGuid(),
             ProposalId = proposal.ProposalId,
+            ProductVersionId = productVersionId,
             ItemName = "Dining Chair"
         };
         context.ProjectSet.Add(project);
@@ -122,6 +138,7 @@ public sealed class CustomizationRequestRepositoryTests
         Assert.Equal("PRJ-000001", result!.ProjectCode);
         Assert.Equal(project.ProjectId, result.ProjectId);
         Assert.Equal(proposal.ProposalId, result.ProposalId);
+        Assert.Equal(productVersionId, result.ProductVersionId);
     }
 
     private static AppDbContext CreateContext()
@@ -139,20 +156,21 @@ public sealed class CustomizationRequestRepositoryTests
         CustomizationRequestId = Guid.NewGuid(),
         ProjectId = Guid.NewGuid(),
         ProposalId = proposalId,
-        ProposalItemId = Guid.NewGuid(),
+        ProductVersionId = Guid.NewGuid(),
         RequestTitle = "Change material",
         Status = status
     };
 
     private static CustomizationRequest CreateRequest(
+        Guid projectId,
         Guid proposalId,
-        Guid proposalItemId,
+        Guid productVersionId,
         CustomizationStatus status) => new()
     {
         CustomizationRequestId = Guid.NewGuid(),
-        ProjectId = Guid.NewGuid(),
+        ProjectId = projectId,
         ProposalId = proposalId,
-        ProposalItemId = proposalItemId,
+        ProductVersionId = productVersionId,
         RequestTitle = "Change material",
         Status = status
     };

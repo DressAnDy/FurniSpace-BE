@@ -23,7 +23,7 @@ internal static class CustomizationRequestRepositoryProjections
             CustomizationRequestId = joined.Request.CustomizationRequestId,
             ProjectId = joined.Request.ProjectId,
             ProposalId = joined.Request.ProposalId,
-            ProposalItemId = joined.Request.ProposalItemId,
+            ProductVersionId = joined.Request.ProductVersionId,
             RequestedByCustomerId = joined.Request.RequestedByCustomerId,
             RequestTitle = joined.Request.RequestTitle,
             RequestDescription = joined.Request.RequestDescription,
@@ -55,10 +55,9 @@ internal static class CustomizationRequestRepositoryProjections
         };
 
     internal static CustomizationRequestDetailReadModel ToDetailReadModel(
-        CustomizationRequestReadModel source,
-        ProposalItem proposalItem)
+        CustomizationRequestReadModel source)
     {
-        var detail = new CustomizationRequestDetailReadModel { ProposalItem = proposalItem };
+        var detail = new CustomizationRequestDetailReadModel();
         CopyReadModelValues(source, detail);
         return detail;
     }

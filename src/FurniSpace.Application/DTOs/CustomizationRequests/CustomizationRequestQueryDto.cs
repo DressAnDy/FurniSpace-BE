@@ -5,6 +5,6 @@ namespace FurniSpace.Application.DTOs.CustomizationRequests;
 public sealed class CustomizationRequestQueryDto
 {
     public Guid? ProposalId { get; set; }
-    public Guid? ProposalItemId { get; set; }
+    public Guid? ProductVersionId { get; set; }
     public CustomizationStatus? Status { get; set; }
 }

@@ -2099,8 +2099,10 @@ public sealed class ProposalServiceTests
             Guid proposalId,
             CancellationToken cancellationToken = default) => Task.FromResult(_hasPending);
 
-        public Task<bool> HasActiveRequestForProposalItemAsync(
-            Guid proposalItemId,
+        public Task<bool> HasActiveRequestForProductVersionAsync(
+            Guid projectId,
+            Guid proposalId,
+            Guid productVersionId,
             CancellationToken cancellationToken = default) => Task.FromResult(false);
 
         public Task<IReadOnlyList<CustomizationRequestReadModel>> GetByProjectAsync(

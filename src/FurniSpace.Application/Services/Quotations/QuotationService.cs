@@ -773,7 +773,7 @@ public sealed class QuotationService : IQuotationService
             QuotationId = quotationId,
             ItemType = QuotationItemType.PRODUCT_ITEM,
             ProposalItemId = item.ProposalItemId,
-            ProductVersionId = item.ApprovedProductVersionId ?? item.ProductVersionId,
+            ProductVersionId = item.ProductVersionId,
             ProductNameSnapshot = item.ItemName,
             ProductVersionNameSnapshot = item.ItemName,
             ItemName = item.ItemName,

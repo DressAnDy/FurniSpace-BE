@@ -11,5 +11,5 @@ public sealed class ProductionCustomizationRequestQueueReadModel
 
     public ProposalStatus? ProposalStatus { get; set; }
 
-    public ProposalItem ProposalItem { get; set; } = new();
+    public ProductVersion SourceProductVersion { get; set; } = new();
 }

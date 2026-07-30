@@ -46,6 +46,12 @@ public interface ICustomizationRequestService
         CancelCustomizationRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<CreateCustomizationProductVersionResponseDto>> CreateCustomizationProductVersionAsync(
+        Guid customizationRequestId,
+        Guid currentUserId,
+        CreateCustomizationProductVersionRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProductionCustomizationRequestListResponseDto>> GetProductionQueueAsync(
         Guid currentUserId,
         ProductionCustomizationRequestQueryDto query,

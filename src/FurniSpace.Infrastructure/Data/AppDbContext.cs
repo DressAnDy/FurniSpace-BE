@@ -646,7 +646,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.SceneObjectId).HasColumnName("scene_object_id").HasColumnType("character varying(100)");
             entity.Property(e => e.ProjectAreaId).HasColumnName(ProjectAreaIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
-            entity.Property(e => e.ApprovedProductVersionId).HasColumnName("approved_product_version_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.ItemName).HasColumnName("item_name").HasColumnType(Varchar150ColumnType).IsRequired();
             entity.Property(e => e.ItemType).HasColumnName("item_type").HasColumnType(Varchar50ColumnType);
             entity.Property(e => e.Quantity).HasColumnName(QuantityColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1);
@@ -665,7 +664,6 @@ public class AppDbContext : DbContext
             entity.HasOne<ProposalScene>().WithMany().HasForeignKey(e => e.SceneId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ApprovedProductVersionId).OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(e => new { e.SceneId, e.SceneObjectId }).HasDatabaseName("idx_proposal_items_scene_object");
             entity.HasIndex(e => new { e.ProposalId, e.ItemName })
                 .HasDatabaseName("idx_proposal_items_proposal_list_sort");
@@ -721,7 +719,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CustomizationRequestId).HasColumnName("customization_request_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.ProposalItemId).HasColumnName(ProposalItemIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.RequestedByCustomerId).HasColumnName("requested_by_customer_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.RequestTitle).HasColumnName("request_title").HasColumnType(Varchar150ColumnType).IsRequired();
             entity.Property(e => e.RequestDescription).HasColumnName("request_description").HasColumnType(TextColumnType);
@@ -748,11 +746,13 @@ public class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Proposal>().WithMany().HasForeignKey(e => e.ProposalId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<ProposalItem>().WithMany().HasForeignKey(e => e.ProposalItemId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.RequestedByCustomerId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.DesignerId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ProductionReviewBy).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ApprovedProductVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.ProjectId, e.ProposalId, e.ProductVersionId })
+                .HasDatabaseName("idx_customization_requests_project_proposal_product_version");
         });
     }
 

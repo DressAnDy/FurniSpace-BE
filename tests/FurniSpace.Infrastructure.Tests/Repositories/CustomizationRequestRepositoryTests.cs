@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -140,6 +141,214 @@ public sealed class CustomizationRequestRepositoryTests
         Assert.Equal(proposal.ProposalId, result.ProposalId);
         Assert.Equal(productVersionId, result.ProductVersionId);
     }
+
+    [Fact]
+    public async Task GetByProjectAsync_FiltersByProposalProductVersionAndStatus()
+    {
+        await using var context = CreateContext();
+        var graph = await SeedRequestGraphAsync(context);
+        var otherProposal = new Proposal
+        {
+            ProposalId = Guid.NewGuid(),
+            ProjectId = graph.Project.ProjectId,
+            ProposalName = "Other Proposal",
+            Status = ProposalStatus.PUBLISHED
+        };
+        var otherVersion = new ProductVersion
+        {
+            ProductVersionId = Guid.NewGuid(),
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-OTHER",
+            VersionName = "Other Chair"
+        };
+        context.ProposalSet.Add(otherProposal);
+        context.ProductVersionSet.Add(otherVersion);
+        context.CustomizationRequestSet.Add(CreateStoredRequest(
+            graph,
+            CustomizationStatus.SUBMITTED));
+        context.CustomizationRequestSet.Add(new CustomizationRequest
+        {
+            CustomizationRequestId = Guid.NewGuid(),
+            ProjectId = graph.Project.ProjectId,
+            ProposalId = otherProposal.ProposalId,
+            ProductVersionId = otherVersion.ProductVersionId,
+            RequestTitle = "Other request",
+            Status = CustomizationStatus.SUBMITTED
+        });
+        context.CustomizationRequestSet.Add(new CustomizationRequest
+        {
+            CustomizationRequestId = Guid.NewGuid(),
+            ProjectId = graph.Project.ProjectId,
+            ProposalId = graph.Proposal.ProposalId,
+            ProductVersionId = graph.ProductVersion.ProductVersionId,
+            RequestTitle = "Accepted request",
+            Status = CustomizationStatus.ACCEPTED
+        });
+        await context.SaveChangesAsync();
+        var repository = new CustomizationRequestRepository(context);
+
+        var items = await repository.GetByProjectAsync(new CustomizationRequestQueryReadModel
+        {
+            ProjectId = graph.Project.ProjectId,
+            ProposalId = graph.Proposal.ProposalId,
+            ProductVersionId = graph.ProductVersion.ProductVersionId,
+            Status = CustomizationStatus.SUBMITTED
+        });
+
+        Assert.Single(items);
+        Assert.Equal("Change material", items[0].RequestTitle);
+        Assert.Equal(graph.Project.CustomerId, items[0].CustomerId);
+        Assert.Equal(graph.Project.ProjectName, items[0].ProjectName);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_ReturnsSourceProductVersion()
+    {
+        await using var context = CreateContext();
+        var graph = await SeedRequestGraphAsync(context);
+        var request = CreateStoredRequest(graph, CustomizationStatus.DESIGN_REVIEWING);
+        context.CustomizationRequestSet.Add(request);
+        await context.SaveChangesAsync();
+        var repository = new CustomizationRequestRepository(context);
+
+        var detail = await repository.GetDetailAsync(request.CustomizationRequestId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(request.CustomizationRequestId, detail!.CustomizationRequestId);
+        Assert.Equal(graph.ProductVersion.ProductVersionId, detail.SourceProductVersion.ProductVersionId);
+        Assert.Equal("Dining Chair", detail.SourceProductVersion.VersionName);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_WhenRequestMissing_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        var repository = new CustomizationRequestRepository(context);
+
+        var detail = await repository.GetDetailAsync(Guid.NewGuid());
+
+        Assert.Null(detail);
+    }
+
+    [Fact]
+    public async Task GetSubmitContextAsync_WhenProposalItemMissing_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        var repository = new CustomizationRequestRepository(context);
+
+        var result = await repository.GetSubmitContextAsync(Guid.NewGuid());
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task HasQuotationForProposalAsync_WhenQuotationExists_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var proposalId = Guid.NewGuid();
+        context.QuotationSet.Add(new Quotation
+        {
+            QuotationId = Guid.NewGuid(),
+            ProposalId = proposalId,
+            ProjectId = Guid.NewGuid(),
+            QuotationCode = "QT-001",
+            Status = QuotationStatus.DRAFT
+        });
+        await context.SaveChangesAsync();
+        var repository = new CustomizationRequestRepository(context);
+
+        var result = await repository.HasQuotationForProposalAsync(proposalId);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task HasProductionVisibleRequestAsync_WhenProductionReviewingExists_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var graph = await SeedRequestGraphAsync(context);
+        context.CustomizationRequestSet.Add(CreateStoredRequest(
+            graph,
+            CustomizationStatus.PRODUCTION_REVIEWING));
+        await context.SaveChangesAsync();
+        var repository = new CustomizationRequestRepository(context);
+
+        var result = await repository.HasProductionVisibleRequestAsync(
+            graph.Project.ProjectId,
+            Guid.NewGuid());
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public async Task HasProductionVisibleRequestAsync_WhenReviewerAssigned_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var graph = await SeedRequestGraphAsync(context);
+        var productionUserId = Guid.NewGuid();
+        var request = CreateStoredRequest(graph, CustomizationStatus.SUBMITTED);
+        request.ProductionReviewBy = productionUserId;
+        context.CustomizationRequestSet.Add(request);
+        await context.SaveChangesAsync();
+        var repository = new CustomizationRequestRepository(context);
+
+        var result = await repository.HasProductionVisibleRequestAsync(
+            graph.Project.ProjectId,
+            productionUserId);
+
+        Assert.True(result);
+    }
+
+    private static async Task<RequestGraphSeed> SeedRequestGraphAsync(AppDbContext context)
+    {
+        var project = new Project
+        {
+            ProjectId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = Guid.NewGuid(),
+            AssignedDesignerId = Guid.NewGuid(),
+            ProjectName = "Cafe Project",
+            ProjectCode = "PRJ-000001",
+            Status = ProjectStatus.PROPOSAL_CONSULTING
+        };
+        var proposal = new Proposal
+        {
+            ProposalId = Guid.NewGuid(),
+            ProjectId = project.ProjectId,
+            ProposalName = "Cafe Proposal",
+            Status = ProposalStatus.PUBLISHED
+        };
+        var productVersion = new ProductVersion
+        {
+            ProductVersionId = Guid.NewGuid(),
+            ProductId = Guid.NewGuid(),
+            VersionCode = "PV-TEST-001",
+            VersionName = "Dining Chair",
+            Material = "Oak",
+            Status = ProductStatus.ACTIVE
+        };
+        context.ProjectSet.Add(project);
+        context.ProposalSet.Add(proposal);
+        context.ProductVersionSet.Add(productVersion);
+        await context.SaveChangesAsync();
+        return new RequestGraphSeed(project, proposal, productVersion);
+    }
+
+    private static CustomizationRequest CreateStoredRequest(
+        RequestGraphSeed graph,
+        CustomizationStatus status) => new()
+    {
+        CustomizationRequestId = Guid.NewGuid(),
+        ProjectId = graph.Project.ProjectId,
+        ProposalId = graph.Proposal.ProposalId,
+        ProductVersionId = graph.ProductVersion.ProductVersionId,
+        RequestTitle = "Change material",
+        Status = status,
+        CreatedAt = DateTime.UtcNow,
+        UpdatedAt = DateTime.UtcNow
+    };
+
+    private sealed record RequestGraphSeed(Project Project, Proposal Proposal, ProductVersion ProductVersion);
 
     private static AppDbContext CreateContext()
     {

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Constants.CustomizationRequests;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -1789,6 +1790,461 @@ public sealed class CustomizationRequestServiceTests
 
         Assert.Equal(409, result.Status);
         Assert.Equal(CustomizationRequestErrorCodes.CustomizationProductVersionLinkConflict, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            new CreateCustomizationProductVersionRequestDto { VersionName = "Custom", DimensionUnit = "cm" });
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_MissingRequestReturnsNotFound()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(CreateIds())));
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new CreateCustomizationProductVersionRequestDto { VersionName = "Custom", DimensionUnit = "cm" });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_EmptySourceProductVersionIdReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = Guid.Empty;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)));
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto { VersionName = "Custom", DimensionUnit = "cm" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.SourceProductVersionRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_MissingSourceProductReturnsNotFound()
+    {
+        var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = originalVersionId;
+        var productVersions = new FakeProductVersionRepository(
+        [
+            new ProductVersion
+            {
+                ProductVersionId = originalVersionId,
+                ProductId = Guid.NewGuid(),
+                VersionCode = "PV-STD-001",
+                VersionName = "Standard",
+                Status = ProductStatus.ACTIVE
+            }
+        ])
+        {
+            ProductExists = false
+        };
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: productVersions);
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto { VersionName = "Custom", DimensionUnit = "cm" });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.SourceProductNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_MissingProjectReturnsNotFound()
+    {
+        var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = originalVersionId;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole),
+            productVersions: new FakeProductVersionRepository(
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = originalVersionId,
+                    ProductId = Guid.NewGuid(),
+                    VersionCode = "PV-STD-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]));
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto { VersionName = "Custom", DimensionUnit = "cm" });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProjectNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_TooManyPreviewFilesReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = originalVersionId;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository(
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = originalVersionId,
+                    ProductId = Guid.NewGuid(),
+                    VersionCode = "PV-STD-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]));
+
+        var previewFileIds = Enumerable.Range(0, CustomizationRequestServiceConstants.MaxProductVersionPreviewFileCount + 1)
+            .Select(_ => Guid.NewGuid())
+            .ToList();
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto
+            {
+                VersionName = "Custom",
+                DimensionUnit = "cm",
+                PreviewFileIds = previewFileIds
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationRequest, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_DuplicatePreviewFileIdsReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
+        var duplicatePreviewId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = originalVersionId;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository(
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = originalVersionId,
+                    ProductId = Guid.NewGuid(),
+                    VersionCode = "PV-STD-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]));
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto
+            {
+                VersionName = "Custom",
+                DimensionUnit = "cm",
+                PreviewFileIds = [duplicatePreviewId, duplicatePreviewId]
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationRequest, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_PreviewFileNotFoundReturnsNotFound()
+    {
+        var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = originalVersionId;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository(
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = originalVersionId,
+                    ProductId = Guid.NewGuid(),
+                    VersionCode = "PV-STD-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]));
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto
+            {
+                VersionName = "Custom",
+                DimensionUnit = "cm",
+                PreviewFileIds = [Guid.NewGuid()]
+            });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.PreviewFileNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_PreviewFileNotActiveReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
+        var previewFileId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = originalVersionId;
+        var projectFiles = new FakeCustomizationProjectFileRepository();
+        projectFiles.Files[previewFileId] = new FileMetadataReadModel
+        {
+            FileId = previewFileId,
+            OriginalFileName = "preview.png",
+            FileType = FileType.PRODUCT_PREVIEW,
+            Status = FileStatus.ARCHIVED
+        };
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository(
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = originalVersionId,
+                    ProductId = Guid.NewGuid(),
+                    VersionCode = "PV-STD-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]),
+            projectFiles: projectFiles);
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto
+            {
+                VersionName = "Custom",
+                DimensionUnit = "cm",
+                PreviewFileIds = [previewFileId]
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.PreviewFileNotActive, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_InvalidPreviewFileTypeReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
+        var previewFileId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = originalVersionId;
+        var projectFiles = new FakeCustomizationProjectFileRepository();
+        projectFiles.Files[previewFileId] = new FileMetadataReadModel
+        {
+            FileId = previewFileId,
+            OriginalFileName = "model.glb",
+            FileType = FileType.MODEL_3D,
+            Status = FileStatus.ACTIVE
+        };
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository(
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = originalVersionId,
+                    ProductId = Guid.NewGuid(),
+                    VersionCode = "PV-STD-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]),
+            projectFiles: projectFiles);
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto
+            {
+                VersionName = "Custom",
+                DimensionUnit = "cm",
+                PreviewFileIds = [previewFileId]
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationRequest, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_ModelFileNotFoundReturnsNotFound()
+    {
+        var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = originalVersionId;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+            },
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository(
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = originalVersionId,
+                    ProductId = Guid.NewGuid(),
+                    VersionCode = "PV-STD-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]));
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto
+            {
+                VersionName = "Custom",
+                DimensionUnit = "cm",
+                ModelFileId = Guid.NewGuid()
+            });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ModelFileNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateCustomizationProductVersionAsync_SaveFailureReturnsInternalServerError()
+    {
+        var ids = CreateIds();
+        var originalVersionId = Guid.NewGuid();
+        var entity = CreateEntity(ids, CustomizationStatus.DESIGN_REVIEWING);
+        entity.ProductVersionId = originalVersionId;
+        var repo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.DESIGN_REVIEWING)
+        };
+        var rollbackCalled = false;
+        var service = CreateService(
+            repo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository(
+            [
+                new ProductVersion
+                {
+                    ProductVersionId = originalVersionId,
+                    ProductId = Guid.NewGuid(),
+                    VersionCode = "PV-STD-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE
+                }
+            ]),
+            unitOfWork: TestUnitOfWork.ForTransaction(
+                _ => Task.CompletedTask,
+                _ => throw new InvalidOperationException("Save failed."),
+                _ => Task.CompletedTask,
+                _ =>
+                {
+                    rollbackCalled = true;
+                    return Task.CompletedTask;
+                }));
+
+        var result = await service.CreateCustomizationProductVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationProductVersionRequestDto
+            {
+                VersionName = "Custom",
+                DimensionUnit = "cm"
+            });
+
+        Assert.Equal(500, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomProductVersionCreationFailed, result.ErrorCode);
+        Assert.True(rollbackCalled);
     }
 
     [Fact]

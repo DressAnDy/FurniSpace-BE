@@ -132,4 +132,103 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
         Assert.False(dto.IsPublic);
         Assert.True(dto.IsProjectSpecific);
     }
+
+    [Fact]
+    public void ValidateVersionName_WhenMissing_ReturnsError()
+    {
+        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionName(null);
+
+        Assert.Equal("Version name is required.", error);
+    }
+
+    [Fact]
+    public void ValidateVersionName_WhenTooLong_ReturnsError()
+    {
+        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionName(new string('A', 151));
+
+        Assert.Contains("150", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateVersionCode_WhenTooLong_ReturnsError()
+    {
+        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionCode(new string('A', 51));
+
+        Assert.Contains("50", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IsValidDimensionUnit_AcceptsSupportedUnits()
+    {
+        Assert.True(CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit("cm"));
+        Assert.True(CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit("MM"));
+        Assert.False(CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit("inch"));
+    }
+
+    [Fact]
+    public void CreateFromDesignerRequest_GeneratesVersionCodeWhenMissing()
+    {
+        var customizationRequest = new CustomizationRequest
+        {
+            ProjectId = Guid.NewGuid(),
+            EstimatedAdditionalCost = 100000m
+        };
+        var sourceVersion = new ProductVersion
+        {
+            ProductId = Guid.NewGuid(),
+            EstimatedPrice = 900000m,
+            DimensionUnit = "cm"
+        };
+
+        var version = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
+            new CreateCustomizationProductVersionRequestDto
+            {
+                VersionName = "Auto Code Version",
+                DimensionUnit = "cm"
+            },
+            customizationRequest,
+            sourceVersion,
+            "PRJ-000001",
+            2,
+            "Auto Code Version",
+            null);
+
+        Assert.Equal("PV-PRJ-000001-CUST-002", version.VersionCode);
+        Assert.Equal(1000000m, version.EstimatedPrice);
+    }
+
+    [Fact]
+    public void ToCreateResponse_MapsCustomizationAndProductVersion()
+    {
+        var requestId = Guid.NewGuid();
+        var sourceVersionId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var createdAt = new DateTime(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
+        var request = new CustomizationRequest
+        {
+            CustomizationRequestId = requestId,
+            ProjectId = projectId,
+            ProductVersionId = sourceVersionId,
+            Status = CustomizationStatus.DESIGN_REVIEWING
+        };
+        var version = new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = Guid.NewGuid(),
+            ProjectId = projectId,
+            VersionCode = "PV-PRJ-000001-CUST-001",
+            VersionName = "Custom Chair",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            CreatedAt = createdAt
+        };
+
+        var response = CustomizationAcceptedProductVersionFactory.ToCreateResponse(request, version);
+
+        Assert.Equal(requestId, response.CustomizationRequestId);
+        Assert.Equal(sourceVersionId, response.ProductVersionId);
+        Assert.Equal(CustomizationStatus.DESIGN_REVIEWING, response.CustomizationStatus);
+        Assert.Equal(productVersionId, response.ProductVersion.ProductVersionId);
+        Assert.Equal(createdAt, response.CreatedAt);
+    }
 }

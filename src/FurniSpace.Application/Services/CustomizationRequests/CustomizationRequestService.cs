@@ -154,7 +154,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         {
             return NotFoundDetail(
                 CustomizationRequestErrorCodes.CustomizationRequestNotFound,
-                "Customization request not found.");
+                CustomizationRequestNotFoundMessage);
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -417,49 +417,16 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             return ServiceResult<CreateCustomizationProductVersionResponseDto>.Unauthorized();
         }
 
-        var entity = await _customizationRequests.GetByIdAsync(customizationRequestId, cancellationToken);
-        if (entity is null)
+        var contextResult = await ResolveCreateProductVersionContextAsync(
+            customizationRequestId,
+            currentUserId,
+            cancellationToken);
+        if (contextResult.Error is not null)
         {
-            return ProductVersionFailure(
-                Error.NotFound(
-                    CustomizationRequestErrorCodes.CustomizationRequestNotFound,
-                    "Customization request not found."));
+            return contextResult.Error;
         }
 
-        var detail = await _customizationRequests.GetDetailAsync(customizationRequestId, cancellationToken);
-        if (detail is null)
-        {
-            return ProductVersionFailure(
-                Error.NotFound(
-                    CustomizationRequestErrorCodes.CustomizationRequestNotFound,
-                    "Customization request not found."));
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanDesignerReview(role, detail, currentUserId))
-        {
-            return ProductVersionFailure(
-                Error.Forbidden(
-                    CustomizationRequestErrorCodes.ProjectAccessDenied,
-                    "You do not have permission to create a product version for this project."));
-        }
-
-        if (entity.Status != CustomizationStatus.DESIGN_REVIEWING)
-        {
-            return ProductVersionFailure(
-                Error.Conflict(
-                    CustomizationRequestErrorCodes.CustomizationNotInDesignReview,
-                    "Product version can only be created while the request is DESIGN_REVIEWING."));
-        }
-
-        if (entity.ProductVersionId == Guid.Empty)
-        {
-            return ProductVersionFailure(
-                Error.BadRequest(
-                    CustomizationRequestErrorCodes.SourceProductVersionRequired,
-                    "Customization request must reference a source product version."));
-        }
-
+        var entity = contextResult.Entity!;
         var existingResponse = await TryGetExistingLinkedVersionAsync(
             entity,
             cancellationToken);
@@ -474,44 +441,19 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             return validationError;
         }
 
-        var sourceVersion = await _productVersions.GetByIdAsync(
-            entity.ProductVersionId,
+        var sourceContextResult = await ResolveSourceProductContextAsync(entity, cancellationToken);
+        if (sourceContextResult.Error is not null)
+        {
+            return sourceContextResult.Error;
+        }
+
+        var sourceContext = sourceContextResult.Context!;
+        var versionCodeError = await ValidateVersionCodeAvailabilityAsync(
+            request.VersionCode,
             cancellationToken);
-        if (sourceVersion is null)
+        if (versionCodeError is not null)
         {
-            return ProductVersionFailure(
-                Error.NotFound(
-                    CustomizationRequestErrorCodes.SourceProductVersionNotFound,
-                    "Source product version not found."));
-        }
-
-        if (!await _productVersions.ProductExistsAsync(sourceVersion.ProductId, cancellationToken))
-        {
-            return ProductVersionFailure(
-                Error.NotFound(
-                    CustomizationRequestErrorCodes.SourceProductNotFound,
-                    "Source product not found."));
-        }
-
-        var project = await _projects.GetByIdAsync(entity.ProjectId, cancellationToken);
-        if (project is null || string.IsNullOrWhiteSpace(project.ProjectCode))
-        {
-            return ProductVersionFailure(
-                Error.NotFound(
-                    CustomizationRequestErrorCodes.ProjectNotFound,
-                    "Project not found."));
-        }
-
-        var versionCode = string.IsNullOrWhiteSpace(request.VersionCode)
-            ? null
-            : request.VersionCode.Trim();
-        if (!string.IsNullOrWhiteSpace(versionCode) &&
-            await _productVersions.VersionCodeExistsAsync(versionCode, cancellationToken))
-        {
-            return ProductVersionFailure(
-                Error.Conflict(
-                    CustomizationRequestErrorCodes.VersionCodeAlreadyExists,
-                    "Version code already exists."));
+            return versionCodeError;
         }
 
         var fileValidationError = await ValidateProductVersionFilesAsync(request, cancellationToken);
@@ -521,6 +463,9 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var versionName = request.VersionName!.Trim();
+        var versionCode = string.IsNullOrWhiteSpace(request.VersionCode)
+            ? null
+            : request.VersionCode.Trim();
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
@@ -530,8 +475,8 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             var productVersion = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
                 request,
                 entity,
-                sourceVersion,
-                project.ProjectCode,
+                sourceContext.SourceVersion,
+                sourceContext.ProjectCode,
                 sequence,
                 versionName,
                 versionCode);
@@ -1000,6 +945,121 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         return null;
     }
 
+    private async Task<CreateProductVersionContextResult> ResolveCreateProductVersionContextAsync(
+        Guid customizationRequestId,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        var entity = await _customizationRequests.GetByIdAsync(customizationRequestId, cancellationToken);
+        if (entity is null)
+        {
+            return CreateProductVersionContextResult.Failure(
+                ProductVersionFailure(
+                    Error.NotFound(
+                        CustomizationRequestErrorCodes.CustomizationRequestNotFound,
+                        CustomizationRequestNotFoundMessage)));
+        }
+
+        var detail = await _customizationRequests.GetDetailAsync(customizationRequestId, cancellationToken);
+        if (detail is null)
+        {
+            return CreateProductVersionContextResult.Failure(
+                ProductVersionFailure(
+                    Error.NotFound(
+                        CustomizationRequestErrorCodes.CustomizationRequestNotFound,
+                        CustomizationRequestNotFoundMessage)));
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanDesignerReview(role, detail, currentUserId))
+        {
+            return CreateProductVersionContextResult.Failure(
+                ProductVersionFailure(
+                    Error.Forbidden(
+                        CustomizationRequestErrorCodes.ProjectAccessDenied,
+                        "You do not have permission to create a product version for this project.")));
+        }
+
+        if (entity.Status != CustomizationStatus.DESIGN_REVIEWING)
+        {
+            return CreateProductVersionContextResult.Failure(
+                ProductVersionFailure(
+                    Error.Conflict(
+                        CustomizationRequestErrorCodes.CustomizationNotInDesignReview,
+                        "Product version can only be created while the request is DESIGN_REVIEWING.")));
+        }
+
+        if (entity.ProductVersionId == Guid.Empty)
+        {
+            return CreateProductVersionContextResult.Failure(
+                ProductVersionFailure(
+                    Error.BadRequest(
+                        CustomizationRequestErrorCodes.SourceProductVersionRequired,
+                        "Customization request must reference a source product version.")));
+        }
+
+        return CreateProductVersionContextResult.Success(entity);
+    }
+
+    private async Task<SourceProductContextResult> ResolveSourceProductContextAsync(
+        CustomizationRequest entity,
+        CancellationToken cancellationToken)
+    {
+        var sourceVersion = await _productVersions.GetByIdAsync(
+            entity.ProductVersionId,
+            cancellationToken);
+        if (sourceVersion is null)
+        {
+            return SourceProductContextResult.Failure(
+                ProductVersionFailure(
+                    Error.NotFound(
+                        CustomizationRequestErrorCodes.SourceProductVersionNotFound,
+                        "Source product version not found.")));
+        }
+
+        if (!await _productVersions.ProductExistsAsync(sourceVersion.ProductId, cancellationToken))
+        {
+            return SourceProductContextResult.Failure(
+                ProductVersionFailure(
+                    Error.NotFound(
+                        CustomizationRequestErrorCodes.SourceProductNotFound,
+                        "Source product not found.")));
+        }
+
+        var project = await _projects.GetByIdAsync(entity.ProjectId, cancellationToken);
+        if (project is null || string.IsNullOrWhiteSpace(project.ProjectCode))
+        {
+            return SourceProductContextResult.Failure(
+                ProductVersionFailure(
+                    Error.NotFound(
+                        CustomizationRequestErrorCodes.ProjectNotFound,
+                        "Project not found.")));
+        }
+
+        return SourceProductContextResult.Success(
+            new SourceProductContext(sourceVersion, project.ProjectCode));
+    }
+
+    private async Task<ServiceResult<CreateCustomizationProductVersionResponseDto>?> ValidateVersionCodeAvailabilityAsync(
+        string? requestedVersionCode,
+        CancellationToken cancellationToken)
+    {
+        var versionCode = string.IsNullOrWhiteSpace(requestedVersionCode)
+            ? null
+            : requestedVersionCode.Trim();
+        if (string.IsNullOrWhiteSpace(versionCode))
+        {
+            return null;
+        }
+
+        return await _productVersions.VersionCodeExistsAsync(versionCode, cancellationToken)
+            ? ProductVersionFailure(
+                Error.Conflict(
+                    CustomizationRequestErrorCodes.VersionCodeAlreadyExists,
+                    "Version code already exists."))
+            : null;
+    }
+
     private async Task<ServiceResult<CreateCustomizationProductVersionResponseDto>?> TryGetExistingLinkedVersionAsync(
         CustomizationRequest request,
         CancellationToken cancellationToken)
@@ -1083,6 +1143,14 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var previewFileIds = request.PreviewFileIds ?? [];
+        if (previewFileIds.Count > MaxProductVersionPreviewFileCount)
+        {
+            return ProductVersionFailure(
+                Error.BadRequest(
+                    CustomizationRequestErrorCodes.InvalidCustomizationRequest,
+                    $"At most {MaxProductVersionPreviewFileCount} preview files are allowed."));
+        }
+
         if (previewFileIds.Count != previewFileIds.Distinct().Count())
         {
             return ProductVersionFailure(
@@ -1233,9 +1301,9 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var previewFileIds = request.PreviewFileIds ?? [];
-        for (var index = 0; index < previewFileIds.Count; index++)
+        var displayOrder = 0;
+        foreach (var previewFileId in previewFileIds)
         {
-            var previewFileId = previewFileIds[index];
             var previewMetadata = await _projectFiles.GetFileMetadataAsync(previewFileId, cancellationToken);
             await _projectFiles.AddFileLinkAsync(
                 new FileLink
@@ -1246,12 +1314,13 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                     ReferenceId = productVersionId,
                     FileType = FileType.PRODUCT_PREVIEW,
                     Visibility = previewMetadata?.Visibility ?? FileVisibility.CUSTOMER_VISIBLE,
-                    IsPrimary = index == 0,
-                    DisplayOrder = index,
+                    IsPrimary = displayOrder == 0,
+                    DisplayOrder = displayOrder,
                     CreatedBy = currentUserId,
                     CreatedAt = now
                 },
                 cancellationToken);
+            displayOrder++;
         }
     }
 
@@ -1269,7 +1338,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         return detail is null
             ? NotFoundDetail(
                 CustomizationRequestErrorCodes.CustomizationRequestNotFound,
-                "Customization request not found.")
+                CustomizationRequestNotFoundMessage)
             : ServiceResult<CustomizationRequestDetailDto>.Success(
                 await ToDetailDtoAsync(detail, cancellationToken),
                 message);
@@ -1606,7 +1675,43 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 null,
                 NotFoundDetail(
                     CustomizationRequestErrorCodes.CustomizationRequestNotFound,
-                    "Customization request not found."));
+                    CustomizationRequestNotFoundMessage));
+        }
+    }
+
+    private sealed record CreateProductVersionContextResult(
+        CustomizationRequest? Entity,
+        ServiceResult<CreateCustomizationProductVersionResponseDto>? Error)
+    {
+        internal static CreateProductVersionContextResult Success(CustomizationRequest entity)
+        {
+            return new CreateProductVersionContextResult(entity, null);
+        }
+
+        internal static CreateProductVersionContextResult Failure(
+            ServiceResult<CreateCustomizationProductVersionResponseDto> error)
+        {
+            return new CreateProductVersionContextResult(null, error);
+        }
+    }
+
+    private sealed record SourceProductContext(
+        ProductVersion SourceVersion,
+        string ProjectCode);
+
+    private sealed record SourceProductContextResult(
+        SourceProductContext? Context,
+        ServiceResult<CreateCustomizationProductVersionResponseDto>? Error)
+    {
+        internal static SourceProductContextResult Success(SourceProductContext context)
+        {
+            return new SourceProductContextResult(context, null);
+        }
+
+        internal static SourceProductContextResult Failure(
+            ServiceResult<CreateCustomizationProductVersionResponseDto> error)
+        {
+            return new SourceProductContextResult(null, error);
         }
     }
 }

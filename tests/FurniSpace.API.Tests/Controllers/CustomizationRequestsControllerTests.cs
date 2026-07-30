@@ -264,6 +264,40 @@ public sealed class CustomizationRequestsControllerTests
         Assert.IsType<UnauthorizedResult>(actionResult);
     }
 
+    [Fact]
+    public async Task CreateProductVersion_WithoutUserClaim_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
+
+        var actionResult = await controller.CreateProductVersion(
+            Guid.NewGuid(),
+            new CreateCustomizationProductVersionRequestDto { VersionName = "Custom" });
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
+    public async Task GetDetail_WithoutUserClaim_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
+
+        var actionResult = await controller.GetDetail(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
+    public async Task Submit_WithoutUserClaim_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
+
+        var actionResult = await controller.Submit(
+            Guid.NewGuid(),
+            new SubmitCustomizationRequestDto { RequestTitle = "Change material" });
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
     private static CustomizationRequestsController BuildController(
         ICustomizationRequestService service,
         Guid? userId)

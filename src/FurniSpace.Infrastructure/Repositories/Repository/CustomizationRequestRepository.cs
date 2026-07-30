@@ -45,17 +45,18 @@ public sealed class CustomizationRequestRepository
             return null;
         }
 
-        var proposalItem = await DbContext.ProposalItemSet
+        var detail = CustomizationRequestRepositoryProjections.ToDetailReadModel(readModel);
+        var sourceVersion = await DbContext.ProductVersionSet
             .AsNoTracking()
             .FirstOrDefaultAsync(
-                item => item.ProposalItemId == readModel.ProposalItemId,
+                version => version.ProductVersionId == readModel.ProductVersionId,
                 cancellationToken);
-        if (proposalItem is null)
+        if (sourceVersion is not null)
         {
-            return null;
+            detail.SourceProductVersion = sourceVersion;
         }
 
-        return CustomizationRequestRepositoryProjections.ToDetailReadModel(readModel, proposalItem);
+        return detail;
     }
 
     public Task<CustomizationSubmitContextReadModel?> GetSubmitContextAsync(
@@ -76,6 +77,7 @@ public sealed class CustomizationRequestRepository
                 (joined, project) => new CustomizationSubmitContextReadModel
                 {
                     ProposalItemId = joined.item.ProposalItemId,
+                    ProductVersionId = joined.item.ProductVersionId,
                     ProposalId = joined.proposal.ProposalId,
                     ProjectId = project.ProjectId,
                     CustomerId = project.CustomerId,
@@ -124,13 +126,17 @@ public sealed class CustomizationRequestRepository
             cancellationToken);
     }
 
-    public Task<bool> HasActiveRequestForProposalItemAsync(
-        Guid proposalItemId,
+    public Task<bool> HasActiveRequestForProductVersionAsync(
+        Guid projectId,
+        Guid proposalId,
+        Guid productVersionId,
         CancellationToken cancellationToken = default)
     {
         return DbContext.CustomizationRequestSet.AnyAsync(
             request =>
-                request.ProposalItemId == proposalItemId &&
+                request.ProjectId == projectId &&
+                request.ProposalId == proposalId &&
+                request.ProductVersionId == productVersionId &&
                 request.Status.HasValue &&
                 PendingFinalSelectionStatuses.Contains(request.Status.Value),
             cancellationToken);
@@ -165,15 +171,15 @@ public sealed class CustomizationRequestRepository
                 proposal => proposal.ProposalId,
                 (readModel, proposal) => new { readModel, proposal })
             .Join(
-                DbContext.ProposalItemSet,
-                joined => joined.readModel.ProposalItemId,
-                item => item.ProposalItemId,
-                (joined, item) => new ProductionCustomizationRequestQueueReadModel
+                DbContext.ProductVersionSet,
+                joined => joined.readModel.ProductVersionId,
+                version => version.ProductVersionId,
+                (joined, version) => new ProductionCustomizationRequestQueueReadModel
                 {
                     Request = joined.readModel,
                     ProposalName = joined.proposal.ProposalName,
                     ProposalStatus = joined.proposal.Status,
-                    ProposalItem = item
+                    SourceProductVersion = version
                 });
     }
 
@@ -248,9 +254,9 @@ public sealed class CustomizationRequestRepository
             query = query.Where(request => request.ProposalId == filter.ProposalId.Value);
         }
 
-        if (filter.ProposalItemId.HasValue)
+        if (filter.ProductVersionId.HasValue)
         {
-            query = query.Where(request => request.ProposalItemId == filter.ProposalItemId.Value);
+            query = query.Where(request => request.ProductVersionId == filter.ProductVersionId.Value);
         }
 
         if (filter.Status.HasValue)

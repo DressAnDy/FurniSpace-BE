@@ -4,5 +4,5 @@ namespace FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
 
 public sealed class CustomizationRequestDetailReadModel : CustomizationRequestReadModel
 {
-    public ProposalItem ProposalItem { get; set; } = new();
+    public ProductVersion SourceProductVersion { get; set; } = new();
 }

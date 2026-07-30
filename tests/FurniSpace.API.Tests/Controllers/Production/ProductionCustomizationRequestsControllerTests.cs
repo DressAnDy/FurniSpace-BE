@@ -135,6 +135,13 @@ public sealed class ProductionCustomizationRequestsControllerTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<CustomizationRequestDetailDto>.Unauthorized());
 
+        public Task<ServiceResult<CreateCustomizationProductVersionResponseDto>> CreateCustomizationProductVersionAsync(
+            Guid customizationRequestId,
+            Guid currentUserId,
+            CreateCustomizationProductVersionRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<CreateCustomizationProductVersionResponseDto>.Unauthorized());
+
         public Task<ServiceResult<CustomizationRequestDetailDto>> CancelAsync(
             Guid customizationRequestId,
             Guid currentUserId,

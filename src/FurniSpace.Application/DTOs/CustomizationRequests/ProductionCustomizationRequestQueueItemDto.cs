@@ -8,7 +8,7 @@ public sealed class ProductionCustomizationRequestQueueItemDto : CustomizationRe
 
     public ProductionCustomizationProposalSummaryDto Proposal { get; set; } = new();
 
-    public CustomizationRequestItemSnapshotDto ProposalItem { get; set; } = new();
+    public ApprovedProductVersionSummaryDto SourceProductVersion { get; set; } = new();
 }
 
 public sealed class ProductionCustomizationProjectSummaryDto

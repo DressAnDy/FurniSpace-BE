@@ -3,6 +3,7 @@
 using System;
 using FurniSpace.Application.Common.CustomizationRequests;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
 using Xunit;
 
@@ -20,7 +21,7 @@ public sealed class ProductionCustomizationRequestQueueMapperTests
     {
         var projectId = Guid.NewGuid();
         var proposalId = Guid.NewGuid();
-        var proposalItemId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
         var readModel = new ProductionCustomizationRequestQueueReadModel
         {
             Request = new CustomizationRequestReadModel
@@ -28,7 +29,7 @@ public sealed class ProductionCustomizationRequestQueueMapperTests
                 CustomizationRequestId = Guid.NewGuid(),
                 ProjectId = projectId,
                 ProposalId = proposalId,
-                ProposalItemId = proposalItemId,
+                ProductVersionId = productVersionId,
                 RequestTitle = "Change material",
                 RequestDescription = "Use darker oak",
                 RequestedMaterial = "Dark oak",
@@ -38,20 +39,17 @@ public sealed class ProductionCustomizationRequestQueueMapperTests
             },
             ProposalName = "Cafe Proposal",
             ProposalStatus = ProposalStatus.PUBLISHED,
-            ProposalItem = new()
+            SourceProductVersion = new ProductVersion
             {
-                ProposalItemId = proposalItemId,
-                ProposalId = proposalId,
-                ItemName = "Dining Chair",
-                ItemType = "PRODUCT_ITEM",
-                Quantity = 2,
+                ProductVersionId = productVersionId,
+                ProductId = Guid.NewGuid(),
+                VersionName = "Dining Chair",
+                Material = "Oak",
+                Color = "Natural",
                 Width = 45m,
                 Height = 90m,
                 Depth = 50m,
-                Material = "Oak",
-                Color = "Natural",
-                UnitPriceSnapshot = 1000000m,
-                TotalPriceSnapshot = 2000000m
+                EstimatedPrice = 1000000m
             }
         };
 
@@ -64,9 +62,9 @@ public sealed class ProductionCustomizationRequestQueueMapperTests
         Assert.Equal("Cafe Project", dto.Project.ProjectName);
         Assert.Equal(proposalId, dto.Proposal.ProposalId);
         Assert.Equal("Cafe Proposal", dto.Proposal.ProposalName);
-        Assert.Equal(proposalItemId, dto.ProposalItem.ProposalItemId);
-        Assert.Equal("Dining Chair", dto.ProposalItem.ItemName);
-        Assert.Equal(45m, dto.ProposalItem.Width);
-        Assert.Equal(2000000m, dto.ProposalItem.TotalPriceSnapshot);
+        Assert.Equal(productVersionId, dto.SourceProductVersion.ProductVersionId);
+        Assert.Equal("Dining Chair", dto.SourceProductVersion.VersionName);
+        Assert.Equal(45m, dto.SourceProductVersion.Width);
+        Assert.Equal(1000000m, dto.SourceProductVersion.EstimatedPrice);
     }
 }

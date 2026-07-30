@@ -26,7 +26,7 @@ public sealed class CustomizationRequestsController : BaseApiController
     public async Task<IActionResult> GetByProject(
         Guid projectId,
         [FromQuery] Guid? proposalId = null,
-        [FromQuery] Guid? proposalItemId = null,
+        [FromQuery] Guid? productVersionId = null,
         [FromQuery] CustomizationStatus? status = null,
         CancellationToken cancellationToken = default)
     {
@@ -41,7 +41,7 @@ public sealed class CustomizationRequestsController : BaseApiController
             new CustomizationRequestQueryDto
             {
                 ProposalId = proposalId,
-                ProposalItemId = proposalItemId,
+                ProductVersionId = productVersionId,
                 Status = status
             },
             cancellationToken);
@@ -139,6 +139,26 @@ public sealed class CustomizationRequestsController : BaseApiController
         }
 
         var result = await _customizationRequests.CustomerDecisionAsync(
+            customizationRequestId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpPost("customization-requests/{customizationRequestId:guid}/product-version")]
+    public async Task<IActionResult> CreateProductVersion(
+        Guid customizationRequestId,
+        [FromBody] CreateCustomizationProductVersionRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _customizationRequests.CreateCustomizationProductVersionAsync(
             customizationRequestId,
             currentUserId,
             request,

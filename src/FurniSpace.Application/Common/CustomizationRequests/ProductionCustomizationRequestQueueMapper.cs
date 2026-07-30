@@ -25,7 +25,7 @@ internal static class ProductionCustomizationRequestQueueMapper
             ProposalName = item.ProposalName,
             Status = item.ProposalStatus
         };
-        dto.ProposalItem = CustomizationRequestItemSnapshotMapper.ToDto(item.ProposalItem);
+        dto.SourceProductVersion = CustomizationAcceptedProductVersionFactory.ToSummaryDto(item.SourceProductVersion);
         return dto;
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
@@ -8,7 +8,7 @@ public class CustomizationRequest
     public Guid CustomizationRequestId { get; set; }
     public Guid ProjectId { get; set; }
     public Guid ProposalId { get; set; }
-    public Guid ProposalItemId { get; set; }
+    public Guid ProductVersionId { get; set; }
     public Guid? RequestedByCustomerId { get; set; }
     public string RequestTitle { get; set; } = null!;
     public string? RequestDescription { get; set; }

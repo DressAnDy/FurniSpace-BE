@@ -1,3 +1,5 @@
+#nullable enable
+
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -6,37 +8,40 @@ namespace FurniSpace.Application.Common.CustomizationRequests;
 
 internal static class CustomizationAcceptedProductVersionFactory
 {
-    internal static ProductVersion Create(
-        CustomizationRequest request,
-        ProductVersion originalVersion,
-        ProposalItem proposalItem,
+    private const string DefaultDimensionUnit = "cm";
+    private const int MaxVersionNameLength = 150;
+    private const int MaxVersionCodeLength = 50;
+
+    internal static ProductVersion CreateFromDesignerRequest(
+        CreateCustomizationProductVersionRequestDto request,
+        CustomizationRequest customizationRequest,
+        ProductVersion sourceVersion,
         string projectCode,
-        int sequence)
+        int sequence,
+        string versionName,
+        string? versionCode)
     {
-        var material = Coalesce(request.RequestedMaterial, originalVersion.Material);
-        var color = Coalesce(request.RequestedColor, originalVersion.Color);
-        var width = Coalesce(request.RequestedWidth, originalVersion.Width);
-        var height = Coalesce(request.RequestedHeight, originalVersion.Height);
-        var depth = Coalesce(request.RequestedDepth, originalVersion.Depth);
-        var originalUnitPrice = proposalItem.UnitPriceSnapshot ?? originalVersion.EstimatedPrice ?? 0m;
-        var additionalCost = request.EstimatedAdditionalCost ?? 0m;
         var now = DateTime.UtcNow;
+        var originalUnitPrice = sourceVersion.EstimatedPrice ?? 0m;
+        var additionalCost = customizationRequest.EstimatedAdditionalCost ?? 0m;
 
         return new ProductVersion
         {
             ProductVersionId = Guid.NewGuid(),
-            ProductId = originalVersion.ProductId,
-            ProjectId = request.ProjectId,
-            DimensionUnit = originalVersion.DimensionUnit ?? "cm",
-            VersionCode = BuildVersionCode(projectCode, sequence),
-            VersionName = $"{proposalItem.ItemName} - Project {projectCode} Custom",
+            ProductId = sourceVersion.ProductId,
+            ProjectId = customizationRequest.ProjectId,
+            DimensionUnit = ResolveDimensionUnit(request.DimensionUnit, sourceVersion.DimensionUnit),
+            VersionCode = string.IsNullOrWhiteSpace(versionCode)
+                ? BuildVersionCode(projectCode, sequence)
+                : versionCode.Trim(),
+            VersionName = versionName,
             VersionType = ProductVersionType.PROJECT_SPECIFIC,
-            Material = material,
-            Color = color,
-            Width = width,
-            Height = height,
-            Depth = depth,
-            EstimatedPrice = originalUnitPrice + additionalCost,
+            Material = Coalesce(request.Material, customizationRequest.RequestedMaterial, sourceVersion.Material),
+            Color = Coalesce(request.Color, customizationRequest.RequestedColor, sourceVersion.Color),
+            Width = Coalesce(request.Width, customizationRequest.RequestedWidth, sourceVersion.Width),
+            Height = Coalesce(request.Height, customizationRequest.RequestedHeight, sourceVersion.Height),
+            Depth = Coalesce(request.Depth, customizationRequest.RequestedDepth, sourceVersion.Depth),
+            EstimatedPrice = request.EstimatedPrice ?? (originalUnitPrice + additionalCost),
             IsDefault = false,
             IsPublic = false,
             IsProjectSpecific = true,
@@ -46,26 +51,16 @@ internal static class CustomizationAcceptedProductVersionFactory
         };
     }
 
-    internal static void ApplyAcceptedChanges(
+    internal static void LinkToCustomizationRequest(
         CustomizationRequest request,
-        ProposalItem proposalItem,
-        ProductVersion approvedVersion)
+        ProductVersion productVersion)
     {
-        var customizedUnitPrice = approvedVersion.EstimatedPrice ?? proposalItem.UnitPriceSnapshot ?? 0m;
-        var quantity = proposalItem.Quantity ?? 0;
+        request.ApprovedProductVersionId = productVersion.ProductVersionId;
+        request.UpdatedAt = DateTime.UtcNow;
+    }
 
-        proposalItem.ApprovedProductVersionId = approvedVersion.ProductVersionId;
-        proposalItem.Material = approvedVersion.Material;
-        proposalItem.Color = approvedVersion.Color;
-        proposalItem.Width = approvedVersion.Width;
-        proposalItem.Height = approvedVersion.Height;
-        proposalItem.Depth = approvedVersion.Depth;
-        proposalItem.UnitPriceSnapshot = customizedUnitPrice;
-        proposalItem.TotalPriceSnapshot = customizedUnitPrice * quantity;
-        proposalItem.IsCustomized = true;
-        proposalItem.UpdatedAt = DateTime.UtcNow;
-
-        request.ApprovedProductVersionId = approvedVersion.ProductVersionId;
+    internal static void MarkAccepted(CustomizationRequest request)
+    {
         request.Status = CustomizationStatus.ACCEPTED;
         request.CustomerAcceptedAt = DateTime.UtcNow;
         request.UpdatedAt = DateTime.UtcNow;
@@ -94,9 +89,100 @@ internal static class CustomizationAcceptedProductVersionFactory
         };
     }
 
-    private static string BuildVersionCode(string projectCode, int sequence)
+    internal static CustomizationProductVersionDto ToProductVersionDto(ProductVersion version)
+    {
+        return new CustomizationProductVersionDto
+        {
+            ProductVersionId = version.ProductVersionId,
+            ProductId = version.ProductId,
+            ProjectId = version.ProjectId,
+            VersionCode = version.VersionCode,
+            VersionName = version.VersionName,
+            VersionType = version.VersionType,
+            Material = version.Material,
+            Color = version.Color,
+            Width = version.Width,
+            Height = version.Height,
+            Depth = version.Depth,
+            DimensionUnit = version.DimensionUnit,
+            EstimatedPrice = version.EstimatedPrice,
+            IsDefault = version.IsDefault,
+            IsPublic = version.IsPublic,
+            IsProjectSpecific = version.IsProjectSpecific,
+            Status = version.Status
+        };
+    }
+
+    internal static CreateCustomizationProductVersionResponseDto ToCreateResponse(
+        CustomizationRequest request,
+        ProductVersion version)
+    {
+        return new CreateCustomizationProductVersionResponseDto
+        {
+            CustomizationRequestId = request.CustomizationRequestId,
+            ProjectId = request.ProjectId,
+            ProductVersionId = request.ProductVersionId,
+            ProductVersion = ToProductVersionDto(version),
+            CustomizationStatus = request.Status,
+            CreatedAt = version.CreatedAt ?? DateTime.UtcNow
+        };
+    }
+
+    internal static string? ValidateVersionName(string? versionName)
+    {
+        if (string.IsNullOrWhiteSpace(versionName))
+        {
+            return "Version name is required.";
+        }
+
+        return versionName.Trim().Length > MaxVersionNameLength
+            ? $"Version name must be at most {MaxVersionNameLength} characters."
+            : null;
+    }
+
+    internal static string? ValidateVersionCode(string? versionCode)
+    {
+        if (string.IsNullOrWhiteSpace(versionCode))
+        {
+            return null;
+        }
+
+        return versionCode.Trim().Length > MaxVersionCodeLength
+            ? $"Version code must be at most {MaxVersionCodeLength} characters."
+            : null;
+    }
+
+    internal static bool IsValidDimensionUnit(string? dimensionUnit)
+    {
+        if (string.IsNullOrWhiteSpace(dimensionUnit))
+        {
+            return false;
+        }
+
+        var normalized = dimensionUnit.Trim().ToLowerInvariant();
+        return normalized is "cm" or "m" or "mm";
+    }
+
+    internal static string BuildVersionCode(string projectCode, int sequence)
     {
         return $"PV-{projectCode}-CUST-{sequence:D3}";
+    }
+
+    private static string ResolveDimensionUnit(string? requested, string? source)
+    {
+        if (!string.IsNullOrWhiteSpace(requested))
+        {
+            return requested.Trim().ToLowerInvariant();
+        }
+
+        return string.IsNullOrWhiteSpace(source)
+            ? DefaultDimensionUnit
+            : source.Trim();
+    }
+
+    private static string? Coalesce(string? first, string? second, string? third)
+    {
+        return Coalesce(first, Coalesce(second, third));
     }
 
     private static string? Coalesce(string? requested, string? original)
@@ -104,8 +190,8 @@ internal static class CustomizationAcceptedProductVersionFactory
         return string.IsNullOrWhiteSpace(requested) ? original : requested.Trim();
     }
 
-    private static decimal? Coalesce(decimal? requested, decimal? original)
+    private static decimal? Coalesce(decimal? first, decimal? second, decimal? third)
     {
-        return requested ?? original;
+        return first ?? second ?? third;
     }
 }

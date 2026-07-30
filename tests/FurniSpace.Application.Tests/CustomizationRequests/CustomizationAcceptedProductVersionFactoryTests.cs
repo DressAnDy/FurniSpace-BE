@@ -12,129 +12,87 @@ namespace FurniSpace.Application.Tests.CustomizationRequests;
 public sealed class CustomizationAcceptedProductVersionFactoryTests
 {
     [Fact]
-    public void Create_UsesRequestedValuesAndBuildsProjectSpecificVersion()
+    public void LinkToCustomizationRequest_SetsApprovedProductVersionId()
+    {
+        var request = new CustomizationRequest { Status = CustomizationStatus.DESIGN_REVIEWING };
+        var productVersion = new ProductVersion { ProductVersionId = Guid.NewGuid() };
+
+        CustomizationAcceptedProductVersionFactory.LinkToCustomizationRequest(request, productVersion);
+
+        Assert.Equal(productVersion.ProductVersionId, request.ApprovedProductVersionId);
+        Assert.Equal(CustomizationStatus.DESIGN_REVIEWING, request.Status);
+    }
+
+    [Fact]
+    public void MarkAccepted_SetsAcceptedStatusAndTimestamp()
+    {
+        var request = new CustomizationRequest
+        {
+            Status = CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL
+        };
+
+        CustomizationAcceptedProductVersionFactory.MarkAccepted(request);
+
+        Assert.Equal(CustomizationStatus.ACCEPTED, request.Status);
+        Assert.NotNull(request.CustomerAcceptedAt);
+    }
+
+    [Fact]
+    public void CreateFromDesignerRequest_PrefersRequestValuesThenCustomizationThenSource()
     {
         var projectId = Guid.NewGuid();
         var productId = Guid.NewGuid();
-        var request = new CustomizationRequest
+        var requestDto = new CreateCustomizationProductVersionRequestDto
         {
-            CustomizationRequestId = Guid.NewGuid(),
-            ProjectId = projectId,
-            RequestedMaterial = " Dark oak ",
-            RequestedColor = "Brown",
-            RequestedWidth = 55m,
-            EstimatedAdditionalCost = 500000m
+            VersionName = "Cafe Chair Custom",
+            Material = "Walnut",
+            Width = 65m,
+            EstimatedPrice = 3200000m,
+            DimensionUnit = "CM"
         };
-        var originalVersion = new ProductVersion
+        var customizationRequest = new CustomizationRequest
         {
-            ProductVersionId = Guid.NewGuid(),
+            ProjectId = projectId,
+            RequestedMaterial = "Oak",
+            RequestedColor = "Brown",
+            RequestedHeight = 90m,
+            EstimatedAdditionalCost = 200000m
+        };
+        var sourceVersion = new ProductVersion
+        {
             ProductId = productId,
-            Material = "Oak",
+            Material = "Pine",
             Color = "Natural",
             Width = 50m,
             Height = 80m,
-            Depth = 50m,
-            DimensionUnit = "cm",
+            Depth = 40m,
+            DimensionUnit = "mm",
             EstimatedPrice = 1000000m
         };
-        var proposalItem = new ProposalItem
-        {
-            ProposalItemId = Guid.NewGuid(),
-            ProposalId = Guid.NewGuid(),
-            ItemName = "Cafe Chair",
-            Quantity = 2,
-            UnitPriceSnapshot = 1200000m
-        };
 
-        var approvedVersion = CustomizationAcceptedProductVersionFactory.Create(
-            request,
-            originalVersion,
-            proposalItem,
+        var version = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
+            requestDto,
+            customizationRequest,
+            sourceVersion,
             "PRJ-000001",
-            2);
+            1,
+            "Cafe Chair Custom",
+            null);
 
-        Assert.Equal(ProductVersionType.PROJECT_SPECIFIC, approvedVersion.VersionType);
-        Assert.Equal("PV-PRJ-000001-CUST-002", approvedVersion.VersionCode);
-        Assert.Equal("Cafe Chair - Project PRJ-000001 Custom", approvedVersion.VersionName);
-        Assert.Equal("Dark oak", approvedVersion.Material);
-        Assert.Equal("Brown", approvedVersion.Color);
-        Assert.Equal(55m, approvedVersion.Width);
-        Assert.Equal(1700000m, approvedVersion.EstimatedPrice);
-        Assert.False(approvedVersion.IsPublic);
-        Assert.True(approvedVersion.IsProjectSpecific);
-        Assert.Equal(projectId, approvedVersion.ProjectId);
-    }
-
-    [Fact]
-    public void Create_FallsBackToOriginalValuesWhenRequestedFieldsAreNull()
-    {
-        var request = new CustomizationRequest
-        {
-            ProjectId = Guid.NewGuid(),
-            EstimatedAdditionalCost = 0m
-        };
-        var originalVersion = new ProductVersion
-        {
-            ProductId = Guid.NewGuid(),
-            Material = "Oak",
-            Color = "Natural",
-            Width = 50m,
-            Height = 80m,
-            Depth = 45m
-        };
-        var proposalItem = new ProposalItem
-        {
-            ItemName = "Chair",
-            UnitPriceSnapshot = 1000000m
-        };
-
-        var approvedVersion = CustomizationAcceptedProductVersionFactory.Create(
-            request,
-            originalVersion,
-            proposalItem,
-            "PRJ-000002",
-            1);
-
-        Assert.Equal("Oak", approvedVersion.Material);
-        Assert.Equal("Natural", approvedVersion.Color);
-        Assert.Equal(50m, approvedVersion.Width);
-        Assert.Equal(80m, approvedVersion.Height);
-        Assert.Equal(45m, approvedVersion.Depth);
-        Assert.Equal(1000000m, approvedVersion.EstimatedPrice);
-    }
-
-    [Fact]
-    public void ApplyAcceptedChanges_UpdatesProposalItemAndRequest()
-    {
-        var now = DateTime.UtcNow;
-        var request = new CustomizationRequest { Status = CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL };
-        var proposalItem = new ProposalItem
-        {
-            Quantity = 4,
-            UnitPriceSnapshot = 1000000m,
-            TotalPriceSnapshot = 4000000m
-        };
-        var approvedVersion = new ProductVersion
-        {
-            ProductVersionId = Guid.NewGuid(),
-            Material = "Walnut",
-            Color = "Dark",
-            Width = 60m,
-            Height = 90m,
-            Depth = 40m,
-            EstimatedPrice = 1500000m,
-            UpdatedAt = now
-        };
-
-        CustomizationAcceptedProductVersionFactory.ApplyAcceptedChanges(request, proposalItem, approvedVersion);
-
-        Assert.Equal(approvedVersion.ProductVersionId, proposalItem.ApprovedProductVersionId);
-        Assert.Equal(approvedVersion.ProductVersionId, request.ApprovedProductVersionId);
-        Assert.Equal(CustomizationStatus.ACCEPTED, request.Status);
-        Assert.Equal(1500000m, proposalItem.UnitPriceSnapshot);
-        Assert.Equal(6000000m, proposalItem.TotalPriceSnapshot);
-        Assert.True(proposalItem.IsCustomized);
-        Assert.NotNull(request.CustomerAcceptedAt);
+        Assert.Equal("Cafe Chair Custom", version.VersionName);
+        Assert.Equal("Walnut", version.Material);
+        Assert.Equal("Brown", version.Color);
+        Assert.Equal(65m, version.Width);
+        Assert.Equal(90m, version.Height);
+        Assert.Equal(40m, version.Depth);
+        Assert.Equal("cm", version.DimensionUnit);
+        Assert.Equal(3200000m, version.EstimatedPrice);
+        Assert.Equal(ProductVersionType.PROJECT_SPECIFIC, version.VersionType);
+        Assert.True(version.IsProjectSpecific);
+        Assert.False(version.IsPublic);
+        Assert.False(version.IsDefault);
+        Assert.Equal(projectId, version.ProjectId);
+        Assert.Equal(productId, version.ProductId);
     }
 
     [Fact]
@@ -173,5 +131,104 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
         Assert.Equal(1700000m, dto.EstimatedPrice);
         Assert.False(dto.IsPublic);
         Assert.True(dto.IsProjectSpecific);
+    }
+
+    [Fact]
+    public void ValidateVersionName_WhenMissing_ReturnsError()
+    {
+        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionName(null);
+
+        Assert.Equal("Version name is required.", error);
+    }
+
+    [Fact]
+    public void ValidateVersionName_WhenTooLong_ReturnsError()
+    {
+        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionName(new string('A', 151));
+
+        Assert.Contains("150", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateVersionCode_WhenTooLong_ReturnsError()
+    {
+        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionCode(new string('A', 51));
+
+        Assert.Contains("50", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void IsValidDimensionUnit_AcceptsSupportedUnits()
+    {
+        Assert.True(CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit("cm"));
+        Assert.True(CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit("MM"));
+        Assert.False(CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit("inch"));
+    }
+
+    [Fact]
+    public void CreateFromDesignerRequest_GeneratesVersionCodeWhenMissing()
+    {
+        var customizationRequest = new CustomizationRequest
+        {
+            ProjectId = Guid.NewGuid(),
+            EstimatedAdditionalCost = 100000m
+        };
+        var sourceVersion = new ProductVersion
+        {
+            ProductId = Guid.NewGuid(),
+            EstimatedPrice = 900000m,
+            DimensionUnit = "cm"
+        };
+
+        var version = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
+            new CreateCustomizationProductVersionRequestDto
+            {
+                VersionName = "Auto Code Version",
+                DimensionUnit = "cm"
+            },
+            customizationRequest,
+            sourceVersion,
+            "PRJ-000001",
+            2,
+            "Auto Code Version",
+            null);
+
+        Assert.Equal("PV-PRJ-000001-CUST-002", version.VersionCode);
+        Assert.Equal(1000000m, version.EstimatedPrice);
+    }
+
+    [Fact]
+    public void ToCreateResponse_MapsCustomizationAndProductVersion()
+    {
+        var requestId = Guid.NewGuid();
+        var sourceVersionId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var createdAt = new DateTime(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
+        var request = new CustomizationRequest
+        {
+            CustomizationRequestId = requestId,
+            ProjectId = projectId,
+            ProductVersionId = sourceVersionId,
+            Status = CustomizationStatus.DESIGN_REVIEWING
+        };
+        var version = new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = Guid.NewGuid(),
+            ProjectId = projectId,
+            VersionCode = "PV-PRJ-000001-CUST-001",
+            VersionName = "Custom Chair",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            CreatedAt = createdAt
+        };
+
+        var response = CustomizationAcceptedProductVersionFactory.ToCreateResponse(request, version);
+
+        Assert.Equal(requestId, response.CustomizationRequestId);
+        Assert.Equal(sourceVersionId, response.ProductVersionId);
+        Assert.Equal(CustomizationStatus.DESIGN_REVIEWING, response.CustomizationStatus);
+        Assert.Equal(productVersionId, response.ProductVersion.ProductVersionId);
+        Assert.Equal(createdAt, response.CreatedAt);
     }
 }

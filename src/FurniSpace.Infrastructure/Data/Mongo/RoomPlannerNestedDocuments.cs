@@ -6,7 +6,7 @@ public sealed class RoomPlannerLayoutDocument
     : RoomPlannerLayoutBase<
         RoomPlannerPoint2Document,
         RoomPlannerWallDocument,
-        RoomPlannerOpeningDocument,
+        RoomPlannerOpeningBase,
         RoomPlannerFloorDocument>
 {
     public RoomPlannerLayoutDocument()
@@ -32,10 +32,6 @@ public sealed class RoomPlannerWallDocument
         End = new RoomPlannerPoint2Document();
         Style = new RoomPlannerStyleDocument();
     }
-}
-
-public sealed class RoomPlannerOpeningDocument : RoomPlannerOpeningBase
-{
 }
 
 public sealed class RoomPlannerFloorDocument

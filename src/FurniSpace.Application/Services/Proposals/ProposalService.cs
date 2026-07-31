@@ -646,13 +646,6 @@ public sealed class ProposalService : IProposalService
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.BadRequest(validationErrors);
         }
 
-        if (request.Items.Any(item => item.Quantity < 1))
-        {
-            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.BadRequest(
-                InvalidQuantityCode,
-                "Quantity must be greater than zero."));
-        }
-
         var proposal = await _proposals.GetProposalContextAsync(proposalId, cancellationToken);
         if (proposal is null)
         {
@@ -675,7 +668,7 @@ public sealed class ProposalService : IProposalService
         }
 
         var scene = await _proposals.GetSceneContextAsync(proposalId, request.SceneId, cancellationToken);
-        if (scene is null)
+        if (scene is null || scene.SceneType != ProposalSceneType.ROOM_PLANNER)
         {
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.NotFound(
                 ProposalSceneNotFoundCode,
@@ -686,72 +679,88 @@ public sealed class ProposalService : IProposalService
         if (roomPlannerScene is null)
         {
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.NotFound(
-                RoomPlannerSceneNotFoundCode,
+                RoomPlannerDocumentNotFoundCode,
                 "Room Planner scene not found."));
         }
 
-        var sceneObjectError = ValidateSceneObjectsForSync(request.Items, roomPlannerScene.Objects);
-        if (sceneObjectError is not null)
+        var documentError = ValidateRoomPlannerSceneForSync(proposal, scene, roomPlannerScene);
+        if (documentError is not null)
         {
-            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(sceneObjectError);
+            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(documentError);
         }
 
-        var duplicateSceneObjectError = ValidateDuplicateSceneObjectGroups(request.Items);
-        if (duplicateSceneObjectError is not null)
+        var syncItemsResult = CreateSyncItemsFromRoomPlanner(scene, roomPlannerScene);
+        if (syncItemsResult.Error is not null)
         {
-            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(duplicateSceneObjectError);
+            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(syncItemsResult.Error);
         }
-
-        var consolidatedRequest = ConsolidateSyncRequestItems(request);
 
         var productVersions = await GetProductVersionsForSyncAsync(
-            consolidatedRequest.Items,
+            syncItemsResult.Items,
             scene.ProjectId,
             cancellationToken);
-        if (productVersions.Count != consolidatedRequest.Items.Select(item => item.ProductVersionId).Distinct().Count())
+        if (productVersions.Count != syncItemsResult.Items.Select(item => item.ProductVersionId).Distinct().Count())
         {
             return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.BadRequest(
-                InvalidProductVersionCode,
+                ProductVersionNotFoundCode,
                 "One or more product versions are invalid."));
         }
 
+        var existingItems = await _proposals.GetItemsBySceneAsync(proposalId, request.SceneId, cancellationToken);
+        if (HasDuplicateExistingSceneObjectMappings(existingItems))
+        {
+            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.BadRequest(
+                DuplicateSceneObjectMappingCode,
+                "Existing proposal items contain duplicate scene object mappings."));
+        }
+
+        SyncProposalItemsFromSceneResponseDto response;
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
             var now = DateTime.UtcNow;
-            var existingItems = await _proposals.GetItemsBySceneAsync(proposalId, request.SceneId, cancellationToken);
             var syncResult = await UpsertProposalItemsAsync(
-                consolidatedRequest,
+                syncItemsResult.Items,
                 scene,
                 productVersions,
                 existingItems,
                 now,
                 cancellationToken);
-            await LinkRoomPlannerObjectsToProposalItemsAsync(
-                request.SceneId,
-                syncResult.Items,
-                cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
-
-            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Success(
-                new SyncProposalItemsFromSceneResponseDto
-                {
-                    ProposalId = proposalId,
-                    SceneId = request.SceneId,
-                    Items = syncResult.Items,
-                    CreatedCount = syncResult.CreatedCount,
-                    UpdatedCount = syncResult.UpdatedCount,
-                    RemovedCount = syncResult.RemovedCount
-                },
-                "Proposal items synced from Room Planner scene successfully.");
+            response = new SyncProposalItemsFromSceneResponseDto
+            {
+                ProposalId = proposalId,
+                SceneId = request.SceneId,
+                Items = syncResult.Items,
+                CreatedCount = syncResult.CreatedCount,
+                UpdatedCount = syncResult.UpdatedCount,
+                RemovedCount = syncResult.RemovedCount
+            };
         }
         catch
         {
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            throw;
+            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.InternalServerError(
+                ProposalItemSyncFailedCode,
+                "Proposal items could not be synced from Room Planner scene."));
         }
+
+        try
+        {
+            await LinkRoomPlannerObjectsToProposalItemsAsync(request.SceneId, response.Items, cancellationToken);
+        }
+        catch
+        {
+            return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Failure(Error.InternalServerError(
+                MongoProposalItemLinkFailedCode,
+                "Proposal items were synced but Room Planner scene link update failed."));
+        }
+
+        return ServiceResult<SyncProposalItemsFromSceneResponseDto>.Success(
+            response,
+            "Proposal items synced from Room Planner scene successfully.");
     }
 
     public async Task<ServiceResult<SelectFinalProposalResponseDto>> SelectFinalAsync(
@@ -1261,31 +1270,7 @@ public sealed class ProposalService : IProposalService
             errors.Add("Scene id is required.");
         }
 
-        if (request.Items.Count == 0)
-        {
-            errors.Add("At least one proposal item is required.");
-            return errors;
-        }
-
-        foreach (var item in request.Items)
-        {
-            ValidateSyncItem(item, errors);
-        }
-
         return errors;
-    }
-
-    private static void ValidateSyncItem(SyncProposalItemFromSceneDto item, List<string> errors)
-    {
-        if (item.ProductVersionId == Guid.Empty)
-        {
-            errors.Add("Product version id is required.");
-        }
-
-        if (NormalizeOptional(item.CustomizationNote)?.Length > MaxCustomizationNoteLength)
-        {
-            errors.Add("Customization note must not exceed 1000 characters.");
-        }
     }
 
     private static List<string> ValidateUpdateProposalRequest(UpdateProposalRequestDto request)
@@ -1522,94 +1507,91 @@ public sealed class ProposalService : IProposalService
             : await _roomPlannerScenes.GetBySqlSceneIdAsync(sceneId, cancellationToken);
     }
 
-    private static Error? ValidateSceneObjectsForSync(
-        IEnumerable<SyncProposalItemFromSceneDto> items,
-        IEnumerable<RoomPlannerObjectDocument> sceneObjects)
+    private static Error? ValidateRoomPlannerSceneForSync(
+        ProposalContextReadModel proposal,
+        ProposalSceneContextReadModel scene,
+        RoomPlannerSceneDocument roomPlannerScene)
     {
-        var sceneObjectIds = sceneObjects
-            .Select(sceneObject => NormalizeOptional(sceneObject.ObjectId))
-            .Where(sceneObjectId => sceneObjectId is not null)
-            .ToHashSet(StringComparer.Ordinal);
-
-        foreach (var item in items)
+        if (roomPlannerScene.SqlSceneId != scene.SceneId ||
+            roomPlannerScene.ProposalId != scene.ProposalId ||
+            roomPlannerScene.ProjectId != proposal.ProjectId)
         {
-            var sceneObjectId = NormalizeOptional(item.SceneObjectId);
-            if (sceneObjectId is null || !sceneObjectIds.Contains(sceneObjectId))
-            {
-                return Error.BadRequest(
-                    SceneObjectNotFoundCode,
-                    "Scene object not found.");
-            }
+            return Error.BadRequest(SceneProposalMismatchCode, "Room Planner scene does not match proposal scene.");
+        }
+
+        if (roomPlannerScene.BlueprintLayout is null)
+        {
+            return Error.BadRequest(InvalidObjectFloorReferenceCode, "Room Planner scene blueprint layout is required.");
         }
 
         return null;
     }
 
-    private static Error? ValidateDuplicateSceneObjectGroups(IEnumerable<SyncProposalItemFromSceneDto> items)
+    private static SceneSyncItemsResult CreateSyncItemsFromRoomPlanner(
+        ProposalSceneContextReadModel scene,
+        RoomPlannerSceneDocument roomPlannerScene)
     {
-        foreach (var group in items
-                     .Select(item => new { Item = item, SceneObjectId = NormalizeOptional(item.SceneObjectId) })
-                     .Where(entry => entry.SceneObjectId is not null)
-                     .GroupBy(entry => entry.SceneObjectId!, StringComparer.Ordinal)
-                     .Where(group => group.Count() > 1))
+        var floorAreaIds = roomPlannerScene.BlueprintLayout!.Floors
+            .Where(floor => !string.IsNullOrWhiteSpace(floor.Id))
+            .GroupBy(floor => floor.Id, StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.First().ProjectAreaId,
+                StringComparer.Ordinal);
+        var sceneAreaIds = scene.ProjectAreaIds.ToHashSet();
+        var syncItems = new List<RoomPlannerSceneSyncItem>();
+        var sceneObjectIds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var sceneObject in GetEligibleRoomPlannerObjects(roomPlannerScene.Objects))
         {
-            if (group.Select(entry => entry.Item.ProductVersionId).Distinct().Count() > 1)
-            {
-                return Error.BadRequest(
-                    DuplicateSceneObjectProductVersionCode,
-                    "Duplicate scene objects must reference the same product version.");
-            }
-        }
-
-        return null;
-    }
-
-    private static SyncProposalItemsFromSceneRequestDto ConsolidateSyncRequestItems(
-        SyncProposalItemsFromSceneRequestDto request)
-    {
-        var itemsWithoutSceneObjectId = new List<SyncProposalItemFromSceneDto>();
-        var itemsBySceneObjectId = new Dictionary<string, SyncProposalItemFromSceneDto>(StringComparer.Ordinal);
-
-        foreach (var item in request.Items)
-        {
-            var sceneObjectId = NormalizeOptional(item.SceneObjectId);
+            var sceneObjectId = NormalizeOptional(sceneObject.ObjectId);
             if (sceneObjectId is null)
             {
-                itemsWithoutSceneObjectId.Add(item);
-                continue;
+                return SceneSyncItemsResult.Invalid(Error.BadRequest(
+                    DuplicateSceneObjectMappingCode,
+                    "Room Planner scene object id is required."));
             }
 
-            if (!itemsBySceneObjectId.TryGetValue(sceneObjectId, out var consolidatedItem))
+            if (!sceneObjectIds.Add(sceneObjectId))
             {
-                consolidatedItem = new SyncProposalItemFromSceneDto
-                {
-                    SceneObjectId = sceneObjectId,
-                    ProductVersionId = item.ProductVersionId,
-                    Quantity = 0,
-                    CustomizationNote = item.CustomizationNote
-                };
-                itemsBySceneObjectId[sceneObjectId] = consolidatedItem;
+                return SceneSyncItemsResult.Invalid(Error.BadRequest(
+                    DuplicateSceneObjectMappingCode,
+                    "Room Planner scene object ids must be unique."));
             }
 
-            consolidatedItem.Quantity += item.Quantity;
-            if (!string.IsNullOrWhiteSpace(item.CustomizationNote))
+            var floorId = NormalizeOptional(sceneObject.FloorId);
+            if (floorId is null || !floorAreaIds.TryGetValue(floorId, out var projectAreaId))
             {
-                consolidatedItem.CustomizationNote = item.CustomizationNote;
+                return SceneSyncItemsResult.Invalid(Error.BadRequest(
+                    InvalidObjectFloorReferenceCode,
+                    "Scene object references a nonexistent blueprint floor."));
             }
+
+            if (!sceneAreaIds.Contains(projectAreaId))
+            {
+                return SceneSyncItemsResult.Invalid(Error.BadRequest(
+                    SceneAreaMappingNotFoundCode,
+                    "Scene object floor is not mapped to this proposal scene."));
+            }
+
+            syncItems.Add(new RoomPlannerSceneSyncItem(
+                sceneObjectId,
+                floorId,
+                projectAreaId,
+                sceneObject.ProductVersionId));
         }
 
-        var consolidatedItems = new List<SyncProposalItemFromSceneDto>(itemsWithoutSceneObjectId);
-        consolidatedItems.AddRange(itemsBySceneObjectId.Values);
-
-        return new SyncProposalItemsFromSceneRequestDto
-        {
-            SceneId = request.SceneId,
-            Items = consolidatedItems
-        };
+        return SceneSyncItemsResult.Valid(syncItems);
     }
 
+    private static IEnumerable<RoomPlannerObjectDocument> GetEligibleRoomPlannerObjects(
+        IEnumerable<RoomPlannerObjectDocument> sceneObjects) =>
+        sceneObjects.Where(sceneObject =>
+            string.Equals(sceneObject.ObjectType, "FURNITURE", StringComparison.OrdinalIgnoreCase) &&
+            sceneObject.ProductVersionId != Guid.Empty);
+
     private async Task<Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel>> GetProductVersionsForSyncAsync(
-        IEnumerable<SyncProposalItemFromSceneDto> items,
+        IEnumerable<RoomPlannerSceneSyncItem> items,
         Guid projectId,
         CancellationToken cancellationToken)
     {
@@ -1745,7 +1727,7 @@ public sealed class ProposalService : IProposalService
     }
 
     private async Task<ProposalItemSyncResult> UpsertProposalItemsAsync(
-        SyncProposalItemsFromSceneRequestDto request,
+        IReadOnlyList<RoomPlannerSceneSyncItem> syncItems,
         ProposalSceneContextReadModel scene,
         Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel> productVersions,
         IReadOnlyList<ProposalItem> existingItems,
@@ -1762,15 +1744,14 @@ public sealed class ProposalService : IProposalService
                 StringComparer.Ordinal);
         var createdCount = 0;
         var updatedCount = 0;
-        foreach (var requestItem in request.Items)
+        foreach (var syncItem in syncItems)
         {
-            var productVersion = productVersions[requestItem.ProductVersionId];
-            var sceneObjectId = NormalizeOptional(requestItem.SceneObjectId);
-            var proposalItem = FindExistingProposalItem(existingItemsBySceneObjectId, sceneObjectId);
+            var productVersion = productVersions[syncItem.ProductVersionId];
+            var proposalItem = FindExistingProposalItem(existingItemsBySceneObjectId, syncItem.SceneObjectId);
             if (proposalItem is null)
             {
-                proposalItem = await CreateProposalItemAsync(scene, requestItem.ProductVersionId, sceneObjectId, now, cancellationToken);
-                existingItemsBySceneObjectId[sceneObjectId!] = proposalItem;
+                proposalItem = await CreateProposalItemAsync(scene, syncItem, now, cancellationToken);
+                existingItemsBySceneObjectId[syncItem.SceneObjectId] = proposalItem;
                 createdCount++;
             }
             else
@@ -1778,17 +1759,22 @@ public sealed class ProposalService : IProposalService
                 updatedCount++;
             }
 
-            ApplyProposalItemSnapshot(proposalItem, productVersion, requestItem, now);
-            syncedItems.Add(ToSyncedItemDto(proposalItem, productVersion));
+            ApplyProposalItemSnapshot(proposalItem, productVersion, syncItem, now);
+            syncedItems.Add(ToSyncedItemDto(proposalItem, productVersion, syncItem.FloorId));
         }
 
         return new ProposalItemSyncResult(syncedItems, createdCount, updatedCount, 0);
     }
 
+    private static bool HasDuplicateExistingSceneObjectMappings(IEnumerable<ProposalItem> existingItems) =>
+        existingItems
+            .Where(item => !string.IsNullOrWhiteSpace(item.SceneObjectId))
+            .GroupBy(item => item.SceneObjectId!, StringComparer.Ordinal)
+            .Any(group => group.Count() > 1);
+
     private async Task<ProposalItem> CreateProposalItemAsync(
         ProposalSceneContextReadModel scene,
-        Guid productVersionId,
-        string? sceneObjectId,
+        RoomPlannerSceneSyncItem syncItem,
         DateTime now,
         CancellationToken cancellationToken)
     {
@@ -1797,9 +1783,9 @@ public sealed class ProposalService : IProposalService
             ProposalItemId = Guid.NewGuid(),
             ProposalId = scene.ProposalId,
             SceneId = scene.SceneId,
-            SceneObjectId = sceneObjectId,
-            ProjectAreaId = GetFirstProjectAreaId(scene.ProjectAreaIds),
-            ProductVersionId = productVersionId,
+            SceneObjectId = syncItem.SceneObjectId,
+            ProjectAreaId = syncItem.ProjectAreaId,
+            ProductVersionId = syncItem.ProductVersionId,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -1819,12 +1805,13 @@ public sealed class ProposalService : IProposalService
     private static void ApplyProposalItemSnapshot(
         ProposalItem proposalItem,
         Infrastructure.ReadModels.Products.ProductVersionDetailReadModel productVersion,
-        SyncProposalItemFromSceneDto requestItem,
+        RoomPlannerSceneSyncItem syncItem,
         DateTime now)
     {
-        var quantity = requestItem.Quantity;
+        const int QuantityPerSceneObject = 1;
         var unitPrice = productVersion.EstimatedPrice ?? 0m;
-        proposalItem.ProductVersionId = requestItem.ProductVersionId;
+        proposalItem.ProjectAreaId = syncItem.ProjectAreaId;
+        proposalItem.ProductVersionId = syncItem.ProductVersionId;
         proposalItem.ItemName = productVersion.ProductName ?? productVersion.VersionName;
         proposalItem.ItemType = productVersion.VersionType?.ToString();
         proposalItem.Width = productVersion.Width;
@@ -1832,21 +1819,24 @@ public sealed class ProposalService : IProposalService
         proposalItem.Depth = productVersion.Depth;
         proposalItem.Material = productVersion.Material;
         proposalItem.Color = productVersion.Color;
-        proposalItem.Quantity = quantity;
+        proposalItem.Quantity = QuantityPerSceneObject;
         proposalItem.UnitPriceSnapshot = unitPrice;
-        proposalItem.TotalPriceSnapshot = unitPrice * quantity;
-        proposalItem.Note = NormalizeOptional(requestItem.CustomizationNote);
+        proposalItem.TotalPriceSnapshot = unitPrice * QuantityPerSceneObject;
+        proposalItem.Note = null;
         proposalItem.IsCustomized = !string.IsNullOrWhiteSpace(proposalItem.Note);
         proposalItem.UpdatedAt = now;
     }
 
     private static SyncedProposalItemDto ToSyncedItemDto(
         ProposalItem proposalItem,
-        Infrastructure.ReadModels.Products.ProductVersionDetailReadModel productVersion)
+        Infrastructure.ReadModels.Products.ProductVersionDetailReadModel productVersion,
+        string floorId)
     {
         return new SyncedProposalItemDto
         {
             ProposalItemId = proposalItem.ProposalItemId,
+            ProjectAreaId = proposalItem.ProjectAreaId,
+            FloorId = floorId,
             SceneObjectId = proposalItem.SceneObjectId,
             ProductVersionId = proposalItem.ProductVersionId,
             ProductNameSnapshot = proposalItem.ItemName,
@@ -2263,6 +2253,22 @@ public sealed class ProposalService : IProposalService
         public int CreatedCount { get; }
         public int UpdatedCount { get; }
         public int RemovedCount { get; }
+    }
+
+    private sealed record RoomPlannerSceneSyncItem(
+        string SceneObjectId,
+        string FloorId,
+        Guid ProjectAreaId,
+        Guid ProductVersionId);
+
+    private sealed record SceneSyncItemsResult(
+        IReadOnlyList<RoomPlannerSceneSyncItem> Items,
+        Error? Error)
+    {
+        public static SceneSyncItemsResult Valid(IReadOnlyList<RoomPlannerSceneSyncItem> items) =>
+            new(items, null);
+
+        public static SceneSyncItemsResult Invalid(Error error) => new([], error);
     }
 }
 

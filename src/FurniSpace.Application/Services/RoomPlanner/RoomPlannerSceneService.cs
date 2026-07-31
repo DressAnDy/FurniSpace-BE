@@ -7,6 +7,7 @@ using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Shared.DTOs.Proposals;
 using ApplicationRoomPlannerSceneRepository = FurniSpace.Application.Interfaces.RoomPlanner.IRoomPlannerSceneRepository;
 using RoomPlannerSqlSceneRepository = FurniSpace.Infrastructure.Repositories.IRepository.IRoomPlannerProposalSceneRepository;
 
@@ -171,7 +172,15 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         var document = await _sceneDocuments.GetByIdAsync(context.MongoSceneId, cancellationToken);
         if (document is null)
         {
-            return ServiceResult<RoomPlannerSceneResponseDto>.NotFound("Room planner scene document not found.");
+            return ServiceResult<RoomPlannerSceneResponseDto>.Failure(Error.NotFound(
+                RoomPlannerDocumentNotFoundCode,
+                "Room planner scene document not found."));
+        }
+
+        var documentValidationError = ValidateDocumentForLoad(context, document);
+        if (documentValidationError is not null)
+        {
+            return ServiceResult<RoomPlannerSceneResponseDto>.Failure(documentValidationError);
         }
 
         return ServiceResult<RoomPlannerSceneResponseDto>.Success(
@@ -228,7 +237,8 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             MongoSceneId = null,
             ProposalId = context.ProposalId,
             ProjectId = context.ProjectId,
-            ProjectAreaIds = context.ProjectAreaIds,
+            ProjectAreaIds = ToOrderedProjectAreaIds(context.SceneAreas),
+            Areas = ToSceneAreaDtos(context.SceneAreas),
             SchemaVersion = 3,
             EditorVersion = "ROOM_PLANNER_BABYLON_V1",
             Unit = "meter",
@@ -250,7 +260,8 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             MongoSceneId = document.Id,
             ProposalId = document.ProposalId,
             ProjectId = document.ProjectId,
-            ProjectAreaIds = context.ProjectAreaIds,
+            ProjectAreaIds = ToOrderedProjectAreaIds(context.SceneAreas),
+            Areas = ToSceneAreaDtos(context.SceneAreas),
             SchemaVersion = document.SchemaVersion,
             EditorVersion = document.EditorVersion,
             Unit = document.Unit,
@@ -264,6 +275,22 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             EditorState = document.EditorState,
             LastSavedAt = document.Metadata.UpdatedAt
         };
+
+    private static Error? ValidateDocumentForLoad(
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        RoomPlannerSceneDocument document)
+    {
+        if (document.SchemaVersion != 3 ||
+            document.BlueprintLayout is null ||
+            document.SqlSceneId != context.SceneId ||
+            document.ProposalId != context.ProposalId ||
+            document.ProjectId != context.ProjectId)
+        {
+            return Error.BadRequest(RoomPlannerDocumentInvalidCode, "Room planner scene document is invalid.");
+        }
+
+        return null;
+    }
 
     private static bool CanSaveScene(
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
@@ -590,6 +617,8 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             Name = "Room Planner Blueprint",
             Unit = "meter",
             Floors = context.SceneAreas
+                .OrderBy(area => area.SortOrder)
+                .ThenBy(area => area.ProjectAreaId)
                 .Select((area, index) => new RoomPlannerBlueprintFloorDocument
                 {
                     Id = $"floor-{context.SceneId:N}-{area.ProjectAreaId:N}",
@@ -602,4 +631,28 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
                 })
                 .ToList()
         };
+
+    private static List<ProposalSceneAreaDto> ToSceneAreaDtos(
+        IEnumerable<Infrastructure.ReadModels.Proposals.ProposalSceneAreaReadModel> areas) =>
+        areas
+            .OrderBy(area => area.SortOrder)
+            .ThenBy(area => area.ProjectAreaId)
+            .Select(area => new ProposalSceneAreaDto
+            {
+                ProjectAreaId = area.ProjectAreaId,
+                AreaName = area.AreaName,
+                AreaType = area.AreaType?.ToString(),
+                FloorNumber = area.FloorNumber,
+                SortOrder = area.SortOrder,
+                Status = area.Status?.ToString()
+            })
+            .ToList();
+
+    private static List<Guid> ToOrderedProjectAreaIds(
+        IEnumerable<Infrastructure.ReadModels.Proposals.ProposalSceneAreaReadModel> areas) =>
+        areas
+            .OrderBy(area => area.SortOrder)
+            .ThenBy(area => area.ProjectAreaId)
+            .Select(area => area.ProjectAreaId)
+            .ToList();
 }

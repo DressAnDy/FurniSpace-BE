@@ -20,6 +20,8 @@ internal static class RoomPlannerSceneServiceConstants
     internal const string ProductVersionNotFoundCode = "PRODUCT_VERSION_NOT_FOUND";
     internal const string ProjectAreaProjectMismatchCode = "PROJECT_AREA_PROJECT_MISMATCH";
     internal const string RoomPlannerSaveFailedCode = "ROOM_PLANNER_SAVE_FAILED";
+    internal const string RoomPlannerDocumentInvalidCode = "ROOM_PLANNER_DOCUMENT_INVALID";
+    internal const string RoomPlannerDocumentNotFoundCode = "ROOM_PLANNER_DOCUMENT_NOT_FOUND";
     internal const string RoomPlannerSceneRequiredCode = "ROOM_PLANNER_SCENE_REQUIRED";
     internal const string RoomPlannerSchemaVersionUnsupportedCode = "ROOM_PLANNER_SCHEMA_VERSION_UNSUPPORTED";
     internal const string RoomPlannerSqlLinkFailedCode = "ROOM_PLANNER_SQL_LINK_FAILED";

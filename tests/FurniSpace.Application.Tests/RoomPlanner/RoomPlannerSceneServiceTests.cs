@@ -518,8 +518,56 @@ public sealed class RoomPlannerSceneServiceTests
         Assert.Null(result.Data!.MongoSceneId);
         Assert.Equal(3, result.Data.SchemaVersion);
         Assert.Equal(ProjectAreaId, result.Data.ProjectAreaIds[0]);
+        Assert.Single(result.Data.Areas);
+        Assert.Equal(ProjectAreaId, result.Data.Areas[0].ProjectAreaId);
+        Assert.Equal("Main cafe area", result.Data.Areas[0].AreaName);
         Assert.Equal(ProjectAreaId, result.Data.BlueprintLayout!.Floors[0].ProjectAreaId);
+        Assert.StartsWith("floor-", result.Data.BlueprintLayout.Floors[0].Id, StringComparison.Ordinal);
         Assert.Empty(result.Data.Objects);
+    }
+
+    [Fact]
+    public async Task GetSceneAsync_WhenNoMongoSceneId_ReturnsStableOrderedEmptyFloors()
+    {
+        var secondAreaId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        var context = CreateContext(mongoSceneId: null);
+        context.SceneAreas =
+        [
+            new ProposalSceneAreaReadModel
+            {
+                ProposalSceneAreaId = Guid.NewGuid(),
+                SceneId = SceneId,
+                ProjectAreaId = secondAreaId,
+                ProjectId = ProjectId,
+                AreaName = "Second floor",
+                FloorNumber = 2,
+                SortOrder = 1
+            },
+            new ProposalSceneAreaReadModel
+            {
+                ProposalSceneAreaId = Guid.NewGuid(),
+                SceneId = SceneId,
+                ProjectAreaId = ProjectAreaId,
+                ProjectId = ProjectId,
+                AreaName = "First floor",
+                FloorNumber = 1,
+                SortOrder = 0
+            }
+        ];
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = context },
+            new FakeSceneDocumentRepository());
+
+        var firstResult = await service.GetSceneAsync(SceneId, DesignerId, "DESIGNER");
+        var secondResult = await service.GetSceneAsync(SceneId, DesignerId, "DESIGNER");
+
+        Assert.Equal(200, firstResult.Status);
+        Assert.Equal([ProjectAreaId, secondAreaId], firstResult.Data!.ProjectAreaIds);
+        Assert.Equal([ProjectAreaId, secondAreaId], firstResult.Data.Areas.Select(area => area.ProjectAreaId).ToList());
+        Assert.Equal([ProjectAreaId, secondAreaId], firstResult.Data.BlueprintLayout!.Floors.Select(floor => floor.ProjectAreaId).ToList());
+        Assert.Equal(
+            firstResult.Data.BlueprintLayout.Floors.Select(floor => floor.Id).ToList(),
+            secondResult.Data!.BlueprintLayout!.Floors.Select(floor => floor.Id).ToList());
     }
 
     [Fact]
@@ -532,6 +580,22 @@ public sealed class RoomPlannerSceneServiceTests
         var result = await service.GetSceneAsync(SceneId, DesignerId, "DESIGNER");
 
         Assert.Equal(404, result.Status);
+        Assert.Equal("ROOM_PLANNER_DOCUMENT_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetSceneAsync_WhenDocumentInvalid_ReturnsRoomPlannerDocumentInvalid()
+    {
+        var document = CreateDocument("64fb8f0f2a98f67b1c000004");
+        document.SchemaVersion = 2;
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(document.Id) },
+            new FakeSceneDocumentRepository { DocumentById = document });
+
+        var result = await service.GetSceneAsync(SceneId, DesignerId, "DESIGNER");
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("ROOM_PLANNER_DOCUMENT_INVALID", result.ErrorCode);
     }
 
     [Fact]

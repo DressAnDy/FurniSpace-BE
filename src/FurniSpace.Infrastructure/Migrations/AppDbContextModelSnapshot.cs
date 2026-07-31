@@ -2166,7 +2166,9 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDatabaseName("idx_proposal_items_proposal_list_sort");
 
                     b.HasIndex("SceneId", "SceneObjectId")
-                        .HasDatabaseName("idx_proposal_items_scene_object");
+                        .IsUnique()
+                        .HasFilter("scene_id IS NOT NULL AND scene_object_id IS NOT NULL")
+                        .HasDatabaseName("uq_proposal_items_scene_object");
 
                     b.ToTable("proposal_items", (string)null);
                 });

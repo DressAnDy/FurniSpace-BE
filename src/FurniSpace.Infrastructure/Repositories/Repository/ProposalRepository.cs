@@ -425,6 +425,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     SceneId = joined.scene.SceneId,
                     ProposalId = joined.proposal.ProposalId,
                     ProjectId = project.ProjectId,
+                    SceneType = joined.scene.SceneType,
                     ProposalStatus = joined.proposal.Status,
                     CustomerId = project.CustomerId,
                     AssignedSalesId = project.AssignedSalesId,

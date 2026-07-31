@@ -686,7 +686,10 @@ public class AppDbContext : DbContext
             entity.HasOne<ProposalScene>().WithMany().HasForeignKey(e => e.SceneId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasIndex(e => new { e.SceneId, e.SceneObjectId }).HasDatabaseName("idx_proposal_items_scene_object");
+            entity.HasIndex(e => new { e.SceneId, e.SceneObjectId })
+                .IsUnique()
+                .HasFilter("scene_id IS NOT NULL AND scene_object_id IS NOT NULL")
+                .HasDatabaseName("uq_proposal_items_scene_object");
             entity.HasIndex(e => new { e.ProposalId, e.ItemName })
                 .HasDatabaseName("idx_proposal_items_proposal_list_sort");
         });

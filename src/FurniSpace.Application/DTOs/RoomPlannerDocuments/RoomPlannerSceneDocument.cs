@@ -11,7 +11,9 @@ public sealed class RoomPlannerSceneDocument
     public Guid? ProjectAreaId { get; set; }
     public string SceneKind { get; set; } = "OFFICIAL";
     public string Unit { get; set; } = "meter";
-    public RoomPlannerLayoutDocument Layout { get; set; } = new();
+    public RoomPlannerSceneLinksDocument SceneLinks { get; set; } = new();
+    public RoomPlannerBlueprintLayoutDocument? BlueprintLayout { get; set; }
+    public RoomPlannerLayoutDocument? Layout { get; set; }
     public List<RoomPlannerObjectDocument> Objects { get; set; } = [];
     public List<RoomPlannerLayerDocument> Layers { get; set; } = [];
     public string? StylePreset { get; set; }

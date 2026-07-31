@@ -74,6 +74,12 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
                 ProposalNotEditableMessage));
         }
 
+        var payloadValidationError = ValidatePayload(request, context);
+        if (payloadValidationError is not null)
+        {
+            return ServiceResult<RoomPlannerSceneSaveResponseDto>.Failure(payloadValidationError);
+        }
+
         var sceneReferenceError = await ValidateSceneReferencesAsync(request, context.ProjectId, cancellationToken);
         if (sceneReferenceError is not null)
         {
@@ -81,22 +87,40 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         }
 
         var now = DateTime.UtcNow;
-        var document = BuildDocument(context, request, currentUserId, now);
-        if (!string.IsNullOrWhiteSpace(context.MongoSceneId))
-        {
-            document.Id = context.MongoSceneId;
-        }
+        var existingDocument = await GetExistingDocumentAsync(context, cancellationToken);
+        var document = BuildDocument(context, request, currentUserId, now, existingDocument);
 
-        var saved = await _sceneDocuments.UpsertBySqlSceneIdAsync(document, cancellationToken);
+        RoomPlannerSceneDocument saved;
+        try
+        {
+            saved = await _sceneDocuments.UpsertBySqlSceneIdAsync(document, cancellationToken);
+        }
+        catch
+        {
+            return ServiceResult<RoomPlannerSceneSaveResponseDto>.Failure(Error.InternalServerError(
+                RoomPlannerSaveFailedCode,
+                "Room Planner scene could not be saved."));
+        }
         if (string.IsNullOrWhiteSpace(saved.Id))
         {
-            return ServiceResult<RoomPlannerSceneSaveResponseDto>.InternalServerError("MONGO_OPERATION_FAILED");
+            return ServiceResult<RoomPlannerSceneSaveResponseDto>.Failure(Error.InternalServerError(
+                RoomPlannerSaveFailedCode,
+                "Room Planner scene could not be saved."));
         }
 
         if (string.IsNullOrWhiteSpace(context.MongoSceneId))
         {
-            await _proposalScenes.UpdateMongoSceneIdAsync(sceneId, saved.Id, cancellationToken);
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await _proposalScenes.UpdateMongoSceneIdAsync(sceneId, saved.Id, cancellationToken);
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+            catch
+            {
+                return ServiceResult<RoomPlannerSceneSaveResponseDto>.Failure(Error.InternalServerError(
+                    RoomPlannerSqlLinkFailedCode,
+                    "Room Planner scene was saved but SQL scene link failed."));
+            }
         }
 
         return ServiceResult<RoomPlannerSceneSaveResponseDto>.Success(
@@ -158,19 +182,26 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
         RoomPlannerScenePayloadDto request,
         Guid currentUserId,
-        DateTime now)
+        DateTime now,
+        RoomPlannerSceneDocument? existingDocument)
     {
         return new RoomPlannerSceneDocument
         {
+            Id = existingDocument?.Id,
             SchemaVersion = request.SchemaVersion,
             EditorVersion = request.EditorVersion,
             SqlSceneId = context.SceneId,
             ProposalId = context.ProposalId,
             ProjectId = context.ProjectId,
-            ProjectAreaId = GetFirstProjectAreaId(context.ProjectAreaIds),
+            ProjectAreaId = null,
             SceneKind = "OFFICIAL",
             Unit = NormalizeUnit(request.Unit),
-            Layout = request.Layout,
+            SceneLinks = new RoomPlannerSceneLinksDocument
+            {
+                ProjectAreaIds = context.ProjectAreaIds.ToList()
+            },
+            BlueprintLayout = request.BlueprintLayout,
+            Layout = null,
             Objects = request.Objects,
             Layers = request.Layers,
             StylePreset = request.StylePreset,
@@ -180,9 +211,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             EditorState = request.EditorState,
             Metadata = new RoomPlannerMetadataDocument
             {
-                CreatedBy = currentUserId,
+                CreatedBy = existingDocument?.Metadata.CreatedBy ?? currentUserId,
                 UpdatedBy = currentUserId,
-                CreatedAt = now,
+                CreatedAt = existingDocument?.Metadata.CreatedAt ?? now,
                 UpdatedAt = now
             }
         };
@@ -196,12 +227,11 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             MongoSceneId = null,
             ProposalId = context.ProposalId,
             ProjectId = context.ProjectId,
-            ProjectAreaId = GetFirstProjectAreaId(context.ProjectAreaIds),
             ProjectAreaIds = context.ProjectAreaIds,
-            SchemaVersion = 2,
+            SchemaVersion = 3,
             EditorVersion = "ROOM_PLANNER_BABYLON_V1",
             Unit = "meter",
-            Layout = new RoomPlannerLayoutDocument(),
+            BlueprintLayout = CreateEmptyBlueprintLayout(context),
             Objects = [],
             Layers = [],
             Camera = new RoomPlannerCameraDocument(),
@@ -219,12 +249,11 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             MongoSceneId = document.Id,
             ProposalId = document.ProposalId,
             ProjectId = document.ProjectId,
-            ProjectAreaId = GetFirstProjectAreaId(context.ProjectAreaIds),
             ProjectAreaIds = context.ProjectAreaIds,
             SchemaVersion = document.SchemaVersion,
             EditorVersion = document.EditorVersion,
             Unit = document.Unit,
-            Layout = document.Layout,
+            BlueprintLayout = document.BlueprintLayout,
             Objects = document.Objects,
             Layers = document.Layers,
             StylePreset = document.StylePreset,
@@ -234,9 +263,6 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             EditorState = document.EditorState,
             LastSavedAt = document.Metadata.UpdatedAt
         };
-
-    private static Guid? GetFirstProjectAreaId(IReadOnlyList<Guid> projectAreaIds) =>
-        projectAreaIds.Count == 0 ? null : projectAreaIds[0];
 
     private static bool CanSaveScene(
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
@@ -286,9 +312,126 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     private static bool IsEditableProposal(ProposalStatus? status)
     {
         return status is ProposalStatus.DRAFT
-            or ProposalStatus.PUBLISHED
             or ProposalStatus.REVISION_REQUESTED;
     }
+
+    private async Task<RoomPlannerSceneDocument?> GetExistingDocumentAsync(
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(context.MongoSceneId))
+        {
+            return await _sceneDocuments.GetByIdAsync(context.MongoSceneId, cancellationToken);
+        }
+
+        return await _sceneDocuments.GetBySqlSceneIdAsync(context.SceneId, cancellationToken);
+    }
+
+    private static Error? ValidatePayload(
+        RoomPlannerScenePayloadDto request,
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context)
+    {
+        if (context.SceneType != ProposalSceneType.ROOM_PLANNER)
+        {
+            return Error.BadRequest(RoomPlannerSceneRequiredCode, "Only Room Planner scenes can be saved through this endpoint.");
+        }
+
+        if (request.SchemaVersion != 3)
+        {
+            return Error.BadRequest(
+                RoomPlannerSchemaVersionUnsupportedCode,
+                "Room Planner scene schemaVersion 3 is required.");
+        }
+
+        if (request.BlueprintLayout is null || request.BlueprintLayout.Floors.Count == 0)
+        {
+            return Error.BadRequest(BlueprintLayoutRequiredCode, "Blueprint layout with at least one floor is required.");
+        }
+
+        if (!UnitsMatch(request.Unit, request.BlueprintLayout.Unit))
+        {
+            return Error.BadRequest(BlueprintFloorMappingMismatchCode, "Blueprint layout unit must match scene unit.");
+        }
+
+        if (context.SceneAreas.Any(area => area.ProjectId != context.ProjectId))
+        {
+            return Error.BadRequest(ProjectAreaProjectMismatchCode, "One or more scene areas do not belong to the project.");
+        }
+
+        return ValidateFloorMappings(request.BlueprintLayout, context)
+            ?? ValidateObjectFloorReferences(request)
+            ?? ValidateStableGeometryReferences(request.BlueprintLayout);
+    }
+
+    private static Error? ValidateFloorMappings(
+        RoomPlannerBlueprintLayoutDocument blueprintLayout,
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context)
+    {
+        if (ContainsDuplicate(blueprintLayout.Floors.Select(floor => NormalizeIdentifier(floor.Id))) ||
+            ContainsDuplicate(blueprintLayout.Floors.Select(floor => floor.ProjectAreaId)))
+        {
+            return BlueprintMappingError();
+        }
+
+        var mappedAreaIds = context.SceneAreas
+            .Select(area => area.ProjectAreaId)
+            .ToHashSet();
+        var floorAreaIds = blueprintLayout.Floors
+            .Select(floor => floor.ProjectAreaId)
+            .ToHashSet();
+
+        return mappedAreaIds.SetEquals(floorAreaIds) ? null : BlueprintMappingError();
+    }
+
+    private static Error? ValidateObjectFloorReferences(RoomPlannerScenePayloadDto request)
+    {
+        var floorIds = request.BlueprintLayout!.Floors
+            .Select(floor => floor.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var hasInvalidFloorReference = request.Objects.Any(sceneObject =>
+            string.IsNullOrWhiteSpace(sceneObject.FloorId) ||
+            !floorIds.Contains(sceneObject.FloorId));
+
+        return hasInvalidFloorReference
+            ? Error.BadRequest(InvalidObjectFloorReferenceCode, "Scene object references a nonexistent blueprint floor.")
+            : null;
+    }
+
+    private static Error? ValidateStableGeometryReferences(RoomPlannerBlueprintLayoutDocument blueprintLayout)
+    {
+        foreach (var floor in blueprintLayout.Floors)
+        {
+            var pointIds = floor.Points
+                .Select(point => NormalizeIdentifier(point.PointId))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var wallIds = floor.Walls
+                .Select(wall => NormalizeIdentifier(wall.WallId))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (floor.Walls.Any(wall => !pointIds.Contains(NormalizeIdentifier(wall.StartPointId)) ||
+                                        !pointIds.Contains(NormalizeIdentifier(wall.EndPointId))) ||
+                HasInvalidOpeningReference(floor.Doors, wallIds) ||
+                HasInvalidOpeningReference(floor.Windows, wallIds) ||
+                HasInvalidOpeningReference(floor.Openings, wallIds))
+            {
+                return BlueprintMappingError();
+            }
+        }
+
+        return null;
+    }
+
+    private static bool HasInvalidOpeningReference(
+        IEnumerable<RoomPlannerOpeningDocument> openings,
+        ISet<string> wallIds) =>
+        openings.Any(opening => !wallIds.Contains(NormalizeIdentifier(opening.WallId)));
+
+    private static Error BlueprintMappingError() =>
+        Error.BadRequest(BlueprintFloorMappingMismatchCode, "Blueprint floors must match SQL scene area mappings.");
+
+    private static bool ContainsDuplicate<T>(IEnumerable<T> values) =>
+        values.GroupBy(value => value).Any(group => group.Count() > 1);
 
     private async Task<Error?> ValidateSceneReferencesAsync(
         RoomPlannerScenePayloadDto request,
@@ -297,7 +440,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     {
         if (_productVersions is null)
         {
-            return null;
+            return await ValidateModelFileLinksAsync(request, cancellationToken);
         }
 
         var productVersionIds = request.Objects
@@ -307,7 +450,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
         if (productVersionIds.Any(productVersionId => productVersionId == Guid.Empty))
         {
-            return Error.BadRequest(InvalidSceneDataCode, "Scene object product version id is required.");
+            return Error.BadRequest(ProductVersionNotFoundCode, "Scene object product version id is required.");
         }
 
         var validProductVersions = await _productVersions.GetValidDetailsAsync(
@@ -317,7 +460,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
         if (validProductVersions.Count != productVersionIds.Count)
         {
-            return Error.BadRequest(InvalidSceneDataCode, "One or more scene object product versions are invalid.");
+            return Error.BadRequest(ProductVersionNotFoundCode, "One or more scene object product versions are invalid.");
         }
 
         return await ValidateModelFileLinksAsync(request, cancellationToken);
@@ -337,8 +480,15 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
         foreach (var sceneObject in objectsWithModelFiles)
         {
+            var modelFileId = sceneObject.ModelSnapshot!.ModelFileId!.Value;
+            var metadata = await _projectFiles.GetFileMetadataAsync(modelFileId, cancellationToken);
+            if (metadata is null)
+            {
+                return Error.BadRequest(ModelFileNotFoundCode, "Scene object model file does not exist.");
+            }
+
             var fileLinks = await _projectFiles.GetFileLinkEntitiesByFileIdAsync(
-                sceneObject.ModelSnapshot!.ModelFileId!.Value,
+                modelFileId,
                 cancellationToken);
             var hasValidModelLink = fileLinks.Any(link =>
                 string.Equals(link.ReferenceType, ProductVersionReferenceType, StringComparison.OrdinalIgnoreCase) &&
@@ -347,7 +497,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
             if (!hasValidModelLink)
             {
-                return Error.BadRequest(InvalidSceneDataCode, "Scene object model file is invalid.");
+                return Error.BadRequest(ModelFileLinkedCode, "Scene object model file is not linked to its product version.");
             }
         }
 
@@ -359,4 +509,31 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
     private static string NormalizeUnit(string? unit) =>
         string.IsNullOrWhiteSpace(unit) ? "meter" : unit.Trim();
+
+    private static string NormalizeIdentifier(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
+
+    private static bool UnitsMatch(string? requestUnit, string? blueprintUnit) =>
+        string.Equals(NormalizeUnit(requestUnit), NormalizeUnit(blueprintUnit), StringComparison.OrdinalIgnoreCase);
+
+    private static RoomPlannerBlueprintLayoutDocument CreateEmptyBlueprintLayout(
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context) =>
+        new()
+        {
+            Id = $"blueprint-{context.SceneId:N}",
+            Name = "Room Planner Blueprint",
+            Unit = "meter",
+            Floors = context.SceneAreas
+                .Select((area, index) => new RoomPlannerBlueprintFloorDocument
+                {
+                    Id = $"floor-{context.SceneId:N}-{area.ProjectAreaId:N}",
+                    ProjectAreaId = area.ProjectAreaId,
+                    Name = area.AreaName,
+                    LevelIndex = index,
+                    Elevation = 0,
+                    FloorHeight = 3,
+                    SlabThickness = 0.12m
+                })
+                .ToList()
+        };
 }

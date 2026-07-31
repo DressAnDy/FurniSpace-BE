@@ -183,7 +183,7 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
         var result = await adapter.UpsertBySqlSceneIdAsync(document);
 
         Assert.NotNull(inner.UpsertedDocument);
-        Assert.Equal("BLUEPRINT_WALL_GRAPH", inner.UpsertedDocument.Layout.Type);
+        Assert.Equal("BLUEPRINT_WALL_GRAPH", inner.UpsertedDocument.Layout!.Type);
         Assert.Equal("p1", inner.UpsertedDocument.Layout.Points[0].PointId);
         Assert.Equal(0, inner.UpsertedDocument.Layout.Points[0].Y);
         Assert.Equal("p1", inner.UpsertedDocument.Layout.Walls[0].StartPointId);
@@ -204,7 +204,7 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
         Assert.Equal("w1", inner.UpsertedDocument.Objects[0].Placement.MountedWallId);
         Assert.Equal("https://cdn.example.com/thumb.png", inner.UpsertedDocument.Objects[0].VisualSnapshot!.ThumbnailUrlSnapshot);
         Assert.Equal("https://cdn.example.com/model.glb", inner.UpsertedDocument.Objects[0].ModelSnapshot!.ModelUrlSnapshot);
-        Assert.Equal("BLUEPRINT_WALL_GRAPH", result.Layout.Type);
+        Assert.Equal("BLUEPRINT_WALL_GRAPH", result.Layout!.Type);
         Assert.Equal("p2", result.Layout.Points[1].PointId);
         Assert.Equal(4.5m, result.Layout.Doors[0].Offset);
         Assert.Equal(8.25m, result.Layout.Windows[0].Offset);

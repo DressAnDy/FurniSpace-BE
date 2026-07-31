@@ -16,5 +16,6 @@ public sealed class RoomPlannerObjectDocument
         DimensionsSnapshot = new RoomPlannerDimensionsSnapshotDocument();
     }
 
+    public string? FloorId { get; set; }
     public RoomPlannerPlacementDocument Placement { get; set; }
 }

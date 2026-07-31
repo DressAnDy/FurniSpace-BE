@@ -126,7 +126,7 @@ public sealed class ProposalRepositoryTests
         Assert.Equal(data.ProjectId, detail.ProjectId);
         Assert.Single(detail.Scenes);
         Assert.Equal(data.ActiveSceneId, detail.Scenes[0].SceneId);
-        Assert.Equal([data.ProjectAreaId], detail.Scenes[0].ProjectAreaIds);
+        Assert.Equal([data.ProjectAreaId], detail.Scenes[0].Areas.Select(area => area.ProjectAreaId));
         Assert.Equal("https://cdn.furnispace.test/preview.png", detail.Scenes[0].PreviewFileUrl);
         Assert.Single(detail.Items);
         Assert.Equal("Cafe Chair", detail.Items[0].ProductNameSnapshot);
@@ -186,7 +186,7 @@ public sealed class ProposalRepositoryTests
         Assert.Equal("Inactive layout", scene.SceneName);
         Assert.Equal(ProposalSceneType.TWO_D, scene.SceneType);
         Assert.False(scene.IsActive);
-        Assert.Empty(scene.ProjectAreaIds);
+        Assert.Empty(scene.Areas);
     }
 
     [Fact]
@@ -202,6 +202,7 @@ public sealed class ProposalRepositoryTests
                 ProjectAreaId = secondAreaId,
                 ProjectId = data.ProjectId,
                 AreaName = "Second floor",
+                AreaType = ProjectAreaType.FLOOR,
                 FloorNumber = 2,
                 Status = ProjectAreaStatus.VERIFIED
             },
@@ -210,6 +211,7 @@ public sealed class ProposalRepositoryTests
                 ProjectAreaId = thirdAreaId,
                 ProjectId = data.ProjectId,
                 AreaName = "Ground floor",
+                AreaType = ProjectAreaType.FLOOR,
                 FloorNumber = 1,
                 Status = ProjectAreaStatus.VERIFIED
             });
@@ -236,8 +238,9 @@ public sealed class ProposalRepositoryTests
         var scene = await repository.GetSceneDetailAsync(data.ActiveSceneId);
 
         Assert.NotNull(scene);
-        Assert.Equal([data.ProjectAreaId, thirdAreaId, secondAreaId], scene.ProjectAreaIds);
-        Assert.Equal(["Main cafe area", "Ground floor", "Second floor"], scene.SceneAreas.Select(area => area.AreaName));
+        Assert.Equal([data.ProjectAreaId, thirdAreaId, secondAreaId], scene.Areas.Select(area => area.ProjectAreaId));
+        Assert.Equal(["Main cafe area", "Ground floor", "Second floor"], scene.Areas.Select(area => area.AreaName));
+        Assert.All(scene.Areas, area => Assert.Equal(ProjectAreaType.FLOOR.ToString(), area.AreaType));
     }
 
     [Fact]
@@ -262,7 +265,7 @@ public sealed class ProposalRepositoryTests
         var scene = Assert.Single(scenes);
         Assert.Equal(data.ActiveSceneId, scene.SceneId);
         Assert.True(scene.IsActive);
-        Assert.Equal([data.ProjectAreaId], scene.ProjectAreaIds);
+        Assert.Equal([data.ProjectAreaId], scene.Areas.Select(area => area.ProjectAreaId));
         Assert.Equal("https://cdn.furnispace.test/preview.png", scene.PreviewFileUrl);
     }
 
@@ -282,7 +285,7 @@ public sealed class ProposalRepositoryTests
         Assert.Equal(data.SalesId, scene.AssignedSalesId);
         Assert.Equal(data.DesignerId, scene.AssignedDesignerId);
         Assert.Equal(ProposalStatus.PUBLISHED, scene.ProposalStatus);
-        Assert.Equal([data.ProjectAreaId], scene.ProjectAreaIds);
+        Assert.Equal([data.ProjectAreaId], scene.Areas.Select(area => area.ProjectAreaId));
         Assert.Equal("mongo-scene-id", scene.MongoSceneId);
         Assert.Equal("https://cdn.furnispace.test/preview.png", scene.PreviewFileUrl);
     }
@@ -430,6 +433,53 @@ public sealed class ProposalRepositoryTests
     }
 
     [Fact]
+    public async Task GetProjectAreasByIdsAsync_ReturnsRequestedAreaMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+
+        var areas = await repository.GetProjectAreasByIdsAsync([data.ProjectAreaId, Guid.NewGuid()]);
+
+        var area = Assert.Single(areas);
+        Assert.Equal(data.ProjectAreaId, area.ProjectAreaId);
+        Assert.Equal(data.ProjectId, area.ProjectId);
+        Assert.Equal("Main cafe area", area.AreaName);
+        Assert.Equal(ProjectAreaType.FLOOR, area.AreaType);
+        Assert.Equal(ProjectAreaStatus.VERIFIED, area.Status);
+    }
+
+    [Fact]
+    public async Task ReplaceSceneAreasAsync_ReplacesExistingMappingsInRequestOrder()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProposalRepository(context);
+        var secondAreaId = Guid.Parse("22222222-2222-4222-8222-222222222222");
+        context.ProjectAreaSet.Add(new ProjectArea
+        {
+            ProjectAreaId = secondAreaId,
+            ProjectId = data.ProjectId,
+            AreaName = "Second floor",
+            AreaType = ProjectAreaType.FLOOR,
+            FloorNumber = 2,
+            Status = ProjectAreaStatus.VERIFIED,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        await repository.ReplaceSceneAreasAsync(data.ActiveSceneId, [secondAreaId, data.ProjectAreaId], DateTime.UtcNow);
+        await context.SaveChangesAsync();
+
+        var mappings = context.ProposalSceneAreaSet
+            .Where(area => area.SceneId == data.ActiveSceneId)
+            .OrderBy(area => area.SortOrder)
+            .ToList();
+        Assert.Equal([secondAreaId, data.ProjectAreaId], mappings.Select(area => area.ProjectAreaId));
+        Assert.Equal([0, 1], mappings.Select(area => area.SortOrder));
+    }
+
+    [Fact]
     public async Task AddItemAsync_AddsProposalItem()
     {
         await using var context = CreateContext();
@@ -537,6 +587,7 @@ public sealed class ProposalRepositoryTests
             ProjectAreaId = projectAreaId,
             ProjectId = projectId,
             AreaName = "Main cafe area",
+            AreaType = ProjectAreaType.FLOOR,
             Status = ProjectAreaStatus.VERIFIED,
             CreatedAt = DateTime.UtcNow
         });

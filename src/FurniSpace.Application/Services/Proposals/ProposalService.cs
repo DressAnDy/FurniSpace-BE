@@ -193,10 +193,10 @@ public sealed class ProposalService : IProposalService
             return ServiceResult<ProposalSceneDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
         }
 
-        var validationErrors = ValidateCreateSceneRequest(request);
-        if (validationErrors.Count > 0)
+        var validationError = ValidateCreateSceneRequest(request);
+        if (validationError is not null)
         {
-            return ServiceResult<ProposalSceneDto>.BadRequest(validationErrors);
+            return ServiceResult<ProposalSceneDto>.Failure(validationError);
         }
 
         var proposal = await _proposals.GetProposalContextAsync(proposalId, cancellationToken);
@@ -218,12 +218,21 @@ public sealed class ProposalService : IProposalService
                 "Proposal scene can only be created for draft proposal."));
         }
 
-        if (request.ProjectAreaId.HasValue &&
-            !await _proposals.ProjectAreaBelongsToProjectAsync(request.ProjectAreaId.Value, proposal.ProjectId, cancellationToken))
+        if (request.PreviewFileId.HasValue &&
+            !await _proposals.FileExistsAsync(request.PreviewFileId.Value, cancellationToken))
         {
-            return ServiceResult<ProposalSceneDto>.Failure(Error.BadRequest(
-                "INVALID_PROJECT_AREA",
-                "Project area does not belong to the same project."));
+            return ServiceResult<ProposalSceneDto>.Failure(Error.NotFound(
+                PreviewFileNotFoundCode,
+                "Preview file not found."));
+        }
+
+        var areaValidation = await ValidateSceneAreaIdsAsync(
+            request.ProjectAreaIds,
+            proposal.ProjectId,
+            cancellationToken);
+        if (!areaValidation.IsValid)
+        {
+            return ServiceResult<ProposalSceneDto>.Failure(areaValidation.Error!);
         }
 
         var now = DateTime.UtcNow;
@@ -233,7 +242,7 @@ public sealed class ProposalService : IProposalService
             ProposalId = proposalId,
             SceneName = NormalizeOptional(request.SceneName),
             SceneType = request.SceneType,
-            MongoSceneId = NormalizeOptional(request.MongoSceneId),
+            MongoSceneId = null,
             PreviewFileId = request.PreviewFileId,
             VersionNo = await _proposals.CountScenesAsync(proposalId, cancellationToken) + 1,
             IsActive = true,
@@ -241,14 +250,24 @@ public sealed class ProposalService : IProposalService
             CreatedAt = now,
             UpdatedAt = now
         };
-        SetSingleSceneArea(scene, request.ProjectAreaId, now);
 
-        await _proposals.AddSceneAsync(scene, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
+            AddSceneAreas(scene, areaValidation.Areas, now);
+            await _proposals.AddSceneAsync(scene, cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
 
-        return ServiceResult<ProposalSceneDto>.Created(
-            ToProposalSceneDto(scene),
-            "Proposal scene created successfully.");
+            return ServiceResult<ProposalSceneDto>.Created(
+                ToProposalSceneDto(scene, areaValidation.Areas),
+                "Proposal scene created successfully.");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
     }
 
     public async Task<ServiceResult<ProposalSceneListResponseDto>> GetScenesAsync(
@@ -1100,7 +1119,7 @@ public sealed class ProposalService : IProposalService
         if (sceneContext is null)
         {
             return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.NotFound(
-                "SCENE_NOT_FOUND",
+                ProposalSceneNotFoundCode,
                 ProposalSceneNotFoundMessage));
         }
 
@@ -1121,65 +1140,59 @@ public sealed class ProposalService : IProposalService
             !await _proposals.FileExistsAsync(request.PreviewFileId.Value, cancellationToken))
         {
             return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.NotFound(
-                "FILE_NOT_FOUND",
+                PreviewFileNotFoundCode,
                 "Preview file not found."));
         }
 
-        if (request.ProjectAreaId.HasValue &&
-            !await _proposals.ProjectAreaBelongsToProjectAsync(request.ProjectAreaId.Value, sceneContext.ProjectId, cancellationToken))
+        var areaValidation = request.ProjectAreaIds is null
+            ? SceneAreaValidationResult.Valid(sceneContext.SceneAreas)
+            : await ValidateSceneAreaIdsAsync(request.ProjectAreaIds, sceneContext.ProjectId, cancellationToken);
+        if (!areaValidation.IsValid)
         {
-            return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.BadRequest(
-                "INVALID_PROJECT_AREA",
-                "Project area does not belong to the same project."));
+            return ServiceResult<UpdateProposalSceneResponseDto>.Failure(areaValidation.Error!);
         }
 
         var scene = await _proposals.GetSceneEntityAsync(sceneId, cancellationToken);
         if (scene is null)
         {
             return ServiceResult<UpdateProposalSceneResponseDto>.Failure(Error.NotFound(
-                "SCENE_NOT_FOUND",
+                ProposalSceneNotFoundCode,
                 ProposalSceneNotFoundMessage));
         }
 
         var now = DateTime.UtcNow;
-        if (request.SceneName is not null)
+        try
         {
-            scene.SceneName = NormalizeOptional(request.SceneName);
-        }
-
-        SetSingleSceneArea(scene, request.ProjectAreaId, now);
-        scene.PreviewFileId = request.PreviewFileId;
-        if (request.IsActive.HasValue)
-        {
-            scene.IsActive = request.IsActive;
-        }
-
-        scene.UpdatedAt = now;
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<UpdateProposalSceneResponseDto>.Success(
-            new UpdateProposalSceneResponseDto
+            await _unitOfWork.BeginTransactionAsync(cancellationToken);
+            if (request.SceneName is not null)
             {
-                SceneId = scene.SceneId,
-                ProposalId = scene.ProposalId,
-                SceneName = scene.SceneName,
-                ProjectAreaId = GetFirstProjectAreaId(scene.SceneAreas),
-                ProjectAreaIds = scene.SceneAreas.Select(area => area.ProjectAreaId).ToList(),
-                SceneAreas = scene.SceneAreas
-                    .OrderBy(area => area.SortOrder)
-                    .Select(area => new FurniSpace.Shared.DTOs.Proposals.ProposalSceneAreaDto
-                    {
-                        ProjectAreaId = area.ProjectAreaId,
-                        SortOrder = area.SortOrder
-                    })
-                    .ToList(),
-                SceneType = scene.SceneType,
-                MongoSceneId = scene.MongoSceneId,
-                PreviewFileId = scene.PreviewFileId,
-                IsActive = scene.IsActive,
-                UpdatedAt = now
-            },
-            "Proposal scene updated successfully.");
+                scene.SceneName = NormalizeOptional(request.SceneName);
+            }
+
+            scene.PreviewFileId = request.PreviewFileId;
+            if (request.IsActive.HasValue)
+            {
+                scene.IsActive = request.IsActive;
+            }
+
+            scene.UpdatedAt = now;
+            if (request.ProjectAreaIds is not null)
+            {
+                await _proposals.ReplaceSceneAreasAsync(scene.SceneId, request.ProjectAreaIds.ToList(), now, cancellationToken);
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+            return ServiceResult<UpdateProposalSceneResponseDto>.Success(
+                ToUpdateSceneResponse(scene, areaValidation.Areas, now),
+                "Proposal scene updated successfully.");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
     }
 
     private static List<string> ValidateCreateRequest(CreateProposalRequestDto request)
@@ -1202,24 +1215,36 @@ public sealed class ProposalService : IProposalService
         return errors;
     }
 
-    private static List<string> ValidateCreateSceneRequest(CreateProposalSceneRequestDto request)
+    private static Error? ValidateCreateSceneRequest(CreateProposalSceneRequestDto request)
     {
-        var errors = new List<string>();
+        if (request is null)
+        {
+            return Error.BadRequest(SceneNameRequiredCode, "Create proposal scene request is required.");
+        }
+
         if (string.IsNullOrWhiteSpace(request.SceneName))
         {
-            errors.Add("Scene name is required.");
+            return Error.BadRequest(SceneNameRequiredCode, "Scene name is required.");
         }
-        else if (request.SceneName.Trim().Length > MaxSceneNameLength)
+
+        if (request.SceneName.Trim().Length > MaxSceneNameLength)
         {
-            errors.Add("Scene name must not exceed 150 characters.");
+            return Error.BadRequest(SceneNameRequiredCode, "Scene name must not exceed 150 characters.");
         }
 
         if (request.SceneType is null)
         {
-            errors.Add("Scene type is required.");
+            return Error.BadRequest(SceneTypeRequiredCode, "Scene type is required.");
         }
 
-        return errors;
+        if (request.SceneType != ProposalSceneType.ROOM_PLANNER)
+        {
+            return Error.BadRequest(
+                SceneTypeRequiredCode,
+                "Only ROOM_PLANNER scene type is supported for new proposal scenes.");
+        }
+
+        return null;
     }
 
     private static List<string> ValidateSyncItemsRequest(SyncProposalItemsFromSceneRequestDto request)
@@ -1866,46 +1891,176 @@ public sealed class ProposalService : IProposalService
         return status is ProposalStatus.PUBLISHED;
     }
 
-    private static void SetSingleSceneArea(
-        ProposalScene scene,
-        Guid? projectAreaId,
-        DateTime now)
+    private async Task<SceneAreaValidationResult> ValidateSceneAreaIdsAsync(
+        List<Guid>? projectAreaIds,
+        Guid projectId,
+        CancellationToken cancellationToken)
     {
-        scene.SceneAreas.Clear();
-        if (!projectAreaId.HasValue)
+        if (projectAreaIds is null || projectAreaIds.Count == 0)
         {
-            return;
+            return SceneAreaValidationResult.Invalid(Error.BadRequest(
+                RoomPlannerAreaRequiredCode,
+                "At least one project area is required for a Room Planner scene."));
         }
 
-        scene.SceneAreas.Add(new ProposalSceneArea
+        if (projectAreaIds.Any(id => id == Guid.Empty))
         {
-            ProposalSceneAreaId = Guid.NewGuid(),
-            SceneId = scene.SceneId,
-            ProjectAreaId = projectAreaId.Value,
-            SortOrder = 0,
-            CreatedAt = now,
-            UpdatedAt = now
-        });
+            return SceneAreaValidationResult.Invalid(Error.BadRequest(
+                ProjectAreaNotFoundCode,
+                "Project area not found."));
+        }
+
+        if (projectAreaIds.Distinct().Count() != projectAreaIds.Count)
+        {
+            return SceneAreaValidationResult.Invalid(Error.BadRequest(
+                DuplicateProjectAreaIdCode,
+                "Duplicate project area id is not allowed."));
+        }
+
+        var areas = await _proposals.GetProjectAreasByIdsAsync(projectAreaIds, cancellationToken);
+        var areasById = areas.ToDictionary(area => area.ProjectAreaId);
+        if (areas.Count != projectAreaIds.Count)
+        {
+            return SceneAreaValidationResult.Invalid(Error.NotFound(
+                ProjectAreaNotFoundCode,
+                "One or more project areas were not found."));
+        }
+
+        foreach (var projectAreaId in projectAreaIds)
+        {
+            var area = areasById[projectAreaId];
+            var error = ValidateProjectArea(area, projectId);
+            if (error is not null)
+            {
+                return SceneAreaValidationResult.Invalid(error);
+            }
+        }
+
+        return SceneAreaValidationResult.Valid(projectAreaIds
+            .Select((projectAreaId, index) => ToSceneAreaReadModel(areasById[projectAreaId], index))
+            .ToList());
+    }
+
+    private static Error? ValidateProjectArea(
+        ProposalProjectAreaReadModel area,
+        Guid projectId)
+    {
+        if (area.ProjectId != projectId)
+        {
+            return Error.BadRequest(
+                ProjectAreaProjectMismatchCode,
+                "Project area does not belong to the same project.");
+        }
+
+        if (area.Status == ProjectAreaStatus.CANCELLED)
+        {
+            return Error.BadRequest(
+                ProjectAreaCancelledCode,
+                "Cancelled project area cannot be used for a Room Planner scene.");
+        }
+
+        if (area.AreaType != ProjectAreaType.FLOOR)
+        {
+            return Error.BadRequest(
+                ProjectAreaTypeNotSupportedCode,
+                "Only FLOOR project areas are supported for Room Planner scenes.");
+        }
+
+        return null;
+    }
+
+    private static ProposalSceneAreaReadModel ToSceneAreaReadModel(
+        ProposalProjectAreaReadModel area,
+        int sortOrder)
+    {
+        return new ProposalSceneAreaReadModel
+        {
+            ProposalSceneAreaId = Guid.Empty,
+            ProjectAreaId = area.ProjectAreaId,
+            AreaName = area.AreaName,
+            AreaType = area.AreaType,
+            FloorNumber = area.FloorNumber,
+            SortOrder = sortOrder,
+            Status = area.Status
+        };
+    }
+
+    private static void AddSceneAreas(
+        ProposalScene scene,
+        IReadOnlyList<ProposalSceneAreaReadModel> areas,
+        DateTime now)
+    {
+        foreach (var area in areas)
+        {
+            scene.SceneAreas.Add(new ProposalSceneArea
+            {
+                ProposalSceneAreaId = Guid.NewGuid(),
+                SceneId = scene.SceneId,
+                ProjectAreaId = area.ProjectAreaId,
+                SortOrder = area.SortOrder,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+        }
+    }
+
+    private static ProposalSceneDto ToProposalSceneDto(
+        ProposalScene scene,
+        IReadOnlyList<ProposalSceneAreaReadModel> areas)
+    {
+        var dto = scene.Adapt<ProposalSceneDto>();
+        dto.Areas = ToSceneAreaDtos(areas);
+        return dto;
     }
 
     private static Guid? GetFirstProjectAreaId(IReadOnlyList<Guid> projectAreaIds) =>
         projectAreaIds.Count == 0 ? null : projectAreaIds[0];
 
-    private static Guid? GetFirstProjectAreaId(IReadOnlyCollection<ProposalSceneArea> sceneAreas) =>
-        sceneAreas
-            .OrderBy(area => area.SortOrder)
-            .Select(area => (Guid?)area.ProjectAreaId)
-            .FirstOrDefault();
-
-    private static ProposalSceneDto ToProposalSceneDto(ProposalScene scene)
+    private static UpdateProposalSceneResponseDto ToUpdateSceneResponse(
+        ProposalScene scene,
+        IReadOnlyList<ProposalSceneAreaReadModel> areas,
+        DateTime updatedAt)
     {
-        var dto = scene.Adapt<ProposalSceneDto>();
-        dto.ProjectAreaIds = scene.SceneAreas
-            .OrderBy(area => area.SortOrder)
-            .Select(area => area.ProjectAreaId)
+        return new UpdateProposalSceneResponseDto
+        {
+            SceneId = scene.SceneId,
+            ProposalId = scene.ProposalId,
+            SceneName = scene.SceneName,
+            Areas = ToSceneAreaDtos(areas),
+            SceneType = scene.SceneType,
+            MongoSceneId = scene.MongoSceneId,
+            PreviewFileId = scene.PreviewFileId,
+            IsActive = scene.IsActive,
+            UpdatedAt = updatedAt
+        };
+    }
+
+    private static List<FurniSpace.Shared.DTOs.Proposals.ProposalSceneAreaDto> ToSceneAreaDtos(
+        IReadOnlyList<ProposalSceneAreaReadModel> areas)
+    {
+        return areas
+            .Select(area => new FurniSpace.Shared.DTOs.Proposals.ProposalSceneAreaDto
+            {
+                ProjectAreaId = area.ProjectAreaId,
+                AreaName = area.AreaName,
+                AreaType = area.AreaType?.ToString(),
+                FloorNumber = area.FloorNumber,
+                SortOrder = area.SortOrder,
+                Status = area.Status?.ToString()
+            })
             .ToList();
-        dto.ProjectAreaId = dto.ProjectAreaIds.Count == 0 ? null : dto.ProjectAreaIds[0];
-        return dto;
+    }
+
+    private sealed record SceneAreaValidationResult(
+        bool IsValid,
+        Error? Error,
+        IReadOnlyList<ProposalSceneAreaReadModel> Areas)
+    {
+        public static SceneAreaValidationResult Valid(IReadOnlyList<ProposalSceneAreaReadModel> areas) =>
+            new(true, null, areas);
+
+        public static SceneAreaValidationResult Invalid(Error error) =>
+            new(false, error, []);
     }
 
     private Task<bool> HasPendingCustomizationRequestsAsync(

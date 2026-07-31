@@ -22,9 +22,7 @@ public abstract class ProposalSceneBaseDto<TSceneType>
 {
     public Guid SceneId { get; set; }
     public Guid ProposalId { get; set; }
-    public Guid? ProjectAreaId { get; set; }
-    public IReadOnlyList<Guid> ProjectAreaIds { get; set; } = [];
-    public IReadOnlyList<ProposalSceneAreaDto> SceneAreas { get; set; } = [];
+    public List<ProposalSceneAreaDto> Areas { get; set; } = [];
     public string? SceneName { get; set; }
     public TSceneType SceneType { get; set; } = default!;
     public string? MongoSceneId { get; set; }
@@ -40,6 +38,8 @@ public sealed class ProposalSceneAreaDto
 {
     public Guid ProjectAreaId { get; set; }
     public string AreaName { get; set; } = string.Empty;
+    public string? AreaType { get; set; }
     public int? FloorNumber { get; set; }
     public int SortOrder { get; set; }
+    public string? Status { get; set; }
 }

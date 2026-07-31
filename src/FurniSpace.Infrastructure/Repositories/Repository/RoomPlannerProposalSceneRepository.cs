@@ -87,7 +87,9 @@ public sealed class RoomPlannerProposalSceneRepository : IRoomPlannerProposalSce
                     SceneId = area.SceneId,
                     ProjectAreaId = area.ProjectAreaId,
                     AreaName = projectArea.AreaName,
+                    AreaType = projectArea.AreaType,
                     FloorNumber = projectArea.FloorNumber,
+                    Status = projectArea.Status,
                     SortOrder = area.SortOrder
                 })
             .OrderBy(area => area.SortOrder)

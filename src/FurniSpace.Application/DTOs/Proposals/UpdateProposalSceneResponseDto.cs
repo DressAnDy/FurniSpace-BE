@@ -8,9 +8,7 @@ public sealed class UpdateProposalSceneResponseDto
     public Guid SceneId { get; set; }
     public Guid ProposalId { get; set; }
     public string? SceneName { get; set; }
-    public Guid? ProjectAreaId { get; set; }
-    public IReadOnlyList<Guid> ProjectAreaIds { get; set; } = [];
-    public IReadOnlyList<ProposalSceneAreaDto> SceneAreas { get; set; } = [];
+    public List<ProposalSceneAreaDto> Areas { get; set; } = [];
     public ProposalSceneType? SceneType { get; set; }
     public string? MongoSceneId { get; set; }
     public Guid? PreviewFileId { get; set; }

@@ -23,6 +23,15 @@ internal static class ProposalServiceConstants
     internal const string ProposalNotEditableCode = "PROPOSAL_NOT_EDITABLE";
     internal const string ProposalSceneNotFoundCode = "PROPOSAL_SCENE_NOT_FOUND";
     internal const string RoomPlannerSceneNotFoundCode = "ROOM_PLANNER_SCENE_NOT_FOUND";
+    internal const string SceneNameRequiredCode = "SCENE_NAME_REQUIRED";
+    internal const string SceneTypeRequiredCode = "SCENE_TYPE_REQUIRED";
+    internal const string RoomPlannerAreaRequiredCode = "ROOM_PLANNER_AREA_REQUIRED";
+    internal const string DuplicateProjectAreaIdCode = "DUPLICATE_PROJECT_AREA_ID";
+    internal const string ProjectAreaNotFoundCode = "PROJECT_AREA_NOT_FOUND";
+    internal const string ProjectAreaProjectMismatchCode = "PROJECT_AREA_PROJECT_MISMATCH";
+    internal const string ProjectAreaCancelledCode = "PROJECT_AREA_CANCELLED";
+    internal const string ProjectAreaTypeNotSupportedCode = "PROJECT_AREA_TYPE_NOT_SUPPORTED";
+    internal const string PreviewFileNotFoundCode = "PREVIEW_FILE_NOT_FOUND";
     internal const string InvalidProductVersionCode = "INVALID_PRODUCT_VERSION";
     internal const string InvalidQuantityCode = "INVALID_QUANTITY";
     internal const string SceneObjectNotFoundCode = "SCENE_OBJECT_NOT_FOUND";

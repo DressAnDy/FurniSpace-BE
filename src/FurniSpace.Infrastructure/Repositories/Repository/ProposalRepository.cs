@@ -129,6 +129,55 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         return DbContext.ProposalSceneSet.AddAsync(scene, cancellationToken).AsTask();
     }
 
+    public async Task<List<ProposalProjectAreaReadModel>> GetProjectAreasByIdsAsync(
+        List<Guid> projectAreaIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectAreaIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await DbContext.ProjectAreaSet
+            .Where(area => projectAreaIds.Contains(area.ProjectAreaId))
+            .Select(area => new ProposalProjectAreaReadModel
+            {
+                ProjectAreaId = area.ProjectAreaId,
+                ProjectId = area.ProjectId,
+                AreaName = area.AreaName,
+                AreaType = area.AreaType,
+                FloorNumber = area.FloorNumber,
+                Status = area.Status
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task ReplaceSceneAreasAsync(
+        Guid sceneId,
+        List<Guid> projectAreaIds,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        var existingAreas = await DbContext.ProposalSceneAreaSet
+            .Where(area => area.SceneId == sceneId)
+            .ToListAsync(cancellationToken);
+
+        DbContext.ProposalSceneAreaSet.RemoveRange(existingAreas);
+
+        for (var index = 0; index < projectAreaIds.Count; index++)
+        {
+            DbContext.ProposalSceneAreaSet.Add(new ProposalSceneArea
+            {
+                ProposalSceneAreaId = Guid.NewGuid(),
+                SceneId = sceneId,
+                ProjectAreaId = projectAreaIds[index],
+                SortOrder = index,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+        }
+    }
+
     public async Task<ProposalDetailReadModel?> GetDetailAsync(
         Guid proposalId,
         CancellationToken cancellationToken = default)
@@ -731,7 +780,9 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     SceneId = area.SceneId,
                     ProjectAreaId = area.ProjectAreaId,
                     AreaName = projectArea.AreaName,
+                    AreaType = projectArea.AreaType,
                     FloorNumber = projectArea.FloorNumber,
+                    Status = projectArea.Status,
                     SortOrder = area.SortOrder
                 })
             .OrderBy(area => area.SortOrder)
@@ -749,15 +800,15 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         IReadOnlyDictionary<Guid, List<ProposalSceneAreaReadModel>> areaLookup)
     {
         var areas = areaLookup.GetValueOrDefault(scene.SceneId) ?? [];
-        scene.ProjectAreaIds = areas.Select(area => area.ProjectAreaId).ToList();
-        scene.ProjectAreaId = scene.ProjectAreaIds.Count == 0 ? null : scene.ProjectAreaIds[0];
-        scene.SceneAreas = areas
+        scene.Areas = areas
             .Select(area => new ProposalSceneAreaDto
             {
                 ProjectAreaId = area.ProjectAreaId,
                 AreaName = area.AreaName,
+                AreaType = area.AreaType?.ToString(),
                 FloorNumber = area.FloorNumber,
-                SortOrder = area.SortOrder
+                SortOrder = area.SortOrder,
+                Status = area.Status?.ToString()
             })
             .ToList();
     }

@@ -26,12 +26,14 @@ public sealed class RoomPlannerSceneRepositoryTests
         Assert.True(ObjectId.TryParse(saved.Id, out _));
         Assert.Same(scene, collection.UpsertedBySqlSceneId);
         Assert.Null(collection.UpsertedByMongoId);
-        Assert.Null(collection.UpsertedBySqlSceneId.ProjectAreaId);
-        Assert.Null(collection.UpsertedBySqlSceneId.Layout);
-        Assert.Equal(3, collection.UpsertedBySqlSceneId.SchemaVersion);
-        Assert.NotNull(collection.UpsertedBySqlSceneId.BlueprintLayout);
-        Assert.NotEmpty(collection.UpsertedBySqlSceneId.SceneLinks.ProjectAreaIds);
-        Assert.Equal("floor-01", collection.UpsertedBySqlSceneId.Objects[0].FloorId);
+        var upserted = collection.UpsertedBySqlSceneId;
+        Assert.NotNull(upserted);
+        Assert.Null(upserted.ProjectAreaId);
+        Assert.Null(upserted.Layout);
+        Assert.Equal(3, upserted.SchemaVersion);
+        Assert.NotNull(upserted.BlueprintLayout);
+        Assert.NotEmpty(upserted.SceneLinks.ProjectAreaIds);
+        Assert.Equal("floor-01", upserted.Objects[0].FloorId);
         Assert.NotNull(saved.Metadata.UpdatedAt);
     }
 

@@ -62,7 +62,7 @@ public sealed class RoomPlannerBlueprintLayoutDocument
 }
 
 public sealed class RoomPlannerBlueprintFloorDocument
-    : RoomPlannerBlueprintFloorBase<RoomPlannerPoint2Document, RoomPlannerWallDocument, RoomPlannerOpeningDocument>
+    : RoomPlannerBlueprintFloorBase<RoomPlannerPoint2Document, RoomPlannerWallDocument>
 {
     public bool ContainsWall(string wallId) =>
         Walls.Any(wall => string.Equals(wall.WallId, wallId, StringComparison.OrdinalIgnoreCase));

@@ -1538,7 +1538,7 @@ public sealed class ProposalService : IProposalService
                 group => group.Key,
                 group => group.First().ProjectAreaId,
                 StringComparer.Ordinal);
-        var sceneAreaIds = scene.ProjectAreaIds.ToHashSet();
+        var sceneAreaIds = scene.GetProjectAreaIds().ToHashSet();
         var syncItems = new List<RoomPlannerSceneSyncItem>();
         var sceneObjectIds = new HashSet<string>(StringComparer.Ordinal);
 
@@ -2005,9 +2005,6 @@ public sealed class ProposalService : IProposalService
         dto.Areas = ToSceneAreaDtos(areas);
         return dto;
     }
-
-    private static Guid? GetFirstProjectAreaId(IReadOnlyList<Guid> projectAreaIds) =>
-        projectAreaIds.Count == 0 ? null : projectAreaIds[0];
 
     private static UpdateProposalSceneResponseDto ToUpdateSceneResponse(
         ProposalScene scene,

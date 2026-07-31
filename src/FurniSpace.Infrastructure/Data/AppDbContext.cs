@@ -67,6 +67,7 @@ public class AppDbContext : DbContext
     private const string ProjectIdColumnName = "project_id";
     private const string DescriptionColumnName = "description";
     private const string ProposalIdColumnName = "proposal_id";
+    private const string SceneIdColumnName = "scene_id";
     private const string ProductVersionIdColumnName = "product_version_id";
     private const string OrderIdColumnName = "order_id";
     private const string CreatedByColumnName = "created_by";
@@ -615,7 +616,7 @@ public class AppDbContext : DbContext
         {
             entity.ToTable("proposal_scenes");
             entity.HasKey(e => e.SceneId);
-            entity.Property(e => e.SceneId).HasColumnName("scene_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.SceneId).HasColumnName(SceneIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.SceneName).HasColumnName("scene_name").HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.SceneType).HasColumnName("scene_type").HasColumnType(ProposalSceneTypeColumnType).HasDefaultValueSql("'THREE_D'::proposal_scene_type");
@@ -641,7 +642,7 @@ public class AppDbContext : DbContext
             entity.ToTable("proposal_scene_areas");
             entity.HasKey(e => e.ProposalSceneAreaId);
             entity.Property(e => e.ProposalSceneAreaId).HasColumnName("proposal_scene_area_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.SceneId).HasColumnName("scene_id").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.SceneId).HasColumnName(SceneIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.ProjectAreaId).HasColumnName(ProjectAreaIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.SortOrder).HasColumnName("sort_order").HasColumnType(IntegerColumnType).HasDefaultValue(0);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
@@ -664,7 +665,7 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.ProposalItemId);
             entity.Property(e => e.ProposalItemId).HasColumnName(ProposalItemIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType);
-            entity.Property(e => e.SceneId).HasColumnName("scene_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.SceneId).HasColumnName(SceneIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.SceneObjectId).HasColumnName("scene_object_id").HasColumnType("character varying(100)");
             entity.Property(e => e.ProjectAreaId).HasColumnName(ProjectAreaIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
@@ -703,7 +704,7 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.VariantId);
             entity.Property(e => e.VariantId).HasColumnName("variant_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.SceneId).HasColumnName("scene_id").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.SceneId).HasColumnName(SceneIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.VariantType).HasColumnName("variant_type").HasColumnType(ProposalSceneVariantTypeColumnType).HasDefaultValueSql("'CUSTOMER_SUGGESTION'::proposal_scene_variant_type");
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(ProposalSceneVariantStatusColumnType).HasDefaultValueSql("'DRAFT'::proposal_scene_variant_status");

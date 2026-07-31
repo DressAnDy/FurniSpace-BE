@@ -827,7 +827,7 @@ public sealed class ProposalServiceTests
         Assert.Equal(existingItemId, result.Data.Items[0].ProposalItemId);
         Assert.Equal(200m, result.Data.Items[0].TotalPriceSnapshot);
         Assert.Equal(1, repository.Items[0].Quantity);
-        Assert.Equal(sceneContext.ProjectAreaIds[0], repository.Items[0].ProjectAreaId);
+        Assert.Equal(sceneContext.GetProjectAreaIds()[0], repository.Items[0].ProjectAreaId);
         Assert.Equal("floor-01", result.Data.Items[0].FloorId);
         Assert.Equal(existingItemId, roomPlannerScenes.Scenes[sceneId].Objects[0].ProposalItemId);
     }
@@ -2100,7 +2100,7 @@ public sealed class ProposalServiceTests
         string floorId = "floor-01",
         string objectType = "FURNITURE")
     {
-        var projectAreaId = scene.ProjectAreaIds.First();
+        var projectAreaId = scene.GetProjectAreaIds()[0];
         return new RoomPlannerSceneDocument
         {
             SchemaVersion = 3,

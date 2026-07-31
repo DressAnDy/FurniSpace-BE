@@ -16,6 +16,8 @@ namespace FurniSpace.Application.Tests.RoomPlanner;
 
 public sealed class RoomPlannerSceneRepositoryAdapterTests
 {
+    private static readonly JsonSerializerOptions WebJsonSerializerOptions = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public async Task GetByIdAsync_WhenInnerReturnsDocument_MapsToApplicationDocument()
     {
@@ -298,7 +300,7 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
         Assert.Same(result.BlueprintLayout.Floors[0], result.BlueprintLayout.FindFloor("FLOOR-01"));
         Assert.True(result.BlueprintLayout.Floors[0].ContainsWall("W1"));
         Assert.Equal("floor-01", result.Objects[0].FloorId);
-        var json = JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var json = JsonSerializer.Serialize(result, WebJsonSerializerOptions);
         Assert.DoesNotContain("$numberDecimal", json);
     }
 

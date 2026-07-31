@@ -9,7 +9,7 @@ public sealed class ProposalSceneContextReadModel
     public Guid ProjectId { get; set; }
     public ProposalSceneType? SceneType { get; set; } = ProposalSceneType.ROOM_PLANNER;
     public IReadOnlyList<ProposalSceneAreaReadModel> SceneAreas { get; set; } = [];
-    public IReadOnlyList<Guid> ProjectAreaIds => SceneAreas.Select(area => area.ProjectAreaId).ToList();
+    public List<Guid> GetProjectAreaIds() => SceneAreas.Select(area => area.ProjectAreaId).ToList();
     public ProposalStatus? ProposalStatus { get; set; }
     public Guid CustomerId { get; set; }
     public Guid? AssignedSalesId { get; set; }

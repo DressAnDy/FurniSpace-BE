@@ -7,6 +7,7 @@ using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Shared.DTOs.RoomPlanner;
 using FurniSpace.Shared.DTOs.Proposals;
 using ApplicationRoomPlannerSceneRepository = FurniSpace.Application.Interfaces.RoomPlanner.IRoomPlannerSceneRepository;
 using RoomPlannerSqlSceneRepository = FurniSpace.Infrastructure.Repositories.IRepository.IRoomPlannerProposalSceneRepository;
@@ -208,7 +209,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             Unit = NormalizeUnit(request.Unit),
             SceneLinks = new RoomPlannerSceneLinksDocument
             {
-                ProjectAreaIds = context.ProjectAreaIds.ToList()
+                ProjectAreaIds = context.GetProjectAreaIds()
             },
             BlueprintLayout = request.BlueprintLayout,
             Layout = null,
@@ -494,8 +495,8 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     }
 
     private static bool HasInvalidOpeningReference(
-        IEnumerable<RoomPlannerOpeningDocument> openings,
-        ISet<string> wallIds) =>
+        IEnumerable<RoomPlannerOpeningBase> openings,
+        HashSet<string> wallIds) =>
         openings.Any(opening => !wallIds.Contains(NormalizeIdentifier(opening.WallId)));
 
     private static Error BlueprintMappingError() =>
@@ -600,7 +601,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         }
     }
 
-    private static void NormalizeOpeningOffsets(IEnumerable<RoomPlannerOpeningDocument> openings)
+    private static void NormalizeOpeningOffsets(IEnumerable<RoomPlannerOpeningBase> openings)
     {
         foreach (var opening in openings)
         {

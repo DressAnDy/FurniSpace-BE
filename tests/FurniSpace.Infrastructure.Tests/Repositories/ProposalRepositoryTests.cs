@@ -415,7 +415,7 @@ public sealed class ProposalRepositoryTests
 
         Assert.NotNull(scene);
         Assert.Equal(data.ProjectId, scene.ProjectId);
-        Assert.Equal([data.ProjectAreaId], scene.ProjectAreaIds);
+        Assert.Equal([data.ProjectAreaId], scene.GetProjectAreaIds());
         Assert.Equal(data.SalesId, scene.AssignedSalesId);
         Assert.NotNull(sceneById);
         Assert.Equal(data.PublishedProposalId, sceneById.ProposalId);

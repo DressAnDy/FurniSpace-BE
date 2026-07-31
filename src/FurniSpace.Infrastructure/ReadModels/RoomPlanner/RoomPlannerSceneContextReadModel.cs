@@ -10,7 +10,7 @@ public sealed class RoomPlannerSceneContextReadModel
     public Guid ProjectId { get; set; }
     public ProposalSceneType? SceneType { get; set; }
     public IReadOnlyList<ProposalSceneAreaReadModel> SceneAreas { get; set; } = [];
-    public IReadOnlyList<Guid> ProjectAreaIds => SceneAreas.Select(area => area.ProjectAreaId).ToList();
+    public List<Guid> GetProjectAreaIds() => SceneAreas.Select(area => area.ProjectAreaId).ToList();
     public string? MongoSceneId { get; set; }
     public ProposalStatus? ProposalStatus { get; set; }
     public DateTime? PublishedAt { get; set; }

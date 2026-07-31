@@ -26,7 +26,7 @@ public sealed class RoomPlannerProposalSceneRepositoryTests
         Assert.Equal(data.SceneId, result.SceneId);
         Assert.Equal(data.ProposalId, result.ProposalId);
         Assert.Equal(data.ProjectId, result.ProjectId);
-        Assert.Equal([data.ProjectAreaId], result.ProjectAreaIds);
+        Assert.Equal([data.ProjectAreaId], result.GetProjectAreaIds());
         Assert.Equal("mongo-scene-id", result.MongoSceneId);
         Assert.Equal(ProposalStatus.DRAFT, result.ProposalStatus);
         Assert.Equal(data.CustomerId, result.CustomerId);

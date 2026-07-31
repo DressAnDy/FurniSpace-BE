@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
@@ -17,5 +18,6 @@ public class ProposalScene
     public Guid? CreatedBy { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public List<ProposalSceneArea> SceneAreas { get; set; } = [];
 }
 

@@ -103,6 +103,7 @@ public class AppDbContext : DbContext
     public DbSet<ProjectSchedule> ProjectScheduleSet => Set<ProjectSchedule>();
     public DbSet<Proposal> ProposalSet => Set<Proposal>();
     public DbSet<ProposalScene> ProposalSceneSet => Set<ProposalScene>();
+    public DbSet<ProposalSceneArea> ProposalSceneAreaSet => Set<ProposalSceneArea>();
     public DbSet<ProposalItem> ProposalItemSet => Set<ProposalItem>();
     public DbSet<ProposalSceneVariant> ProposalSceneVariantSet => Set<ProposalSceneVariant>();
     public DbSet<CustomizationRequest> CustomizationRequestSet => Set<CustomizationRequest>();
@@ -129,7 +130,7 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:project_schedule_type", "MEASUREMENT,CONSULTATION,DESIGN_REVIEW,DELIVERY,HANDOVER,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_schedule_status", "PENDING_CONFIRMATION,CONFIRMED,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_status", "DRAFT,PUBLISHED,SELECTED,REVISION_REQUESTED,REJECTED,ARCHIVED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_type", "TWO_D,THREE_D");
+        modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_type", "TWO_D,THREE_D,ROOM_PLANNER");
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_variant_status", "DRAFT,SUBMITTED,ACCEPTED,REJECTED,APPLIED");
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_variant_type", "CUSTOMER_SUGGESTION,DESIGNER_REVISION");
         modelBuilder.HasAnnotation("Npgsql:Enum:customization_status", "SUBMITTED,DESIGN_REVIEWING,PRODUCTION_REVIEWING,WAITING_FOR_CUSTOMER_FINAL_APPROVAL,NOT_FEASIBLE,ACCEPTED,REJECTED_BY_CUSTOMER,CANCELLED");
@@ -173,6 +174,7 @@ public class AppDbContext : DbContext
         ConfigureProjectSchedules(modelBuilder);
         ConfigureProposals(modelBuilder);
         ConfigureProposalScenes(modelBuilder);
+        ConfigureProposalSceneAreas(modelBuilder);
         ConfigureProposalItems(modelBuilder);
         ConfigureProposalSceneVariants(modelBuilder);
         ConfigureCustomizationRequests(modelBuilder);
@@ -615,7 +617,7 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.SceneId);
             entity.Property(e => e.SceneId).HasColumnName("scene_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType);
-            entity.Property(e => e.ProjectAreaId).HasColumnName(ProjectAreaIdColumnName).HasColumnType(UuidColumnType);
+            entity.Ignore(e => e.ProjectAreaId);
             entity.Property(e => e.SceneName).HasColumnName("scene_name").HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.SceneType).HasColumnName("scene_type").HasColumnType(ProposalSceneTypeColumnType).HasDefaultValueSql("'THREE_D'::proposal_scene_type");
             entity.Property(e => e.MongoSceneId).HasColumnName("mongo_scene_id").HasColumnType(Varchar100ColumnType);
@@ -628,9 +630,30 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.ProposalId, e.VersionNo, e.CreatedAt, e.SceneId })
                 .HasDatabaseName("idx_proposal_scenes_proposal_list_sort");
             entity.HasOne<Proposal>().WithMany().HasForeignKey(e => e.ProposalId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<StoredFile>().WithMany().HasForeignKey(e => e.PreviewFileId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureProposalSceneAreas(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ProposalSceneArea>(entity =>
+        {
+            entity.ToTable("proposal_scene_areas");
+            entity.HasKey(e => e.ProposalSceneAreaId);
+            entity.Property(e => e.ProposalSceneAreaId).HasColumnName("proposal_scene_area_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.SceneId).HasColumnName("scene_id").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ProjectAreaId).HasColumnName(ProjectAreaIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.SortOrder).HasColumnName("sort_order").HasColumnType(IntegerColumnType).HasDefaultValue(0);
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => e.SceneId).HasDatabaseName("idx_proposal_scene_areas_scene_id");
+            entity.HasIndex(e => e.ProjectAreaId).HasDatabaseName("idx_proposal_scene_areas_project_area_id");
+            entity.HasIndex(e => new { e.SceneId, e.ProjectAreaId })
+                .IsUnique()
+                .HasDatabaseName("uq_proposal_scene_areas_scene_project_area");
+            entity.HasOne(e => e.Scene).WithMany(e => e.SceneAreas).HasForeignKey(e => e.SceneId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.ProjectArea).WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

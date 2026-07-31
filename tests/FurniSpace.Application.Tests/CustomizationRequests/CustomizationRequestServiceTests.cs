@@ -3068,6 +3068,16 @@ public sealed class CustomizationRequestServiceTests
         public Task<int> CountScenesAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<int> CountScenesAsync(ProposalSceneListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task AddSceneAsync(ProposalScene scene, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<List<ProposalProjectAreaReadModel>> GetProjectAreasByIdsAsync(
+            List<Guid> projectAreaIds,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<List<ProposalProjectAreaReadModel>>([]);
+        public Task ReplaceSceneAreasAsync(
+            Guid sceneId,
+            List<Guid> projectAreaIds,
+            DateTime now,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
         public Task<ProposalDetailReadModel?> GetDetailAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalDetailReadModel?>(null);
         public Task<ProposalDetailReadModel?> GetLatestPublishedByProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalDetailReadModel?>(null);
         public Task<IReadOnlyList<ProposalSceneReadModel>> GetScenesAsync(ProposalSceneListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProposalSceneReadModel>>([]);

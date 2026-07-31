@@ -216,17 +216,26 @@ public sealed class ProjectAreaService : IProjectAreaService
 
         if (detail.Status == ProjectAreaStatus.CANCELLED)
         {
-            return ServiceResult<ProjectAreaDto>.Success(
-                detail.Adapt<ProjectAreaDto>(),
-                "Project area is already cancelled.");
+            return ServiceResult<ProjectAreaDto>.Failure(
+                Error.Validation(
+                    ProjectAreaErrorCodes.ProjectAreaAlreadyCancelled,
+                    "Project area is already cancelled."));
         }
 
-        if (await _areas.HasActiveUsageAsync(projectAreaId, cancellationToken))
+        if (await _areas.HasActiveSceneUsageAsync(projectAreaId, cancellationToken))
         {
             return ServiceResult<ProjectAreaDto>.Failure(
                 Error.Validation(
-                    ProjectAreaErrorCodes.ProjectAreaInUse,
-                    "Project area is in use by proposal scenes or proposal items."));
+                    ProjectAreaErrorCodes.ProjectAreaInUseByScene,
+                    "Project area is in use by an active proposal scene."));
+        }
+
+        if (await _areas.HasActiveProposalItemUsageAsync(projectAreaId, cancellationToken))
+        {
+            return ServiceResult<ProjectAreaDto>.Failure(
+                Error.Validation(
+                    ProjectAreaErrorCodes.ProjectAreaInUseByProposalItem,
+                    "Project area is in use by an active proposal item."));
         }
 
         var area = await _areas.GetByIdAsync(projectAreaId, cancellationToken);

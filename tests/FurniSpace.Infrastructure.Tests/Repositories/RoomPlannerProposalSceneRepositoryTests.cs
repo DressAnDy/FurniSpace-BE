@@ -26,7 +26,7 @@ public sealed class RoomPlannerProposalSceneRepositoryTests
         Assert.Equal(data.SceneId, result.SceneId);
         Assert.Equal(data.ProposalId, result.ProposalId);
         Assert.Equal(data.ProjectId, result.ProjectId);
-        Assert.Equal(data.ProjectAreaId, result.ProjectAreaId);
+        Assert.Equal([data.ProjectAreaId], result.GetProjectAreaIds());
         Assert.Equal("mongo-scene-id", result.MongoSceneId);
         Assert.Equal(ProposalStatus.DRAFT, result.ProposalStatus);
         Assert.Equal(data.CustomerId, result.CustomerId);
@@ -111,10 +111,25 @@ public sealed class RoomPlannerProposalSceneRepositoryTests
         {
             SceneId = sceneId,
             ProposalId = proposalId,
-            ProjectAreaId = projectAreaId,
             SceneName = "Scene",
             SceneType = ProposalSceneType.THREE_D,
             MongoSceneId = "mongo-scene-id"
+        });
+        context.ProjectAreaSet.Add(new ProjectArea
+        {
+            ProjectAreaId = projectAreaId,
+            ProjectId = projectId,
+            AreaName = "Main cafe area",
+            FloorNumber = 1,
+            Status = ProjectAreaStatus.VERIFIED
+        });
+        context.ProposalSceneAreaSet.Add(new ProposalSceneArea
+        {
+            ProposalSceneAreaId = Guid.NewGuid(),
+            SceneId = sceneId,
+            ProjectAreaId = projectAreaId,
+            SortOrder = 0,
+            CreatedAt = DateTime.UtcNow
         });
         await context.SaveChangesAsync();
 

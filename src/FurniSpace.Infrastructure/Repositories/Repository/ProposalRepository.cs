@@ -4,6 +4,7 @@ using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.ReadModels.Proposals;
 using FurniSpace.Infrastructure.Repositories.Base;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Shared.DTOs.Proposals;
 using Microsoft.EntityFrameworkCore;
 
 namespace FurniSpace.Infrastructure.Repositories.Repository;
@@ -128,6 +129,55 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         return DbContext.ProposalSceneSet.AddAsync(scene, cancellationToken).AsTask();
     }
 
+    public async Task<List<ProposalProjectAreaReadModel>> GetProjectAreasByIdsAsync(
+        List<Guid> projectAreaIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectAreaIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await DbContext.ProjectAreaSet
+            .Where(area => projectAreaIds.Contains(area.ProjectAreaId))
+            .Select(area => new ProposalProjectAreaReadModel
+            {
+                ProjectAreaId = area.ProjectAreaId,
+                ProjectId = area.ProjectId,
+                AreaName = area.AreaName,
+                AreaType = area.AreaType,
+                FloorNumber = area.FloorNumber,
+                Status = area.Status
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task ReplaceSceneAreasAsync(
+        Guid sceneId,
+        List<Guid> projectAreaIds,
+        DateTime now,
+        CancellationToken cancellationToken = default)
+    {
+        var existingAreas = await DbContext.ProposalSceneAreaSet
+            .Where(area => area.SceneId == sceneId)
+            .ToListAsync(cancellationToken);
+
+        DbContext.ProposalSceneAreaSet.RemoveRange(existingAreas);
+
+        for (var index = 0; index < projectAreaIds.Count; index++)
+        {
+            DbContext.ProposalSceneAreaSet.Add(new ProposalSceneArea
+            {
+                ProposalSceneAreaId = Guid.NewGuid(),
+                SceneId = sceneId,
+                ProjectAreaId = projectAreaIds[index],
+                SortOrder = index,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+        }
+    }
+
     public async Task<ProposalDetailReadModel?> GetDetailAsync(
         Guid proposalId,
         CancellationToken cancellationToken = default)
@@ -217,7 +267,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         ProposalSceneListQueryReadModel query,
         CancellationToken cancellationToken = default)
     {
-        return await BuildSceneListQuery(query)
+        var scenes = await BuildSceneListQuery(query)
             .OrderBy(scene => scene.VersionNo)
             .ThenBy(scene => scene.CreatedAt)
             .ThenBy(scene => scene.SceneId)
@@ -234,7 +284,6 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                 {
                     SceneId = joined.scene.SceneId,
                     ProposalId = joined.scene.ProposalId,
-                    ProjectAreaId = joined.scene.ProjectAreaId,
                     SceneName = joined.scene.SceneName,
                     SceneType = joined.scene.SceneType,
                     MongoSceneId = joined.scene.MongoSceneId,
@@ -246,34 +295,46 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     UpdatedAt = joined.scene.UpdatedAt
                 })
             .ToListAsync(cancellationToken);
+
+        await AttachSceneAreasAsync(scenes, cancellationToken);
+        return scenes;
     }
 
-    public Task<ProposalSceneDetailReadModel?> GetSceneDetailAsync(
+    public async Task<ProposalSceneDetailReadModel?> GetSceneDetailAsync(
         Guid sceneId,
         CancellationToken cancellationToken = default)
     {
-        return BuildSceneDetailQuery()
+        var scene = await BuildSceneDetailQuery()
             .Where(scene => scene.SceneId == sceneId)
             .FirstOrDefaultAsync(cancellationToken);
+        if (scene is null)
+        {
+            return null;
+        }
+
+        await AttachSceneAreasAsync([scene], cancellationToken);
+        return scene;
     }
 
-    public Task<ProposalSceneContextReadModel?> GetSceneContextAsync(
+    public async Task<ProposalSceneContextReadModel?> GetSceneContextAsync(
         Guid proposalId,
         Guid sceneId,
         CancellationToken cancellationToken = default)
     {
-        return BuildSceneContextQuery()
+        var context = await BuildSceneContextQuery()
             .Where(scene => scene.ProposalId == proposalId && scene.SceneId == sceneId)
             .FirstOrDefaultAsync(cancellationToken);
+        return await AttachSceneAreasAsync(context, cancellationToken);
     }
 
-    public Task<ProposalSceneContextReadModel?> GetSceneContextBySceneIdAsync(
+    public async Task<ProposalSceneContextReadModel?> GetSceneContextBySceneIdAsync(
         Guid sceneId,
         CancellationToken cancellationToken = default)
     {
-        return BuildSceneContextQuery()
+        var context = await BuildSceneContextQuery()
             .Where(scene => scene.SceneId == sceneId)
             .FirstOrDefaultAsync(cancellationToken);
+        return await AttachSceneAreasAsync(context, cancellationToken);
     }
 
     public Task<ProposalScene?> GetSceneEntityAsync(
@@ -281,6 +342,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         CancellationToken cancellationToken = default)
     {
         return DbContext.ProposalSceneSet
+            .Include(scene => scene.SceneAreas)
             .FirstOrDefaultAsync(scene => scene.SceneId == sceneId, cancellationToken);
     }
 
@@ -334,7 +396,6 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     AssignedSalesId = joined.project.AssignedSalesId,
                     AssignedDesignerId = joined.project.AssignedDesignerId,
                     ProposalStatus = joined.proposal.Status,
-                    ProjectAreaId = joined.scene.ProjectAreaId,
                     SceneName = joined.scene.SceneName,
                     SceneType = joined.scene.SceneType,
                     MongoSceneId = joined.scene.MongoSceneId,
@@ -364,7 +425,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     SceneId = joined.scene.SceneId,
                     ProposalId = joined.proposal.ProposalId,
                     ProjectId = project.ProjectId,
-                    ProjectAreaId = joined.scene.ProjectAreaId,
+                    SceneType = joined.scene.SceneType,
                     ProposalStatus = joined.proposal.Status,
                     CustomerId = project.CustomerId,
                     AssignedSalesId = project.AssignedSalesId,
@@ -398,21 +459,32 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                 (item, versions) => new { item, versions })
             .SelectMany(
                 joined => joined.versions.DefaultIfEmpty(),
-                (joined, version) => new ProposalItemReadModel
+                (joined, version) => new { joined.item, version })
+            .GroupJoin(
+                DbContext.ProjectAreaSet,
+                joined => joined.item.ProjectAreaId,
+                area => area.ProjectAreaId,
+                (joined, areas) => new { joined.item, joined.version, areas })
+            .SelectMany(
+                joined => joined.areas.DefaultIfEmpty(),
+                (joined, area) => new ProposalItemReadModel
                 {
                     ProposalItemId = joined.item.ProposalItemId,
                     ProposalId = joined.item.ProposalId,
                     SceneId = joined.item.SceneId,
                     SceneObjectId = joined.item.SceneObjectId,
+                    ProjectAreaId = joined.item.ProjectAreaId,
+                    ProjectAreaName = area == null ? null : area.AreaName,
+                    FloorNumber = area == null ? null : area.FloorNumber,
                     ProductVersionId = joined.item.ProductVersionId,
                     ProductNameSnapshot = joined.item.ItemName,
-                    VersionNameSnapshot = version == null ? null : version.VersionName,
+                    VersionNameSnapshot = joined.version == null ? null : joined.version.VersionName,
                     MaterialSnapshot = joined.item.Material,
                     ColorSnapshot = joined.item.Color,
                     WidthSnapshot = joined.item.Width,
                     HeightSnapshot = joined.item.Height,
                     DepthSnapshot = joined.item.Depth,
-                    DimensionUnit = version == null ? null : version.DimensionUnit,
+                    DimensionUnit = joined.version == null ? null : joined.version.DimensionUnit,
                     Quantity = joined.item.Quantity,
                     UnitPriceSnapshot = joined.item.UnitPriceSnapshot,
                     SubtotalAmount = joined.item.TotalPriceSnapshot,
@@ -451,21 +523,32 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                 (joined, versions) => new { joined, versions })
             .SelectMany(
                 grouped => grouped.versions.DefaultIfEmpty(),
-                (grouped, version) => new ProposalItemDetailReadModel
+                (grouped, version) => new { grouped.joined, version })
+            .GroupJoin(
+                DbContext.ProjectAreaSet,
+                joined => joined.joined.item.ProjectAreaId,
+                area => area.ProjectAreaId,
+                (joined, areas) => new { joined.joined, joined.version, areas })
+            .SelectMany(
+                grouped => grouped.areas.DefaultIfEmpty(),
+                (grouped, area) => new ProposalItemDetailReadModel
                 {
                     ProposalItemId = grouped.joined.item.ProposalItemId,
                     ProposalId = grouped.joined.item.ProposalId,
                     SceneId = grouped.joined.item.SceneId,
                     SceneObjectId = grouped.joined.item.SceneObjectId,
+                    ProjectAreaId = grouped.joined.item.ProjectAreaId,
+                    ProjectAreaName = area == null ? null : area.AreaName,
+                    FloorNumber = area == null ? null : area.FloorNumber,
                     ProductVersionId = grouped.joined.item.ProductVersionId,
                     ProductNameSnapshot = grouped.joined.item.ItemName,
-                    VersionNameSnapshot = version == null ? null : version.VersionName,
+                    VersionNameSnapshot = grouped.version == null ? null : grouped.version.VersionName,
                     MaterialSnapshot = grouped.joined.item.Material,
                     ColorSnapshot = grouped.joined.item.Color,
                     WidthSnapshot = grouped.joined.item.Width,
                     HeightSnapshot = grouped.joined.item.Height,
                     DepthSnapshot = grouped.joined.item.Depth,
-                    DimensionUnit = version == null ? null : version.DimensionUnit,
+                    DimensionUnit = grouped.version == null ? null : grouped.version.DimensionUnit,
                     Quantity = grouped.joined.item.Quantity,
                     UnitPriceSnapshot = grouped.joined.item.UnitPriceSnapshot,
                     SubtotalAmount = grouped.joined.item.TotalPriceSnapshot,
@@ -565,7 +648,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         Guid proposalId,
         CancellationToken cancellationToken)
     {
-        return await DbContext.ProposalSceneSet
+        var scenes = await DbContext.ProposalSceneSet
             .Where(scene => scene.ProposalId == proposalId && scene.IsActive != false)
             .GroupJoin(
                 DbContext.StoredFileSet,
@@ -578,7 +661,6 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                 {
                     SceneId = joined.scene.SceneId,
                     ProposalId = joined.scene.ProposalId,
-                    ProjectAreaId = joined.scene.ProjectAreaId,
                     SceneName = joined.scene.SceneName,
                     SceneType = joined.scene.SceneType,
                     MongoSceneId = joined.scene.MongoSceneId,
@@ -592,6 +674,9 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
             .OrderBy(scene => scene.VersionNo)
             .ThenBy(scene => scene.CreatedAt)
             .ToListAsync(cancellationToken);
+
+        await AttachSceneAreasAsync(scenes, cancellationToken);
+        return scenes;
     }
 
     private async Task<IReadOnlyList<ProposalItemReadModel>> GetItemsAsync(
@@ -600,18 +685,29 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
     {
         return await DbContext.ProposalItemSet
             .Where(item => item.ProposalId == proposalId)
-            .Select(item => new ProposalItemReadModel
-            {
-                ProposalItemId = item.ProposalItemId,
-                SceneId = item.SceneId,
-                SceneObjectId = item.SceneObjectId,
-                ProductVersionId = item.ProductVersionId,
-                ProductNameSnapshot = item.ItemName,
-                VersionNameSnapshot = null,
-                Quantity = item.Quantity,
-                UnitPriceSnapshot = item.UnitPriceSnapshot,
-                SubtotalAmount = item.TotalPriceSnapshot
-            })
+            .GroupJoin(
+                DbContext.ProjectAreaSet,
+                item => item.ProjectAreaId,
+                area => area.ProjectAreaId,
+                (item, areas) => new { item, areas })
+            .SelectMany(
+                joined => joined.areas.DefaultIfEmpty(),
+                (joined, area) => new ProposalItemReadModel
+                {
+                    ProposalItemId = joined.item.ProposalItemId,
+                    ProposalId = joined.item.ProposalId,
+                    SceneId = joined.item.SceneId,
+                    SceneObjectId = joined.item.SceneObjectId,
+                    ProjectAreaId = joined.item.ProjectAreaId,
+                    ProjectAreaName = area == null ? null : area.AreaName,
+                    FloorNumber = area == null ? null : area.FloorNumber,
+                    ProductVersionId = joined.item.ProductVersionId,
+                    ProductNameSnapshot = joined.item.ItemName,
+                    VersionNameSnapshot = null,
+                    Quantity = joined.item.Quantity,
+                    UnitPriceSnapshot = joined.item.UnitPriceSnapshot,
+                    SubtotalAmount = joined.item.TotalPriceSnapshot
+                })
             .OrderBy(item => item.ProductNameSnapshot)
             .ThenBy(item => item.ProposalItemId)
             .ToListAsync(cancellationToken);
@@ -667,6 +763,88 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         return DbContext.ProjectAreaSet.AnyAsync(
             area => area.ProjectAreaId == projectAreaId && area.ProjectId == projectId,
             cancellationToken);
+    }
+
+    private async Task AttachSceneAreasAsync(
+        IReadOnlyCollection<ProposalSceneBaseDto<ProposalSceneType?>> scenes,
+        CancellationToken cancellationToken)
+    {
+        var areaLookup = await GetSceneAreaLookupAsync(
+            scenes.Select(scene => scene.SceneId).ToList(),
+            cancellationToken);
+
+        foreach (var scene in scenes)
+        {
+            AssignSceneAreas(scene, areaLookup);
+        }
+    }
+
+    private async Task<ProposalSceneContextReadModel?> AttachSceneAreasAsync(
+        ProposalSceneContextReadModel? context,
+        CancellationToken cancellationToken)
+    {
+        if (context is null)
+        {
+            return null;
+        }
+
+        var areaLookup = await GetSceneAreaLookupAsync([context.SceneId], cancellationToken);
+        context.SceneAreas = areaLookup.GetValueOrDefault(context.SceneId) ?? [];
+        return context;
+    }
+
+    private async Task<Dictionary<Guid, List<ProposalSceneAreaReadModel>>> GetSceneAreaLookupAsync(
+        List<Guid> sceneIds,
+        CancellationToken cancellationToken)
+    {
+        if (sceneIds.Count == 0)
+        {
+            return [];
+        }
+
+        var areas = await DbContext.ProposalSceneAreaSet
+            .Where(area => sceneIds.Contains(area.SceneId))
+            .Join(
+                DbContext.ProjectAreaSet,
+                area => area.ProjectAreaId,
+                projectArea => projectArea.ProjectAreaId,
+                (area, projectArea) => new ProposalSceneAreaReadModel
+                {
+                    ProposalSceneAreaId = area.ProposalSceneAreaId,
+                    SceneId = area.SceneId,
+                    ProjectAreaId = area.ProjectAreaId,
+                    AreaName = projectArea.AreaName,
+                    AreaType = projectArea.AreaType,
+                    FloorNumber = projectArea.FloorNumber,
+                    Status = projectArea.Status,
+                    SortOrder = area.SortOrder
+                })
+            .OrderBy(area => area.SortOrder)
+            .ThenBy(area => area.FloorNumber)
+            .ThenBy(area => area.ProjectAreaId)
+            .ToListAsync(cancellationToken);
+
+        return areas
+            .GroupBy(area => area.SceneId)
+            .ToDictionary(group => group.Key, group => group.ToList());
+    }
+
+    private static void AssignSceneAreas(
+        ProposalSceneBaseDto<ProposalSceneType?> scene,
+        IReadOnlyDictionary<Guid, List<ProposalSceneAreaReadModel>> areaLookup)
+    {
+        var areas = areaLookup.GetValueOrDefault(scene.SceneId) ?? [];
+        scene.Areas = areas
+            .Select(area => new ProposalSceneAreaDto
+            {
+                ProjectAreaId = area.ProjectAreaId,
+                AreaName = area.AreaName,
+                AreaType = area.AreaType?.ToString(),
+                FloorNumber = area.FloorNumber,
+                SortOrder = area.SortOrder,
+                Status = area.Status?.ToString()
+            })
+            .ToList();
     }
 
 }

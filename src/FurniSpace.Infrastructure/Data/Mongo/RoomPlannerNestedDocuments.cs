@@ -6,7 +6,7 @@ public sealed class RoomPlannerLayoutDocument
     : RoomPlannerLayoutBase<
         RoomPlannerPoint2Document,
         RoomPlannerWallDocument,
-        RoomPlannerOpeningDocument,
+        RoomPlannerOpeningBase,
         RoomPlannerFloorDocument>
 {
     public RoomPlannerLayoutDocument()
@@ -34,10 +34,6 @@ public sealed class RoomPlannerWallDocument
     }
 }
 
-public sealed class RoomPlannerOpeningDocument : RoomPlannerOpeningBase
-{
-}
-
 public sealed class RoomPlannerFloorDocument
 {
     public string? MaterialId { get; set; }
@@ -47,6 +43,25 @@ public sealed class RoomPlannerFloorDocument
     public string? TextureUrlSnapshot { get; set; }
     public decimal? Rotation { get; set; }
     public decimal? Scale { get; set; }
+}
+
+public sealed class RoomPlannerSceneLinksDocument : RoomPlannerSceneLinksBase
+{
+    public bool ContainsProjectArea(Guid projectAreaId) => ProjectAreaIds.Contains(projectAreaId);
+}
+
+public sealed class RoomPlannerBlueprintLayoutDocument
+    : RoomPlannerBlueprintLayoutBase<RoomPlannerPoint2Document, RoomPlannerBlueprintFloorDocument>
+{
+    public RoomPlannerBlueprintFloorDocument? FindFloor(string floorId) =>
+        Floors.FirstOrDefault(floor => string.Equals(floor.Id, floorId, StringComparison.OrdinalIgnoreCase));
+}
+
+public sealed class RoomPlannerBlueprintFloorDocument
+    : RoomPlannerBlueprintFloorBase<RoomPlannerPoint2Document, RoomPlannerWallDocument>
+{
+    public bool ContainsWall(string wallId) =>
+        Walls.Any(wall => string.Equals(wall.WallId, wallId, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class RoomPlannerStyleDocument
@@ -74,6 +89,7 @@ public sealed class RoomPlannerObjectDocument
         DimensionsSnapshot = new RoomPlannerDimensionsSnapshotDocument();
     }
 
+    public string? FloorId { get; set; }
     public RoomPlannerPlacementDocument Placement { get; set; }
 }
 

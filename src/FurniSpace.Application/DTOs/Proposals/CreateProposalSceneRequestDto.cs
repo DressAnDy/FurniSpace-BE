@@ -6,7 +6,6 @@ public sealed class CreateProposalSceneRequestDto
 {
     public string? SceneName { get; set; }
     public ProposalSceneType? SceneType { get; set; }
-    public Guid? ProjectAreaId { get; set; }
-    public string? MongoSceneId { get; set; }
+    public List<Guid> ProjectAreaIds { get; set; } = [];
     public Guid? PreviewFileId { get; set; }
 }

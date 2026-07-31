@@ -27,6 +27,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
+using RoomPlannerSceneRepository = FurniSpace.Infrastructure.Repositories.IRepository.IRoomPlannerSceneRepository;
 
 var bootstrapEnvironment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
     ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
@@ -75,6 +76,7 @@ builder.Services.AddScoped<IPaymentRealtimeService, SignalRPaymentRealtimeServic
 var app = builder.Build();
 
 await RunStartupDatabaseTasksAsync(app);
+await RunStartupMongoTasksAsync(app);
 UseDevelopmentSwagger(app);
 app.UseForwardedHeaders();
 app.UseHttpsRedirection();
@@ -163,6 +165,24 @@ static async Task RunStartupDatabaseTasksAsync(WebApplication app)
     catch (Exception exception)
     {
         Log.Error(exception, "Failed to initialize the database during startup.");
+        if (app.Environment.IsEnvironment("IntegrationTest"))
+        {
+            throw;
+        }
+    }
+}
+
+static async Task RunStartupMongoTasksAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    try
+    {
+        var roomPlannerScenes = scope.ServiceProvider.GetRequiredService<RoomPlannerSceneRepository>();
+        await roomPlannerScenes.EnsureIndexesAsync();
+    }
+    catch (Exception exception)
+    {
+        Log.Error(exception, "Failed to initialize MongoDB Room Planner indexes during startup.");
         if (app.Environment.IsEnvironment("IntegrationTest"))
         {
             throw;

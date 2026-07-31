@@ -37,7 +37,7 @@ public abstract class RoomPlannerWallBase<TPoint, TStyle>
     public TStyle Style { get; set; } = default!;
 }
 
-public abstract class RoomPlannerOpeningBase
+public class RoomPlannerOpeningBase
 {
     public string OpeningId { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
@@ -69,6 +69,46 @@ public abstract class RoomPlannerObjectBase<TTransform, TDimensions, TVisual, TM
     public Dictionary<string, object?> MaterialOverrides { get; set; } = [];
     public bool Visible { get; set; } = true;
     public bool Locked { get; set; }
+}
+
+public abstract class RoomPlannerSceneLinksBase
+{
+    public List<Guid> ProjectAreaIds { get; set; } = [];
+}
+
+public abstract class RoomPlannerBlueprintLayoutBase<TPoint, TFloor>
+{
+    public string Id { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string Unit { get; set; } = "meter";
+    public decimal? Scale { get; set; }
+    public TPoint? Origin { get; set; }
+    public decimal? NorthDirection { get; set; }
+    public List<TFloor> Floors { get; set; } = [];
+    public Dictionary<string, object?> Metadata { get; set; } = [];
+}
+
+public abstract class RoomPlannerBlueprintFloorBase<TPoint, TWall>
+{
+    public string Id { get; set; } = string.Empty;
+    public Guid ProjectAreaId { get; set; }
+    public string? Name { get; set; }
+    public int? LevelIndex { get; set; }
+    public decimal? Elevation { get; set; }
+    public decimal? FloorHeight { get; set; }
+    public decimal? SlabThickness { get; set; }
+    public List<TPoint> Points { get; set; } = [];
+    public List<Dictionary<string, object?>> Rooms { get; set; } = [];
+    public List<TWall> Walls { get; set; } = [];
+    public List<RoomPlannerOpeningBase> Doors { get; set; } = [];
+    public List<RoomPlannerOpeningBase> Windows { get; set; } = [];
+    public List<RoomPlannerOpeningBase> Openings { get; set; } = [];
+    public List<Dictionary<string, object?>> Slabs { get; set; } = [];
+    public List<Dictionary<string, object?>> Stairs { get; set; } = [];
+    public List<Dictionary<string, object?>> Balconies { get; set; } = [];
+    public List<Dictionary<string, object?>> Yards { get; set; } = [];
+    public List<Dictionary<string, object?>> Columns { get; set; } = [];
+    public List<Dictionary<string, object?>> Beams { get; set; } = [];
 }
 
 public abstract class RoomPlannerScenePayloadBase<TLayout, TObject, TLayer, TCamera, TLighting, TValidation, TEditorState>

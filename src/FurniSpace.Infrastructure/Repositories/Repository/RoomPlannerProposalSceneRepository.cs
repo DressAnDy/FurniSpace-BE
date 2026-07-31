@@ -1,4 +1,5 @@
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.ReadModels.Proposals;
 using FurniSpace.Infrastructure.ReadModels.RoomPlanner;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
@@ -14,11 +15,11 @@ public sealed class RoomPlannerProposalSceneRepository : IRoomPlannerProposalSce
         _dbContext = dbContext;
     }
 
-    public Task<RoomPlannerSceneContextReadModel?> GetContextAsync(
+    public async Task<RoomPlannerSceneContextReadModel?> GetContextAsync(
         Guid sceneId,
         CancellationToken cancellationToken = default)
     {
-        return _dbContext.ProposalSceneSet
+        var context = await _dbContext.ProposalSceneSet
             .Where(scene => scene.SceneId == sceneId)
             .Join(
                 _dbContext.ProposalSet,
@@ -34,7 +35,7 @@ public sealed class RoomPlannerProposalSceneRepository : IRoomPlannerProposalSce
                     SceneId = joined.scene.SceneId,
                     ProposalId = joined.scene.ProposalId,
                     ProjectId = project.ProjectId,
-                    ProjectAreaId = joined.scene.ProjectAreaId,
+                    SceneType = joined.scene.SceneType,
                     MongoSceneId = joined.scene.MongoSceneId,
                     ProposalStatus = joined.proposal.Status,
                     PublishedAt = joined.proposal.PublishedAt,
@@ -43,6 +44,14 @@ public sealed class RoomPlannerProposalSceneRepository : IRoomPlannerProposalSce
                     AssignedDesignerId = project.AssignedDesignerId
                 })
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (context is null)
+        {
+            return null;
+        }
+
+        context.SceneAreas = await GetSceneAreasAsync(sceneId, cancellationToken);
+        return context;
     }
 
     public async Task UpdateMongoSceneIdAsync(
@@ -61,5 +70,33 @@ public sealed class RoomPlannerProposalSceneRepository : IRoomPlannerProposalSce
 
         scene.MongoSceneId = mongoSceneId;
         scene.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private async Task<List<ProposalSceneAreaReadModel>> GetSceneAreasAsync(
+        Guid sceneId,
+        CancellationToken cancellationToken)
+    {
+        return await _dbContext.ProposalSceneAreaSet
+            .Where(area => area.SceneId == sceneId)
+            .Join(
+                _dbContext.ProjectAreaSet,
+                area => area.ProjectAreaId,
+                projectArea => projectArea.ProjectAreaId,
+                (area, projectArea) => new ProposalSceneAreaReadModel
+                {
+                    ProposalSceneAreaId = area.ProposalSceneAreaId,
+                    SceneId = area.SceneId,
+                    ProjectAreaId = area.ProjectAreaId,
+                    ProjectId = projectArea.ProjectId,
+                    AreaName = projectArea.AreaName,
+                    AreaType = projectArea.AreaType,
+                    FloorNumber = projectArea.FloorNumber,
+                    Status = projectArea.Status,
+                    SortOrder = area.SortOrder
+                })
+            .OrderBy(area => area.SortOrder)
+            .ThenBy(area => area.FloorNumber)
+            .ThenBy(area => area.ProjectAreaId)
+            .ToListAsync(cancellationToken);
     }
 }

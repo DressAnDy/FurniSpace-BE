@@ -73,6 +73,12 @@ public sealed class RoomPlannerSceneRepositoryAdapter : IRoomPlannerSceneReposit
             sceneObject.MaterialOverrides = NormalizeDictionary(sceneObject.MaterialOverrides);
         }
 
+        if (document.BlueprintLayout is not null)
+        {
+            document.BlueprintLayout.Metadata = NormalizeDictionary(document.BlueprintLayout.Metadata);
+            NormalizeBlueprintFloorDictionaries(document.BlueprintLayout.Floors);
+        }
+
         document.Lighting.CustomLights = document.Lighting.CustomLights
             .Select(NormalizeDictionary)
             .ToList();
@@ -82,6 +88,25 @@ public sealed class RoomPlannerSceneRepositoryAdapter : IRoomPlannerSceneReposit
             document.EditorState.SnapSettings = NormalizeDictionary(document.EditorState.SnapSettings);
         }
     }
+
+    private static void NormalizeBlueprintFloorDictionaries(
+        IEnumerable<FurniSpace.Infrastructure.Data.Mongo.RoomPlannerBlueprintFloorDocument> floors)
+    {
+        foreach (var floor in floors)
+        {
+            floor.Rooms = NormalizeDictionaries(floor.Rooms);
+            floor.Slabs = NormalizeDictionaries(floor.Slabs);
+            floor.Stairs = NormalizeDictionaries(floor.Stairs);
+            floor.Balconies = NormalizeDictionaries(floor.Balconies);
+            floor.Yards = NormalizeDictionaries(floor.Yards);
+            floor.Columns = NormalizeDictionaries(floor.Columns);
+            floor.Beams = NormalizeDictionaries(floor.Beams);
+        }
+    }
+
+    private static List<Dictionary<string, object?>> NormalizeDictionaries(
+        IEnumerable<Dictionary<string, object?>> values) =>
+        values.Select(NormalizeDictionary).ToList();
 
     private static Dictionary<string, object?> NormalizeDictionary(Dictionary<string, object?> values)
     {

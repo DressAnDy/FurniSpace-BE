@@ -231,7 +231,7 @@ public sealed class ProjectAreaServiceTests
     }
 
     [Fact]
-    public async Task CancelAsync_AreaInUse_ReturnsProjectAreaInUse()
+    public async Task CancelAsync_AreaUsedByScene_ReturnsProjectAreaInUseByScene()
     {
         var salesId = Guid.NewGuid();
         var entity = CreateAreaEntity();
@@ -240,14 +240,35 @@ public sealed class ProjectAreaServiceTests
         {
             Detail = detail,
             EntityById = entity,
-            HasActiveUsage = true
+            HasActiveSceneUsage = true
         };
         var service = BuildService(new() { Role = "SALES", AreaRepo = areaRepo });
 
         var result = await service.CancelAsync(entity.ProjectAreaId, salesId);
 
         Assert.Equal(400, result.Status);
-        Assert.Equal(ProjectAreaErrorCodes.ProjectAreaInUse, result.ErrorCode);
+        Assert.Equal(ProjectAreaErrorCodes.ProjectAreaInUseByScene, result.ErrorCode);
+        Assert.Equal(ProjectAreaStatus.DRAFT, entity.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_AreaUsedByProposalItem_ReturnsProjectAreaInUseByProposalItem()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        var areaRepo = new FakeProjectAreaRepository
+        {
+            Detail = detail,
+            EntityById = entity,
+            HasActiveProposalItemUsage = true
+        };
+        var service = BuildService(new() { Role = "SALES", AreaRepo = areaRepo });
+
+        var result = await service.CancelAsync(entity.ProjectAreaId, salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.ProjectAreaInUseByProposalItem, result.ErrorCode);
         Assert.Equal(ProjectAreaStatus.DRAFT, entity.Status);
     }
 
@@ -397,7 +418,7 @@ public sealed class ProjectAreaServiceTests
     }
 
     [Fact]
-    public async Task CancelAsync_AlreadyCancelled_ReturnsSuccess()
+    public async Task CancelAsync_AlreadyCancelled_ReturnsProjectAreaAlreadyCancelled()
     {
         var salesId = Guid.NewGuid();
         var entity = CreateAreaEntity();
@@ -412,8 +433,9 @@ public sealed class ProjectAreaServiceTests
 
         var result = await service.CancelAsync(entity.ProjectAreaId, salesId);
 
-        Assert.Equal(200, result.Status);
-        Assert.Equal(ProjectAreaStatus.CANCELLED, result.Data!.Status);
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.ProjectAreaAlreadyCancelled, result.ErrorCode);
+        Assert.Null(result.Data);
     }
 
     [Fact]
@@ -515,7 +537,8 @@ public sealed class ProjectAreaServiceTests
         public ProjectAreaDetailReadModel? Detail { get; set; }
         public ProjectArea? EntityById { get; set; }
         public IReadOnlyList<ProjectAreaDetailReadModel> ListItems { get; set; } = [];
-        public bool HasActiveUsage { get; set; }
+        public bool HasActiveSceneUsage { get; set; }
+        public bool HasActiveProposalItemUsage { get; set; }
         public int AddCallCount { get; private set; }
 
         public Task<ProjectAreaDetailReadModel?> GetDetailAsync(
@@ -559,7 +582,17 @@ public sealed class ProjectAreaServiceTests
         public Task<bool> HasActiveUsageAsync(
             Guid projectAreaId,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(HasActiveUsage);
+            => Task.FromResult(HasActiveSceneUsage || HasActiveProposalItemUsage);
+
+        public Task<bool> HasActiveSceneUsageAsync(
+            Guid projectAreaId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(HasActiveSceneUsage);
+
+        public Task<bool> HasActiveProposalItemUsageAsync(
+            Guid projectAreaId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(HasActiveProposalItemUsage);
 
         public IQueryable<ProjectArea> Query() => Enumerable.Empty<ProjectArea>().AsQueryable();
 

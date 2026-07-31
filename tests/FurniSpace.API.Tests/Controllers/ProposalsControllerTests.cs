@@ -119,7 +119,8 @@ public sealed class ProposalsControllerTests
         var request = new CreateProposalSceneRequestDto
         {
             SceneName = "Main layout",
-            SceneType = ProposalSceneType.THREE_D
+            SceneType = ProposalSceneType.ROOM_PLANNER,
+            ProjectAreaIds = [Guid.NewGuid()]
         };
         var response = new ProposalSceneDto { SceneId = Guid.NewGuid(), ProposalId = proposalId };
         var service = new FakeProposalService(

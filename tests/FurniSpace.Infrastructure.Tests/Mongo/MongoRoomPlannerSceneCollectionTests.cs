@@ -30,8 +30,12 @@ public sealed class MongoRoomPlannerSceneCollectionTests
         await collection.EnsureIndexesAsync();
 
         Assert.Equal("custom_scenes", databaseProxy.Proxy.RequestedCollectionName);
-        Assert.Equal(5, collectionProxy.IndexProxy.CreatedIndexes.Count);
+        Assert.Equal(8, collectionProxy.IndexProxy.CreatedIndexes.Count);
         Assert.Contains(collectionProxy.IndexProxy.CreatedIndexes, index => index.Options?.Name == "ux_room_planner_scenes_sql_scene_id" && index.Options.Unique == true);
+        Assert.Contains(collectionProxy.IndexProxy.CreatedIndexes, index => index.Options?.Name == "ix_room_planner_scenes_scene_links_project_area_ids");
+        Assert.Contains(collectionProxy.IndexProxy.CreatedIndexes, index => index.Options?.Name == "ix_room_planner_scenes_blueprint_floors_project_area_id");
+        Assert.Contains(collectionProxy.IndexProxy.CreatedIndexes, index => index.Options?.Name == "ix_room_planner_scenes_objects_product_version_id");
+        Assert.Contains(collectionProxy.IndexProxy.CreatedIndexes, index => index.Options?.Name == "ix_room_planner_scenes_objects_proposal_item_id");
         Assert.Contains(collectionProxy.IndexProxy.CreatedIndexes, index => index.Options?.Name == "ix_room_planner_scenes_metadata_updated_at");
     }
 
@@ -81,8 +85,7 @@ public sealed class MongoRoomPlannerSceneCollectionTests
             Id = ObjectId.GenerateNewId().ToString(),
             SqlSceneId = Guid.NewGuid(),
             ProjectId = Guid.NewGuid(),
-            ProposalId = Guid.NewGuid(),
-            ProjectAreaId = Guid.NewGuid()
+            ProposalId = Guid.NewGuid()
         };
 
     private static CollectionProxyHandle CreateCollectionProxy(

@@ -16,6 +16,8 @@ namespace FurniSpace.Application.Tests.RoomPlanner;
 
 public sealed class RoomPlannerSceneRepositoryAdapterTests
 {
+    private static readonly JsonSerializerOptions WebJsonSerializerOptions = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public async Task GetByIdAsync_WhenInnerReturnsDocument_MapsToApplicationDocument()
     {
@@ -183,7 +185,7 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
         var result = await adapter.UpsertBySqlSceneIdAsync(document);
 
         Assert.NotNull(inner.UpsertedDocument);
-        Assert.Equal("BLUEPRINT_WALL_GRAPH", inner.UpsertedDocument.Layout.Type);
+        Assert.Equal("BLUEPRINT_WALL_GRAPH", inner.UpsertedDocument.Layout!.Type);
         Assert.Equal("p1", inner.UpsertedDocument.Layout.Points[0].PointId);
         Assert.Equal(0, inner.UpsertedDocument.Layout.Points[0].Y);
         Assert.Equal("p1", inner.UpsertedDocument.Layout.Walls[0].StartPointId);
@@ -204,13 +206,102 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
         Assert.Equal("w1", inner.UpsertedDocument.Objects[0].Placement.MountedWallId);
         Assert.Equal("https://cdn.example.com/thumb.png", inner.UpsertedDocument.Objects[0].VisualSnapshot!.ThumbnailUrlSnapshot);
         Assert.Equal("https://cdn.example.com/model.glb", inner.UpsertedDocument.Objects[0].ModelSnapshot!.ModelUrlSnapshot);
-        Assert.Equal("BLUEPRINT_WALL_GRAPH", result.Layout.Type);
+        Assert.Equal("BLUEPRINT_WALL_GRAPH", result.Layout!.Type);
         Assert.Equal("p2", result.Layout.Points[1].PointId);
         Assert.Equal(4.5m, result.Layout.Doors[0].Offset);
         Assert.Equal(8.25m, result.Layout.Windows[0].Offset);
         Assert.Equal(5.25m, result.Layout.Openings[0].Offset);
         Assert.Equal("w1", result.Objects[0].Placement.MountedWallId);
         Assert.Equal(modelFileId, result.Objects[0].ModelSnapshot!.ModelFileId);
+    }
+
+    [Fact]
+    public async Task UpsertBySqlSceneIdAsync_PreservesMultiFloorBlueprintDocumentFields()
+    {
+        var inner = new FakeInfrastructureRoomPlannerSceneRepository();
+        var adapter = new RoomPlannerSceneRepositoryAdapter(inner);
+        var projectAreaId = Guid.NewGuid();
+        var document = CreateApplicationDocument("app-mongo-id");
+        document.SchemaVersion = 3;
+        document.ProjectAreaId = null;
+        document.Layout = null;
+        document.SceneLinks = new RoomPlannerSceneLinksDocument
+        {
+            ProjectAreaIds = [projectAreaId]
+        };
+        document.BlueprintLayout = new RoomPlannerBlueprintLayoutDocument
+        {
+            Id = "blueprint-01",
+            Name = "Main blueprint",
+            Unit = "meter",
+            Scale = 1,
+            Metadata = new Dictionary<string, object?> { ["source"] = CreateJsonElement("\"client\"") },
+            Floors =
+            [
+                new RoomPlannerBlueprintFloorDocument
+                {
+                    Id = "floor-01",
+                    ProjectAreaId = projectAreaId,
+                    Name = "Ground floor",
+                    Points =
+                    [
+                        new RoomPlannerPoint2Document { PointId = "p1", X = 0, Y = 0 },
+                        new RoomPlannerPoint2Document { PointId = "p2", X = 4, Y = 0 }
+                    ],
+                    Walls =
+                    [
+                        new RoomPlannerWallDocument
+                        {
+                            WallId = "w1",
+                            StartPointId = "p1",
+                            EndPointId = "p2"
+                        }
+                    ],
+                    Doors =
+                    [
+                        new RoomPlannerOpeningDocument
+                        {
+                            OpeningId = "door-1",
+                            Type = "DOOR",
+                            WallId = "w1",
+                            Offset = 1.2m
+                        }
+                    ],
+                    Rooms = [new Dictionary<string, object?> { ["roomId"] = CreateJsonElement("\"room-01\"") }]
+                }
+            ]
+        };
+        document.Objects[0].FloorId = "floor-01";
+        document.Objects[0].ProposalItemId = Guid.NewGuid();
+        document.Objects[0].ModelSnapshot = new RoomPlannerModelSnapshotDocument
+        {
+            ModelFileId = Guid.NewGuid(),
+            Format = "GLB"
+        };
+
+        var result = await adapter.UpsertBySqlSceneIdAsync(document);
+
+        Assert.NotNull(inner.UpsertedDocument);
+        Assert.Null(inner.UpsertedDocument.ProjectAreaId);
+        Assert.Null(inner.UpsertedDocument.Layout);
+        Assert.Equal(3, inner.UpsertedDocument.SchemaVersion);
+        Assert.Equal(projectAreaId, inner.UpsertedDocument.SceneLinks!.ProjectAreaIds[0]);
+        Assert.Equal("floor-01", inner.UpsertedDocument.BlueprintLayout!.Floors[0].Id);
+        Assert.Equal("p1", inner.UpsertedDocument.BlueprintLayout.Floors[0].Points[0].PointId);
+        Assert.Equal("w1", inner.UpsertedDocument.BlueprintLayout.Floors[0].Doors[0].WallId);
+        Assert.Equal(1.2m, inner.UpsertedDocument.BlueprintLayout.Floors[0].Doors[0].Offset);
+        Assert.Equal("floor-01", inner.UpsertedDocument.Objects[0].FloorId);
+        Assert.Equal("GLB", inner.UpsertedDocument.Objects[0].ModelSnapshot!.Format);
+        Assert.Null(result.ProjectAreaId);
+        Assert.Null(result.Layout);
+        Assert.Equal(projectAreaId, result.SceneLinks!.ProjectAreaIds[0]);
+        Assert.True(result.SceneLinks.ContainsProjectArea(projectAreaId));
+        Assert.Equal("floor-01", result.BlueprintLayout!.Floors[0].Id);
+        Assert.Same(result.BlueprintLayout.Floors[0], result.BlueprintLayout.FindFloor("FLOOR-01"));
+        Assert.True(result.BlueprintLayout.Floors[0].ContainsWall("W1"));
+        Assert.Equal("floor-01", result.Objects[0].FloorId);
+        var json = JsonSerializer.Serialize(result, WebJsonSerializerOptions);
+        Assert.DoesNotContain("$numberDecimal", json);
     }
 
     [Fact]

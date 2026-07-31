@@ -6,6 +6,9 @@ public class ProposalItemReadModel
     public Guid ProposalId { get; set; }
     public Guid? SceneId { get; set; }
     public string? SceneObjectId { get; set; }
+    public Guid? ProjectAreaId { get; set; }
+    public string? ProjectAreaName { get; set; }
+    public int? FloorNumber { get; set; }
     public Guid? ProductVersionId { get; set; }
     public string ProductNameSnapshot { get; set; } = string.Empty;
     public string? VersionNameSnapshot { get; set; }

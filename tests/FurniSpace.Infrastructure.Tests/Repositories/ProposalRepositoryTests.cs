@@ -329,6 +329,9 @@ public sealed class ProposalRepositoryTests
         Assert.Equal("cm", item.DimensionUnit);
         Assert.Equal("Wood", item.MaterialSnapshot);
         Assert.Equal("Brown", item.ColorSnapshot);
+        Assert.Equal(data.ProjectAreaId, item.ProjectAreaId);
+        Assert.Equal("Main cafe area", item.ProjectAreaName);
+        Assert.Equal(1, item.FloorNumber);
         Assert.Equal(4800000m, item.SubtotalAmount);
     }
 
@@ -349,6 +352,9 @@ public sealed class ProposalRepositoryTests
         Assert.Equal(data.DesignerId, item.AssignedDesignerId);
         Assert.Equal(ProposalStatus.PUBLISHED, item.ProposalStatus);
         Assert.Equal("Brown Wood", item.VersionNameSnapshot);
+        Assert.Equal(data.ProjectAreaId, item.ProjectAreaId);
+        Assert.Equal("Main cafe area", item.ProjectAreaName);
+        Assert.Equal(1, item.FloorNumber);
     }
 
     [Fact]
@@ -588,6 +594,7 @@ public sealed class ProposalRepositoryTests
             ProjectId = projectId,
             AreaName = "Main cafe area",
             AreaType = ProjectAreaType.FLOOR,
+            FloorNumber = 1,
             Status = ProjectAreaStatus.VERIFIED,
             CreatedAt = DateTime.UtcNow
         });
@@ -642,6 +649,7 @@ public sealed class ProposalRepositoryTests
             ProposalItemId = proposalItemId,
             ProposalId = publishedProposalId,
             SceneId = activeSceneId,
+            ProjectAreaId = projectAreaId,
             ProductVersionId = productVersionId,
             ItemName = "Cafe Chair",
             Quantity = 4,

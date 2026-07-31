@@ -72,25 +72,25 @@ public sealed class ProjectAreaRepositoryTests
     }
 
     [Fact]
-    public async Task HasActiveUsageAsync_ReturnsTrueWhenActiveProposalSceneExists()
+    public async Task HasActiveSceneUsageAsync_ReturnsTrueWhenActiveProposalSceneMappingExists()
     {
         await using var context = CreateContext();
         var data = await SeedAsync(context);
         var repository = new ProjectAreaRepository(context);
 
-        var inUse = await repository.HasActiveUsageAsync(data.ActiveAreaId);
+        var inUse = await repository.HasActiveSceneUsageAsync(data.ActiveAreaId);
 
         Assert.True(inUse);
     }
 
     [Fact]
-    public async Task HasActiveUsageAsync_ReturnsTrueWhenProposalItemExists()
+    public async Task HasActiveProposalItemUsageAsync_ReturnsTrueWhenProposalItemExists()
     {
         await using var context = CreateContext();
         var data = await SeedAsync(context);
         var repository = new ProjectAreaRepository(context);
 
-        var inUse = await repository.HasActiveUsageAsync(data.ItemOnlyAreaId);
+        var inUse = await repository.HasActiveProposalItemUsageAsync(data.ItemOnlyAreaId);
 
         Assert.True(inUse);
     }

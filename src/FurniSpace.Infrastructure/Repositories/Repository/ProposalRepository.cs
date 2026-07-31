@@ -459,21 +459,32 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                 (item, versions) => new { item, versions })
             .SelectMany(
                 joined => joined.versions.DefaultIfEmpty(),
-                (joined, version) => new ProposalItemReadModel
+                (joined, version) => new { joined.item, version })
+            .GroupJoin(
+                DbContext.ProjectAreaSet,
+                joined => joined.item.ProjectAreaId,
+                area => area.ProjectAreaId,
+                (joined, areas) => new { joined.item, joined.version, areas })
+            .SelectMany(
+                joined => joined.areas.DefaultIfEmpty(),
+                (joined, area) => new ProposalItemReadModel
                 {
                     ProposalItemId = joined.item.ProposalItemId,
                     ProposalId = joined.item.ProposalId,
                     SceneId = joined.item.SceneId,
                     SceneObjectId = joined.item.SceneObjectId,
+                    ProjectAreaId = joined.item.ProjectAreaId,
+                    ProjectAreaName = area == null ? null : area.AreaName,
+                    FloorNumber = area == null ? null : area.FloorNumber,
                     ProductVersionId = joined.item.ProductVersionId,
                     ProductNameSnapshot = joined.item.ItemName,
-                    VersionNameSnapshot = version == null ? null : version.VersionName,
+                    VersionNameSnapshot = joined.version == null ? null : joined.version.VersionName,
                     MaterialSnapshot = joined.item.Material,
                     ColorSnapshot = joined.item.Color,
                     WidthSnapshot = joined.item.Width,
                     HeightSnapshot = joined.item.Height,
                     DepthSnapshot = joined.item.Depth,
-                    DimensionUnit = version == null ? null : version.DimensionUnit,
+                    DimensionUnit = joined.version == null ? null : joined.version.DimensionUnit,
                     Quantity = joined.item.Quantity,
                     UnitPriceSnapshot = joined.item.UnitPriceSnapshot,
                     SubtotalAmount = joined.item.TotalPriceSnapshot,
@@ -512,21 +523,32 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                 (joined, versions) => new { joined, versions })
             .SelectMany(
                 grouped => grouped.versions.DefaultIfEmpty(),
-                (grouped, version) => new ProposalItemDetailReadModel
+                (grouped, version) => new { grouped.joined, version })
+            .GroupJoin(
+                DbContext.ProjectAreaSet,
+                joined => joined.joined.item.ProjectAreaId,
+                area => area.ProjectAreaId,
+                (joined, areas) => new { joined.joined, joined.version, areas })
+            .SelectMany(
+                grouped => grouped.areas.DefaultIfEmpty(),
+                (grouped, area) => new ProposalItemDetailReadModel
                 {
                     ProposalItemId = grouped.joined.item.ProposalItemId,
                     ProposalId = grouped.joined.item.ProposalId,
                     SceneId = grouped.joined.item.SceneId,
                     SceneObjectId = grouped.joined.item.SceneObjectId,
+                    ProjectAreaId = grouped.joined.item.ProjectAreaId,
+                    ProjectAreaName = area == null ? null : area.AreaName,
+                    FloorNumber = area == null ? null : area.FloorNumber,
                     ProductVersionId = grouped.joined.item.ProductVersionId,
                     ProductNameSnapshot = grouped.joined.item.ItemName,
-                    VersionNameSnapshot = version == null ? null : version.VersionName,
+                    VersionNameSnapshot = grouped.version == null ? null : grouped.version.VersionName,
                     MaterialSnapshot = grouped.joined.item.Material,
                     ColorSnapshot = grouped.joined.item.Color,
                     WidthSnapshot = grouped.joined.item.Width,
                     HeightSnapshot = grouped.joined.item.Height,
                     DepthSnapshot = grouped.joined.item.Depth,
-                    DimensionUnit = version == null ? null : version.DimensionUnit,
+                    DimensionUnit = grouped.version == null ? null : grouped.version.DimensionUnit,
                     Quantity = grouped.joined.item.Quantity,
                     UnitPriceSnapshot = grouped.joined.item.UnitPriceSnapshot,
                     SubtotalAmount = grouped.joined.item.TotalPriceSnapshot,
@@ -663,18 +685,29 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
     {
         return await DbContext.ProposalItemSet
             .Where(item => item.ProposalId == proposalId)
-            .Select(item => new ProposalItemReadModel
-            {
-                ProposalItemId = item.ProposalItemId,
-                SceneId = item.SceneId,
-                SceneObjectId = item.SceneObjectId,
-                ProductVersionId = item.ProductVersionId,
-                ProductNameSnapshot = item.ItemName,
-                VersionNameSnapshot = null,
-                Quantity = item.Quantity,
-                UnitPriceSnapshot = item.UnitPriceSnapshot,
-                SubtotalAmount = item.TotalPriceSnapshot
-            })
+            .GroupJoin(
+                DbContext.ProjectAreaSet,
+                item => item.ProjectAreaId,
+                area => area.ProjectAreaId,
+                (item, areas) => new { item, areas })
+            .SelectMany(
+                joined => joined.areas.DefaultIfEmpty(),
+                (joined, area) => new ProposalItemReadModel
+                {
+                    ProposalItemId = joined.item.ProposalItemId,
+                    ProposalId = joined.item.ProposalId,
+                    SceneId = joined.item.SceneId,
+                    SceneObjectId = joined.item.SceneObjectId,
+                    ProjectAreaId = joined.item.ProjectAreaId,
+                    ProjectAreaName = area == null ? null : area.AreaName,
+                    FloorNumber = area == null ? null : area.FloorNumber,
+                    ProductVersionId = joined.item.ProductVersionId,
+                    ProductNameSnapshot = joined.item.ItemName,
+                    VersionNameSnapshot = null,
+                    Quantity = joined.item.Quantity,
+                    UnitPriceSnapshot = joined.item.UnitPriceSnapshot,
+                    SubtotalAmount = joined.item.TotalPriceSnapshot
+                })
             .OrderBy(item => item.ProductNameSnapshot)
             .ThenBy(item => item.ProposalItemId)
             .ToListAsync(cancellationToken);

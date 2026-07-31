@@ -55,7 +55,15 @@ public sealed class ProjectAreaRepository : GenericRepository<ProjectArea>, IPro
         Guid projectAreaId,
         CancellationToken cancellationToken = default)
     {
-        var hasActiveScene = await DbContext.ProposalSceneAreaSet
+        return await HasActiveSceneUsageAsync(projectAreaId, cancellationToken) ||
+               await HasActiveProposalItemUsageAsync(projectAreaId, cancellationToken);
+    }
+
+    public Task<bool> HasActiveSceneUsageAsync(
+        Guid projectAreaId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalSceneAreaSet
             .Where(mapping => mapping.ProjectAreaId == projectAreaId)
             .Join(
                 DbContext.ProposalSceneSet.Where(scene => scene.IsActive == true),
@@ -63,13 +71,13 @@ public sealed class ProjectAreaRepository : GenericRepository<ProjectArea>, IPro
                 scene => scene.SceneId,
                 (_, _) => true)
             .AnyAsync(cancellationToken);
+    }
 
-        if (hasActiveScene)
-        {
-            return true;
-        }
-
-        return await DbContext.ProposalItemSet.AnyAsync(
+    public Task<bool> HasActiveProposalItemUsageAsync(
+        Guid projectAreaId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalItemSet.AnyAsync(
             item => item.ProjectAreaId == projectAreaId,
             cancellationToken);
     }

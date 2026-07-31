@@ -508,6 +508,7 @@ public sealed class ProposalServiceTests
         Assert.Equal(proposalId, result.Data.ProposalId);
         Assert.Single(result.Data.Scenes);
         Assert.Single(result.Data.Items);
+        AssertProposalItemArea(result.Data.Items[0]);
         Assert.Equal("Proposal detail retrieved successfully.", result.Message);
     }
 
@@ -571,6 +572,7 @@ public sealed class ProposalServiceTests
         Assert.Single(result.Data.Scenes);
         Assert.Equal($"/proposal-scenes/{proposal.Scenes[0].SceneId}/room-planner", result.Data.Scenes[0].RoomPlannerUrl);
         Assert.Single(result.Data.Items);
+        AssertProposalItemArea(result.Data.Items[0]);
     }
 
     [Fact]
@@ -1182,6 +1184,7 @@ public sealed class ProposalServiceTests
         Assert.NotNull(result.Data);
         Assert.Single(result.Data.Items);
         Assert.Equal("scene-object-001", result.Data.Items[0].SceneObjectId);
+        AssertProposalItemArea(result.Data.Items[0]);
         Assert.Equal(2, result.Data.Page);
         Assert.Equal(5, result.Data.Limit);
         Assert.Equal(sceneId, repository.LastItemListQuery!.SceneId);
@@ -1225,6 +1228,7 @@ public sealed class ProposalServiceTests
         Assert.NotNull(result.Data);
         Assert.Single(result.Data.Items);
         Assert.Equal("scene-object-001", result.Data.Items[0].SceneObjectId);
+        AssertProposalItemArea(result.Data.Items[0]);
     }
 
     [Fact]
@@ -1283,6 +1287,7 @@ public sealed class ProposalServiceTests
         Assert.Equal(6, result.Data.Quantity);
         Assert.Equal(7200000m, result.Data.SubtotalAmount);
         Assert.Equal("Increase quantity.", result.Data.CustomizationNote);
+        AssertProposalItemArea(result.Data);
         Assert.Equal(6, entity.Quantity);
         Assert.Equal(7200000m, entity.TotalPriceSnapshot);
         Assert.Equal(1, repository.SaveChangesCallCount);
@@ -2167,6 +2172,7 @@ public sealed class ProposalServiceTests
         Guid? assignedDesignerId = null,
         Guid? projectId = null)
     {
+        var projectAreaId = Guid.NewGuid();
         return new ProposalDetailReadModel
         {
             ProposalId = proposalId,
@@ -2195,6 +2201,10 @@ public sealed class ProposalServiceTests
                 new ProposalItemReadModel
                 {
                     ProposalItemId = Guid.NewGuid(),
+                    ProposalId = proposalId,
+                    ProjectAreaId = projectAreaId,
+                    ProjectAreaName = "Main cafe area",
+                    FloorNumber = 1,
                     ProductNameSnapshot = "Cafe Chair",
                     Quantity = 4,
                     UnitPriceSnapshot = 1200000,
@@ -2240,6 +2250,9 @@ public sealed class ProposalServiceTests
             ProposalId = proposalId,
             SceneId = sceneId,
             ProductVersionId = Guid.NewGuid(),
+            ProjectAreaId = Guid.NewGuid(),
+            ProjectAreaName = "Main cafe area",
+            FloorNumber = 1,
             ProductNameSnapshot = "Cafe Chair",
             VersionNameSnapshot = "Brown Wood",
             MaterialSnapshot = "Wood",
@@ -2267,6 +2280,9 @@ public sealed class ProposalServiceTests
             ProposalId = proposalId,
             SceneId = Guid.NewGuid(),
             ProductVersionId = Guid.NewGuid(),
+            ProjectAreaId = Guid.NewGuid(),
+            ProjectAreaName = "Main cafe area",
+            FloorNumber = 1,
             ProductNameSnapshot = "Cafe Chair",
             VersionNameSnapshot = "Brown Wood",
             MaterialSnapshot = "Wood",
@@ -2285,6 +2301,13 @@ public sealed class ProposalServiceTests
             AssignedDesignerId = assignedDesignerId,
             ProposalStatus = ProposalStatus.DRAFT
         };
+    }
+
+    private static void AssertProposalItemArea(ProposalItemSummaryDto item)
+    {
+        Assert.NotNull(item.ProjectAreaId);
+        Assert.Equal("Main cafe area", item.ProjectAreaName);
+        Assert.Equal(1, item.FloorNumber);
     }
 
     private static ProposalItem CreateProposalItem(Guid proposalItemId, Guid proposalId)

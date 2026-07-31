@@ -617,7 +617,6 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.SceneId);
             entity.Property(e => e.SceneId).HasColumnName("scene_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType);
-            entity.Ignore(e => e.ProjectAreaId);
             entity.Property(e => e.SceneName).HasColumnName("scene_name").HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.SceneType).HasColumnName("scene_type").HasColumnType(ProposalSceneTypeColumnType).HasDefaultValueSql("'THREE_D'::proposal_scene_type");
             entity.Property(e => e.MongoSceneId).HasColumnName("mongo_scene_id").HasColumnType(Varchar100ColumnType);
@@ -653,7 +652,7 @@ public class AppDbContext : DbContext
                 .IsUnique()
                 .HasDatabaseName("uq_proposal_scene_areas_scene_project_area");
             entity.HasOne(e => e.Scene).WithMany(e => e.SceneAreas).HasForeignKey(e => e.SceneId).OnDelete(DeleteBehavior.Cascade);
-            entity.HasOne(e => e.ProjectArea).WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.ProjectArea).WithMany(e => e.ProposalSceneAreas).HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

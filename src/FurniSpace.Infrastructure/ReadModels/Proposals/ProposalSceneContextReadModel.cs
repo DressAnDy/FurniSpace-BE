@@ -7,7 +7,8 @@ public sealed class ProposalSceneContextReadModel
     public Guid SceneId { get; set; }
     public Guid ProposalId { get; set; }
     public Guid ProjectId { get; set; }
-    public Guid? ProjectAreaId { get; set; }
+    public IReadOnlyList<ProposalSceneAreaReadModel> SceneAreas { get; set; } = [];
+    public IReadOnlyList<Guid> ProjectAreaIds => SceneAreas.Select(area => area.ProjectAreaId).ToList();
     public ProposalStatus? ProposalStatus { get; set; }
     public Guid CustomerId { get; set; }
     public Guid? AssignedSalesId { get; set; }

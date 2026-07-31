@@ -496,7 +496,7 @@ public sealed class ProposalServiceTests
                 ProposalId = proposalId,
                 SceneId = sceneId,
                 ProjectId = context.ProjectId,
-                ProjectAreaId = Guid.NewGuid(),
+                SceneAreas = [CreateSceneAreaReadModel(Guid.NewGuid())],
                 ProposalStatus = ProposalStatus.DRAFT,
                 AssignedDesignerId = designerId
             });
@@ -837,7 +837,7 @@ public sealed class ProposalServiceTests
                 ProposalId = proposalId,
                 SceneId = sceneId,
                 ProjectId = context.ProjectId,
-                ProjectAreaId = Guid.NewGuid(),
+                SceneAreas = [CreateSceneAreaReadModel(Guid.NewGuid())],
                 ProposalStatus = ProposalStatus.DRAFT,
                 AssignedDesignerId = designerId
             });
@@ -910,7 +910,7 @@ public sealed class ProposalServiceTests
                 ProposalId = proposalId,
                 SceneId = sceneId,
                 ProjectId = context.ProjectId,
-                ProjectAreaId = Guid.NewGuid(),
+                SceneAreas = [CreateSceneAreaReadModel(Guid.NewGuid())],
                 ProposalStatus = ProposalStatus.DRAFT,
                 AssignedDesignerId = designerId
             });
@@ -1881,11 +1881,20 @@ public sealed class ProposalServiceTests
             ProposalId = proposalId,
             SceneId = sceneId,
             ProjectId = projectId,
-            ProjectAreaId = Guid.NewGuid(),
+            SceneAreas = [CreateSceneAreaReadModel(Guid.NewGuid())],
             ProposalStatus = ProposalStatus.DRAFT,
             AssignedDesignerId = designerId
         };
     }
+
+    private static ProposalSceneAreaReadModel CreateSceneAreaReadModel(Guid projectAreaId) =>
+        new()
+        {
+            ProposalSceneAreaId = Guid.NewGuid(),
+            ProjectAreaId = projectAreaId,
+            AreaName = "Main cafe area",
+            SortOrder = 0
+        };
 
     private static RoomPlannerSceneDocument CreateRoomPlannerScene(
         Guid sceneId,

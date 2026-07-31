@@ -150,7 +150,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         }
 
         return ServiceResult<RoomPlannerSceneResponseDto>.Success(
-            ToResponse(context.SceneId, document),
+            ToResponse(context, document),
             "Room planner scene retrieved successfully.");
     }
 
@@ -167,7 +167,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             SqlSceneId = context.SceneId,
             ProposalId = context.ProposalId,
             ProjectId = context.ProjectId,
-            ProjectAreaId = context.ProjectAreaId,
+            ProjectAreaId = GetFirstProjectAreaId(context.ProjectAreaIds),
             SceneKind = "OFFICIAL",
             Unit = NormalizeUnit(request.Unit),
             Layout = request.Layout,
@@ -196,7 +196,8 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             MongoSceneId = null,
             ProposalId = context.ProposalId,
             ProjectId = context.ProjectId,
-            ProjectAreaId = context.ProjectAreaId,
+            ProjectAreaId = GetFirstProjectAreaId(context.ProjectAreaIds),
+            ProjectAreaIds = context.ProjectAreaIds,
             SchemaVersion = 2,
             EditorVersion = "ROOM_PLANNER_BABYLON_V1",
             Unit = "meter",
@@ -209,14 +210,17 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             LastSavedAt = null
         };
 
-    private static RoomPlannerSceneResponseDto ToResponse(Guid sceneId, RoomPlannerSceneDocument document) =>
+    private static RoomPlannerSceneResponseDto ToResponse(
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        RoomPlannerSceneDocument document) =>
         new()
         {
-            SceneId = sceneId,
+            SceneId = context.SceneId,
             MongoSceneId = document.Id,
             ProposalId = document.ProposalId,
             ProjectId = document.ProjectId,
-            ProjectAreaId = document.ProjectAreaId,
+            ProjectAreaId = GetFirstProjectAreaId(context.ProjectAreaIds),
+            ProjectAreaIds = context.ProjectAreaIds,
             SchemaVersion = document.SchemaVersion,
             EditorVersion = document.EditorVersion,
             Unit = document.Unit,
@@ -230,6 +234,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             EditorState = document.EditorState,
             LastSavedAt = document.Metadata.UpdatedAt
         };
+
+    private static Guid? GetFirstProjectAreaId(IReadOnlyList<Guid> projectAreaIds) =>
+        projectAreaIds.Count == 0 ? null : projectAreaIds[0];
 
     private static bool CanSaveScene(
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,

@@ -14,6 +14,7 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.Proposals;
 using FurniSpace.Infrastructure.ReadModels.RoomPlanner;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using RoomPlannerSqlSceneRepository = FurniSpace.Infrastructure.Repositories.IRepository.IRoomPlannerProposalSceneRepository;
@@ -334,7 +335,16 @@ public sealed class RoomPlannerSceneServiceTests
             SceneId = SceneId,
             ProposalId = ProposalId,
             ProjectId = ProjectId,
-            ProjectAreaId = Guid.NewGuid(),
+            SceneAreas =
+            [
+                new ProposalSceneAreaReadModel
+                {
+                    ProposalSceneAreaId = Guid.NewGuid(),
+                    ProjectAreaId = Guid.NewGuid(),
+                    AreaName = "Main cafe area",
+                    SortOrder = 0
+                }
+            ],
             MongoSceneId = mongoSceneId,
             ProposalStatus = status,
             CustomerId = CustomerId,

@@ -8,7 +8,6 @@ public class ProposalScene
 {
     public Guid SceneId { get; set; }
     public Guid ProposalId { get; set; }
-    public Guid? ProjectAreaId { get; set; }
     public string? SceneName { get; set; }
     public ProposalSceneType? SceneType { get; set; }
     public string? MongoSceneId { get; set; }

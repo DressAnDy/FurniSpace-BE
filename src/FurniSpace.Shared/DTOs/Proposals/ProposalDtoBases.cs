@@ -23,6 +23,8 @@ public abstract class ProposalSceneBaseDto<TSceneType>
     public Guid SceneId { get; set; }
     public Guid ProposalId { get; set; }
     public Guid? ProjectAreaId { get; set; }
+    public IReadOnlyList<Guid> ProjectAreaIds { get; set; } = [];
+    public IReadOnlyList<ProposalSceneAreaDto> SceneAreas { get; set; } = [];
     public string? SceneName { get; set; }
     public TSceneType SceneType { get; set; } = default!;
     public string? MongoSceneId { get; set; }
@@ -32,4 +34,12 @@ public abstract class ProposalSceneBaseDto<TSceneType>
     public bool? IsActive { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+}
+
+public sealed class ProposalSceneAreaDto
+{
+    public Guid ProjectAreaId { get; set; }
+    public string AreaName { get; set; } = string.Empty;
+    public int? FloorNumber { get; set; }
+    public int SortOrder { get; set; }
 }

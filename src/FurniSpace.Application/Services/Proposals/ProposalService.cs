@@ -218,12 +218,19 @@ public sealed class ProposalService : IProposalService
                 "Proposal scene can only be created for draft proposal."));
         }
 
+        if (request.ProjectAreaId.HasValue &&
+            !await _proposals.ProjectAreaBelongsToProjectAsync(request.ProjectAreaId.Value, proposal.ProjectId, cancellationToken))
+        {
+            return ServiceResult<ProposalSceneDto>.Failure(Error.BadRequest(
+                "INVALID_PROJECT_AREA",
+                "Project area does not belong to the same project."));
+        }
+
         var now = DateTime.UtcNow;
         var scene = new ProposalScene
         {
             SceneId = Guid.NewGuid(),
             ProposalId = proposalId,
-            ProjectAreaId = request.ProjectAreaId,
             SceneName = NormalizeOptional(request.SceneName),
             SceneType = request.SceneType,
             MongoSceneId = NormalizeOptional(request.MongoSceneId),
@@ -234,12 +241,13 @@ public sealed class ProposalService : IProposalService
             CreatedAt = now,
             UpdatedAt = now
         };
+        SetSingleSceneArea(scene, request.ProjectAreaId, now);
 
         await _proposals.AddSceneAsync(scene, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProposalSceneDto>.Created(
-            scene.Adapt<ProposalSceneDto>(),
+            ToProposalSceneDto(scene),
             "Proposal scene created successfully.");
     }
 
@@ -1139,7 +1147,7 @@ public sealed class ProposalService : IProposalService
             scene.SceneName = NormalizeOptional(request.SceneName);
         }
 
-        scene.ProjectAreaId = request.ProjectAreaId;
+        SetSingleSceneArea(scene, request.ProjectAreaId, now);
         scene.PreviewFileId = request.PreviewFileId;
         if (request.IsActive.HasValue)
         {
@@ -1155,7 +1163,16 @@ public sealed class ProposalService : IProposalService
                 SceneId = scene.SceneId,
                 ProposalId = scene.ProposalId,
                 SceneName = scene.SceneName,
-                ProjectAreaId = scene.ProjectAreaId,
+                ProjectAreaId = GetFirstProjectAreaId(scene.SceneAreas),
+                ProjectAreaIds = scene.SceneAreas.Select(area => area.ProjectAreaId).ToList(),
+                SceneAreas = scene.SceneAreas
+                    .OrderBy(area => area.SortOrder)
+                    .Select(area => new FurniSpace.Shared.DTOs.Proposals.ProposalSceneAreaDto
+                    {
+                        ProjectAreaId = area.ProjectAreaId,
+                        SortOrder = area.SortOrder
+                    })
+                    .ToList(),
                 SceneType = scene.SceneType,
                 MongoSceneId = scene.MongoSceneId,
                 PreviewFileId = scene.PreviewFileId,
@@ -1756,7 +1773,7 @@ public sealed class ProposalService : IProposalService
             ProposalId = scene.ProposalId,
             SceneId = scene.SceneId,
             SceneObjectId = sceneObjectId,
-            ProjectAreaId = scene.ProjectAreaId,
+            ProjectAreaId = GetFirstProjectAreaId(scene.ProjectAreaIds),
             ProductVersionId = productVersionId,
             CreatedAt = now,
             UpdatedAt = now
@@ -1847,6 +1864,48 @@ public sealed class ProposalService : IProposalService
     private static bool IsSelectableFinalProposal(ProposalStatus? status)
     {
         return status is ProposalStatus.PUBLISHED;
+    }
+
+    private static void SetSingleSceneArea(
+        ProposalScene scene,
+        Guid? projectAreaId,
+        DateTime now)
+    {
+        scene.SceneAreas.Clear();
+        if (!projectAreaId.HasValue)
+        {
+            return;
+        }
+
+        scene.SceneAreas.Add(new ProposalSceneArea
+        {
+            ProposalSceneAreaId = Guid.NewGuid(),
+            SceneId = scene.SceneId,
+            ProjectAreaId = projectAreaId.Value,
+            SortOrder = 0,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+    }
+
+    private static Guid? GetFirstProjectAreaId(IReadOnlyList<Guid> projectAreaIds) =>
+        projectAreaIds.Count == 0 ? null : projectAreaIds[0];
+
+    private static Guid? GetFirstProjectAreaId(IReadOnlyCollection<ProposalSceneArea> sceneAreas) =>
+        sceneAreas
+            .OrderBy(area => area.SortOrder)
+            .Select(area => (Guid?)area.ProjectAreaId)
+            .FirstOrDefault();
+
+    private static ProposalSceneDto ToProposalSceneDto(ProposalScene scene)
+    {
+        var dto = scene.Adapt<ProposalSceneDto>();
+        dto.ProjectAreaIds = scene.SceneAreas
+            .OrderBy(area => area.SortOrder)
+            .Select(area => area.ProjectAreaId)
+            .ToList();
+        dto.ProjectAreaId = dto.ProjectAreaIds.Count == 0 ? null : dto.ProjectAreaIds[0];
+        return dto;
     }
 
     private Task<bool> HasPendingCustomizationRequestsAsync(

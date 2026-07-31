@@ -185,10 +185,17 @@ public sealed class ProjectAreaRepositoryTests
         {
             SceneId = sceneId,
             ProposalId = proposalId,
-            ProjectAreaId = activeAreaId,
             SceneName = "Main layout",
             SceneType = ProposalSceneType.THREE_D,
             IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        context.ProposalSceneAreaSet.Add(new ProposalSceneArea
+        {
+            ProposalSceneAreaId = Guid.NewGuid(),
+            SceneId = sceneId,
+            ProjectAreaId = activeAreaId,
+            SortOrder = 0,
             CreatedAt = DateTime.UtcNow
         });
         context.ProposalItemSet.Add(new ProposalItem

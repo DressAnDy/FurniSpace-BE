@@ -55,9 +55,14 @@ public sealed class ProjectAreaRepository : GenericRepository<ProjectArea>, IPro
         Guid projectAreaId,
         CancellationToken cancellationToken = default)
     {
-        var hasActiveScene = await DbContext.ProposalSceneSet.AnyAsync(
-            scene => scene.ProjectAreaId == projectAreaId && scene.IsActive == true,
-            cancellationToken);
+        var hasActiveScene = await DbContext.ProposalSceneAreaSet
+            .Where(mapping => mapping.ProjectAreaId == projectAreaId)
+            .Join(
+                DbContext.ProposalSceneSet.Where(scene => scene.IsActive == true),
+                mapping => mapping.SceneId,
+                scene => scene.SceneId,
+                (_, _) => true)
+            .AnyAsync(cancellationToken);
 
         if (hasActiveScene)
         {

@@ -7,5 +7,6 @@ public sealed class RoomPlannerSceneResponseDto : RoomPlannerScenePayloadDto
     public Guid? ProposalId { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? ProjectAreaId { get; set; }
+    public IReadOnlyList<Guid> ProjectAreaIds { get; set; } = [];
     public DateTime? LastSavedAt { get; set; }
 }

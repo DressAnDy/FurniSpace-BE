@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -125,6 +126,7 @@ public sealed class ProposalRepositoryTests
         Assert.Equal(data.ProjectId, detail.ProjectId);
         Assert.Single(detail.Scenes);
         Assert.Equal(data.ActiveSceneId, detail.Scenes[0].SceneId);
+        Assert.Equal([data.ProjectAreaId], detail.Scenes[0].ProjectAreaIds);
         Assert.Equal("https://cdn.furnispace.test/preview.png", detail.Scenes[0].PreviewFileUrl);
         Assert.Single(detail.Items);
         Assert.Equal("Cafe Chair", detail.Items[0].ProductNameSnapshot);
@@ -184,6 +186,58 @@ public sealed class ProposalRepositoryTests
         Assert.Equal("Inactive layout", scene.SceneName);
         Assert.Equal(ProposalSceneType.TWO_D, scene.SceneType);
         Assert.False(scene.IsActive);
+        Assert.Empty(scene.ProjectAreaIds);
+    }
+
+    [Fact]
+    public async Task GetSceneDetailAsync_ReturnsMultipleAreasInDeterministicOrder()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var secondAreaId = Guid.Parse("22222222-2222-4222-8222-222222222222");
+        var thirdAreaId = Guid.Parse("33333333-3333-4333-8333-333333333333");
+        context.ProjectAreaSet.AddRange(
+            new ProjectArea
+            {
+                ProjectAreaId = secondAreaId,
+                ProjectId = data.ProjectId,
+                AreaName = "Second floor",
+                FloorNumber = 2,
+                Status = ProjectAreaStatus.VERIFIED
+            },
+            new ProjectArea
+            {
+                ProjectAreaId = thirdAreaId,
+                ProjectId = data.ProjectId,
+                AreaName = "Ground floor",
+                FloorNumber = 1,
+                Status = ProjectAreaStatus.VERIFIED
+            });
+        context.ProposalSceneAreaSet.AddRange(
+            new ProposalSceneArea
+            {
+                ProposalSceneAreaId = Guid.NewGuid(),
+                SceneId = data.ActiveSceneId,
+                ProjectAreaId = secondAreaId,
+                SortOrder = 2,
+                CreatedAt = DateTime.UtcNow
+            },
+            new ProposalSceneArea
+            {
+                ProposalSceneAreaId = Guid.NewGuid(),
+                SceneId = data.ActiveSceneId,
+                ProjectAreaId = thirdAreaId,
+                SortOrder = 1,
+                CreatedAt = DateTime.UtcNow
+            });
+        await context.SaveChangesAsync();
+        var repository = new ProposalRepository(context);
+
+        var scene = await repository.GetSceneDetailAsync(data.ActiveSceneId);
+
+        Assert.NotNull(scene);
+        Assert.Equal([data.ProjectAreaId, thirdAreaId, secondAreaId], scene.ProjectAreaIds);
+        Assert.Equal(["Main cafe area", "Ground floor", "Second floor"], scene.SceneAreas.Select(area => area.AreaName));
     }
 
     [Fact]
@@ -208,6 +262,7 @@ public sealed class ProposalRepositoryTests
         var scene = Assert.Single(scenes);
         Assert.Equal(data.ActiveSceneId, scene.SceneId);
         Assert.True(scene.IsActive);
+        Assert.Equal([data.ProjectAreaId], scene.ProjectAreaIds);
         Assert.Equal("https://cdn.furnispace.test/preview.png", scene.PreviewFileUrl);
     }
 
@@ -227,6 +282,7 @@ public sealed class ProposalRepositoryTests
         Assert.Equal(data.SalesId, scene.AssignedSalesId);
         Assert.Equal(data.DesignerId, scene.AssignedDesignerId);
         Assert.Equal(ProposalStatus.PUBLISHED, scene.ProposalStatus);
+        Assert.Equal([data.ProjectAreaId], scene.ProjectAreaIds);
         Assert.Equal("mongo-scene-id", scene.MongoSceneId);
         Assert.Equal("https://cdn.furnispace.test/preview.png", scene.PreviewFileUrl);
     }
@@ -344,6 +400,7 @@ public sealed class ProposalRepositoryTests
 
         Assert.NotNull(scene);
         Assert.Equal(data.ProjectId, scene.ProjectId);
+        Assert.Equal([data.ProjectAreaId], scene.ProjectAreaIds);
         Assert.Equal(data.SalesId, scene.AssignedSalesId);
         Assert.NotNull(sceneById);
         Assert.Equal(data.PublishedProposalId, sceneById.ProposalId);
@@ -506,7 +563,6 @@ public sealed class ProposalRepositoryTests
                 SceneName = "Main layout",
                 SceneType = ProposalSceneType.THREE_D,
                 MongoSceneId = "mongo-scene-id",
-                ProjectAreaId = projectAreaId,
                 PreviewFileId = previewFileId,
                 VersionNo = 1,
                 IsActive = true,
@@ -522,6 +578,14 @@ public sealed class ProposalRepositoryTests
                 IsActive = false,
                 CreatedAt = DateTime.UtcNow
             });
+        context.ProposalSceneAreaSet.Add(new ProposalSceneArea
+        {
+            ProposalSceneAreaId = Guid.NewGuid(),
+            SceneId = activeSceneId,
+            ProjectAreaId = projectAreaId,
+            SortOrder = 0,
+            CreatedAt = DateTime.UtcNow
+        });
         context.ProposalItemSet.Add(new ProposalItem
         {
             ProposalItemId = proposalItemId,

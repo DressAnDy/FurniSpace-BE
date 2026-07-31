@@ -130,6 +130,9 @@ public sealed class ProposalRepositoryTests
         Assert.Equal("https://cdn.furnispace.test/preview.png", detail.Scenes[0].PreviewFileUrl);
         Assert.Single(detail.Items);
         Assert.Equal("Cafe Chair", detail.Items[0].ProductNameSnapshot);
+        Assert.Equal(data.ProjectAreaId, detail.Items[0].ProjectAreaId);
+        Assert.Equal("Main cafe area", detail.Items[0].ProjectAreaName);
+        Assert.Equal(1, detail.Items[0].FloorNumber);
         Assert.Equal(4800000m, detail.Items[0].SubtotalAmount);
     }
 
@@ -149,6 +152,9 @@ public sealed class ProposalRepositoryTests
         Assert.Equal(data.DesignerId, detail.AssignedDesignerId);
         Assert.Single(detail.Scenes);
         Assert.Single(detail.Items);
+        Assert.Equal(data.ProjectAreaId, detail.Items[0].ProjectAreaId);
+        Assert.Equal("Main cafe area", detail.Items[0].ProjectAreaName);
+        Assert.Equal(1, detail.Items[0].FloorNumber);
     }
 
     [Fact]

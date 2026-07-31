@@ -7,8 +7,14 @@ internal static class RoomPlannerSceneServiceConstants
     internal const string ProposalNotEditableMessage = "Room Planner scene can only be saved for editable proposal.";
     internal const string ProductVersionReferenceType = "PRODUCT_VERSION";
     internal const string BlueprintFloorMappingMismatchCode = "BLUEPRINT_FLOOR_MAPPING_MISMATCH";
+    internal const string BlueprintFloorRequiredCode = "BLUEPRINT_FLOOR_REQUIRED";
     internal const string BlueprintLayoutRequiredCode = "BLUEPRINT_LAYOUT_REQUIRED";
+    internal const string DuplicateFloorIdCode = "DUPLICATE_FLOOR_ID";
+    internal const string DuplicateObjectIdCode = "DUPLICATE_OBJECT_ID";
+    internal const string InvalidBlueprintGeometryCode = "INVALID_BLUEPRINT_GEOMETRY";
     internal const string InvalidObjectFloorReferenceCode = "INVALID_OBJECT_FLOOR_REFERENCE";
+    internal const string InvalidOpeningWallReferenceCode = "INVALID_OPENING_WALL_REFERENCE";
+    internal const string InvalidWallPointReferenceCode = "INVALID_WALL_POINT_REFERENCE";
     internal const string ModelFileLinkedCode = "MODEL_FILE_NOT_LINKED";
     internal const string ModelFileNotFoundCode = "MODEL_FILE_NOT_FOUND";
     internal const string ProductVersionNotFoundCode = "PRODUCT_VERSION_NOT_FOUND";

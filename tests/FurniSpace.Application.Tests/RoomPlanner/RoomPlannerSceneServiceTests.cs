@@ -305,12 +305,9 @@ public sealed class RoomPlannerSceneServiceTests
     }
 
     [Theory]
-    [InlineData("duplicate-floor-id")]
     [InlineData("missing-mapped-floor")]
     [InlineData("unmapped-floor")]
     [InlineData("unit-mismatch")]
-    [InlineData("invalid-wall-point")]
-    [InlineData("invalid-opening-wall")]
     public async Task SaveSceneAsync_WhenBlueprintMappingInvalid_ReturnsFloorMappingMismatch(string scenario)
     {
         var request = CreateSaveRequest();
@@ -323,6 +320,51 @@ public sealed class RoomPlannerSceneServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal("BLUEPRINT_FLOOR_MAPPING_MISMATCH", result.ErrorCode);
+    }
+
+    [Theory]
+    [InlineData("duplicate-floor-id", "DUPLICATE_FLOOR_ID")]
+    [InlineData("empty-floors", "BLUEPRINT_FLOOR_REQUIRED")]
+    [InlineData("invalid-wall-point", "INVALID_WALL_POINT_REFERENCE")]
+    [InlineData("invalid-opening-wall", "INVALID_OPENING_WALL_REFERENCE")]
+    [InlineData("duplicate-point-id", "INVALID_BLUEPRINT_GEOMETRY")]
+    [InlineData("duplicate-wall-id", "INVALID_BLUEPRINT_GEOMETRY")]
+    [InlineData("duplicate-object-id", "DUPLICATE_OBJECT_ID")]
+    [InlineData("blank-object-id", "INVALID_BLUEPRINT_GEOMETRY")]
+    public async Task SaveSceneAsync_WhenBlueprintGeometryInvalid_ReturnsExpectedError(
+        string scenario,
+        string expectedErrorCode)
+    {
+        var request = CreateSaveRequest();
+        ApplyInvalidBlueprintScenario(request, scenario);
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext() },
+            new FakeSceneDocumentRepository());
+
+        var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedErrorCode, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SaveSceneAsync_WhenLegacyOpeningOffsetProvided_NormalizesToOffset()
+    {
+        var request = CreateSaveRequest();
+        var door = request.BlueprintLayout!.Floors[0].Doors[0];
+        door.Offset = null;
+        door.OffsetFromWallStart = 1.9m;
+        var documents = new FakeSceneDocumentRepository();
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext() },
+            documents);
+
+        var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
+
+        Assert.Equal(200, result.Status);
+        var savedDoor = documents.UpsertedDocument!.BlueprintLayout!.Floors[0].Doors[0];
+        Assert.Equal(1.9m, savedDoor.Offset);
+        Assert.Null(savedDoor.OffsetFromWallStart);
     }
 
     [Fact]
@@ -683,6 +725,9 @@ public sealed class RoomPlannerSceneServiceTests
                     ProjectAreaId = Guid.NewGuid()
                 });
                 break;
+            case "empty-floors":
+                request.BlueprintLayout!.Floors.Clear();
+                break;
             case "missing-mapped-floor":
                 request.BlueprintLayout!.Floors.Clear();
                 request.BlueprintLayout.Floors.Add(new RoomPlannerBlueprintFloorDocument
@@ -702,6 +747,29 @@ public sealed class RoomPlannerSceneServiceTests
                 break;
             case "invalid-opening-wall":
                 request.BlueprintLayout!.Floors[0].Doors[0].WallId = "missing-wall";
+                break;
+            case "duplicate-point-id":
+                request.BlueprintLayout!.Floors[0].Points.Add(new RoomPlannerPoint2Document { PointId = "P1" });
+                break;
+            case "duplicate-wall-id":
+                request.BlueprintLayout!.Floors[0].Walls.Add(new RoomPlannerWallDocument
+                {
+                    WallId = "W1",
+                    StartPointId = "p1",
+                    EndPointId = "p2"
+                });
+                break;
+            case "duplicate-object-id":
+                request.Objects.Add(new RoomPlannerObjectDocument
+                {
+                    ObjectId = "OBJECT-01",
+                    FloorId = "floor-01",
+                    ProductVersionId = ProductVersionId,
+                    Transform = new RoomPlannerTransformDocument()
+                });
+                break;
+            case "blank-object-id":
+                request.Objects[0].ObjectId = " ";
                 break;
         }
     }

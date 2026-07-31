@@ -1,6 +1,8 @@
+using FurniSpace.Shared.DTOs.RoomPlanner;
+
 namespace FurniSpace.Application.DTOs.RoomPlannerDocuments;
 
-public sealed class RoomPlannerSceneLinksDocument
+public sealed class RoomPlannerSceneLinksDocument : RoomPlannerSceneLinksBase
 {
-    public List<Guid> ProjectAreaIds { get; set; } = [];
+    public bool ContainsProjectArea(Guid projectAreaId) => ProjectAreaIds.Contains(projectAreaId);
 }

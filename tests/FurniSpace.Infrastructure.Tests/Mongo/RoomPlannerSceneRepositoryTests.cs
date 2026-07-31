@@ -26,6 +26,12 @@ public sealed class RoomPlannerSceneRepositoryTests
         Assert.True(ObjectId.TryParse(saved.Id, out _));
         Assert.Same(scene, collection.UpsertedBySqlSceneId);
         Assert.Null(collection.UpsertedByMongoId);
+        Assert.Null(collection.UpsertedBySqlSceneId.ProjectAreaId);
+        Assert.Null(collection.UpsertedBySqlSceneId.Layout);
+        Assert.Equal(3, collection.UpsertedBySqlSceneId.SchemaVersion);
+        Assert.NotNull(collection.UpsertedBySqlSceneId.BlueprintLayout);
+        Assert.NotEmpty(collection.UpsertedBySqlSceneId.SceneLinks.ProjectAreaIds);
+        Assert.Equal("floor-01", collection.UpsertedBySqlSceneId.Objects[0].FloorId);
         Assert.NotNull(saved.Metadata.UpdatedAt);
     }
 
@@ -183,12 +189,30 @@ public sealed class RoomPlannerSceneRepositoryTests
             SqlSceneId = Guid.NewGuid(),
             ProjectId = Guid.NewGuid(),
             ProposalId = Guid.NewGuid(),
-            ProjectAreaId = Guid.NewGuid(),
-            SchemaVersion = 2,
-            Layout = new RoomPlannerLayoutDocument
+            ProjectAreaId = null,
+            SchemaVersion = 3,
+            SceneLinks = new RoomPlannerSceneLinksDocument
             {
-                Boundary = [new RoomPlannerPoint2Document { X = 0, Z = 0 }]
-            }
+                ProjectAreaIds = [Guid.NewGuid()]
+            },
+            BlueprintLayout = new RoomPlannerBlueprintLayoutDocument
+            {
+                Id = "blueprint-01",
+                Floors =
+                [
+                    new RoomPlannerBlueprintFloorDocument
+                    {
+                        Id = "floor-01",
+                        ProjectAreaId = Guid.NewGuid(),
+                        Points = [new RoomPlannerPoint2Document { PointId = "p1", X = 0, Y = 0 }]
+                    }
+                ]
+            },
+            Objects =
+            [
+                new RoomPlannerObjectDocument { ObjectId = "object-01", FloorId = "floor-01" }
+            ],
+            Layout = null
         };
 
     private sealed class FakeRoomPlannerSceneCollection : IRoomPlannerSceneCollection

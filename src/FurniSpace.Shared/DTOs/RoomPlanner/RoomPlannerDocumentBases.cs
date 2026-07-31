@@ -71,6 +71,46 @@ public abstract class RoomPlannerObjectBase<TTransform, TDimensions, TVisual, TM
     public bool Locked { get; set; }
 }
 
+public abstract class RoomPlannerSceneLinksBase
+{
+    public List<Guid> ProjectAreaIds { get; set; } = [];
+}
+
+public abstract class RoomPlannerBlueprintLayoutBase<TPoint, TFloor>
+{
+    public string Id { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string Unit { get; set; } = "meter";
+    public decimal? Scale { get; set; }
+    public TPoint? Origin { get; set; }
+    public decimal? NorthDirection { get; set; }
+    public List<TFloor> Floors { get; set; } = [];
+    public Dictionary<string, object?> Metadata { get; set; } = [];
+}
+
+public abstract class RoomPlannerBlueprintFloorBase<TPoint, TWall, TOpening>
+{
+    public string Id { get; set; } = string.Empty;
+    public Guid ProjectAreaId { get; set; }
+    public string? Name { get; set; }
+    public int? LevelIndex { get; set; }
+    public decimal? Elevation { get; set; }
+    public decimal? FloorHeight { get; set; }
+    public decimal? SlabThickness { get; set; }
+    public List<TPoint> Points { get; set; } = [];
+    public List<Dictionary<string, object?>> Rooms { get; set; } = [];
+    public List<TWall> Walls { get; set; } = [];
+    public List<TOpening> Doors { get; set; } = [];
+    public List<TOpening> Windows { get; set; } = [];
+    public List<TOpening> Openings { get; set; } = [];
+    public List<Dictionary<string, object?>> Slabs { get; set; } = [];
+    public List<Dictionary<string, object?>> Stairs { get; set; } = [];
+    public List<Dictionary<string, object?>> Balconies { get; set; } = [];
+    public List<Dictionary<string, object?>> Yards { get; set; } = [];
+    public List<Dictionary<string, object?>> Columns { get; set; } = [];
+    public List<Dictionary<string, object?>> Beams { get; set; } = [];
+}
+
 public abstract class RoomPlannerScenePayloadBase<TLayout, TObject, TLayer, TCamera, TLighting, TValidation, TEditorState>
 {
     public int SchemaVersion { get; set; } = 1;

@@ -88,6 +88,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
         var now = DateTime.UtcNow;
         var existingDocument = await GetExistingDocumentAsync(context, cancellationToken);
+        NormalizeBlueprintForNewWrite(request.BlueprintLayout!);
         var document = BuildDocument(context, request, currentUserId, now, existingDocument);
 
         RoomPlannerSceneDocument saved;
@@ -343,9 +344,14 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
                 "Room Planner scene schemaVersion 3 is required.");
         }
 
-        if (request.BlueprintLayout is null || request.BlueprintLayout.Floors.Count == 0)
+        if (request.BlueprintLayout is null)
         {
-            return Error.BadRequest(BlueprintLayoutRequiredCode, "Blueprint layout with at least one floor is required.");
+            return Error.BadRequest(BlueprintLayoutRequiredCode, "Blueprint layout is required.");
+        }
+
+        if (request.BlueprintLayout.Floors.Count == 0)
+        {
+            return Error.BadRequest(BlueprintFloorRequiredCode, "Blueprint layout must contain at least one floor.");
         }
 
         if (!UnitsMatch(request.Unit, request.BlueprintLayout.Unit))
@@ -359,6 +365,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         }
 
         return ValidateFloorMappings(request.BlueprintLayout, context)
+            ?? ValidateObjectIds(request.Objects)
             ?? ValidateObjectFloorReferences(request)
             ?? ValidateStableGeometryReferences(request.BlueprintLayout);
     }
@@ -367,8 +374,18 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         RoomPlannerBlueprintLayoutDocument blueprintLayout,
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context)
     {
-        if (ContainsDuplicate(blueprintLayout.Floors.Select(floor => NormalizeIdentifier(floor.Id))) ||
-            ContainsDuplicate(blueprintLayout.Floors.Select(floor => floor.ProjectAreaId)))
+        var floorIds = blueprintLayout.Floors.Select(floor => NormalizeIdentifier(floor.Id)).ToList();
+        if (floorIds.Any(string.IsNullOrWhiteSpace))
+        {
+            return Error.BadRequest(BlueprintFloorRequiredCode, "Blueprint floor id is required.");
+        }
+
+        if (ContainsDuplicateIdentifiers(floorIds))
+        {
+            return Error.BadRequest(DuplicateFloorIdCode, "Blueprint floor ids must be unique.");
+        }
+
+        if (ContainsDuplicate(blueprintLayout.Floors.Select(floor => floor.ProjectAreaId)))
         {
             return BlueprintMappingError();
         }
@@ -381,6 +398,19 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             .ToHashSet();
 
         return mappedAreaIds.SetEquals(floorAreaIds) ? null : BlueprintMappingError();
+    }
+
+    private static Error? ValidateObjectIds(IEnumerable<RoomPlannerObjectDocument> objects)
+    {
+        var objectIds = objects.Select(sceneObject => NormalizeIdentifier(sceneObject.ObjectId)).ToList();
+        if (objectIds.Any(string.IsNullOrWhiteSpace))
+        {
+            return Error.BadRequest(InvalidBlueprintGeometryCode, "Scene object id is required.");
+        }
+
+        return ContainsDuplicateIdentifiers(objectIds)
+            ? Error.BadRequest(DuplicateObjectIdCode, "Scene object ids must be unique.")
+            : null;
     }
 
     private static Error? ValidateObjectFloorReferences(RoomPlannerScenePayloadDto request)
@@ -402,20 +432,34 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     {
         foreach (var floor in blueprintLayout.Floors)
         {
-            var pointIds = floor.Points
+            var pointIdValues = floor.Points
                 .Select(point => NormalizeIdentifier(point.PointId))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var wallIds = floor.Walls
+                .ToList();
+            var wallIdValues = floor.Walls
                 .Select(wall => NormalizeIdentifier(wall.WallId))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                .ToList();
+            var pointIds = pointIdValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var wallIds = wallIdValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (ContainsDuplicateIdentifiers(pointIdValues) ||
+                ContainsDuplicateIdentifiers(wallIdValues) ||
+                pointIds.Contains(string.Empty) ||
+                wallIds.Contains(string.Empty))
+            {
+                return Error.BadRequest(InvalidBlueprintGeometryCode, "Blueprint stable geometry ids are invalid.");
+            }
 
             if (floor.Walls.Any(wall => !pointIds.Contains(NormalizeIdentifier(wall.StartPointId)) ||
-                                        !pointIds.Contains(NormalizeIdentifier(wall.EndPointId))) ||
-                HasInvalidOpeningReference(floor.Doors, wallIds) ||
+                                        !pointIds.Contains(NormalizeIdentifier(wall.EndPointId))))
+            {
+                return Error.BadRequest(InvalidWallPointReferenceCode, "Blueprint wall references a nonexistent point.");
+            }
+
+            if (HasInvalidOpeningReference(floor.Doors, wallIds) ||
                 HasInvalidOpeningReference(floor.Windows, wallIds) ||
                 HasInvalidOpeningReference(floor.Openings, wallIds))
             {
-                return BlueprintMappingError();
+                return Error.BadRequest(InvalidOpeningWallReferenceCode, "Blueprint opening references a nonexistent wall.");
             }
         }
 
@@ -432,6 +476,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
     private static bool ContainsDuplicate<T>(IEnumerable<T> values) =>
         values.GroupBy(value => value).Any(group => group.Count() > 1);
+
+    private static bool ContainsDuplicateIdentifiers(IEnumerable<string> values) =>
+        values.GroupBy(value => value, StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1);
 
     private async Task<Error?> ValidateSceneReferencesAsync(
         RoomPlannerScenePayloadDto request,
@@ -515,6 +562,25 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
     private static bool UnitsMatch(string? requestUnit, string? blueprintUnit) =>
         string.Equals(NormalizeUnit(requestUnit), NormalizeUnit(blueprintUnit), StringComparison.OrdinalIgnoreCase);
+
+    private static void NormalizeBlueprintForNewWrite(RoomPlannerBlueprintLayoutDocument blueprintLayout)
+    {
+        foreach (var floor in blueprintLayout.Floors)
+        {
+            NormalizeOpeningOffsets(floor.Doors);
+            NormalizeOpeningOffsets(floor.Windows);
+            NormalizeOpeningOffsets(floor.Openings);
+        }
+    }
+
+    private static void NormalizeOpeningOffsets(IEnumerable<RoomPlannerOpeningDocument> openings)
+    {
+        foreach (var opening in openings)
+        {
+            opening.Offset ??= opening.OffsetFromWallStart;
+            opening.OffsetFromWallStart = null;
+        }
+    }
 
     private static RoomPlannerBlueprintLayoutDocument CreateEmptyBlueprintLayout(
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context) =>

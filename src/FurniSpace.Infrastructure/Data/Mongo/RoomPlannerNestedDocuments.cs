@@ -49,44 +49,23 @@ public sealed class RoomPlannerFloorDocument
     public decimal? Scale { get; set; }
 }
 
-public sealed class RoomPlannerSceneLinksDocument
+public sealed class RoomPlannerSceneLinksDocument : RoomPlannerSceneLinksBase
 {
-    public List<Guid> ProjectAreaIds { get; set; } = [];
+    public bool ContainsProjectArea(Guid projectAreaId) => ProjectAreaIds.Contains(projectAreaId);
 }
 
 public sealed class RoomPlannerBlueprintLayoutDocument
+    : RoomPlannerBlueprintLayoutBase<RoomPlannerPoint2Document, RoomPlannerBlueprintFloorDocument>
 {
-    public string Id { get; set; } = string.Empty;
-    public string? Name { get; set; }
-    public string Unit { get; set; } = "meter";
-    public decimal? Scale { get; set; }
-    public RoomPlannerPoint2Document? Origin { get; set; }
-    public decimal? NorthDirection { get; set; }
-    public List<RoomPlannerBlueprintFloorDocument> Floors { get; set; } = [];
-    public Dictionary<string, object?> Metadata { get; set; } = [];
+    public RoomPlannerBlueprintFloorDocument? FindFloor(string floorId) =>
+        Floors.FirstOrDefault(floor => string.Equals(floor.Id, floorId, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class RoomPlannerBlueprintFloorDocument
+    : RoomPlannerBlueprintFloorBase<RoomPlannerPoint2Document, RoomPlannerWallDocument, RoomPlannerOpeningDocument>
 {
-    public string Id { get; set; } = string.Empty;
-    public Guid ProjectAreaId { get; set; }
-    public string? Name { get; set; }
-    public int? LevelIndex { get; set; }
-    public decimal? Elevation { get; set; }
-    public decimal? FloorHeight { get; set; }
-    public decimal? SlabThickness { get; set; }
-    public List<RoomPlannerPoint2Document> Points { get; set; } = [];
-    public List<Dictionary<string, object?>> Rooms { get; set; } = [];
-    public List<RoomPlannerWallDocument> Walls { get; set; } = [];
-    public List<RoomPlannerOpeningDocument> Doors { get; set; } = [];
-    public List<RoomPlannerOpeningDocument> Windows { get; set; } = [];
-    public List<RoomPlannerOpeningDocument> Openings { get; set; } = [];
-    public List<Dictionary<string, object?>> Slabs { get; set; } = [];
-    public List<Dictionary<string, object?>> Stairs { get; set; } = [];
-    public List<Dictionary<string, object?>> Balconies { get; set; } = [];
-    public List<Dictionary<string, object?>> Yards { get; set; } = [];
-    public List<Dictionary<string, object?>> Columns { get; set; } = [];
-    public List<Dictionary<string, object?>> Beams { get; set; } = [];
+    public bool ContainsWall(string wallId) =>
+        Walls.Any(wall => string.Equals(wall.WallId, wallId, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class RoomPlannerStyleDocument

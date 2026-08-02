@@ -378,18 +378,31 @@ public static class DataSeeder
         return executeRawAsync(
             """
             INSERT INTO customization_requests (
-                customization_request_id, project_id, proposal_id, product_version_id, requested_by_customer_id,
+                customization_request_id, project_id, proposal_id, source_product_version_id, requested_by_customer_id,
                 request_title, request_description, requested_width, requested_height, requested_depth,
-                requested_material, requested_color, requested_change_note, designer_id, designer_spec_note,
-                production_review_by, feasibility_note, estimated_production_days, estimated_additional_cost,
-                additional_cost_reason, material_available, production_risk_note,
-                approved_product_version_id, status, customer_accepted_at, customer_rejected_at, created_at, updated_at
+                requested_material, requested_color, requested_change_note, status, created_at, updated_at
             )
             VALUES
-                ('54000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000004', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Desk cable grommet update', 'Add cable grommets to every work desk.', null, null, null, null, null, 'Need cleaner cable routing.', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Add two grommets per desk.', null, null, null, null, null, null, null, null, 'DESIGN_REVIEWING'::customization_status, null, null, now() - INTERVAL '3 days', now() - INTERVAL '2 days'),
-                ('54000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Dark walnut counter finish', 'Change service counter color to dark walnut.', 380.00, 220.00, 70.00, 'Plywood with walnut veneer', 'Dark Walnut', 'Match premium cafe brand tone.', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Designer approved revised finish.', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Feasible with available veneer.', 7, 10000000.00, 'Additional veneer and finishing labor.', true, 'Low risk.', null, 'WAITING_FOR_CUSTOMER_FINAL_APPROVAL'::customization_status, null, null, now() - INTERVAL '4 days', now() - INTERVAL '1 day'),
-                ('54000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000001', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Premium sofa fabric upgrade', 'Upgrade showroom sofa fabric to stain-resistant linen.', null, null, null, 'Stain-resistant linen', 'Warm Gray', 'Need durable fabric for heavy showroom use.', 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Approved for production review.', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'Feasible but needs supplier confirmation.', 10, 6000000.00, 'Premium fabric surcharge.', true, 'Supplier lead time may vary.', null, 'ACCEPTED'::customization_status, now() - INTERVAL '10 days', null, now() - INTERVAL '15 days', now() - INTERVAL '10 days')
+                ('54000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000004', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Desk cable grommet update', 'Add cable grommets to every work desk.', null, null, null, null, null, 'Need cleaner cable routing.', 'SUBMITTED'::customization_status, now() - INTERVAL '3 days', now() - INTERVAL '2 days'),
+                ('54000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000003', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Dark walnut counter finish', 'Change service counter color to dark walnut.', 380.00, 220.00, 70.00, 'Plywood with walnut veneer', 'Dark Walnut', 'Match premium cafe brand tone.', 'REVIEWING'::customization_status, now() - INTERVAL '4 days', now() - INTERVAL '1 day'),
+                ('54000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000001', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'Premium sofa fabric upgrade', 'Upgrade showroom sofa fabric to stain-resistant linen.', null, null, null, 'Stain-resistant linen', 'Warm Gray', 'Need durable fabric for heavy showroom use.', 'ACCEPTED'::customization_status, now() - INTERVAL '15 days', now() - INTERVAL '10 days')
             ON CONFLICT (customization_request_id) DO NOTHING;
+
+            INSERT INTO customization_request_versions (
+                customization_request_version_id, customization_request_id, product_version_id, version_no,
+                created_by_designer_id, version_title, designer_note, status, production_reviewed_by,
+                feasibility_status, feasibility_note, estimated_production_days, estimated_additional_cost,
+                additional_cost_reason, material_available, production_risk_note, submitted_for_review_at,
+                production_reviewed_at, accepted_at, created_at, updated_at
+            )
+            VALUES
+                ('55000000-0000-0000-0000-000000000001', '54000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000003', 1, 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Dark walnut counter finish', 'Designer approved revised finish.', 'REVIEWING'::customization_version_status, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'FEASIBLE'::production_feasibility_status, 'Feasible with available veneer.', 7, 10000000.00, 'Additional veneer and finishing labor.', true, 'Low risk.', now() - INTERVAL '2 days', now() - INTERVAL '1 day', null, now() - INTERVAL '3 days', now() - INTERVAL '1 day'),
+                ('55000000-0000-0000-0000-000000000002', '54000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001', 1, 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Premium sofa fabric upgrade', 'Approved fabric upgrade.', 'ACCEPTED'::customization_version_status, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'FEASIBLE'::production_feasibility_status, 'Feasible but needs supplier confirmation.', 10, 6000000.00, 'Premium fabric surcharge.', true, 'Supplier lead time may vary.', now() - INTERVAL '12 days', now() - INTERVAL '11 days', now() - INTERVAL '10 days', now() - INTERVAL '12 days', now() - INTERVAL '10 days')
+            ON CONFLICT (customization_request_version_id) DO NOTHING;
+
+            UPDATE customization_requests
+            SET accepted_request_version_id = '55000000-0000-0000-0000-000000000002'
+            WHERE customization_request_id = '54000000-0000-0000-0000-000000000003';
             """,
             cancellationToken);
     }

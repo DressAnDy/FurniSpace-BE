@@ -28,6 +28,8 @@ public sealed class InfrastructureDependencyInjectionTests
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IProjectChatRepository));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IProjectChatMessageRepository));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IProposalRepository));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(ICustomizationRequestRepository));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(ICustomizationRequestVersionRepository));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IMongoDatabaseProvider));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IRoomPlannerSceneCollection));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IRoomPlannerSceneRepository));

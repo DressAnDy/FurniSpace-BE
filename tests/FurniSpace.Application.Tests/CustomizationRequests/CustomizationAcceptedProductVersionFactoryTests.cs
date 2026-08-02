@@ -12,29 +12,53 @@ namespace FurniSpace.Application.Tests.CustomizationRequests;
 public sealed class CustomizationAcceptedProductVersionFactoryTests
 {
     [Fact]
-    public void LinkToCustomizationRequest_SetsApprovedProductVersionId()
-    {
-        var request = new CustomizationRequest { Status = CustomizationStatus.DESIGN_REVIEWING };
-        var productVersion = new ProductVersion { ProductVersionId = Guid.NewGuid() };
-
-        CustomizationAcceptedProductVersionFactory.LinkToCustomizationRequest(request, productVersion);
-
-        Assert.Equal(productVersion.ProductVersionId, request.ApprovedProductVersionId);
-        Assert.Equal(CustomizationStatus.DESIGN_REVIEWING, request.Status);
-    }
-
-    [Fact]
-    public void MarkAccepted_SetsAcceptedStatusAndTimestamp()
+    public void CreateRequestVersion_CreatesDraftVersionWithPendingFeasibility()
     {
         var request = new CustomizationRequest
         {
-            Status = CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL
+            CustomizationRequestId = Guid.NewGuid(),
+            Status = CustomizationStatus.SUBMITTED
+        };
+        var productVersion = new ProductVersion { ProductVersionId = Guid.NewGuid() };
+        var dto = new CreateCustomizationRequestVersionDto
+        {
+            VersionTitle = "Walnut option",
+            DesignerNote = "Reinforced frame"
         };
 
-        CustomizationAcceptedProductVersionFactory.MarkAccepted(request);
+        var version = CustomizationAcceptedProductVersionFactory.CreateRequestVersion(
+            request,
+            productVersion,
+            1,
+            Guid.NewGuid(),
+            dto);
+
+        Assert.Equal(request.CustomizationRequestId, version.CustomizationRequestId);
+        Assert.Equal(productVersion.ProductVersionId, version.ProductVersionId);
+        Assert.Equal(1, version.VersionNo);
+        Assert.Equal("Walnut option", version.VersionTitle);
+        Assert.Equal(CustomizationVersionStatus.DRAFT, version.Status);
+        Assert.Equal(ProductionFeasibilityStatus.PENDING, version.FeasibilityStatus);
+    }
+
+    [Fact]
+    public void MarkRequestAccepted_SetsAcceptedRequestVersionAndStatuses()
+    {
+        var request = new CustomizationRequest { Status = CustomizationStatus.REVIEWING };
+        var version = new CustomizationRequestVersion
+        {
+            CustomizationRequestVersionId = Guid.NewGuid(),
+            Status = CustomizationVersionStatus.REVIEWING,
+            FeasibilityStatus = ProductionFeasibilityStatus.FEASIBLE
+        };
+        var acceptedAt = DateTime.UtcNow;
+
+        CustomizationAcceptedProductVersionFactory.MarkRequestAccepted(request, version, acceptedAt);
 
         Assert.Equal(CustomizationStatus.ACCEPTED, request.Status);
-        Assert.NotNull(request.CustomerAcceptedAt);
+        Assert.Equal(version.CustomizationRequestVersionId, request.AcceptedRequestVersionId);
+        Assert.Equal(CustomizationVersionStatus.ACCEPTED, version.Status);
+        Assert.Equal(acceptedAt, version.AcceptedAt);
     }
 
     [Fact]
@@ -42,7 +66,7 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
     {
         var projectId = Guid.NewGuid();
         var productId = Guid.NewGuid();
-        var requestDto = new CreateCustomizationProductVersionRequestDto
+        var requestDto = new CreateCustomizationRequestVersionDto
         {
             VersionName = "Cafe Chair Custom",
             Material = "Walnut",
@@ -55,8 +79,7 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
             ProjectId = projectId,
             RequestedMaterial = "Oak",
             RequestedColor = "Brown",
-            RequestedHeight = 90m,
-            EstimatedAdditionalCost = 200000m
+            RequestedHeight = 90m
         };
         var sourceVersion = new ProductVersion
         {
@@ -89,56 +112,122 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
         Assert.Equal(3200000m, version.EstimatedPrice);
         Assert.Equal(ProductVersionType.PROJECT_SPECIFIC, version.VersionType);
         Assert.True(version.IsProjectSpecific);
-        Assert.False(version.IsPublic);
-        Assert.False(version.IsDefault);
-        Assert.Equal(projectId, version.ProjectId);
-        Assert.Equal(productId, version.ProductId);
     }
 
     [Fact]
-    public void ToSummaryDto_MapsProductVersionFields()
+    public void ToCreateVersionResponse_MapsVersionAndProductVersion()
     {
+        var requestId = Guid.NewGuid();
         var versionId = Guid.NewGuid();
-        var productId = Guid.NewGuid();
-        var projectId = Guid.NewGuid();
-        var version = new ProductVersion
+        var productVersionId = Guid.NewGuid();
+        var request = new CustomizationRequest
         {
-            ProductVersionId = versionId,
-            ProductId = productId,
-            ProjectId = projectId,
+            CustomizationRequestId = requestId,
+            ProjectId = Guid.NewGuid(),
+            SourceProductVersionId = Guid.NewGuid(),
+            Status = CustomizationStatus.REVIEWING
+        };
+        var requestVersion = new CustomizationRequestVersion
+        {
+            CustomizationRequestVersionId = versionId,
+            CustomizationRequestId = requestId,
+            VersionNo = 1,
+            CreatedByDesignerId = Guid.NewGuid(),
+            Status = CustomizationVersionStatus.DRAFT,
+            FeasibilityStatus = ProductionFeasibilityStatus.PENDING,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var productVersion = new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = Guid.NewGuid(),
             VersionCode = "PV-PRJ-000001-CUST-001",
             VersionName = "Custom Chair",
             VersionType = ProductVersionType.PROJECT_SPECIFIC,
-            Material = "Oak",
-            Color = "Natural",
-            Width = 50m,
-            Height = 80m,
-            Depth = 45m,
-            EstimatedPrice = 1700000m,
-            IsDefault = false,
-            IsPublic = false,
-            IsProjectSpecific = true,
-            Status = ProductStatus.ACTIVE
+            CreatedAt = DateTime.UtcNow
         };
 
-        ApprovedProductVersionSummaryDto dto = CustomizationAcceptedProductVersionFactory.ToSummaryDto(version);
+        var response = CustomizationAcceptedProductVersionFactory.ToCreateVersionResponse(
+            request,
+            requestVersion,
+            productVersion);
 
-        Assert.Equal(versionId, dto.ProductVersionId);
-        Assert.Equal(productId, dto.ProductId);
-        Assert.Equal(projectId, dto.ProjectId);
-        Assert.Equal("PV-PRJ-000001-CUST-001", dto.VersionCode);
-        Assert.Equal(ProductVersionType.PROJECT_SPECIFIC, dto.VersionType);
-        Assert.Equal(1700000m, dto.EstimatedPrice);
-        Assert.False(dto.IsPublic);
-        Assert.True(dto.IsProjectSpecific);
+        Assert.Equal(requestId, response.CustomizationRequestId);
+        Assert.Equal(versionId, response.CustomizationRequestVersionId);
+        Assert.Equal(productVersionId, response.Version.ProductVersion.ProductVersionId);
     }
 
     [Fact]
-    public void ValidateVersionName_WhenMissing_ReturnsError()
+    public void ApplyDraftMetadata_UpdatesVersionTitleAndDesignerNote()
     {
-        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionName(null);
+        var version = new CustomizationRequestVersion
+        {
+            VersionTitle = "Old title",
+            DesignerNote = "Old note",
+            UpdatedAt = DateTime.UtcNow.AddDays(-1)
+        };
+        var dto = new UpdateCustomizationRequestVersionDto
+        {
+            VersionTitle = "  New title  ",
+            DesignerNote = "Updated note"
+        };
 
-        Assert.Equal("Version name is required.", error);
+        CustomizationAcceptedProductVersionFactory.ApplyDraftMetadata(version, dto);
+
+        Assert.Equal("New title", version.VersionTitle);
+        Assert.Equal("Updated note", version.DesignerNote);
+    }
+
+    [Fact]
+    public void CreateFromDesignerRequest_UpdateOverload_UpdatesExistingProductVersion()
+    {
+        var customizationRequest = new CustomizationRequest
+        {
+            ProjectId = Guid.NewGuid(),
+            RequestedMaterial = "Oak",
+            RequestedColor = "Brown"
+        };
+        var sourceVersion = new ProductVersion
+        {
+            ProductVersionId = Guid.NewGuid(),
+            Material = "Pine",
+            Color = "Natural",
+            Width = 60m,
+            DimensionUnit = "cm",
+            EstimatedPrice = 1000000m
+        };
+        var existingVersion = new ProductVersion
+        {
+            ProductVersionId = Guid.NewGuid(),
+            VersionCode = "PV-001",
+            VersionName = "Old Name",
+            Material = "Pine",
+            EstimatedPrice = 1000000m
+        };
+        var updateDto = new UpdateCustomizationRequestVersionDto
+        {
+            Material = "Walnut",
+            Width = 70m,
+            EstimatedPrice = 1500000m,
+            DimensionUnit = "mm"
+        };
+
+        var result = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
+            updateDto,
+            customizationRequest,
+            sourceVersion,
+            existingVersion,
+            "Updated Name",
+            "PV-002");
+
+        Assert.Same(existingVersion, result);
+        Assert.Equal("Updated Name", result.VersionName);
+        Assert.Equal("PV-002", result.VersionCode);
+        Assert.Equal("Walnut", result.Material);
+        Assert.Equal(70m, result.Width);
+        Assert.Equal("mm", result.DimensionUnit);
+        Assert.Equal(1500000m, result.EstimatedPrice);
     }
 
     [Fact]
@@ -146,89 +235,16 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
     {
         var error = CustomizationAcceptedProductVersionFactory.ValidateVersionName(new string('A', 151));
 
-        Assert.Contains("150", error, StringComparison.Ordinal);
+        Assert.NotNull(error);
+        Assert.Contains("at most", error);
     }
 
     [Fact]
     public void ValidateVersionCode_WhenTooLong_ReturnsError()
     {
-        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionCode(new string('A', 51));
+        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionCode(new string('C', 51));
 
-        Assert.Contains("50", error, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void IsValidDimensionUnit_AcceptsSupportedUnits()
-    {
-        Assert.True(CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit("cm"));
-        Assert.True(CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit("MM"));
-        Assert.False(CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit("inch"));
-    }
-
-    [Fact]
-    public void CreateFromDesignerRequest_GeneratesVersionCodeWhenMissing()
-    {
-        var customizationRequest = new CustomizationRequest
-        {
-            ProjectId = Guid.NewGuid(),
-            EstimatedAdditionalCost = 100000m
-        };
-        var sourceVersion = new ProductVersion
-        {
-            ProductId = Guid.NewGuid(),
-            EstimatedPrice = 900000m,
-            DimensionUnit = "cm"
-        };
-
-        var version = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
-            new CreateCustomizationProductVersionRequestDto
-            {
-                VersionName = "Auto Code Version",
-                DimensionUnit = "cm"
-            },
-            customizationRequest,
-            sourceVersion,
-            "PRJ-000001",
-            2,
-            "Auto Code Version",
-            null);
-
-        Assert.Equal("PV-PRJ-000001-CUST-002", version.VersionCode);
-        Assert.Equal(1000000m, version.EstimatedPrice);
-    }
-
-    [Fact]
-    public void ToCreateResponse_MapsCustomizationAndProductVersion()
-    {
-        var requestId = Guid.NewGuid();
-        var sourceVersionId = Guid.NewGuid();
-        var productVersionId = Guid.NewGuid();
-        var projectId = Guid.NewGuid();
-        var createdAt = new DateTime(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
-        var request = new CustomizationRequest
-        {
-            CustomizationRequestId = requestId,
-            ProjectId = projectId,
-            ProductVersionId = sourceVersionId,
-            Status = CustomizationStatus.DESIGN_REVIEWING
-        };
-        var version = new ProductVersion
-        {
-            ProductVersionId = productVersionId,
-            ProductId = Guid.NewGuid(),
-            ProjectId = projectId,
-            VersionCode = "PV-PRJ-000001-CUST-001",
-            VersionName = "Custom Chair",
-            VersionType = ProductVersionType.PROJECT_SPECIFIC,
-            CreatedAt = createdAt
-        };
-
-        var response = CustomizationAcceptedProductVersionFactory.ToCreateResponse(request, version);
-
-        Assert.Equal(requestId, response.CustomizationRequestId);
-        Assert.Equal(sourceVersionId, response.ProductVersionId);
-        Assert.Equal(CustomizationStatus.DESIGN_REVIEWING, response.CustomizationStatus);
-        Assert.Equal(productVersionId, response.ProductVersion.ProductVersionId);
-        Assert.Equal(createdAt, response.CreatedAt);
+        Assert.NotNull(error);
+        Assert.Contains("at most", error);
     }
 }

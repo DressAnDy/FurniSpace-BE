@@ -1,18 +1,9 @@
 #nullable enable
 
+using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Application.DTOs.CustomizationRequests;
-
-public sealed class CreateCustomizationProductVersionResponseDto
-{
-    public Guid CustomizationRequestId { get; set; }
-    public Guid ProjectId { get; set; }
-    public Guid ProductVersionId { get; set; }
-    public CustomizationProductVersionDto ProductVersion { get; set; } = new();
-    public CustomizationStatus? CustomizationStatus { get; set; }
-    public DateTime CreatedAt { get; set; }
-}
 
 public sealed class CustomizationProductVersionDto
 {
@@ -33,4 +24,5 @@ public sealed class CustomizationProductVersionDto
     public bool? IsPublic { get; set; }
     public bool? IsProjectSpecific { get; set; }
     public ProductStatus? Status { get; set; }
+    public IReadOnlyList<CatalogFileDto> Files { get; set; } = [];
 }

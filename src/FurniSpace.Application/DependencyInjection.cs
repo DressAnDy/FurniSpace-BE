@@ -1,5 +1,6 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.CustomizationRequests;
 using FurniSpace.Application.Common.Identity;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Payments;
@@ -131,6 +132,16 @@ public static class DependencyInjection
                 sp.GetService<ILogger<QuotationService>>());
         });
         services.AddScoped<IQuotationService, QuotationService>();
+        services.AddScoped<CustomizationRequestServiceDependencies>(sp =>
+            new CustomizationRequestServiceDependencies(
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestVersionRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProposalRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProductVersionRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectFileRepository>(),
+                sp.GetRequiredService<INotificationDispatcher>(),
+                sp.GetRequiredService<IUnitOfWork>()));
         services.AddScoped<ICustomizationRequestService, CustomizationRequestService>();
         services.AddScoped<IFileUploadValidator, FileUploadValidator>();
         services.AddScoped<ProjectChatFileUploadDependencies>(sp =>

@@ -48,4 +48,11 @@ public static class CustomizationRequestErrorCodes
     public const string PreviewFileNotActive = "PREVIEW_FILE_NOT_ACTIVE";
     public const string ProjectAccessDenied = "PROJECT_ACCESS_DENIED";
     public const string CustomProductVersionCreationFailed = "CUSTOM_PRODUCT_VERSION_CREATION_FAILED";
+    public const string CustomizationVersionNotFound = "CUSTOMIZATION_VERSION_NOT_FOUND";
+    public const string CustomizationVersionNotDraft = "CUSTOMIZATION_VERSION_NOT_DRAFT";
+    public const string CustomizationVersionNotReviewing = "CUSTOMIZATION_VERSION_NOT_REVIEWING";
+    public const string CustomizationVersionNotFeasible = "CUSTOMIZATION_VERSION_NOT_FEASIBLE";
+    public const string CustomizationVersionAlreadyReviewed = "CUSTOMIZATION_VERSION_ALREADY_REVIEWED";
+    public const string CustomizationNotInReviewing = "CUSTOMIZATION_NOT_IN_REVIEWING";
+    public const string CustomizationVersionProductMismatch = "CUSTOMIZATION_VERSION_PRODUCT_MISMATCH";
 }

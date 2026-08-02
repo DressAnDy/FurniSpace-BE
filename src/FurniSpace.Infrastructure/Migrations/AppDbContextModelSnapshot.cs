@@ -22,7 +22,9 @@ namespace FurniSpace.Infrastructure.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "account_status", new[] { "ACTIVE", "INACTIVE", "SUSPENDED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "customization_status", new[] { "SUBMITTED", "DESIGN_REVIEWING", "PRODUCTION_REVIEWING", "WAITING_FOR_CUSTOMER_FINAL_APPROVAL", "NOT_FEASIBLE", "ACCEPTED", "REJECTED_BY_CUSTOMER", "CANCELLED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "customization_status", new[] { "SUBMITTED", "REVIEWING", "ACCEPTED", "CANCELLED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "customization_version_status", new[] { "DRAFT", "REVIEWING", "PRODUCTION_REJECTED", "ACCEPTED", "WITHDRAWN" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_feasibility_status", new[] { "PENDING", "FEASIBLE", "NOT_FEASIBLE" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_status", new[] { "ACTIVE", "ARCHIVED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_type", new[] { "SPACE_IMAGE", "FLOOR_PLAN", "REFERENCE_IMAGE", "BRAND_ASSET", "CAD_FILE", "PDF_DRAWING", "MEASUREMENT_REPORT", "LIDAR_SCAN", "MODEL_3D", "TEXTURE", "PRODUCT_PREVIEW", "PROPOSAL_PREVIEW", "PROPOSAL_FILE", "QUOTATION_FILE", "ORDER_DOCUMENT", "PRODUCTION_FILE", "DELIVERY_PHOTO", "DELIVERY_NOTE", "REVIEW_IMAGE", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_visibility", new[] { "CUSTOMER_VISIBLE", "STAFF_ONLY", "PRIVATE" });

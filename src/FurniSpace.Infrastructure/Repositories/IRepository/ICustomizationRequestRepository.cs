@@ -36,12 +36,4 @@ public interface ICustomizationRequestRepository : IGenericRepository<Customizat
         Guid proposalId,
         Guid productVersionId,
         CancellationToken cancellationToken = default);
-
-    Task<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>> GetProductionQueueAsync(
-        ProductionCustomizationRequestQueueQueryReadModel query,
-        CancellationToken cancellationToken = default);
-
-    Task<int> CountProductionQueueAsync(
-        ProductionCustomizationRequestQueueQueryReadModel query,
-        CancellationToken cancellationToken = default);
 }

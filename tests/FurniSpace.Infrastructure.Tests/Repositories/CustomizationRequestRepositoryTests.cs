@@ -17,7 +17,7 @@ public sealed class CustomizationRequestRepositoryTests
     {
         await using var context = CreateContext();
         var proposalId = Guid.NewGuid();
-        context.CustomizationRequestSet.Add(CreateRequest(proposalId, CustomizationStatus.PRODUCTION_REVIEWING));
+        context.CustomizationRequestSet.Add(CreateRequest(proposalId, CustomizationStatus.REVIEWING));
         context.CustomizationRequestSet.Add(CreateRequest(proposalId, CustomizationStatus.CANCELLED));
         await context.SaveChangesAsync();
         var repository = new CustomizationRequestRepository(context);
@@ -33,8 +33,7 @@ public sealed class CustomizationRequestRepositoryTests
         await using var context = CreateContext();
         var proposalId = Guid.NewGuid();
         context.CustomizationRequestSet.Add(CreateRequest(proposalId, CustomizationStatus.ACCEPTED));
-        context.CustomizationRequestSet.Add(CreateRequest(proposalId, CustomizationStatus.REJECTED_BY_CUSTOMER));
-        context.CustomizationRequestSet.Add(CreateRequest(proposalId, CustomizationStatus.NOT_FEASIBLE));
+        context.CustomizationRequestSet.Add(CreateRequest(proposalId, CustomizationStatus.CANCELLED));
         context.CustomizationRequestSet.Add(CreateRequest(proposalId, CustomizationStatus.CANCELLED));
         await context.SaveChangesAsync();
         var repository = new CustomizationRequestRepository(context);
@@ -88,7 +87,7 @@ public sealed class CustomizationRequestRepositoryTests
             projectId,
             proposalId,
             productVersionId,
-            CustomizationStatus.REJECTED_BY_CUSTOMER));
+            CustomizationStatus.CANCELLED));
         await context.SaveChangesAsync();
         var repository = new CustomizationRequestRepository(context);
 
@@ -171,7 +170,7 @@ public sealed class CustomizationRequestRepositoryTests
             CustomizationRequestId = Guid.NewGuid(),
             ProjectId = graph.Project.ProjectId,
             ProposalId = otherProposal.ProposalId,
-            ProductVersionId = otherVersion.ProductVersionId,
+            SourceProductVersionId = otherVersion.ProductVersionId,
             RequestTitle = "Other request",
             Status = CustomizationStatus.SUBMITTED
         });
@@ -180,7 +179,7 @@ public sealed class CustomizationRequestRepositoryTests
             CustomizationRequestId = Guid.NewGuid(),
             ProjectId = graph.Project.ProjectId,
             ProposalId = graph.Proposal.ProposalId,
-            ProductVersionId = graph.ProductVersion.ProductVersionId,
+            SourceProductVersionId = graph.ProductVersion.ProductVersionId,
             RequestTitle = "Accepted request",
             Status = CustomizationStatus.ACCEPTED
         });
@@ -191,7 +190,7 @@ public sealed class CustomizationRequestRepositoryTests
         {
             ProjectId = graph.Project.ProjectId,
             ProposalId = graph.Proposal.ProposalId,
-            ProductVersionId = graph.ProductVersion.ProductVersionId,
+            SourceProductVersionId = graph.ProductVersion.ProductVersionId,
             Status = CustomizationStatus.SUBMITTED
         });
 
@@ -206,7 +205,7 @@ public sealed class CustomizationRequestRepositoryTests
     {
         await using var context = CreateContext();
         var graph = await SeedRequestGraphAsync(context);
-        var request = CreateStoredRequest(graph, CustomizationStatus.DESIGN_REVIEWING);
+        var request = CreateStoredRequest(graph, CustomizationStatus.REVIEWING);
         context.CustomizationRequestSet.Add(request);
         await context.SaveChangesAsync();
         var repository = new CustomizationRequestRepository(context);
@@ -263,13 +262,35 @@ public sealed class CustomizationRequestRepositoryTests
     }
 
     [Fact]
-    public async Task HasProductionVisibleRequestAsync_WhenProductionReviewingExists_ReturnsTrue()
+    public async Task HasProductionVisibleRequestAsync_WhenReviewingVersionExists_ReturnsTrue()
     {
         await using var context = CreateContext();
         var graph = await SeedRequestGraphAsync(context);
-        context.CustomizationRequestSet.Add(CreateStoredRequest(
-            graph,
-            CustomizationStatus.PRODUCTION_REVIEWING));
+        var request = CreateStoredRequest(graph, CustomizationStatus.REVIEWING);
+        context.CustomizationRequestSet.Add(request);
+        var versionProduct = new ProductVersion
+        {
+            ProductVersionId = Guid.NewGuid(),
+            ProductId = graph.ProductVersion.ProductId,
+            ProjectId = graph.Project.ProjectId,
+            VersionCode = "PV-CUST-001",
+            VersionName = "Custom",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            Status = ProductStatus.ACTIVE
+        };
+        context.ProductVersionSet.Add(versionProduct);
+        context.CustomizationRequestVersionSet.Add(new CustomizationRequestVersion
+        {
+            CustomizationRequestVersionId = Guid.NewGuid(),
+            CustomizationRequestId = request.CustomizationRequestId,
+            ProductVersionId = versionProduct.ProductVersionId,
+            VersionNo = 1,
+            CreatedByDesignerId = graph.Project.AssignedDesignerId ?? Guid.NewGuid(),
+            Status = CustomizationVersionStatus.REVIEWING,
+            FeasibilityStatus = ProductionFeasibilityStatus.PENDING,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
         await context.SaveChangesAsync();
         var repository = new CustomizationRequestRepository(context);
 
@@ -281,22 +302,19 @@ public sealed class CustomizationRequestRepositoryTests
     }
 
     [Fact]
-    public async Task HasProductionVisibleRequestAsync_WhenReviewerAssigned_ReturnsTrue()
+    public async Task HasProductionVisibleRequestAsync_WhenNoReviewingVersion_ReturnsFalse()
     {
         await using var context = CreateContext();
         var graph = await SeedRequestGraphAsync(context);
-        var productionUserId = Guid.NewGuid();
-        var request = CreateStoredRequest(graph, CustomizationStatus.SUBMITTED);
-        request.ProductionReviewBy = productionUserId;
-        context.CustomizationRequestSet.Add(request);
+        context.CustomizationRequestSet.Add(CreateStoredRequest(graph, CustomizationStatus.SUBMITTED));
         await context.SaveChangesAsync();
         var repository = new CustomizationRequestRepository(context);
 
         var result = await repository.HasProductionVisibleRequestAsync(
             graph.Project.ProjectId,
-            productionUserId);
+            Guid.NewGuid());
 
-        Assert.True(result);
+        Assert.False(result);
     }
 
     private static async Task<RequestGraphSeed> SeedRequestGraphAsync(AppDbContext context)
@@ -341,7 +359,7 @@ public sealed class CustomizationRequestRepositoryTests
         CustomizationRequestId = Guid.NewGuid(),
         ProjectId = graph.Project.ProjectId,
         ProposalId = graph.Proposal.ProposalId,
-        ProductVersionId = graph.ProductVersion.ProductVersionId,
+        SourceProductVersionId = graph.ProductVersion.ProductVersionId,
         RequestTitle = "Change material",
         Status = status,
         CreatedAt = DateTime.UtcNow,
@@ -365,7 +383,7 @@ public sealed class CustomizationRequestRepositoryTests
         CustomizationRequestId = Guid.NewGuid(),
         ProjectId = Guid.NewGuid(),
         ProposalId = proposalId,
-        ProductVersionId = Guid.NewGuid(),
+        SourceProductVersionId = Guid.NewGuid(),
         RequestTitle = "Change material",
         Status = status
     };
@@ -379,7 +397,7 @@ public sealed class CustomizationRequestRepositoryTests
         CustomizationRequestId = Guid.NewGuid(),
         ProjectId = projectId,
         ProposalId = proposalId,
-        ProductVersionId = productVersionId,
+        SourceProductVersionId = productVersionId,
         RequestTitle = "Change material",
         Status = status
     };

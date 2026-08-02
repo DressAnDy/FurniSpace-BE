@@ -14,9 +14,7 @@ public sealed class CustomizationRequestRepository
     private static readonly CustomizationStatus[] PendingFinalSelectionStatuses =
     [
         CustomizationStatus.SUBMITTED,
-        CustomizationStatus.DESIGN_REVIEWING,
-        CustomizationStatus.PRODUCTION_REVIEWING,
-        CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL
+        CustomizationStatus.REVIEWING
     ];
 
     public CustomizationRequestRepository(AppDbContext dbContext) : base(dbContext)
@@ -49,7 +47,7 @@ public sealed class CustomizationRequestRepository
         var sourceVersion = await DbContext.ProductVersionSet
             .AsNoTracking()
             .FirstOrDefaultAsync(
-                version => version.ProductVersionId == readModel.ProductVersionId,
+                version => version.ProductVersionId == readModel.SourceProductVersionId,
                 cancellationToken);
         if (sourceVersion is not null)
         {
@@ -106,12 +104,17 @@ public sealed class CustomizationRequestRepository
         Guid productionUserId,
         CancellationToken cancellationToken = default)
     {
-        return DbContext.CustomizationRequestSet.AnyAsync(
-            request =>
-                request.ProjectId == projectId &&
-                (request.Status == CustomizationStatus.PRODUCTION_REVIEWING ||
-                request.ProductionReviewBy == productionUserId),
-            cancellationToken);
+        return DbContext.CustomizationRequestVersionSet
+            .Join(
+                DbContext.CustomizationRequestSet,
+                version => version.CustomizationRequestId,
+                request => request.CustomizationRequestId,
+                (version, request) => new { version, request })
+            .AnyAsync(
+                joined =>
+                    joined.request.ProjectId == projectId &&
+                    joined.version.Status == CustomizationVersionStatus.REVIEWING,
+                cancellationToken);
     }
 
     public Task<bool> HasPendingForProposalAsync(
@@ -136,97 +139,10 @@ public sealed class CustomizationRequestRepository
             request =>
                 request.ProjectId == projectId &&
                 request.ProposalId == proposalId &&
-                request.ProductVersionId == productVersionId &&
+                request.SourceProductVersionId == productVersionId &&
                 request.Status.HasValue &&
                 PendingFinalSelectionStatuses.Contains(request.Status.Value),
             cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<ProductionCustomizationRequestQueueReadModel>> GetProductionQueueAsync(
-        ProductionCustomizationRequestQueueQueryReadModel query,
-        CancellationToken cancellationToken = default)
-    {
-        return await ApplyProductionQueueFilters(BuildProductionQueueQuery(), query)
-            .OrderByDescending(request => request.Request.UpdatedAt)
-            .ThenByDescending(request => request.Request.CustomizationRequestId)
-            .Skip((query.Page - 1) * query.PageSize)
-            .Take(query.PageSize)
-            .ToListAsync(cancellationToken);
-    }
-
-    public Task<int> CountProductionQueueAsync(
-        ProductionCustomizationRequestQueueQueryReadModel query,
-        CancellationToken cancellationToken = default)
-    {
-        return ApplyProductionQueueFilters(BuildProductionQueueQuery(), query)
-            .CountAsync(cancellationToken);
-    }
-
-    private IQueryable<ProductionCustomizationRequestQueueReadModel> BuildProductionQueueQuery()
-    {
-        return BuildListQuery()
-            .Join(
-                DbContext.ProposalSet,
-                readModel => readModel.ProposalId,
-                proposal => proposal.ProposalId,
-                (readModel, proposal) => new { readModel, proposal })
-            .Join(
-                DbContext.ProductVersionSet,
-                joined => joined.readModel.ProductVersionId,
-                version => version.ProductVersionId,
-                (joined, version) => new ProductionCustomizationRequestQueueReadModel
-                {
-                    Request = joined.readModel,
-                    ProposalName = joined.proposal.ProposalName,
-                    ProposalStatus = joined.proposal.Status,
-                    SourceProductVersion = version
-                });
-    }
-
-    private static IQueryable<ProductionCustomizationRequestQueueReadModel> ApplyProductionQueueFilters(
-        IQueryable<ProductionCustomizationRequestQueueReadModel> query,
-        ProductionCustomizationRequestQueueQueryReadModel filter)
-    {
-        if (filter.Statuses is { Count: > 0 })
-        {
-            query = query.Where(
-                request =>
-                    request.Request.Status.HasValue &&
-                    filter.Statuses.Contains(request.Request.Status.Value));
-        }
-
-        if (filter.ProjectId.HasValue)
-        {
-            query = query.Where(request => request.Request.ProjectId == filter.ProjectId.Value);
-        }
-
-        if (filter.ProposalId.HasValue)
-        {
-            query = query.Where(request => request.Request.ProposalId == filter.ProposalId.Value);
-        }
-
-        if (filter.MaterialAvailable.HasValue)
-        {
-            query = query.Where(request => request.Request.MaterialAvailable == filter.MaterialAvailable.Value);
-        }
-
-        if (filter.FromDate.HasValue)
-        {
-            query = query.Where(
-                request =>
-                    request.Request.UpdatedAt.HasValue &&
-                    request.Request.UpdatedAt.Value >= filter.FromDate.Value);
-        }
-
-        if (filter.ToDate.HasValue)
-        {
-            query = query.Where(
-                request =>
-                    request.Request.UpdatedAt.HasValue &&
-                    request.Request.UpdatedAt.Value <= filter.ToDate.Value);
-        }
-
-        return query;
     }
 
     private IQueryable<CustomizationRequestReadModel> BuildListQuery()
@@ -254,9 +170,9 @@ public sealed class CustomizationRequestRepository
             query = query.Where(request => request.ProposalId == filter.ProposalId.Value);
         }
 
-        if (filter.ProductVersionId.HasValue)
+        if (filter.SourceProductVersionId.HasValue)
         {
-            query = query.Where(request => request.ProductVersionId == filter.ProductVersionId.Value);
+            query = query.Where(request => request.SourceProductVersionId == filter.SourceProductVersionId.Value);
         }
 
         if (filter.Status.HasValue)

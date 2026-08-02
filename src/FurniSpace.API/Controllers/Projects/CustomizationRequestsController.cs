@@ -26,7 +26,7 @@ public sealed class CustomizationRequestsController : BaseApiController
     public async Task<IActionResult> GetByProject(
         Guid projectId,
         [FromQuery] Guid? proposalId = null,
-        [FromQuery] Guid? productVersionId = null,
+        [FromQuery] Guid? sourceProductVersionId = null,
         [FromQuery] CustomizationStatus? status = null,
         CancellationToken cancellationToken = default)
     {
@@ -41,7 +41,7 @@ public sealed class CustomizationRequestsController : BaseApiController
             new CustomizationRequestQueryDto
             {
                 ProposalId = proposalId,
-                ProductVersionId = productVersionId,
+                SourceProductVersionId = sourceProductVersionId,
                 Status = status
             },
             cancellationToken);
@@ -61,6 +61,44 @@ public sealed class CustomizationRequestsController : BaseApiController
 
         var result = await _customizationRequests.GetDetailAsync(
             customizationRequestId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
+    [HttpGet("customization-requests/{customizationRequestId:guid}/versions")]
+    public async Task<IActionResult> GetVersions(
+        Guid customizationRequestId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _customizationRequests.GetVersionsAsync(
+            customizationRequestId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
+    [HttpGet("customization-requests/{customizationRequestId:guid}/versions/{customizationRequestVersionId:guid}")]
+    public async Task<IActionResult> GetVersionDetail(
+        Guid customizationRequestId,
+        Guid customizationRequestVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _customizationRequests.GetVersionDetailAsync(
+            customizationRequestId,
+            customizationRequestVersionId,
             currentUserId,
             cancellationToken);
         return ToActionResult(result);
@@ -87,10 +125,10 @@ public sealed class CustomizationRequestsController : BaseApiController
     }
 
     [Authorize(Roles = "DESIGNER,ADMIN")]
-    [HttpPatch("customization-requests/{customizationRequestId:guid}/designer-review")]
-    public async Task<IActionResult> DesignerReview(
+    [HttpPost("customization-requests/{customizationRequestId:guid}/versions")]
+    public async Task<IActionResult> CreateVersion(
         Guid customizationRequestId,
-        [FromBody] DesignerReviewCustomizationRequestDto request,
+        [FromBody] CreateCustomizationRequestVersionDto request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -98,47 +136,7 @@ public sealed class CustomizationRequestsController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _customizationRequests.DesignerReviewAsync(
-            customizationRequestId,
-            currentUserId,
-            request,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "PRODUCTION,ADMIN")]
-    [HttpPatch("customization-requests/{customizationRequestId:guid}/production-review")]
-    public async Task<IActionResult> ProductionReview(
-        Guid customizationRequestId,
-        [FromBody] ProductionReviewCustomizationRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _customizationRequests.ProductionReviewAsync(
-            customizationRequestId,
-            currentUserId,
-            request,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "CUSTOMER")]
-    [HttpPatch("customization-requests/{customizationRequestId:guid}/customer-decision")]
-    public async Task<IActionResult> CustomerDecision(
-        Guid customizationRequestId,
-        [FromBody] CustomerDecisionCustomizationRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _customizationRequests.CustomerDecisionAsync(
+        var result = await _customizationRequests.CreateVersionAsync(
             customizationRequestId,
             currentUserId,
             request,
@@ -147,10 +145,11 @@ public sealed class CustomizationRequestsController : BaseApiController
     }
 
     [Authorize(Roles = "DESIGNER,ADMIN")]
-    [HttpPost("customization-requests/{customizationRequestId:guid}/product-version")]
-    public async Task<IActionResult> CreateProductVersion(
+    [HttpPatch("customization-requests/{customizationRequestId:guid}/versions/{customizationRequestVersionId:guid}")]
+    public async Task<IActionResult> UpdateDraftVersion(
         Guid customizationRequestId,
-        [FromBody] CreateCustomizationProductVersionRequestDto request,
+        Guid customizationRequestVersionId,
+        [FromBody] UpdateCustomizationRequestVersionDto request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -158,7 +157,68 @@ public sealed class CustomizationRequestsController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _customizationRequests.CreateCustomizationProductVersionAsync(
+        var result = await _customizationRequests.UpdateDraftVersionAsync(
+            customizationRequestId,
+            customizationRequestVersionId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpPost("customization-requests/{customizationRequestId:guid}/versions/{customizationRequestVersionId:guid}/submit-for-review")]
+    public async Task<IActionResult> SubmitVersionForReview(
+        Guid customizationRequestId,
+        Guid customizationRequestVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _customizationRequests.SubmitVersionForReviewAsync(
+            customizationRequestId,
+            customizationRequestVersionId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpPost("customization-requests/{customizationRequestId:guid}/versions/{customizationRequestVersionId:guid}/withdraw")]
+    public async Task<IActionResult> WithdrawVersion(
+        Guid customizationRequestId,
+        Guid customizationRequestVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _customizationRequests.WithdrawVersionAsync(
+            customizationRequestId,
+            customizationRequestVersionId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPost("customization-requests/{customizationRequestId:guid}/accept")]
+    public async Task<IActionResult> AcceptVersion(
+        Guid customizationRequestId,
+        [FromBody] AcceptCustomizationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _customizationRequests.AcceptVersionAsync(
             customizationRequestId,
             currentUserId,
             request,

@@ -59,7 +59,8 @@ public sealed class FurniSpaceWebApplicationFactory : WebApplicationFactory<Prog
                 ["JwtSettings:Issuer"] = "FurniSpace.IntegrationTests",
                 ["JwtSettings:Audience"] = "FurniSpace.IntegrationTests",
                 ["StartupTasks:RunMigrations"] = "false",
-                ["StartupTasks:SeedDemoData"] = "false"
+                ["StartupTasks:SeedDemoData"] = "false",
+                ["StartupTasks:RunMongoIndexes"] = "false"
             });
         });
 

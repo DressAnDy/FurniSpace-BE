@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Common.CustomizationRequests;
 using FurniSpace.Application.Services.CustomizationRequests;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -474,6 +475,109 @@ public sealed class CustomizationRequestServiceTests
 
     #endregion
 
+    #region UpdateDraftVersionAsync
+
+    [Fact]
+    public async Task UpdateDraftVersionAsync_DesignerUpdatesDraftVersionSuccessfully()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var sourceVersion = CreateSourceProductVersion(ids);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateDraftVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        var requestRepo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = detail
+        };
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        var productVersions = new FakeProductVersionRepository([sourceVersion, productVersion]);
+        var service = CreateService(
+            requestRepo,
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: productVersions);
+
+        var result = await service.UpdateDraftVersionAsync(
+            entity.CustomizationRequestId,
+            version.CustomizationRequestVersionId,
+            ids.DesignerId,
+            new UpdateCustomizationRequestVersionDto
+            {
+                VersionTitle = "Updated title",
+                Material = "Teak",
+                DimensionUnit = "cm"
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Updated title", version.VersionTitle);
+        Assert.Equal("Teak", productVersion.Material);
+        Assert.Equal(1, requestRepo.UpdateCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateDraftVersionAsync_NonDraftVersionReturnsConflict()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateDraftVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        version.Status = CustomizationVersionStatus.REVIEWING;
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.UpdateDraftVersionAsync(
+            entity.CustomizationRequestId,
+            version.CustomizationRequestVersionId,
+            ids.DesignerId,
+            new UpdateCustomizationRequestVersionDto { VersionName = "Updated" });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationVersionNotDraft, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateDraftVersionAsync_InvalidDimensionUnitReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateDraftVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = detail
+            },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([CreateSourceProductVersion(ids), productVersion]));
+
+        var result = await service.UpdateDraftVersionAsync(
+            entity.CustomizationRequestId,
+            version.CustomizationRequestVersionId,
+            ids.DesignerId,
+            new UpdateCustomizationRequestVersionDto { DimensionUnit = "inch" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidDimensionUnit, result.ErrorCode);
+    }
+
+    #endregion
+
     #region SubmitVersionForReviewAsync
 
     [Fact]
@@ -862,7 +966,7 @@ public sealed class CustomizationRequestServiceTests
         IUnitOfWork? unitOfWork = null,
         FakeCustomizationProjectFileRepository? projectFiles = null)
     {
-        return new CustomizationRequestService(
+        return new CustomizationRequestService(new CustomizationRequestServiceDependencies(
             customizationRequests,
             customizationRequestVersions,
             proposals,
@@ -870,7 +974,7 @@ public sealed class CustomizationRequestServiceTests
             productVersions ?? new FakeProductVersionRepository(),
             projectFiles ?? new FakeCustomizationProjectFileRepository(),
             dispatcher ?? new FakeNotificationDispatcher(),
-            unitOfWork ?? TestUnitOfWork.ForSaveChanges(customizationRequests.SaveChangesAsync));
+            unitOfWork ?? TestUnitOfWork.ForSaveChanges(customizationRequests.SaveChangesAsync)));
     }
 
     private static TestIds CreateIds() => new(
@@ -1441,21 +1545,10 @@ public sealed class CustomizationRequestServiceTests
         }
 
         public Task<bool> TryMarkProductionReviewedAsync(
-            Guid customizationRequestVersionId,
-            ProductionFeasibilityStatus feasibilityStatus,
-            CustomizationVersionStatus versionStatus,
-            Guid productionReviewedBy,
-            string? feasibilityNote,
-            int? estimatedProductionDays,
-            decimal? estimatedAdditionalCost,
-            string? additionalCostReason,
-            bool? materialAvailable,
-            string? productionRiskNote,
-            string? alternativeMaterialNote,
-            DateTime reviewedAt,
+            ProductionVersionReviewUpdate update,
             CancellationToken cancellationToken = default)
         {
-            if (!_versions.TryGetValue(customizationRequestVersionId, out var version))
+            if (!_versions.TryGetValue(update.CustomizationRequestVersionId, out var version))
             {
                 return Task.FromResult(false);
             }
@@ -1466,18 +1559,18 @@ public sealed class CustomizationRequestServiceTests
                 return Task.FromResult(false);
             }
 
-            version.FeasibilityStatus = feasibilityStatus;
-            version.Status = versionStatus;
-            version.ProductionReviewedBy = productionReviewedBy;
-            version.FeasibilityNote = feasibilityNote;
-            version.EstimatedProductionDays = estimatedProductionDays;
-            version.EstimatedAdditionalCost = estimatedAdditionalCost;
-            version.AdditionalCostReason = additionalCostReason;
-            version.MaterialAvailable = materialAvailable;
-            version.ProductionRiskNote = productionRiskNote;
-            version.AlternativeMaterialNote = alternativeMaterialNote;
-            version.ProductionReviewedAt = reviewedAt;
-            version.UpdatedAt = reviewedAt;
+            version.FeasibilityStatus = update.FeasibilityStatus;
+            version.Status = update.VersionStatus;
+            version.ProductionReviewedBy = update.ProductionReviewedBy;
+            version.FeasibilityNote = update.FeasibilityNote;
+            version.EstimatedProductionDays = update.EstimatedProductionDays;
+            version.EstimatedAdditionalCost = update.EstimatedAdditionalCost;
+            version.AdditionalCostReason = update.AdditionalCostReason;
+            version.MaterialAvailable = update.MaterialAvailable;
+            version.ProductionRiskNote = update.ProductionRiskNote;
+            version.AlternativeMaterialNote = update.AlternativeMaterialNote;
+            version.ProductionReviewedAt = update.ReviewedAt;
+            version.UpdatedAt = update.ReviewedAt;
             return Task.FromResult(true);
         }
 

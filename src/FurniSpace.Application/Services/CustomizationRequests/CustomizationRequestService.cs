@@ -31,24 +31,16 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     private readonly INotificationDispatcher _dispatcher;
     private readonly IUnitOfWork _unitOfWork;
 
-    public CustomizationRequestService(
-        ICustomizationRequestRepository customizationRequests,
-        ICustomizationRequestVersionRepository customizationRequestVersions,
-        IProposalRepository proposals,
-        IProjectRepository projects,
-        IProductVersionRepository productVersions,
-        IProjectFileRepository projectFiles,
-        INotificationDispatcher dispatcher,
-        IUnitOfWork unitOfWork)
+    public CustomizationRequestService(CustomizationRequestServiceDependencies dependencies)
     {
-        _customizationRequests = customizationRequests;
-        _customizationRequestVersions = customizationRequestVersions;
-        _proposals = proposals;
-        _projects = projects;
-        _productVersions = productVersions;
-        _projectFiles = projectFiles;
-        _dispatcher = dispatcher;
-        _unitOfWork = unitOfWork;
+        _customizationRequests = dependencies.CustomizationRequests;
+        _customizationRequestVersions = dependencies.CustomizationRequestVersions;
+        _proposals = dependencies.Proposals;
+        _projects = dependencies.Projects;
+        _productVersions = dependencies.ProductVersions;
+        _projectFiles = dependencies.ProjectFiles;
+        _dispatcher = dependencies.Dispatcher;
+        _unitOfWork = dependencies.UnitOfWork;
     }
 
     public async Task<ServiceResult<CustomizationRequestListResponseDto>> GetByProjectAsync(
@@ -86,14 +78,14 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             "Customization requests retrieved successfully.");
     }
 
-    public async Task<ServiceResult<CustomizationRequestDetailDto>> GetDetailAsync(
+    public async Task<ServiceResult<CustomizationRequestDto>> GetDetailAsync(
         Guid customizationRequestId,
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+            return ServiceResult<CustomizationRequestDto>.Unauthorized();
         }
 
         var detail = await _customizationRequests.GetDetailAsync(customizationRequestId, cancellationToken);
@@ -107,11 +99,11 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (!await CanAccessRequestAsync(role, detail, currentUserId, cancellationToken))
         {
-            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+            return ServiceResult<CustomizationRequestDto>.Forbidden(
                 "You do not have access to this customization request.");
         }
 
-        return ServiceResult<CustomizationRequestDetailDto>.Success(
+        return ServiceResult<CustomizationRequestDto>.Success(
             await ToDetailDtoAsync(detail, role, cancellationToken),
             "Customization request detail retrieved successfully.");
     }
@@ -192,7 +184,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             "Customization request version detail retrieved successfully.");
     }
 
-    public async Task<ServiceResult<CustomizationRequestDetailDto>> SubmitAsync(
+    public async Task<ServiceResult<CustomizationRequestDto>> SubmitAsync(
         Guid proposalItemId,
         Guid currentUserId,
         SubmitCustomizationRequestDto request,
@@ -200,13 +192,13 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     {
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+            return ServiceResult<CustomizationRequestDto>.Unauthorized();
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (role is not (ApplicationRoles.Customer or ApplicationRoles.Designer or ApplicationRoles.Admin))
         {
-            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+            return ServiceResult<CustomizationRequestDto>.Forbidden(
                 "You do not have permission to submit customization requests.");
         }
 
@@ -236,9 +228,9 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         await DispatchSubmittedNotificationAsync(entity, context, cancellationToken);
 
         var detail = await _customizationRequests.GetDetailAsync(entity.CustomizationRequestId, cancellationToken);
-        return ServiceResult<CustomizationRequestDetailDto>.Created(
+        return ServiceResult<CustomizationRequestDto>.Created(
             detail is null
-                ? entity.Adapt<CustomizationRequestDetailDto>()
+                ? entity.Adapt<CustomizationRequestDto>()
                 : await ToDetailDtoAsync(detail, role, cancellationToken),
             "Customization request submitted successfully.");
     }
@@ -383,54 +375,13 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                     "Only draft versions can be updated."));
         }
 
-        if (request.VersionName is not null)
-        {
-            var versionNameError = CustomizationAcceptedProductVersionFactory.ValidateVersionName(request.VersionName);
-            if (versionNameError is not null)
-            {
-                return VersionDtoFailure(
-                    Error.BadRequest(CustomizationRequestErrorCodes.VersionNameRequired, versionNameError));
-            }
-        }
-
-        if (request.VersionCode is not null)
-        {
-            var versionCodeError = CustomizationAcceptedProductVersionFactory.ValidateVersionCode(request.VersionCode);
-            if (versionCodeError is not null)
-            {
-                return VersionDtoFailure(
-                    Error.BadRequest(CustomizationRequestErrorCodes.InvalidCustomizationRequest, versionCodeError));
-            }
-
-            var trimmedCode = request.VersionCode.Trim();
-            var existingVersion = await _productVersions.GetByIdAsync(version.ProductVersionId, cancellationToken);
-            if (existingVersion is not null &&
-                !string.Equals(existingVersion.VersionCode, trimmedCode, StringComparison.Ordinal) &&
-                await _productVersions.VersionCodeExistsAsync(trimmedCode, cancellationToken))
-            {
-                return VersionDtoFailure(
-                    Error.Conflict(
-                        CustomizationRequestErrorCodes.VersionCodeAlreadyExists,
-                        "Version code already exists."));
-            }
-        }
-
-        if (request.DimensionUnit is not null &&
-            !CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit(request.DimensionUnit))
-        {
-            return VersionDtoFailure(
-                Error.BadRequest(
-                    CustomizationRequestErrorCodes.InvalidDimensionUnit,
-                    "Dimension unit must be cm, m, or mm."));
-        }
-
-        var fileValidationError = await ValidateVersionFilesAsync(
-            request.ModelFileId,
-            request.PreviewFileIds,
+        var validationError = await ValidateDraftVersionUpdateAsync(
+            request,
+            version,
             cancellationToken);
-        if (fileValidationError is not null)
+        if (validationError is not null)
         {
-            return VersionDtoFailure(ToError(fileValidationError));
+            return validationError;
         }
 
         var sourceContextResult = await ResolveSourceProductContextAsync(entity, cancellationToken);
@@ -598,7 +549,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             "Customization request version withdrawn successfully.");
     }
 
-    public async Task<ServiceResult<CustomizationRequestDetailDto>> AcceptVersionAsync(
+    public async Task<ServiceResult<CustomizationRequestDto>> AcceptVersionAsync(
         Guid customizationRequestId,
         Guid currentUserId,
         AcceptCustomizationRequestDto request,
@@ -606,7 +557,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     {
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+            return ServiceResult<CustomizationRequestDto>.Unauthorized();
         }
 
         if (request.CustomizationRequestVersionId == Guid.Empty)
@@ -635,7 +586,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (role != ApplicationRoles.Customer || detail.CustomerId != currentUserId)
         {
-            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+            return ServiceResult<CustomizationRequestDto>.Forbidden(
                 "You can only accept customization requests for your own project.");
         }
 
@@ -689,7 +640,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             cancellationToken);
     }
 
-    public async Task<ServiceResult<CustomizationRequestDetailDto>> CancelAsync(
+    public async Task<ServiceResult<CustomizationRequestDto>> CancelAsync(
         Guid customizationRequestId,
         Guid currentUserId,
         CancelCustomizationRequestDto request,
@@ -697,7 +648,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     {
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<CustomizationRequestDetailDto>.Unauthorized();
+            return ServiceResult<CustomizationRequestDto>.Unauthorized();
         }
 
         var context = await GetUpdateContextAsync(customizationRequestId, cancellationToken);
@@ -709,7 +660,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (!CanCancelRequest(role, context.Detail!, currentUserId))
         {
-            return ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+            return ServiceResult<CustomizationRequestDto>.Forbidden(
                 "You do not have permission to cancel this customization request.");
         }
 
@@ -881,18 +832,19 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             : ProductionFeasibilityStatus.NOT_FEASIBLE;
 
         var updated = await _customizationRequestVersions.TryMarkProductionReviewedAsync(
-            customizationRequestVersionId,
-            feasibilityStatus,
-            versionStatus,
-            currentUserId,
-            request.FeasibilityNote,
-            request.EstimatedProductionDays,
-            request.EstimatedAdditionalCost,
-            request.AdditionalCostReason,
-            request.MaterialAvailable,
-            request.ProductionRiskNote,
-            request.AlternativeMaterialNote,
-            reviewedAt,
+            new ProductionVersionReviewUpdate(
+                customizationRequestVersionId,
+                feasibilityStatus,
+                versionStatus,
+                currentUserId,
+                request.FeasibilityNote,
+                request.EstimatedProductionDays,
+                request.EstimatedAdditionalCost,
+                request.AdditionalCostReason,
+                request.MaterialAvailable,
+                request.ProductionRiskNote,
+                request.AlternativeMaterialNote,
+                reviewedAt),
             cancellationToken);
 
         if (!updated)
@@ -983,7 +935,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 "You do not have access to this project's customization requests.");
     }
 
-    private async Task<ServiceResult<CustomizationRequestDetailDto>?> ValidateSubmitBusinessRulesAsync(
+    private async Task<ServiceResult<CustomizationRequestDto>?> ValidateSubmitBusinessRulesAsync(
         CustomizationSubmitContextReadModel context,
         string? role,
         Guid currentUserId,
@@ -1044,7 +996,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             : null;
     }
 
-    private static ServiceResult<CustomizationRequestDetailDto>? ValidateSubmitRoleAccess(
+    private static ServiceResult<CustomizationRequestDto>? ValidateSubmitRoleAccess(
         CustomizationSubmitContextReadModel context,
         string? role,
         Guid currentUserId)
@@ -1052,7 +1004,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         if (role == ApplicationRoles.Customer)
         {
             return context.CustomerId != currentUserId
-                ? ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+                ? ServiceResult<CustomizationRequestDto>.Forbidden(
                     "You can only submit customization requests for your own project.")
                 : null;
         }
@@ -1060,7 +1012,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         if (role == ApplicationRoles.Designer)
         {
             return context.AssignedDesignerId != currentUserId
-                ? ServiceResult<CustomizationRequestDetailDto>.Failure(
+                ? ServiceResult<CustomizationRequestDto>.Failure(
                     Error.Forbidden(
                         CustomizationRequestErrorCodes.DesignerNotAssignedToProject,
                         "Designer is not assigned to this project."))
@@ -1069,11 +1021,11 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
 
         return role == ApplicationRoles.Admin
             ? null
-            : ServiceResult<CustomizationRequestDetailDto>.Forbidden(
+            : ServiceResult<CustomizationRequestDto>.Forbidden(
                 "You do not have permission to submit customization requests.");
     }
 
-    private static ServiceResult<CustomizationRequestDetailDto>? ValidateSubmitRequest(
+    private static ServiceResult<CustomizationRequestDto>? ValidateSubmitRequest(
         SubmitCustomizationRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.RequestTitle))
@@ -1337,6 +1289,61 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             : null;
     }
 
+    private async Task<ServiceResult<CustomizationRequestVersionDto>?> ValidateDraftVersionUpdateAsync(
+        UpdateCustomizationRequestVersionDto request,
+        CustomizationRequestVersion version,
+        CancellationToken cancellationToken)
+    {
+        if (request.VersionName is not null)
+        {
+            var versionNameError = CustomizationAcceptedProductVersionFactory.ValidateVersionName(request.VersionName);
+            if (versionNameError is not null)
+            {
+                return VersionDtoFailure(
+                    Error.BadRequest(CustomizationRequestErrorCodes.VersionNameRequired, versionNameError));
+            }
+        }
+
+        if (request.VersionCode is not null)
+        {
+            var versionCodeError = CustomizationAcceptedProductVersionFactory.ValidateVersionCode(request.VersionCode);
+            if (versionCodeError is not null)
+            {
+                return VersionDtoFailure(
+                    Error.BadRequest(CustomizationRequestErrorCodes.InvalidCustomizationRequest, versionCodeError));
+            }
+
+            var trimmedCode = request.VersionCode.Trim();
+            var existingVersion = await _productVersions.GetByIdAsync(version.ProductVersionId, cancellationToken);
+            if (existingVersion is not null &&
+                !string.Equals(existingVersion.VersionCode, trimmedCode, StringComparison.Ordinal) &&
+                await _productVersions.VersionCodeExistsAsync(trimmedCode, cancellationToken))
+            {
+                return VersionDtoFailure(
+                    Error.Conflict(
+                        CustomizationRequestErrorCodes.VersionCodeAlreadyExists,
+                        "Version code already exists."));
+            }
+        }
+
+        if (request.DimensionUnit is not null &&
+            !CustomizationAcceptedProductVersionFactory.IsValidDimensionUnit(request.DimensionUnit))
+        {
+            return VersionDtoFailure(
+                Error.BadRequest(
+                    CustomizationRequestErrorCodes.InvalidDimensionUnit,
+                    "Dimension unit must be cm, m, or mm."));
+        }
+
+        var fileValidationError = await ValidateVersionFilesAsync(
+            request.ModelFileId,
+            request.PreviewFileIds,
+            cancellationToken);
+        return fileValidationError is not null
+            ? VersionDtoFailure(ToError(fileValidationError))
+            : null;
+    }
+
     private async Task<ServiceResult<CreateCustomizationRequestVersionResponseDto>?> ValidateVersionFilesAsync(
         Guid? modelFileId,
         IReadOnlyList<Guid>? previewFileIds,
@@ -1520,7 +1527,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
     }
 
-    private async Task<ServiceResult<CustomizationRequestDetailDto>> ReloadUpdatedDetailAsync(
+    private async Task<ServiceResult<CustomizationRequestDto>> ReloadUpdatedDetailAsync(
         Guid customizationRequestId,
         Guid currentUserId,
         string message,
@@ -1535,7 +1542,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        return ServiceResult<CustomizationRequestDetailDto>.Success(
+        return ServiceResult<CustomizationRequestDto>.Success(
             await ToDetailDtoAsync(detail, role, cancellationToken),
             message);
     }
@@ -1750,14 +1757,13 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             PageSize = query.PageSize
         };
 
-        if (role == ApplicationRoles.Production)
+        if (role == ApplicationRoles.Production &&
+            string.IsNullOrWhiteSpace(query.Status) &&
+            string.IsNullOrWhiteSpace(query.FeasibilityStatus))
         {
-            if (string.IsNullOrWhiteSpace(query.Status) && string.IsNullOrWhiteSpace(query.FeasibilityStatus))
-            {
-                readQuery.Statuses = [CustomizationVersionStatus.REVIEWING];
-                readQuery.FeasibilityStatuses = [ProductionFeasibilityStatus.PENDING];
-                return null;
-            }
+            readQuery.Statuses = [CustomizationVersionStatus.REVIEWING];
+            readQuery.FeasibilityStatuses = [ProductionFeasibilityStatus.PENDING];
+            return null;
         }
 
         if (!string.IsNullOrWhiteSpace(query.Status))
@@ -1811,12 +1817,12 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         return result;
     }
 
-    private async Task<CustomizationRequestDetailDto> ToDetailDtoAsync(
+    private async Task<CustomizationRequestDto> ToDetailDtoAsync(
         CustomizationRequestDetailReadModel detail,
         string? role,
         CancellationToken cancellationToken)
     {
-        var dto = (await MapRequestDtoAsync(detail, role, cancellationToken)).Adapt<CustomizationRequestDetailDto>();
+        var dto = await MapRequestDtoAsync(detail, role, cancellationToken);
         if (detail.SourceProductVersion.ProductVersionId != Guid.Empty)
         {
             dto.SourceProductVersion = ApprovedProductVersionSummaryMapper.ToDto(detail.SourceProductVersion);
@@ -2019,17 +2025,17 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         return ServiceResult<CustomizationRequestListResponseDto>.Failure(Error.NotFound(code, message));
     }
 
-    private static ServiceResult<CustomizationRequestDetailDto> NotFoundDetail(string code, string message)
+    private static ServiceResult<CustomizationRequestDto> NotFoundDetail(string code, string message)
     {
-        return ServiceResult<CustomizationRequestDetailDto>.Failure(Error.NotFound(code, message));
+        return ServiceResult<CustomizationRequestDto>.Failure(Error.NotFound(code, message));
     }
 
-    private static ServiceResult<CustomizationRequestDetailDto> BadRequestDetail(string code, string message)
+    private static ServiceResult<CustomizationRequestDto> BadRequestDetail(string code, string message)
     {
-        return ServiceResult<CustomizationRequestDetailDto>.Failure(Error.BadRequest(code, message));
+        return ServiceResult<CustomizationRequestDto>.Failure(Error.BadRequest(code, message));
     }
 
-    private static ServiceResult<CustomizationRequestDetailDto> InvalidTransition(string message)
+    private static ServiceResult<CustomizationRequestDto> InvalidTransition(string message)
     {
         return BadRequestDetail(CustomizationRequestErrorCodes.InvalidCustomizationTransition, message);
     }
@@ -2037,7 +2043,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     private sealed record CustomizationUpdateContext(
         CustomizationRequest? Entity,
         CustomizationRequestDetailReadModel? Detail,
-        ServiceResult<CustomizationRequestDetailDto>? Error)
+        ServiceResult<CustomizationRequestDto>? Error)
     {
         public static CustomizationUpdateContext NotFound()
         {

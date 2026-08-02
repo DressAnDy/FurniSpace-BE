@@ -36,17 +36,6 @@ public interface ICustomizationRequestVersionRepository : IGenericRepository<Cus
         CancellationToken cancellationToken = default);
 
     Task<bool> TryMarkProductionReviewedAsync(
-        Guid customizationRequestVersionId,
-        ProductionFeasibilityStatus feasibilityStatus,
-        CustomizationVersionStatus versionStatus,
-        Guid productionReviewedBy,
-        string? feasibilityNote,
-        int? estimatedProductionDays,
-        decimal? estimatedAdditionalCost,
-        string? additionalCostReason,
-        bool? materialAvailable,
-        string? productionRiskNote,
-        string? alternativeMaterialNote,
-        DateTime reviewedAt,
+        ProductionVersionReviewUpdate update,
         CancellationToken cancellationToken = default);
 }

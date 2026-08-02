@@ -38,7 +38,7 @@ public sealed class ProductionCustomizationVersionQueueItemDto
 public sealed class ProductionCustomizationVersionDetailDto
 {
     public CustomizationRequestVersionDto Version { get; set; } = new();
-    public CustomizationRequestDetailDto Request { get; set; } = new();
+    public CustomizationRequestDto Request { get; set; } = new();
     public ProductionCustomizationProjectSummaryDto Project { get; set; } = new();
     public ProductionCustomizationProposalSummaryDto Proposal { get; set; } = new();
     public ApprovedProductVersionSummaryDto SourceProductVersion { get; set; } = new();

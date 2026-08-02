@@ -174,6 +174,12 @@ static async Task RunStartupDatabaseTasksAsync(WebApplication app)
 
 static async Task RunStartupMongoTasksAsync(WebApplication app)
 {
+    var runMongoIndexes = app.Configuration.GetValue("StartupTasks:RunMongoIndexes", true);
+    if (!runMongoIndexes)
+    {
+        return;
+    }
+
     using var scope = app.Services.CreateScope();
     try
     {

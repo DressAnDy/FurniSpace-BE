@@ -157,4 +157,76 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
         Assert.Equal(versionId, response.CustomizationRequestVersionId);
         Assert.Equal(productVersionId, response.Version.ProductVersion.ProductVersionId);
     }
+
+    [Fact]
+    public void ApplyDraftMetadata_UpdatesVersionTitleAndDesignerNote()
+    {
+        var version = new CustomizationRequestVersion
+        {
+            VersionTitle = "Old title",
+            DesignerNote = "Old note",
+            UpdatedAt = DateTime.UtcNow.AddDays(-1)
+        };
+        var dto = new UpdateCustomizationRequestVersionDto
+        {
+            VersionTitle = "  New title  ",
+            DesignerNote = "Updated note"
+        };
+
+        CustomizationAcceptedProductVersionFactory.ApplyDraftMetadata(version, dto);
+
+        Assert.Equal("New title", version.VersionTitle);
+        Assert.Equal("Updated note", version.DesignerNote);
+    }
+
+    [Fact]
+    public void CreateFromDesignerRequest_UpdateOverload_UpdatesExistingProductVersion()
+    {
+        var customizationRequest = new CustomizationRequest
+        {
+            ProjectId = Guid.NewGuid(),
+            RequestedMaterial = "Oak",
+            RequestedColor = "Brown"
+        };
+        var sourceVersion = new ProductVersion
+        {
+            ProductVersionId = Guid.NewGuid(),
+            Material = "Pine",
+            Color = "Natural",
+            Width = 60m,
+            DimensionUnit = "cm",
+            EstimatedPrice = 1000000m
+        };
+        var existingVersion = new ProductVersion
+        {
+            ProductVersionId = Guid.NewGuid(),
+            VersionCode = "PV-001",
+            VersionName = "Old Name",
+            Material = "Pine",
+            EstimatedPrice = 1000000m
+        };
+        var updateDto = new UpdateCustomizationRequestVersionDto
+        {
+            Material = "Walnut",
+            Width = 70m,
+            EstimatedPrice = 1500000m,
+            DimensionUnit = "mm"
+        };
+
+        var result = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
+            updateDto,
+            customizationRequest,
+            sourceVersion,
+            existingVersion,
+            "Updated Name",
+            "PV-002");
+
+        Assert.Same(existingVersion, result);
+        Assert.Equal("Updated Name", result.VersionName);
+        Assert.Equal("PV-002", result.VersionCode);
+        Assert.Equal("Walnut", result.Material);
+        Assert.Equal(70m, result.Width);
+        Assert.Equal("mm", result.DimensionUnit);
+        Assert.Equal(1500000m, result.EstimatedPrice);
+    }
 }

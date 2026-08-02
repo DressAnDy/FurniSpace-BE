@@ -34,7 +34,7 @@ internal static class ProductionCustomizationVersionQueueMapper
 
     public static ProductionCustomizationVersionDetailDto ToDetailDto(
         ProductionCustomizationVersionDetailReadModel item,
-        CustomizationRequestDetailDto requestDetail)
+        CustomizationRequestDto requestDetail)
     {
         var request = item.Request;
         return new ProductionCustomizationVersionDetailDto

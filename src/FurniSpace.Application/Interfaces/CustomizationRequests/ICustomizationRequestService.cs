@@ -11,7 +11,7 @@ public interface ICustomizationRequestService
         CustomizationRequestQueryDto query,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CustomizationRequestDetailDto>> GetDetailAsync(
+    Task<ServiceResult<CustomizationRequestDto>> GetDetailAsync(
         Guid customizationRequestId,
         Guid currentUserId,
         CancellationToken cancellationToken = default);
@@ -27,7 +27,7 @@ public interface ICustomizationRequestService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CustomizationRequestDetailDto>> SubmitAsync(
+    Task<ServiceResult<CustomizationRequestDto>> SubmitAsync(
         Guid proposalItemId,
         Guid currentUserId,
         SubmitCustomizationRequestDto request,
@@ -58,13 +58,13 @@ public interface ICustomizationRequestService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CustomizationRequestDetailDto>> AcceptVersionAsync(
+    Task<ServiceResult<CustomizationRequestDto>> AcceptVersionAsync(
         Guid customizationRequestId,
         Guid currentUserId,
         AcceptCustomizationRequestDto request,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CustomizationRequestDetailDto>> CancelAsync(
+    Task<ServiceResult<CustomizationRequestDto>> CancelAsync(
         Guid customizationRequestId,
         Guid currentUserId,
         CancelCustomizationRequestDto request,

@@ -134,44 +134,33 @@ public sealed class CustomizationRequestVersionRepository
     }
 
     public async Task<bool> TryMarkProductionReviewedAsync(
-        Guid customizationRequestVersionId,
-        ProductionFeasibilityStatus feasibilityStatus,
-        CustomizationVersionStatus versionStatus,
-        Guid productionReviewedBy,
-        string? feasibilityNote,
-        int? estimatedProductionDays,
-        decimal? estimatedAdditionalCost,
-        string? additionalCostReason,
-        bool? materialAvailable,
-        string? productionRiskNote,
-        string? alternativeMaterialNote,
-        DateTime reviewedAt,
+        ProductionVersionReviewUpdate update,
         CancellationToken cancellationToken = default)
     {
-        var productionRejectedAt = feasibilityStatus == ProductionFeasibilityStatus.NOT_FEASIBLE
-            ? reviewedAt
+        var productionRejectedAt = update.FeasibilityStatus == ProductionFeasibilityStatus.NOT_FEASIBLE
+            ? update.ReviewedAt
             : (DateTime?)null;
 
         var rowsAffected = await DbSet
             .Where(version =>
-                version.CustomizationRequestVersionId == customizationRequestVersionId &&
+                version.CustomizationRequestVersionId == update.CustomizationRequestVersionId &&
                 version.Status == CustomizationVersionStatus.REVIEWING &&
                 version.FeasibilityStatus == ProductionFeasibilityStatus.PENDING)
             .ExecuteUpdateAsync(
                 setters => setters
-                    .SetProperty(version => version.Status, versionStatus)
-                    .SetProperty(version => version.FeasibilityStatus, feasibilityStatus)
-                    .SetProperty(version => version.FeasibilityNote, feasibilityNote)
-                    .SetProperty(version => version.EstimatedProductionDays, estimatedProductionDays)
-                    .SetProperty(version => version.EstimatedAdditionalCost, estimatedAdditionalCost)
-                    .SetProperty(version => version.AdditionalCostReason, additionalCostReason)
-                    .SetProperty(version => version.MaterialAvailable, materialAvailable)
-                    .SetProperty(version => version.ProductionRiskNote, productionRiskNote)
-                    .SetProperty(version => version.AlternativeMaterialNote, alternativeMaterialNote)
-                    .SetProperty(version => version.ProductionReviewedBy, productionReviewedBy)
-                    .SetProperty(version => version.ProductionReviewedAt, reviewedAt)
+                    .SetProperty(version => version.Status, update.VersionStatus)
+                    .SetProperty(version => version.FeasibilityStatus, update.FeasibilityStatus)
+                    .SetProperty(version => version.FeasibilityNote, update.FeasibilityNote)
+                    .SetProperty(version => version.EstimatedProductionDays, update.EstimatedProductionDays)
+                    .SetProperty(version => version.EstimatedAdditionalCost, update.EstimatedAdditionalCost)
+                    .SetProperty(version => version.AdditionalCostReason, update.AdditionalCostReason)
+                    .SetProperty(version => version.MaterialAvailable, update.MaterialAvailable)
+                    .SetProperty(version => version.ProductionRiskNote, update.ProductionRiskNote)
+                    .SetProperty(version => version.AlternativeMaterialNote, update.AlternativeMaterialNote)
+                    .SetProperty(version => version.ProductionReviewedBy, update.ProductionReviewedBy)
+                    .SetProperty(version => version.ProductionReviewedAt, update.ReviewedAt)
                     .SetProperty(version => version.ProductionRejectedAt, productionRejectedAt)
-                    .SetProperty(version => version.UpdatedAt, reviewedAt),
+                    .SetProperty(version => version.UpdatedAt, update.ReviewedAt),
                 cancellationToken);
 
         return rowsAffected > 0;

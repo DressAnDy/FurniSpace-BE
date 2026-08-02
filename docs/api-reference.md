@@ -1211,26 +1211,36 @@ Absolute routes on `OrdersController`.
 
 ## 14. Customization requests
 
+Multi-version model: one **request** snapshots a source product version; the designer creates multiple **versions** (each with its own PROJECT_SPECIFIC product version).
+
 | Method | Path | Roles |
 | --- | --- | --- |
 | GET | `/projects/{projectId}/customization-requests` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | GET | `/customization-requests/{id}` | same |
+| GET | `/customization-requests/{id}/versions` | same |
+| GET | `/customization-requests/{id}/versions/{versionId}` | same |
 | POST | `/proposal-items/{proposalItemId}/customization-requests` | CUSTOMER, DESIGNER, ADMIN |
-| PATCH | `/customization-requests/{id}/designer-review` | DESIGNER, ADMIN |
-| PATCH | `/customization-requests/{id}/production-review` | PRODUCTION, ADMIN |
-| PATCH | `/customization-requests/{id}/customer-decision` | CUSTOMER |
+| POST | `/customization-requests/{id}/versions` | DESIGNER, ADMIN |
+| PATCH | `/customization-requests/{id}/versions/{versionId}` | DESIGNER, ADMIN |
+| POST | `/customization-requests/{id}/versions/{versionId}/submit-for-review` | DESIGNER, ADMIN |
+| POST | `/customization-requests/{id}/versions/{versionId}/withdraw` | DESIGNER, ADMIN |
+| POST | `/customization-requests/{id}/accept` | CUSTOMER |
 | PATCH | `/customization-requests/{id}/cancel` | CUSTOMER, SALES, DESIGNER, ADMIN |
-| GET | `/api/production/customization-requests` | PRODUCTION, ADMIN · queue |
+| GET | `/api/production/customization-versions` | PRODUCTION, ADMIN · global queue |
+| GET | `/api/production/customization-versions/{versionId}` | PRODUCTION, ADMIN |
+| PATCH | `/api/production/customization-versions/{versionId}/review` | PRODUCTION, ADMIN |
 
 ### Project list query
 
-`proposalId?`, `proposalItemId?`, `status?`
+`proposalId?`, `sourceProductVersionId?`, `status?`
 
 ### Production queue query
 
-`status?`, `projectId?`, `proposalId?`, `materialAvailable?`, `fromDate?`, `toDate?`, `page`, `pageSize`
+`status?`, `feasibilityStatus?`, `projectId?`, `proposalId?`, `materialAvailable?`, `fromDate?`, `toDate?`, `page`, `pageSize`
 
-### Submit
+Default for PRODUCTION (no filters): `status=REVIEWING`, `feasibilityStatus=PENDING`.
+
+### Submit customization request
 
 ```json
 {
@@ -1245,13 +1255,33 @@ Absolute routes on `OrdersController`.
 }
 ```
 
-### Designer review
+### Create version (Product Version + version row + file links in one transaction)
+
+Upload files to the project first, then reference file IDs in the body.
 
 ```json
-{ "designerSpecNote": "Approved height 70cm; keep oak finish" }
+{
+  "versionTitle": "Walnut option",
+  "designerNote": "Reinforced frame",
+  "versionName": "Chair Custom V1",
+  "versionCode": "CHAIR-CUSTOM-V1",
+  "material": "Walnut",
+  "color": "Dark Brown",
+  "width": 65,
+  "height": 85,
+  "depth": 60,
+  "dimensionUnit": "cm",
+  "estimatedPrice": 3200000,
+  "modelFileId": "model-file-id",
+  "previewFileIds": ["preview-file-id"]
+}
 ```
 
-### Production review
+### Update draft version
+
+Same fields as create (partial update). Replacing `modelFileId` / `previewFileIds` syncs `file_links` in the same transaction.
+
+### Production review (per version)
 
 ```json
 {
@@ -1261,28 +1291,46 @@ Absolute routes on `OrdersController`.
   "estimatedAdditionalCost": 500000,
   "additionalCostReason": "Custom cut",
   "feasibilityNote": "OK",
-  "productionRiskNote": null
+  "productionRiskNote": null,
+  "alternativeMaterialNote": null
 }
 ```
 
-### Customer decision
+`result`: `FEASIBLE` (version stays `REVIEWING`, feasibility → `FEASIBLE`) or `NOT_FEASIBLE` (version → `PRODUCTION_REJECTED`).
+
+### Customer accept version
 
 ```json
 {
-  "decision": "ACCEPT",
-  "rejectReason": null
+  "customizationRequestVersionId": "version-id"
 }
 ```
 
-### Cancel
+Requires request `REVIEWING`, version `REVIEWING` with `feasibilityStatus=FEASIBLE`.
+
+### Cancel request
 
 ```json
 { "cancelReason": "No longer needed" }
 ```
 
-### Status enum
+### Version list / detail response (per version)
 
-`SUBMITTED`, `DESIGN_REVIEWING`, `PRODUCTION_REVIEWING`, `WAITING_FOR_CUSTOMER_FINAL_APPROVAL`, `NOT_FEASIBLE`, `ACCEPTED`, `REJECTED_BY_CUSTOMER`, `CANCELLED`
+Includes: `versionNo`, `versionTitle`, `status`, `feasibilityStatus`, production review fields, `isAccepted`, embedded `productVersion` summary (name, code, material, dimensions, price), and `productVersion.files[]` (model/preview metadata per catalog file convention).
+
+**Access:** DRAFT versions are visible to DESIGNER/ADMIN only on project-scoped endpoints. PRODUCTION uses the global queue endpoints (no project assignment required).
+
+### Request status enum
+
+`SUBMITTED`, `REVIEWING`, `ACCEPTED`, `CANCELLED`
+
+### Version status enum
+
+`DRAFT`, `REVIEWING`, `ACCEPTED`, `PRODUCTION_REJECTED`, `WITHDRAWN`
+
+### Production feasibility enum
+
+`PENDING`, `FEASIBLE`, `NOT_FEASIBLE`
 
 ---
 
@@ -1824,7 +1872,9 @@ All values are JSON strings matching C# member names.
 | `PaymentMethod` | `PAYMENT_LINK`, `QR_CODE`, `BANK_TRANSFER`, `CASH`, `OTHER` |
 | `PaymentTransactionStatus` | `PENDING`, `SUCCESS`, `FAILED`, `CANCELLED` |
 | `PaymentTransactionType` | `CHARGE`, `REFUND`, `ADJUSTMENT` |
-| `CustomizationStatus` | `SUBMITTED`, `DESIGN_REVIEWING`, `PRODUCTION_REVIEWING`, `WAITING_FOR_CUSTOMER_FINAL_APPROVAL`, `NOT_FEASIBLE`, `ACCEPTED`, `REJECTED_BY_CUSTOMER`, `CANCELLED` |
+| `CustomizationStatus` | `SUBMITTED`, `REVIEWING`, `ACCEPTED`, `CANCELLED` |
+| `CustomizationVersionStatus` | `DRAFT`, `REVIEWING`, `ACCEPTED`, `PRODUCTION_REJECTED`, `WITHDRAWN` |
+| `ProductionFeasibilityStatus` | `PENDING`, `FEASIBLE`, `NOT_FEASIBLE` |
 | `ProductionRequestStatus` | `PENDING_REVIEW`, `FEASIBLE`, `IN_PRODUCTION`, `COMPLETED`, `BLOCKED`, `CANCELLED` |
 | `ProductionItemStatus` | `PENDING`, `IN_PRODUCTION`, `COMPLETED`, `BLOCKED`, `CANCELLED` |
 | `ProductStatus` | `ACTIVE`, `INACTIVE`, `ARCHIVED` |

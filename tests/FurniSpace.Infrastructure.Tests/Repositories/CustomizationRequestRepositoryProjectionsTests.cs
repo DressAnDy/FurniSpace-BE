@@ -18,24 +18,14 @@ public sealed class CustomizationRequestRepositoryProjectionsTests
             CustomizationRequestId = requestId,
             ProjectId = Guid.NewGuid(),
             ProposalId = Guid.NewGuid(),
-            ProductVersionId = Guid.NewGuid(),
+            SourceProductVersionId = Guid.NewGuid(),
             RequestedByCustomerId = Guid.NewGuid(),
             RequestTitle = "Change material",
             RequestDescription = "Use darker oak",
             RequestedMaterial = "Oak",
             RequestedColor = "Brown",
-            DesignerSpecNote = "Possible",
-            ProductionReviewBy = Guid.NewGuid(),
-            FeasibilityNote = "Feasible",
-            EstimatedProductionDays = 5,
-            EstimatedAdditionalCost = 250000m,
-            AdditionalCostReason = "Custom finish",
-            MaterialAvailable = true,
-            ProductionRiskNote = "Low risk",
-            ApprovedProductVersionId = Guid.NewGuid(),
-            Status = CustomizationStatus.PRODUCTION_REVIEWING,
-            CustomerAcceptedAt = DateTime.UtcNow,
-            CustomerRejectedAt = null,
+            AcceptedRequestVersionId = Guid.NewGuid(),
+            Status = CustomizationStatus.REVIEWING,
             CreatedAt = DateTime.UtcNow.AddDays(-1),
             UpdatedAt = DateTime.UtcNow,
             CustomerId = Guid.NewGuid(),
@@ -49,12 +39,10 @@ public sealed class CustomizationRequestRepositoryProjectionsTests
         Assert.Equal(requestId, detail.CustomizationRequestId);
         Assert.Equal(source.ProjectId, detail.ProjectId);
         Assert.Equal(source.ProposalId, detail.ProposalId);
-        Assert.Equal(source.ProductVersionId, detail.ProductVersionId);
+        Assert.Equal(source.SourceProductVersionId, detail.SourceProductVersionId);
         Assert.Equal(source.RequestTitle, detail.RequestTitle);
         Assert.Equal(source.RequestDescription, detail.RequestDescription);
         Assert.Equal(source.RequestedMaterial, detail.RequestedMaterial);
-        Assert.Equal(source.DesignerSpecNote, detail.DesignerSpecNote);
-        Assert.Equal(source.EstimatedAdditionalCost, detail.EstimatedAdditionalCost);
         Assert.Equal(source.Status, detail.Status);
         Assert.Equal(source.ProjectName, detail.ProjectName);
         Assert.Equal(source.AssignedDesignerId, detail.AssignedDesignerId);

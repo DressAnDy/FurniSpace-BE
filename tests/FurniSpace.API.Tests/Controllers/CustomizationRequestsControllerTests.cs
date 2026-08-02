@@ -33,11 +33,11 @@ public sealed class CustomizationRequestsControllerTests
     [Theory]
     [InlineData(nameof(CustomizationRequestsController.GetByProject), "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [InlineData(nameof(CustomizationRequestsController.GetDetail), "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
+    [InlineData(nameof(CustomizationRequestsController.GetVersions), "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
+    [InlineData(nameof(CustomizationRequestsController.GetVersionDetail), "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [InlineData(nameof(CustomizationRequestsController.Submit), "CUSTOMER,DESIGNER,ADMIN")]
-    [InlineData(nameof(CustomizationRequestsController.DesignerReview), "DESIGNER,ADMIN")]
-    [InlineData(nameof(CustomizationRequestsController.ProductionReview), "PRODUCTION,ADMIN")]
-    [InlineData(nameof(CustomizationRequestsController.CustomerDecision), "CUSTOMER")]
-    [InlineData(nameof(CustomizationRequestsController.CreateProductVersion), "DESIGNER,ADMIN")]
+    [InlineData(nameof(CustomizationRequestsController.CreateVersion), "DESIGNER,ADMIN")]
+    [InlineData(nameof(CustomizationRequestsController.AcceptVersion), "CUSTOMER")]
     [InlineData(nameof(CustomizationRequestsController.Cancel), "CUSTOMER,SALES,DESIGNER,ADMIN")]
     public void Actions_UseExpectedRoles(string actionName, string expectedRoles)
     {
@@ -57,14 +57,14 @@ public sealed class CustomizationRequestsControllerTests
         var projectId = Guid.NewGuid();
         var userId = Guid.NewGuid();
         var proposalId = Guid.NewGuid();
-        var productVersionId = Guid.NewGuid();
+        var sourceProductVersionId = Guid.NewGuid();
         var service = new FakeCustomizationRequestService();
         var controller = BuildController(service, userId);
 
         var actionResult = await controller.GetByProject(
             projectId,
             proposalId,
-            productVersionId,
+            sourceProductVersionId,
             CustomizationStatus.SUBMITTED);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
@@ -72,138 +72,46 @@ public sealed class CustomizationRequestsControllerTests
         Assert.Equal(projectId, service.ProjectId);
         Assert.Equal(userId, service.CurrentUserId);
         Assert.Equal(proposalId, service.Query!.ProposalId);
-        Assert.Equal(productVersionId, service.Query.ProductVersionId);
+        Assert.Equal(sourceProductVersionId, service.Query.SourceProductVersionId);
         Assert.Equal(CustomizationStatus.SUBMITTED, service.Query.Status);
     }
 
     [Fact]
-    public async Task GetDetail_ReturnsServiceResultAndPassesId()
+    public async Task CreateVersion_ReturnsServiceResultAndPassesRequest()
     {
         var requestId = Guid.NewGuid();
         var userId = Guid.NewGuid();
-        var service = new FakeCustomizationRequestService();
-        var controller = BuildController(service, userId);
-
-        var actionResult = await controller.GetDetail(requestId);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(requestId, service.CustomizationRequestId);
-        Assert.Equal(userId, service.CurrentUserId);
-    }
-
-    [Fact]
-    public async Task Submit_ReturnsCreatedResultAndPassesRequest()
-    {
-        var proposalItemId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-        var request = new SubmitCustomizationRequestDto { RequestTitle = "Change material" };
+        var request = new CreateCustomizationRequestVersionDto { VersionName = "Custom Chair" };
         var service = new FakeCustomizationRequestService
         {
-            SubmitResult = ServiceResult<CustomizationRequestDetailDto>.Created(new CustomizationRequestDetailDto())
+            CreateVersionResult = ServiceResult<CreateCustomizationRequestVersionResponseDto>.Created(
+                new CreateCustomizationRequestVersionResponseDto())
         };
         var controller = BuildController(service, userId);
 
-        var actionResult = await controller.Submit(proposalItemId, request);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(201, objectResult.StatusCode);
-        Assert.Equal(proposalItemId, service.ProposalItemId);
-        Assert.Same(request, service.SubmitRequest);
-    }
-
-    [Fact]
-    public async Task DesignerReview_ReturnsServiceResultAndPassesRequest()
-    {
-        var requestId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-        var request = new DesignerReviewCustomizationRequestDto { DesignerSpecNote = "Possible" };
-        var service = new FakeCustomizationRequestService();
-        var controller = BuildController(service, userId);
-
-        var actionResult = await controller.DesignerReview(requestId, request);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(requestId, service.CustomizationRequestId);
-        Assert.Equal(userId, service.CurrentUserId);
-        Assert.Same(request, service.DesignerReviewRequest);
-    }
-
-    [Fact]
-    public async Task ProductionReview_ReturnsServiceResultAndPassesRequest()
-    {
-        var requestId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-        var request = new ProductionReviewCustomizationRequestDto { Result = "FEASIBLE" };
-        var service = new FakeCustomizationRequestService();
-        var controller = BuildController(service, userId);
-
-        var actionResult = await controller.ProductionReview(requestId, request);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(requestId, service.CustomizationRequestId);
-        Assert.Equal(userId, service.CurrentUserId);
-        Assert.Same(request, service.ProductionReviewRequest);
-    }
-
-    [Fact]
-    public async Task CustomerDecision_ReturnsServiceResultAndPassesRequest()
-    {
-        var requestId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-        var request = new CustomerDecisionCustomizationRequestDto { Decision = "ACCEPT" };
-        var service = new FakeCustomizationRequestService();
-        var controller = BuildController(service, userId);
-
-        var actionResult = await controller.CustomerDecision(requestId, request);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(requestId, service.CustomizationRequestId);
-        Assert.Equal(userId, service.CurrentUserId);
-        Assert.Same(request, service.CustomerDecisionRequest);
-    }
-
-    [Fact]
-    public async Task CreateProductVersion_ReturnsServiceResultAndPassesRequest()
-    {
-        var requestId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-        var request = new CreateCustomizationProductVersionRequestDto { VersionName = "Custom Chair" };
-        var service = new FakeCustomizationRequestService
-        {
-            CreateProductVersionResult = ServiceResult<CreateCustomizationProductVersionResponseDto>.Created(
-                new CreateCustomizationProductVersionResponseDto())
-        };
-        var controller = BuildController(service, userId);
-
-        var actionResult = await controller.CreateProductVersion(requestId, request);
+        var actionResult = await controller.CreateVersion(requestId, request);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(201, objectResult.StatusCode);
         Assert.Equal(requestId, service.CustomizationRequestId);
-        Assert.Equal(userId, service.CurrentUserId);
-        Assert.Same(request, service.CreateProductVersionRequest);
+        Assert.Same(request, service.CreateVersionRequest);
     }
 
     [Fact]
-    public async Task Cancel_ReturnsServiceResultAndPassesRequest()
+    public async Task AcceptVersion_ReturnsServiceResultAndPassesRequest()
     {
         var requestId = Guid.NewGuid();
         var userId = Guid.NewGuid();
-        var request = new CancelCustomizationRequestDto { CancelReason = "No longer needed." };
+        var request = new AcceptCustomizationRequestDto { CustomizationRequestVersionId = Guid.NewGuid() };
         var service = new FakeCustomizationRequestService();
         var controller = BuildController(service, userId);
 
-        var actionResult = await controller.Cancel(requestId, request);
+        var actionResult = await controller.AcceptVersion(requestId, request);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(200, objectResult.StatusCode);
         Assert.Equal(requestId, service.CustomizationRequestId);
-        Assert.Equal(userId, service.CurrentUserId);
-        Assert.Same(request, service.CancelRequest);
+        Assert.Same(request, service.AcceptVersionRequest);
     }
 
     [Fact]
@@ -212,88 +120,6 @@ public sealed class CustomizationRequestsControllerTests
         var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
 
         var actionResult = await controller.GetByProject(Guid.NewGuid());
-
-        Assert.IsType<UnauthorizedResult>(actionResult);
-    }
-
-    [Fact]
-    public async Task DesignerReview_WithoutUserClaim_ReturnsUnauthorized()
-    {
-        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
-
-        var actionResult = await controller.DesignerReview(
-            Guid.NewGuid(),
-            new DesignerReviewCustomizationRequestDto());
-
-        Assert.IsType<UnauthorizedResult>(actionResult);
-    }
-
-    [Fact]
-    public async Task ProductionReview_WithoutUserClaim_ReturnsUnauthorized()
-    {
-        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
-
-        var actionResult = await controller.ProductionReview(
-            Guid.NewGuid(),
-            new ProductionReviewCustomizationRequestDto());
-
-        Assert.IsType<UnauthorizedResult>(actionResult);
-    }
-
-    [Fact]
-    public async Task CustomerDecision_WithoutUserClaim_ReturnsUnauthorized()
-    {
-        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
-
-        var actionResult = await controller.CustomerDecision(
-            Guid.NewGuid(),
-            new CustomerDecisionCustomizationRequestDto());
-
-        Assert.IsType<UnauthorizedResult>(actionResult);
-    }
-
-    [Fact]
-    public async Task Cancel_WithoutUserClaim_ReturnsUnauthorized()
-    {
-        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
-
-        var actionResult = await controller.Cancel(
-            Guid.NewGuid(),
-            new CancelCustomizationRequestDto());
-
-        Assert.IsType<UnauthorizedResult>(actionResult);
-    }
-
-    [Fact]
-    public async Task CreateProductVersion_WithoutUserClaim_ReturnsUnauthorized()
-    {
-        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
-
-        var actionResult = await controller.CreateProductVersion(
-            Guid.NewGuid(),
-            new CreateCustomizationProductVersionRequestDto { VersionName = "Custom" });
-
-        Assert.IsType<UnauthorizedResult>(actionResult);
-    }
-
-    [Fact]
-    public async Task GetDetail_WithoutUserClaim_ReturnsUnauthorized()
-    {
-        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
-
-        var actionResult = await controller.GetDetail(Guid.NewGuid());
-
-        Assert.IsType<UnauthorizedResult>(actionResult);
-    }
-
-    [Fact]
-    public async Task Submit_WithoutUserClaim_ReturnsUnauthorized()
-    {
-        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
-
-        var actionResult = await controller.Submit(
-            Guid.NewGuid(),
-            new SubmitCustomizationRequestDto { RequestTitle = "Change material" });
 
         Assert.IsType<UnauthorizedResult>(actionResult);
     }
@@ -328,30 +154,19 @@ public sealed class CustomizationRequestsControllerTests
         public ServiceResult<CustomizationRequestDetailDto> DetailResult { get; init; } =
             ServiceResult<CustomizationRequestDetailDto>.Success(new CustomizationRequestDetailDto());
 
-        public ServiceResult<CustomizationRequestDetailDto> SubmitResult { get; init; } =
-            ServiceResult<CustomizationRequestDetailDto>.Success(new CustomizationRequestDetailDto());
-
-        public ServiceResult<CreateCustomizationProductVersionResponseDto> CreateProductVersionResult { get; init; } =
-            ServiceResult<CreateCustomizationProductVersionResponseDto>.Created(
-                new CreateCustomizationProductVersionResponseDto());
+        public ServiceResult<CreateCustomizationRequestVersionResponseDto> CreateVersionResult { get; init; } =
+            ServiceResult<CreateCustomizationRequestVersionResponseDto>.Created(
+                new CreateCustomizationRequestVersionResponseDto());
 
         public Guid ProjectId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public Guid CustomizationRequestId { get; private set; }
-        public Guid ProposalItemId { get; private set; }
         public CustomizationRequestQueryDto? Query { get; private set; }
-        public SubmitCustomizationRequestDto? SubmitRequest { get; private set; }
-        public DesignerReviewCustomizationRequestDto? DesignerReviewRequest { get; private set; }
-        public ProductionReviewCustomizationRequestDto? ProductionReviewRequest { get; private set; }
-        public CustomerDecisionCustomizationRequestDto? CustomerDecisionRequest { get; private set; }
-        public CreateCustomizationProductVersionRequestDto? CreateProductVersionRequest { get; private set; }
-        public CancelCustomizationRequestDto? CancelRequest { get; private set; }
+        public CreateCustomizationRequestVersionDto? CreateVersionRequest { get; private set; }
+        public AcceptCustomizationRequestDto? AcceptVersionRequest { get; private set; }
 
         public Task<ServiceResult<CustomizationRequestListResponseDto>> GetByProjectAsync(
-            Guid projectId,
-            Guid currentUserId,
-            CustomizationRequestQueryDto query,
-            CancellationToken cancellationToken = default)
+            Guid projectId, Guid currentUserId, CustomizationRequestQueryDto query, CancellationToken cancellationToken = default)
         {
             ProjectId = projectId;
             CurrentUserId = currentUserId;
@@ -359,92 +174,76 @@ public sealed class CustomizationRequestsControllerTests
             return Task.FromResult(ListResult);
         }
 
-        public Task<ServiceResult<ProductionCustomizationRequestListResponseDto>> GetProductionQueueAsync(
-            Guid currentUserId,
-            ProductionCustomizationRequestQueryDto query,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<ProductionCustomizationRequestListResponseDto>.Unauthorized());
-
         public Task<ServiceResult<CustomizationRequestDetailDto>> GetDetailAsync(
+            Guid customizationRequestId, Guid currentUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(DetailResult);
+
+        public Task<ServiceResult<CustomizationRequestVersionListResponseDto>> GetVersionsAsync(
+            Guid customizationRequestId, Guid currentUserId, CancellationToken cancellationToken = default)
+        {
+            CustomizationRequestId = customizationRequestId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(ServiceResult<CustomizationRequestVersionListResponseDto>.Success(
+                new CustomizationRequestVersionListResponseDto()));
+        }
+
+        public Task<ServiceResult<CustomizationRequestVersionDto>> GetVersionDetailAsync(
             Guid customizationRequestId,
+            Guid customizationRequestVersionId,
             Guid currentUserId,
             CancellationToken cancellationToken = default)
         {
             CustomizationRequestId = customizationRequestId;
             CurrentUserId = currentUserId;
-            return Task.FromResult(DetailResult);
+            return Task.FromResult(ServiceResult<CustomizationRequestVersionDto>.Success(new CustomizationRequestVersionDto()));
         }
 
         public Task<ServiceResult<CustomizationRequestDetailDto>> SubmitAsync(
-            Guid proposalItemId,
-            Guid currentUserId,
-            SubmitCustomizationRequestDto request,
-            CancellationToken cancellationToken = default)
-        {
-            ProposalItemId = proposalItemId;
-            CurrentUserId = currentUserId;
-            SubmitRequest = request;
-            return Task.FromResult(SubmitResult);
-        }
+            Guid proposalItemId, Guid currentUserId, SubmitCustomizationRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(DetailResult);
 
-        public Task<ServiceResult<CustomizationRequestDetailDto>> DesignerReviewAsync(
-            Guid customizationRequestId,
-            Guid currentUserId,
-            DesignerReviewCustomizationRequestDto request,
-            CancellationToken cancellationToken = default)
+        public Task<ServiceResult<CreateCustomizationRequestVersionResponseDto>> CreateVersionAsync(
+            Guid customizationRequestId, Guid currentUserId, CreateCustomizationRequestVersionDto request, CancellationToken cancellationToken = default)
         {
             CustomizationRequestId = customizationRequestId;
-            CurrentUserId = currentUserId;
-            DesignerReviewRequest = request;
+            CreateVersionRequest = request;
+            return Task.FromResult(CreateVersionResult);
+        }
+
+        public Task<ServiceResult<CustomizationRequestVersionDto>> UpdateDraftVersionAsync(
+            Guid customizationRequestId, Guid customizationRequestVersionId, Guid currentUserId, UpdateCustomizationRequestVersionDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<CustomizationRequestVersionDto>.Unauthorized());
+
+        public Task<ServiceResult<CustomizationRequestVersionDto>> SubmitVersionForReviewAsync(
+            Guid customizationRequestId, Guid customizationRequestVersionId, Guid currentUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<CustomizationRequestVersionDto>.Unauthorized());
+
+        public Task<ServiceResult<CustomizationRequestVersionDto>> WithdrawVersionAsync(
+            Guid customizationRequestId, Guid customizationRequestVersionId, Guid currentUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<CustomizationRequestVersionDto>.Unauthorized());
+
+        public Task<ServiceResult<CustomizationRequestDetailDto>> AcceptVersionAsync(
+            Guid customizationRequestId, Guid currentUserId, AcceptCustomizationRequestDto request, CancellationToken cancellationToken = default)
+        {
+            CustomizationRequestId = customizationRequestId;
+            AcceptVersionRequest = request;
             return Task.FromResult(DetailResult);
-        }
-
-        public Task<ServiceResult<CustomizationRequestDetailDto>> ProductionReviewAsync(
-            Guid customizationRequestId,
-            Guid currentUserId,
-            ProductionReviewCustomizationRequestDto request,
-            CancellationToken cancellationToken = default)
-        {
-            CustomizationRequestId = customizationRequestId;
-            CurrentUserId = currentUserId;
-            ProductionReviewRequest = request;
-            return Task.FromResult(DetailResult);
-        }
-
-        public Task<ServiceResult<CustomizationRequestDetailDto>> CustomerDecisionAsync(
-            Guid customizationRequestId,
-            Guid currentUserId,
-            CustomerDecisionCustomizationRequestDto request,
-            CancellationToken cancellationToken = default)
-        {
-            CustomizationRequestId = customizationRequestId;
-            CurrentUserId = currentUserId;
-            CustomerDecisionRequest = request;
-            return Task.FromResult(DetailResult);
-        }
-
-        public Task<ServiceResult<CreateCustomizationProductVersionResponseDto>> CreateCustomizationProductVersionAsync(
-            Guid customizationRequestId,
-            Guid currentUserId,
-            CreateCustomizationProductVersionRequestDto request,
-            CancellationToken cancellationToken = default)
-        {
-            CustomizationRequestId = customizationRequestId;
-            CurrentUserId = currentUserId;
-            CreateProductVersionRequest = request;
-            return Task.FromResult(CreateProductVersionResult);
         }
 
         public Task<ServiceResult<CustomizationRequestDetailDto>> CancelAsync(
-            Guid customizationRequestId,
-            Guid currentUserId,
-            CancelCustomizationRequestDto request,
-            CancellationToken cancellationToken = default)
-        {
-            CustomizationRequestId = customizationRequestId;
-            CurrentUserId = currentUserId;
-            CancelRequest = request;
-            return Task.FromResult(DetailResult);
-        }
+            Guid customizationRequestId, Guid currentUserId, CancelCustomizationRequestDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(DetailResult);
+
+        public Task<ServiceResult<ProductionCustomizationVersionListResponseDto>> GetProductionVersionQueueAsync(
+            Guid currentUserId, ProductionCustomizationVersionQueryDto query, CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductionCustomizationVersionListResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<ProductionCustomizationVersionDetailDto>> GetProductionVersionDetailAsync(
+            Guid customizationRequestVersionId, Guid currentUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductionCustomizationVersionDetailDto>.Unauthorized());
+
+        public Task<ServiceResult<ProductionCustomizationVersionDetailDto>> ReviewVersionAsync(
+            Guid customizationRequestVersionId, Guid currentUserId, ReviewCustomizationVersionDto request, CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductionCustomizationVersionDetailDto>.Unauthorized());
     }
 }

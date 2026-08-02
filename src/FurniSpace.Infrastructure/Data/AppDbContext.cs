@@ -38,6 +38,12 @@ public class AppDbContext : DbContext
     private const string ProposalSceneVariantStatusColumnType = "proposal_scene_variant_status";
     private const string ProposalSceneVariantTypeColumnType = "proposal_scene_variant_type";
     private const string CustomizationStatusColumnType = "customization_status";
+    private const string CustomizationVersionStatusColumnType = "customization_version_status";
+    private const string ProductionFeasibilityStatusColumnType = "production_feasibility_status";
+    private const string SourceProductVersionIdColumnName = "source_product_version_id";
+    private const string AcceptedRequestVersionIdColumnName = "accepted_request_version_id";
+    private const string CustomizationRequestVersionIdColumnName = "customization_request_version_id";
+    private const string CustomizationRequestIdColumnName = "customization_request_id";
     private const string QuotationStatusColumnType = "quotation_status";
     private const string QuotationItemTypeColumnType = "quotation_item_type";
     private const string OrderStatusColumnType = "order_status";
@@ -108,6 +114,7 @@ public class AppDbContext : DbContext
     public DbSet<ProposalItem> ProposalItemSet => Set<ProposalItem>();
     public DbSet<ProposalSceneVariant> ProposalSceneVariantSet => Set<ProposalSceneVariant>();
     public DbSet<CustomizationRequest> CustomizationRequestSet => Set<CustomizationRequest>();
+    public DbSet<CustomizationRequestVersion> CustomizationRequestVersionSet => Set<CustomizationRequestVersion>();
     public DbSet<Quotation> QuotationSet => Set<Quotation>();
     public DbSet<QuotationItem> QuotationItemSet => Set<QuotationItem>();
     public DbSet<Order> OrderSet => Set<Order>();
@@ -134,7 +141,9 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_type", "TWO_D,THREE_D,ROOM_PLANNER");
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_variant_status", "DRAFT,SUBMITTED,ACCEPTED,REJECTED,APPLIED");
         modelBuilder.HasAnnotation("Npgsql:Enum:proposal_scene_variant_type", "CUSTOMER_SUGGESTION,DESIGNER_REVISION");
-        modelBuilder.HasAnnotation("Npgsql:Enum:customization_status", "SUBMITTED,DESIGN_REVIEWING,PRODUCTION_REVIEWING,WAITING_FOR_CUSTOMER_FINAL_APPROVAL,NOT_FEASIBLE,ACCEPTED,REJECTED_BY_CUSTOMER,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:customization_status", "SUBMITTED,REVIEWING,ACCEPTED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:customization_version_status", "DRAFT,REVIEWING,PRODUCTION_REJECTED,ACCEPTED,WITHDRAWN");
+        modelBuilder.HasAnnotation("Npgsql:Enum:production_feasibility_status", "PENDING,FEASIBLE,NOT_FEASIBLE");
         modelBuilder.HasAnnotation("Npgsql:Enum:quotation_status", "DRAFT,SENT,REVISION_REQUESTED,REVISED,ACCEPTED,REJECTED,EXPIRED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:quotation_item_type", "PRODUCT_ITEM,MANUAL_ITEM");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_status", "CREATED,DEPOSIT_PENDING,DEPOSIT_PAID,IN_PRODUCTION,READY_FOR_DELIVERY,DELIVERING,DELIVERED,FINAL_PAYMENT_PENDING,COMPLETED,CANCELLED");
@@ -179,6 +188,7 @@ public class AppDbContext : DbContext
         ConfigureProposalItems(modelBuilder);
         ConfigureProposalSceneVariants(modelBuilder);
         ConfigureCustomizationRequests(modelBuilder);
+        ConfigureCustomizationRequestVersions(modelBuilder);
         ConfigureQuotations(modelBuilder);
         ConfigureQuotationItems(modelBuilder);
         ConfigureOrders(modelBuilder);
@@ -735,17 +745,12 @@ public class AppDbContext : DbContext
     {
         modelBuilder.Entity<CustomizationRequest>(entity =>
         {
-            entity.ToTable("customization_requests", table =>
-            {
-                table.HasCheckConstraint(
-                    "ck_customization_requests_additional_cost_reason",
-                    "estimated_additional_cost IS NULL OR estimated_additional_cost <= 0 OR additional_cost_reason IS NOT NULL AND btrim(additional_cost_reason) <> ''");
-            });
+            entity.ToTable("customization_requests");
             entity.HasKey(e => e.CustomizationRequestId);
-            entity.Property(e => e.CustomizationRequestId).HasColumnName("customization_request_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.CustomizationRequestId).HasColumnName(CustomizationRequestIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.ProposalId).HasColumnName(ProposalIdColumnName).HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.SourceProductVersionId).HasColumnName(SourceProductVersionIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.RequestedByCustomerId).HasColumnName("requested_by_customer_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.RequestTitle).HasColumnName("request_title").HasColumnType(Varchar150ColumnType).IsRequired();
             entity.Property(e => e.RequestDescription).HasColumnName("request_description").HasColumnType(TextColumnType);
@@ -755,30 +760,65 @@ public class AppDbContext : DbContext
             entity.Property(e => e.RequestedMaterial).HasColumnName("requested_material").HasColumnType(Varchar100ColumnType);
             entity.Property(e => e.RequestedColor).HasColumnName("requested_color").HasColumnType(Varchar100ColumnType);
             entity.Property(e => e.RequestedChangeNote).HasColumnName("requested_change_note").HasColumnType(TextColumnType);
-            entity.Property(e => e.DesignerId).HasColumnName("designer_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.DesignerSpecNote).HasColumnName("designer_spec_note").HasColumnType(TextColumnType);
-            entity.Property(e => e.ProductionReviewBy).HasColumnName("production_review_by").HasColumnType(UuidColumnType);
+            entity.Property(e => e.AcceptedRequestVersionId).HasColumnName(AcceptedRequestVersionIdColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(CustomizationStatusColumnType).HasDefaultValueSql("'SUBMITTED'::customization_status");
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Proposal>().WithMany().HasForeignKey(e => e.ProposalId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.SourceProductVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.RequestedByCustomerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<CustomizationRequestVersion>().WithMany().HasForeignKey(e => e.AcceptedRequestVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => e.ProposalId);
+            entity.HasIndex(e => e.SourceProductVersionId);
+            entity.HasIndex(e => e.RequestedByCustomerId);
+            entity.HasIndex(e => e.Status);
+        });
+    }
+
+    private static void ConfigureCustomizationRequestVersions(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<CustomizationRequestVersion>(entity =>
+        {
+            entity.ToTable("customization_request_versions");
+            entity.HasKey(e => e.CustomizationRequestVersionId);
+            entity.Property(e => e.CustomizationRequestVersionId).HasColumnName(CustomizationRequestVersionIdColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.CustomizationRequestId).HasColumnName(CustomizationRequestIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.VersionNo).HasColumnName(VersionNoColumnName).HasColumnType(IntegerColumnType).IsRequired();
+            entity.Property(e => e.CreatedByDesignerId).HasColumnName("created_by_designer_id").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.VersionTitle).HasColumnName("version_title").HasColumnType(Varchar150ColumnType);
+            entity.Property(e => e.DesignerNote).HasColumnName("designer_note").HasColumnType(TextColumnType);
+            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(CustomizationVersionStatusColumnType).HasDefaultValueSql("'DRAFT'::customization_version_status");
+            entity.Property(e => e.ProductionReviewedBy).HasColumnName("production_reviewed_by").HasColumnType(UuidColumnType);
+            entity.Property(e => e.FeasibilityStatus).HasColumnName("feasibility_status").HasColumnType(ProductionFeasibilityStatusColumnType).HasDefaultValueSql("'PENDING'::production_feasibility_status");
             entity.Property(e => e.FeasibilityNote).HasColumnName("feasibility_note").HasColumnType(TextColumnType);
             entity.Property(e => e.EstimatedProductionDays).HasColumnName("estimated_production_days").HasColumnType(IntegerColumnType);
             entity.Property(e => e.EstimatedAdditionalCost).HasColumnName("estimated_additional_cost").HasColumnType(Decimal12ColumnType);
             entity.Property(e => e.AdditionalCostReason).HasColumnName("additional_cost_reason").HasColumnType(TextColumnType);
             entity.Property(e => e.MaterialAvailable).HasColumnName("material_available").HasColumnType(BooleanColumnType);
             entity.Property(e => e.ProductionRiskNote).HasColumnName("production_risk_note").HasColumnType(TextColumnType);
-            entity.Property(e => e.ApprovedProductVersionId).HasColumnName("approved_product_version_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(CustomizationStatusColumnType).HasDefaultValueSql("'SUBMITTED'::customization_status");
-            entity.Property(e => e.CustomerAcceptedAt).HasColumnName("customer_accepted_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CustomerRejectedAt).HasColumnName("customer_rejected_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Proposal>().WithMany().HasForeignKey(e => e.ProposalId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.RequestedByCustomerId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.DesignerId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ProductionReviewBy).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ApprovedProductVersionId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasIndex(e => new { e.ProjectId, e.ProposalId, e.ProductVersionId })
-                .HasDatabaseName("idx_customization_requests_project_proposal_product_version");
+            entity.Property(e => e.AlternativeMaterialNote).HasColumnName("alternative_material_note").HasColumnType(TextColumnType);
+            entity.Property(e => e.SubmittedForReviewAt).HasColumnName("submitted_for_review_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.ProductionReviewedAt).HasColumnName("production_reviewed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.ProductionRejectedAt).HasColumnName("production_rejected_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.AcceptedAt).HasColumnName("accepted_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.WithdrawnAt).HasColumnName("withdrawn_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.HasOne(e => e.CustomizationRequest).WithMany(r => r.Versions).HasForeignKey(e => e.CustomizationRequestId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(e => e.ProductVersion).WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedByDesignerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ProductionReviewedBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.CustomizationRequestId, e.VersionNo }).IsUnique();
+            entity.HasIndex(e => new { e.CustomizationRequestId, e.ProductVersionId }).IsUnique();
+            entity.HasIndex(e => e.CustomizationRequestId);
+            entity.HasIndex(e => e.ProductVersionId);
+            entity.HasIndex(e => e.CreatedByDesignerId);
+            entity.HasIndex(e => e.ProductionReviewedBy);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.FeasibilityStatus);
         });
     }
 

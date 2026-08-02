@@ -2,9 +2,10 @@ using System;
 
 namespace FurniSpace.Application.DTOs.CustomizationRequests;
 
-public sealed class ProductionCustomizationRequestQueryDto
+public sealed class ProductionCustomizationVersionQueryDto
 {
     public string? Status { get; set; }
+    public string? FeasibilityStatus { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? ProposalId { get; set; }
     public bool? MaterialAvailable { get; set; }

@@ -16,28 +16,52 @@ public interface ICustomizationRequestService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<CustomizationRequestVersionListResponseDto>> GetVersionsAsync(
+        Guid customizationRequestId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<CustomizationRequestVersionDto>> GetVersionDetailAsync(
+        Guid customizationRequestId,
+        Guid customizationRequestVersionId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<CustomizationRequestDetailDto>> SubmitAsync(
         Guid proposalItemId,
         Guid currentUserId,
         SubmitCustomizationRequestDto request,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CustomizationRequestDetailDto>> DesignerReviewAsync(
+    Task<ServiceResult<CreateCustomizationRequestVersionResponseDto>> CreateVersionAsync(
         Guid customizationRequestId,
         Guid currentUserId,
-        DesignerReviewCustomizationRequestDto request,
+        CreateCustomizationRequestVersionDto request,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CustomizationRequestDetailDto>> ProductionReviewAsync(
+    Task<ServiceResult<CustomizationRequestVersionDto>> UpdateDraftVersionAsync(
         Guid customizationRequestId,
+        Guid customizationRequestVersionId,
         Guid currentUserId,
-        ProductionReviewCustomizationRequestDto request,
+        UpdateCustomizationRequestVersionDto request,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CustomizationRequestDetailDto>> CustomerDecisionAsync(
+    Task<ServiceResult<CustomizationRequestVersionDto>> SubmitVersionForReviewAsync(
+        Guid customizationRequestId,
+        Guid customizationRequestVersionId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<CustomizationRequestVersionDto>> WithdrawVersionAsync(
+        Guid customizationRequestId,
+        Guid customizationRequestVersionId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<CustomizationRequestDetailDto>> AcceptVersionAsync(
         Guid customizationRequestId,
         Guid currentUserId,
-        CustomerDecisionCustomizationRequestDto request,
+        AcceptCustomizationRequestDto request,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<CustomizationRequestDetailDto>> CancelAsync(
@@ -46,14 +70,19 @@ public interface ICustomizationRequestService
         CancelCustomizationRequestDto request,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CreateCustomizationProductVersionResponseDto>> CreateCustomizationProductVersionAsync(
-        Guid customizationRequestId,
+    Task<ServiceResult<ProductionCustomizationVersionListResponseDto>> GetProductionVersionQueueAsync(
         Guid currentUserId,
-        CreateCustomizationProductVersionRequestDto request,
+        ProductionCustomizationVersionQueryDto query,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<ProductionCustomizationRequestListResponseDto>> GetProductionQueueAsync(
+    Task<ServiceResult<ProductionCustomizationVersionDetailDto>> GetProductionVersionDetailAsync(
+        Guid customizationRequestVersionId,
         Guid currentUserId,
-        ProductionCustomizationRequestQueryDto query,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductionCustomizationVersionDetailDto>> ReviewVersionAsync(
+        Guid customizationRequestVersionId,
+        Guid currentUserId,
+        ReviewCustomizationVersionDto request,
         CancellationToken cancellationToken = default);
 }

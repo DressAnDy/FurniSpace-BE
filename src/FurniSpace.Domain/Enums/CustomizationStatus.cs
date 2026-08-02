@@ -3,11 +3,7 @@ namespace FurniSpace.Domain.Enums;
 public enum CustomizationStatus
 {
     SUBMITTED,
-    DESIGN_REVIEWING,
-    PRODUCTION_REVIEWING,
-    WAITING_FOR_CUSTOMER_FINAL_APPROVAL,
-    NOT_FEASIBLE,
+    REVIEWING,
     ACCEPTED,
-    REJECTED_BY_CUSTOMER,
     CANCELLED
 }

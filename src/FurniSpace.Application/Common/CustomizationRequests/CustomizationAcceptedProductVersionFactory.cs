@@ -13,7 +13,7 @@ internal static class CustomizationAcceptedProductVersionFactory
     private const int MaxVersionCodeLength = 50;
 
     internal static ProductVersion CreateFromDesignerRequest(
-        CreateCustomizationProductVersionRequestDto request,
+        CreateCustomizationRequestVersionDto request,
         CustomizationRequest customizationRequest,
         ProductVersion sourceVersion,
         string projectCode,
@@ -23,7 +23,6 @@ internal static class CustomizationAcceptedProductVersionFactory
     {
         var now = DateTime.UtcNow;
         var originalUnitPrice = sourceVersion.EstimatedPrice ?? 0m;
-        var additionalCost = customizationRequest.EstimatedAdditionalCost ?? 0m;
 
         return new ProductVersion
         {
@@ -41,7 +40,7 @@ internal static class CustomizationAcceptedProductVersionFactory
             Width = Coalesce(request.Width, customizationRequest.RequestedWidth, sourceVersion.Width),
             Height = Coalesce(request.Height, customizationRequest.RequestedHeight, sourceVersion.Height),
             Depth = Coalesce(request.Depth, customizationRequest.RequestedDepth, sourceVersion.Depth),
-            EstimatedPrice = request.EstimatedPrice ?? (originalUnitPrice + additionalCost),
+            EstimatedPrice = request.EstimatedPrice ?? originalUnitPrice,
             IsDefault = false,
             IsPublic = false,
             IsProjectSpecific = true,
@@ -51,19 +50,85 @@ internal static class CustomizationAcceptedProductVersionFactory
         };
     }
 
-    internal static void LinkToCustomizationRequest(
-        CustomizationRequest request,
-        ProductVersion productVersion)
+    internal static ProductVersion CreateFromDesignerRequest(
+        UpdateCustomizationRequestVersionDto request,
+        CustomizationRequest customizationRequest,
+        ProductVersion sourceVersion,
+        ProductVersion existingVersion,
+        string versionName,
+        string? versionCode)
     {
-        request.ApprovedProductVersionId = productVersion.ProductVersionId;
-        request.UpdatedAt = DateTime.UtcNow;
+        existingVersion.VersionName = versionName;
+        existingVersion.VersionCode = string.IsNullOrWhiteSpace(versionCode)
+            ? existingVersion.VersionCode
+            : versionCode.Trim();
+        existingVersion.Material = Coalesce(request.Material, customizationRequest.RequestedMaterial, sourceVersion.Material);
+        existingVersion.Color = Coalesce(request.Color, customizationRequest.RequestedColor, sourceVersion.Color);
+        existingVersion.Width = Coalesce(request.Width, customizationRequest.RequestedWidth, sourceVersion.Width);
+        existingVersion.Height = Coalesce(request.Height, customizationRequest.RequestedHeight, sourceVersion.Height);
+        existingVersion.Depth = Coalesce(request.Depth, customizationRequest.RequestedDepth, sourceVersion.Depth);
+        existingVersion.DimensionUnit = ResolveDimensionUnit(request.DimensionUnit, sourceVersion.DimensionUnit);
+        if (request.EstimatedPrice.HasValue)
+        {
+            existingVersion.EstimatedPrice = request.EstimatedPrice.Value;
+        }
+
+        existingVersion.UpdatedAt = DateTime.UtcNow;
+        return existingVersion;
     }
 
-    internal static void MarkAccepted(CustomizationRequest request)
+    internal static CustomizationRequestVersion CreateRequestVersion(
+        CustomizationRequest request,
+        ProductVersion productVersion,
+        int versionNo,
+        Guid designerId,
+        CreateCustomizationRequestVersionDto dto)
+    {
+        var now = DateTime.UtcNow;
+        return new CustomizationRequestVersion
+        {
+            CustomizationRequestVersionId = Guid.NewGuid(),
+            CustomizationRequestId = request.CustomizationRequestId,
+            ProductVersionId = productVersion.ProductVersionId,
+            VersionNo = versionNo,
+            CreatedByDesignerId = designerId,
+            VersionTitle = string.IsNullOrWhiteSpace(dto.VersionTitle) ? null : dto.VersionTitle.Trim(),
+            DesignerNote = dto.DesignerNote,
+            Status = CustomizationVersionStatus.DRAFT,
+            FeasibilityStatus = ProductionFeasibilityStatus.PENDING,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+    }
+
+    internal static void ApplyDraftMetadata(
+        CustomizationRequestVersion version,
+        UpdateCustomizationRequestVersionDto dto)
+    {
+        if (dto.VersionTitle is not null)
+        {
+            version.VersionTitle = string.IsNullOrWhiteSpace(dto.VersionTitle) ? null : dto.VersionTitle.Trim();
+        }
+
+        if (dto.DesignerNote is not null)
+        {
+            version.DesignerNote = dto.DesignerNote;
+        }
+
+        version.UpdatedAt = DateTime.UtcNow;
+    }
+
+    internal static void MarkRequestAccepted(
+        CustomizationRequest request,
+        CustomizationRequestVersion version,
+        DateTime acceptedAt)
     {
         request.Status = CustomizationStatus.ACCEPTED;
-        request.CustomerAcceptedAt = DateTime.UtcNow;
-        request.UpdatedAt = DateTime.UtcNow;
+        request.AcceptedRequestVersionId = version.CustomizationRequestVersionId;
+        request.UpdatedAt = acceptedAt;
+        version.Status = CustomizationVersionStatus.ACCEPTED;
+        version.AcceptedAt = acceptedAt;
+        version.UpdatedAt = acceptedAt;
     }
 
     internal static ApprovedProductVersionSummaryDto ToSummaryDto(ProductVersion version)
@@ -113,18 +178,16 @@ internal static class CustomizationAcceptedProductVersionFactory
         };
     }
 
-    internal static CreateCustomizationProductVersionResponseDto ToCreateResponse(
+    internal static CreateCustomizationRequestVersionResponseDto ToCreateVersionResponse(
         CustomizationRequest request,
-        ProductVersion version)
+        CustomizationRequestVersion version,
+        ProductVersion productVersion)
     {
-        return new CreateCustomizationProductVersionResponseDto
+        return new CreateCustomizationRequestVersionResponseDto
         {
             CustomizationRequestId = request.CustomizationRequestId,
-            ProjectId = request.ProjectId,
-            ProductVersionId = request.ProductVersionId,
-            ProductVersion = ToProductVersionDto(version),
-            CustomizationStatus = request.Status,
-            CreatedAt = version.CreatedAt ?? DateTime.UtcNow
+            CustomizationRequestVersionId = version.CustomizationRequestVersionId,
+            Version = CustomizationRequestVersionMapper.ToDto(version, productVersion)
         };
     }
 

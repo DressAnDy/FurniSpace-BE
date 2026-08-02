@@ -1,8 +1,12 @@
 using System;
+using System.Linq;
+using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.ReadModels.CustomizationRequests;
 using FurniSpace.Infrastructure.Repositories.Repository;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace FurniSpace.Infrastructure.Tests.Repositories;
@@ -66,5 +70,59 @@ public sealed class CustomizationRequestRepositoryProjectionsTests
         Assert.Equal(90m, detail.RequestedHeight);
         Assert.Equal(45m, detail.RequestedDepth);
         Assert.Equal("Rounded corners", detail.RequestedChangeNote);
+    }
+
+    [Fact]
+    public async Task RequestProjectReadModel_ProjectsJoinedProjectFields()
+    {
+        await using var context = CreateContext();
+        var project = new Project
+        {
+            ProjectId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = Guid.NewGuid(),
+            AssignedDesignerId = Guid.NewGuid(),
+            ProjectName = "Showroom Project",
+            ProjectCode = "PRJ-000002",
+            Status = ProjectStatus.PROPOSAL_CONSULTING
+        };
+        var request = new CustomizationRequest
+        {
+            CustomizationRequestId = Guid.NewGuid(),
+            ProjectId = project.ProjectId,
+            ProposalId = Guid.NewGuid(),
+            SourceProductVersionId = Guid.NewGuid(),
+            RequestTitle = "Adjust dimensions",
+            Status = CustomizationStatus.SUBMITTED
+        };
+        context.ProjectSet.Add(project);
+        context.CustomizationRequestSet.Add(request);
+        await context.SaveChangesAsync();
+
+        var readModel = await context.CustomizationRequestSet
+            .Join(
+                context.ProjectSet,
+                item => item.ProjectId,
+                itemProject => itemProject.ProjectId,
+                (item, itemProject) => new CustomizationRequestRepositoryProjections.RequestProjectJoin
+                {
+                    Request = item,
+                    Project = itemProject
+                })
+            .Select(CustomizationRequestRepositoryProjections.RequestProjectReadModel)
+            .SingleAsync();
+
+        Assert.Equal(request.CustomizationRequestId, readModel.CustomizationRequestId);
+        Assert.Equal(project.CustomerId, readModel.CustomerId);
+        Assert.Equal("Showroom Project", readModel.ProjectName);
+        Assert.Equal(project.AssignedDesignerId, readModel.AssignedDesignerId);
+    }
+
+    private static AppDbContext CreateContext()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        return new AppDbContext(options);
     }
 }

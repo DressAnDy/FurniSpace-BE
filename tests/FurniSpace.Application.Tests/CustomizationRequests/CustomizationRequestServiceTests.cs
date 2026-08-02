@@ -174,6 +174,22 @@ public sealed class CustomizationRequestServiceTests
         Assert.Single(result.Data!.Items);
     }
 
+    [Fact]
+    public async Task GetByProjectAsync_AssignedSalesGetsRequests()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Items = [CreateRequest(ids)] },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(project: CreateProject(ids)),
+            new FakeProjectRepository(SalesRole));
+
+        var result = await service.GetByProjectAsync(ids.ProjectId, ids.SalesId, new CustomizationRequestQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+    }
+
     #endregion
 
     #region GetProductionVersionQueueAsync
@@ -297,6 +313,33 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(CustomizationVersionStatus.ACCEPTED, result.Data.Items[0].Version.Status);
     }
 
+    [Fact]
+    public async Task GetProductionVersionQueueAsync_ProductionFiltersByFeasibilityStatus()
+    {
+        var ids = CreateIds();
+        var versionRepo = new FakeCustomizationRequestVersionRepository
+        {
+            VersionQueueItems =
+            [
+                CreateVersionQueueItem(ids, CustomizationVersionStatus.REVIEWING, ProductionFeasibilityStatus.PENDING),
+                CreateVersionQueueItem(ids, CustomizationVersionStatus.REVIEWING, ProductionFeasibilityStatus.FEASIBLE)
+            ]
+        };
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetProductionVersionQueueAsync(
+            Guid.NewGuid(),
+            new ProductionCustomizationVersionQueryDto { FeasibilityStatus = "FEASIBLE" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(ProductionFeasibilityStatus.FEASIBLE, result.Data.Items[0].Version.FeasibilityStatus);
+    }
+
     #endregion
 
     #region GetDetailAsync
@@ -345,6 +388,22 @@ public sealed class CustomizationRequestServiceTests
 
         Assert.Equal(404, result.Status);
         Assert.Equal(CustomizationRequestErrorCodes.CustomizationRequestNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_UnassignedUserReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var detail = CreateDetail(ids);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { Detail = detail },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetDetailAsync(detail.CustomizationRequestId, Guid.NewGuid());
+
+        Assert.Equal(403, result.Status);
     }
 
     #endregion
@@ -430,6 +489,20 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(401, result.Status);
     }
 
+    [Fact]
+    public async Task SubmitAsync_ProductionUserReturnsForbidden()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.SubmitAsync(Guid.NewGuid(), Guid.NewGuid(), ValidSubmitRequest());
+
+        Assert.Equal(403, result.Status);
+    }
+
     #endregion
 
     #region CreateVersionAsync
@@ -471,6 +544,304 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(1, versionRepo.AddCallCount);
         Assert.Equal(1, productVersions.AddCallCount);
         Assert.Equal(ids.DesignerId, result.Data.Version.CreatedByDesignerId);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_InvalidVersionNameReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([CreateSourceProductVersion(ids)]));
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto { VersionName = "   " });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.VersionNameRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_DuplicateVersionCodeReturnsConflict()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var sourceVersion = CreateSourceProductVersion(ids);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([sourceVersion]));
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                VersionCode = sourceVersion.VersionCode
+            });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.VersionCodeAlreadyExists, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_TooManyPreviewFilesReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([CreateSourceProductVersion(ids)]));
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                PreviewFileIds = Enumerable.Range(0, 6).Select(_ => Guid.NewGuid()).ToList()
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("preview files", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_DuplicatePreviewFileIdsReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var duplicateFileId = Guid.NewGuid();
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([CreateSourceProductVersion(ids)]));
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                PreviewFileIds = [duplicateFileId, duplicateFileId]
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("unique", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_ModelFileNotFoundReturnsNotFound()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([CreateSourceProductVersion(ids)]));
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                ModelFileId = Guid.NewGuid()
+            });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ModelFileNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_ModelFileNotActiveReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var modelFileId = Guid.NewGuid();
+        var projectFiles = new FakeCustomizationProjectFileRepository();
+        projectFiles.SetMetadata(modelFileId, CreateModelFileMetadata(modelFileId, FileStatus.ARCHIVED));
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([CreateSourceProductVersion(ids)]),
+            projectFiles: projectFiles);
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                ModelFileId = modelFileId
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ModelFileNotActive, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_InvalidModelFileTypeReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var modelFileId = Guid.NewGuid();
+        var projectFiles = new FakeCustomizationProjectFileRepository();
+        projectFiles.SetMetadata(modelFileId, new FileMetadataReadModel
+        {
+            FileId = modelFileId,
+            Status = FileStatus.ACTIVE,
+            FileType = FileType.PRODUCT_PREVIEW,
+            OriginalFileName = "preview.jpg"
+        });
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([CreateSourceProductVersion(ids)]),
+            projectFiles: projectFiles);
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                ModelFileId = modelFileId
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidModelFileType, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_WithValidFilesAddsFileLinks()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var sourceVersion = CreateSourceProductVersion(ids);
+        var modelFileId = Guid.NewGuid();
+        var previewFileId = Guid.NewGuid();
+        var projectFiles = new FakeCustomizationProjectFileRepository();
+        projectFiles.SetMetadata(modelFileId, CreateModelFileMetadata(modelFileId));
+        projectFiles.SetMetadata(previewFileId, CreatePreviewFileMetadata(previewFileId));
+        var requestRepo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = detail
+        };
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            requestRepo.SaveChangesAsync,
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateService(
+            requestRepo,
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([sourceVersion]),
+            unitOfWork: unitOfWork,
+            projectFiles: projectFiles);
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                ModelFileId = modelFileId,
+                PreviewFileIds = [previewFileId]
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(2, projectFiles.AddedFileLinkCount);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_InvalidDimensionsReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([CreateSourceProductVersion(ids)]));
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                Width = 0m
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidProductDimensions, result.ErrorCode);
     }
 
     #endregion
@@ -576,6 +947,38 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(CustomizationRequestErrorCodes.InvalidDimensionUnit, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task UpdateDraftVersionAsync_WithModelFileAddsFileLink()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var sourceVersion = CreateSourceProductVersion(ids);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateDraftVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        var modelFileId = Guid.NewGuid();
+        var projectFiles = new FakeCustomizationProjectFileRepository();
+        projectFiles.SetMetadata(modelFileId, CreateModelFileMetadata(modelFileId));
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([sourceVersion, productVersion]),
+            projectFiles: projectFiles);
+
+        var result = await service.UpdateDraftVersionAsync(
+            entity.CustomizationRequestId,
+            version.CustomizationRequestVersionId,
+            ids.DesignerId,
+            new UpdateCustomizationRequestVersionDto { ModelFileId = modelFileId });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, projectFiles.AddedFileLinkCount);
+    }
+
     #endregion
 
     #region SubmitVersionForReviewAsync
@@ -612,6 +1015,32 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(CustomizationVersionStatus.REVIEWING, version.Status);
         Assert.Equal(CustomizationStatus.REVIEWING, entity.Status);
         Assert.NotNull(version.SubmittedForReviewAt);
+    }
+
+    [Fact]
+    public async Task SubmitVersionForReviewAsync_NonDraftVersionReturnsConflict()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateDraftVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        version.Status = CustomizationVersionStatus.REVIEWING;
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.SubmitVersionForReviewAsync(
+            entity.CustomizationRequestId,
+            version.CustomizationRequestVersionId,
+            ids.DesignerId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationVersionNotDraft, result.ErrorCode);
     }
 
     #endregion
@@ -689,9 +1118,182 @@ public sealed class CustomizationRequestServiceTests
             secondResult.ErrorCode);
     }
 
+    [Fact]
+    public async Task ReviewVersionAsync_ProductionNotFeasibleReviewSuccess()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var productVersion = CreateSourceProductVersion(ids);
+        var version = CreateReviewingVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        versionRepo.SetProductionDetail(version, entity, productVersion, ids);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING)
+            },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole),
+            productVersions: new FakeProductVersionRepository([productVersion]));
+
+        var result = await service.ReviewVersionAsync(
+            version.CustomizationRequestVersionId,
+            ids.ProductionId,
+            new ReviewCustomizationVersionDto
+            {
+                Result = "NOT_FEASIBLE",
+                MaterialAvailable = false,
+                FeasibilityNote = "Material unavailable."
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductionFeasibilityStatus.NOT_FEASIBLE, version.FeasibilityStatus);
+        Assert.Equal(CustomizationVersionStatus.PRODUCTION_REJECTED, version.Status);
+    }
+
+    [Fact]
+    public async Task ReviewVersionAsync_FeasibleWithoutRequiredFieldsReturnsBadRequest()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ReviewVersionAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new ReviewCustomizationVersionDto
+            {
+                Result = "FEASIBLE",
+                MaterialAvailable = true
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationCostRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReviewVersionAsync_UnsupportedResultReturnsBadRequest()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ReviewVersionAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new ReviewCustomizationVersionDto { Result = "MAYBE" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationTransition, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReviewVersionAsync_NotFeasibleWithMaterialAvailableReturnsBadRequest()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ReviewVersionAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new ReviewCustomizationVersionDto
+            {
+                Result = "NOT_FEASIBLE",
+                MaterialAvailable = true
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.MaterialNotAvailable, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReviewVersionAsync_FeasibleWithAdditionalCostMissingReasonReturnsBadRequest()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ReviewVersionAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new ReviewCustomizationVersionDto
+            {
+                Result = "FEASIBLE",
+                MaterialAvailable = true,
+                EstimatedProductionDays = 5,
+                EstimatedAdditionalCost = 1000000
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.AdditionalCostReasonRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReviewVersionAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.ReviewVersionAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            FeasibleVersionReview());
+
+        Assert.Equal(401, result.Status);
+    }
+
     #endregion
 
     #region GetVersionsAsync
+
+    [Fact]
+    public async Task GetVersionsAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetVersionsAsync(Guid.NewGuid(), Guid.Empty);
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task GetVersionsAsync_UnassignedUserReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetVersionsAsync(entity.CustomizationRequestId, Guid.NewGuid());
+
+        Assert.Equal(403, result.Status);
+    }
 
     [Fact]
     public async Task GetVersionsAsync_DesignerSeesDraftAndSubmittedVersionsOrderedByVersionNo()
@@ -778,6 +1380,20 @@ public sealed class CustomizationRequestServiceTests
     #endregion
 
     #region GetVersionDetailAsync
+
+    [Fact]
+    public async Task GetVersionDetailAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetVersionDetailAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.Empty);
+
+        Assert.Equal(401, result.Status);
+    }
 
     [Fact]
     public async Task GetVersionDetailAsync_ReturnsAcceptedFlagForSelectedVersion()
@@ -901,6 +1517,20 @@ public sealed class CustomizationRequestServiceTests
     #region GetProductionVersionDetailAsync
 
     [Fact]
+    public async Task GetProductionVersionDetailAsync_EmptyUserReturnsUnauthorized()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetProductionVersionDetailAsync(Guid.NewGuid(), Guid.Empty);
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
     public async Task GetProductionVersionDetailAsync_ProductionUserGetsDetail()
     {
         var ids = CreateIds();
@@ -993,6 +1623,188 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(version.CustomizationRequestVersionId, entity.AcceptedRequestVersionId);
     }
 
+    [Fact]
+    public async Task AcceptVersionAsync_WithdrawsOtherNonTerminalVersions()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING);
+        var acceptedProduct = CreateCustomProductVersion(Guid.NewGuid());
+        var otherProduct = CreateCustomProductVersion(Guid.NewGuid());
+        var acceptedVersion = CreateFeasibleVersion(ids, entity.CustomizationRequestId, acceptedProduct.ProductVersionId);
+        var otherVersion = CreateReviewingVersion(ids, entity.CustomizationRequestId, otherProduct.ProductVersionId, versionNo: 2);
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(acceptedVersion, acceptedProduct);
+        versionRepo.StoreVersion(otherVersion, otherProduct);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole),
+            productVersions: new FakeProductVersionRepository([acceptedProduct, otherProduct]));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new AcceptCustomizationRequestDto
+            {
+                CustomizationRequestVersionId = acceptedVersion.CustomizationRequestVersionId
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationVersionStatus.WITHDRAWN, otherVersion.Status);
+        Assert.NotNull(otherVersion.WithdrawnAt);
+    }
+
+    [Fact]
+    public async Task AcceptVersionAsync_NotFeasibleVersionReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateReviewingVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING)
+            },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new AcceptCustomizationRequestDto
+            {
+                CustomizationRequestVersionId = version.CustomizationRequestVersionId
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationVersionNotFeasible, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AcceptVersionAsync_IdempotentWhenAlreadyAcceptedReturnsSuccess()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.ACCEPTED);
+        var versionId = Guid.NewGuid();
+        entity.AcceptedRequestVersionId = versionId;
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.ACCEPTED);
+        detail.AcceptedRequestVersionId = versionId;
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new AcceptCustomizationRequestDto { CustomizationRequestVersionId = versionId });
+
+        Assert.Equal(200, result.Status);
+    }
+
+    [Fact]
+    public async Task AcceptVersionAsync_NonCustomerReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new AcceptCustomizationRequestDto { CustomizationRequestVersionId = Guid.NewGuid() });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task AcceptVersionAsync_EmptyVersionIdReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new AcceptCustomizationRequestDto { CustomizationRequestVersionId = Guid.Empty });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.InvalidCustomizationRequest, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AcceptVersionAsync_VersionNotFoundReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new AcceptCustomizationRequestDto { CustomizationRequestVersionId = Guid.NewGuid() });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationVersionNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AcceptVersionAsync_NotInReviewingReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.SUBMITTED)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new AcceptCustomizationRequestDto { CustomizationRequestVersionId = Guid.NewGuid() });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationNotInReviewing, result.ErrorCode);
+    }
+
     #endregion
 
     #region CancelAsync
@@ -1022,6 +1834,30 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(CustomizationStatus.CANCELLED, entity.Status);
         Assert.Equal(1, requestRepo.UpdateCallCount);
         Assert.Equal(1, requestRepo.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task CancelAsync_SalesCancelsSubmittedRequest()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(SalesRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.SalesId,
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.CANCELLED, entity.Status);
     }
 
     [Fact]
@@ -1070,6 +1906,55 @@ public sealed class CustomizationRequestServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(CustomizationRequestErrorCodes.CustomizationAlreadyAccepted, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelAsync_DesignerCancelsAndWithdrawsDraftVersion()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var draftVersion = CreateDraftVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(draftVersion, productVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CancelCustomizationRequestDto { CancelReason = "Customer changed mind." });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.CANCELLED, entity.Status);
+        Assert.Equal(CustomizationVersionStatus.WITHDRAWN, draftVersion.Status);
+    }
+
+    [Fact]
+    public async Task CancelAsync_UnassignedUserReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = CreateDetail(ids, entity.CustomizationRequestId)
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.CancelAsync(
+            entity.CustomizationRequestId,
+            Guid.NewGuid(),
+            new CancelCustomizationRequestDto());
+
+        Assert.Equal(403, result.Status);
     }
 
     #endregion
@@ -1340,6 +2225,24 @@ public sealed class CustomizationRequestServiceTests
         VersionName = "Custom Chair V1",
         DimensionUnit = "cm",
         Material = "Dark oak wood"
+    };
+
+    private static FileMetadataReadModel CreateModelFileMetadata(
+        Guid fileId,
+        FileStatus status = FileStatus.ACTIVE) => new()
+    {
+        FileId = fileId,
+        Status = status,
+        FileType = FileType.MODEL_3D,
+        OriginalFileName = "chair.glb"
+    };
+
+    private static FileMetadataReadModel CreatePreviewFileMetadata(Guid fileId) => new()
+    {
+        FileId = fileId,
+        Status = FileStatus.ACTIVE,
+        FileType = FileType.PRODUCT_PREVIEW,
+        OriginalFileName = "preview.jpg"
     };
 
     private static ReviewCustomizationVersionDto FeasibleVersionReview() => new()
@@ -1907,9 +2810,20 @@ public sealed class CustomizationRequestServiceTests
 
     private sealed class FakeCustomizationProjectFileRepository : IProjectFileRepository
     {
-        public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        private readonly Dictionary<Guid, FileMetadataReadModel> _metadata = new();
+
+        public int AddedFileLinkCount { get; private set; }
+
+        public void SetMetadata(Guid fileId, FileMetadataReadModel metadata) => _metadata[fileId] = metadata;
+
+        public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
+        {
+            AddedFileLinkCount++;
+            return Task.CompletedTask;
+        }
+
         public Task<FileMetadataReadModel?> GetFileMetadataAsync(Guid fileId, CancellationToken cancellationToken = default)
-            => Task.FromResult<FileMetadataReadModel?>(null);
+            => Task.FromResult(_metadata.TryGetValue(fileId, out var metadata) ? metadata : null);
         public IQueryable<StoredFile> Query() => Array.Empty<StoredFile>().AsQueryable();
         public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<StoredFile?>(null);
         public Task<IReadOnlyList<StoredFile>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<StoredFile>>([]);

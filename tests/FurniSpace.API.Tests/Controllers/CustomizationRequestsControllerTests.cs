@@ -279,6 +279,67 @@ public sealed class CustomizationRequestsControllerTests
         Assert.IsType<UnauthorizedResult>(actionResult);
     }
 
+    [Theory]
+    [InlineData(nameof(CustomizationRequestsController.Submit))]
+    [InlineData(nameof(CustomizationRequestsController.CreateVersion))]
+    [InlineData(nameof(CustomizationRequestsController.UpdateDraftVersion))]
+    [InlineData(nameof(CustomizationRequestsController.SubmitVersionForReview))]
+    [InlineData(nameof(CustomizationRequestsController.WithdrawVersion))]
+    [InlineData(nameof(CustomizationRequestsController.Cancel))]
+    public async Task MutatingActions_WithoutUserClaim_ReturnUnauthorized(string actionName)
+    {
+        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
+        var requestId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+
+        var actionResult = actionName switch
+        {
+            nameof(CustomizationRequestsController.Submit) =>
+                await controller.Submit(requestId, new SubmitCustomizationRequestDto()),
+            nameof(CustomizationRequestsController.CreateVersion) =>
+                await controller.CreateVersion(requestId, new CreateCustomizationRequestVersionDto()),
+            nameof(CustomizationRequestsController.UpdateDraftVersion) =>
+                await controller.UpdateDraftVersion(requestId, versionId, new UpdateCustomizationRequestVersionDto()),
+            nameof(CustomizationRequestsController.SubmitVersionForReview) =>
+                await controller.SubmitVersionForReview(requestId, versionId),
+            nameof(CustomizationRequestsController.WithdrawVersion) =>
+                await controller.WithdrawVersion(requestId, versionId),
+            _ => await controller.Cancel(requestId, new CancelCustomizationRequestDto())
+        };
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Theory]
+    [InlineData(nameof(CustomizationRequestsController.GetByProject))]
+    [InlineData(nameof(CustomizationRequestsController.GetDetail))]
+    [InlineData(nameof(CustomizationRequestsController.GetVersions))]
+    [InlineData(nameof(CustomizationRequestsController.GetVersionDetail))]
+    [InlineData(nameof(CustomizationRequestsController.AcceptVersion))]
+    public async Task ReadActions_WithoutUserClaim_ReturnUnauthorized(string actionName)
+    {
+        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
+        var requestId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+
+        var actionResult = actionName switch
+        {
+            nameof(CustomizationRequestsController.GetByProject) =>
+                await controller.GetByProject(requestId),
+            nameof(CustomizationRequestsController.GetDetail) =>
+                await controller.GetDetail(requestId),
+            nameof(CustomizationRequestsController.GetVersions) =>
+                await controller.GetVersions(requestId),
+            nameof(CustomizationRequestsController.GetVersionDetail) =>
+                await controller.GetVersionDetail(requestId, versionId),
+            _ => await controller.AcceptVersion(
+                requestId,
+                new AcceptCustomizationRequestDto { CustomizationRequestVersionId = versionId })
+        };
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
     [Fact]
     public async Task GetByProject_WithoutUserClaim_ReturnsUnauthorized()
     {

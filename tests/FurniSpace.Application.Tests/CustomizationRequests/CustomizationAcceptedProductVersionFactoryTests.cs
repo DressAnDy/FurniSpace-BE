@@ -229,4 +229,22 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
         Assert.Equal("mm", result.DimensionUnit);
         Assert.Equal(1500000m, result.EstimatedPrice);
     }
+
+    [Fact]
+    public void ValidateVersionName_WhenTooLong_ReturnsError()
+    {
+        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionName(new string('A', 151));
+
+        Assert.NotNull(error);
+        Assert.Contains("at most", error);
+    }
+
+    [Fact]
+    public void ValidateVersionCode_WhenTooLong_ReturnsError()
+    {
+        var error = CustomizationAcceptedProductVersionFactory.ValidateVersionCode(new string('C', 51));
+
+        Assert.NotNull(error);
+        Assert.Contains("at most", error);
+    }
 }

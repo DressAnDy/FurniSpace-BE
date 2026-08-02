@@ -93,6 +93,26 @@ public sealed class ProductionCustomizationVersionsControllerTests
         Assert.Same(request, service.ReviewRequest);
     }
 
+    [Fact]
+    public async Task GetDetail_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(new FakeCustomizationRequestService());
+
+        var result = await controller.GetDetail(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task Review_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(new FakeCustomizationRequestService());
+
+        var result = await controller.Review(Guid.NewGuid(), new ReviewCustomizationVersionDto { Result = "FEASIBLE" });
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
     private static ProductionCustomizationVersionsController CreateController(
         FakeCustomizationRequestService service,
         Guid? userId = null)

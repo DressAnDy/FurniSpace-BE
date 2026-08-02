@@ -177,6 +177,109 @@ public sealed class CustomizationRequestsControllerTests
     }
 
     [Fact]
+    public async Task GetDetail_ReturnsServiceResultAndPassesIds()
+    {
+        var requestId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakeCustomizationRequestService();
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.GetDetail(requestId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(requestId, service.CustomizationRequestId);
+        Assert.Equal(userId, service.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task Submit_ReturnsServiceResultAndPassesRequest()
+    {
+        var proposalItemId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new SubmitCustomizationRequestDto { RequestTitle = "Custom chair" };
+        var service = new FakeCustomizationRequestService
+        {
+            DetailResult = ServiceResult<CustomizationRequestDto>.Created(new CustomizationRequestDto())
+        };
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.Submit(proposalItemId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(proposalItemId, service.ProposalItemId);
+        Assert.Same(request, service.SubmitRequest);
+    }
+
+    [Fact]
+    public async Task SubmitVersionForReview_ReturnsServiceResultAndPassesIds()
+    {
+        var requestId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakeCustomizationRequestService
+        {
+            SubmitVersionResult = ServiceResult<CustomizationRequestVersionDto>.Success(new CustomizationRequestVersionDto())
+        };
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.SubmitVersionForReview(requestId, versionId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(requestId, service.CustomizationRequestId);
+        Assert.Equal(versionId, service.CustomizationRequestVersionId);
+    }
+
+    [Fact]
+    public async Task WithdrawVersion_ReturnsServiceResultAndPassesIds()
+    {
+        var requestId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakeCustomizationRequestService
+        {
+            WithdrawVersionResult = ServiceResult<CustomizationRequestVersionDto>.Success(new CustomizationRequestVersionDto())
+        };
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.WithdrawVersion(requestId, versionId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(requestId, service.CustomizationRequestId);
+        Assert.Equal(versionId, service.CustomizationRequestVersionId);
+    }
+
+    [Fact]
+    public async Task Cancel_ReturnsServiceResultAndPassesRequest()
+    {
+        var requestId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new CancelCustomizationRequestDto { CancelReason = "Changed mind" };
+        var service = new FakeCustomizationRequestService();
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.Cancel(requestId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(requestId, service.CustomizationRequestId);
+        Assert.Same(request, service.CancelRequest);
+    }
+
+    [Fact]
+    public async Task GetDetail_WithoutUserClaim_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
+
+        var actionResult = await controller.GetDetail(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
     public async Task GetByProject_WithoutUserClaim_ReturnsUnauthorized()
     {
         var controller = BuildController(new FakeCustomizationRequestService(), userId: null);
@@ -225,18 +328,27 @@ public sealed class CustomizationRequestsControllerTests
         public ServiceResult<CustomizationRequestVersionDto> UpdateDraftVersionResult { get; init; } =
             ServiceResult<CustomizationRequestVersionDto>.Unauthorized();
 
+        public ServiceResult<CustomizationRequestVersionDto> SubmitVersionResult { get; init; } =
+            ServiceResult<CustomizationRequestVersionDto>.Unauthorized();
+
+        public ServiceResult<CustomizationRequestVersionDto> WithdrawVersionResult { get; init; } =
+            ServiceResult<CustomizationRequestVersionDto>.Unauthorized();
+
         public ServiceResult<CreateCustomizationRequestVersionResponseDto> CreateVersionResult { get; init; } =
             ServiceResult<CreateCustomizationRequestVersionResponseDto>.Created(
                 new CreateCustomizationRequestVersionResponseDto());
 
         public Guid ProjectId { get; private set; }
+        public Guid ProposalItemId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public Guid CustomizationRequestId { get; private set; }
         public Guid CustomizationRequestVersionId { get; private set; }
         public CustomizationRequestQueryDto? Query { get; private set; }
+        public SubmitCustomizationRequestDto? SubmitRequest { get; private set; }
         public CreateCustomizationRequestVersionDto? CreateVersionRequest { get; private set; }
         public UpdateCustomizationRequestVersionDto? UpdateDraftVersionRequest { get; private set; }
         public AcceptCustomizationRequestDto? AcceptVersionRequest { get; private set; }
+        public CancelCustomizationRequestDto? CancelRequest { get; private set; }
 
         public Task<ServiceResult<CustomizationRequestListResponseDto>> GetByProjectAsync(
             Guid projectId, Guid currentUserId, CustomizationRequestQueryDto query, CancellationToken cancellationToken = default)
@@ -249,7 +361,11 @@ public sealed class CustomizationRequestsControllerTests
 
         public Task<ServiceResult<CustomizationRequestDto>> GetDetailAsync(
             Guid customizationRequestId, Guid currentUserId, CancellationToken cancellationToken = default)
-            => Task.FromResult(DetailResult);
+        {
+            CustomizationRequestId = customizationRequestId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(DetailResult);
+        }
 
         public Task<ServiceResult<CustomizationRequestVersionListResponseDto>> GetVersionsAsync(
             Guid customizationRequestId, Guid currentUserId, CancellationToken cancellationToken = default)
@@ -273,7 +389,12 @@ public sealed class CustomizationRequestsControllerTests
 
         public Task<ServiceResult<CustomizationRequestDto>> SubmitAsync(
             Guid proposalItemId, Guid currentUserId, SubmitCustomizationRequestDto request, CancellationToken cancellationToken = default)
-            => Task.FromResult(DetailResult);
+        {
+            ProposalItemId = proposalItemId;
+            CurrentUserId = currentUserId;
+            SubmitRequest = request;
+            return Task.FromResult(DetailResult);
+        }
 
         public Task<ServiceResult<CreateCustomizationRequestVersionResponseDto>> CreateVersionAsync(
             Guid customizationRequestId, Guid currentUserId, CreateCustomizationRequestVersionDto request, CancellationToken cancellationToken = default)
@@ -295,11 +416,21 @@ public sealed class CustomizationRequestsControllerTests
 
         public Task<ServiceResult<CustomizationRequestVersionDto>> SubmitVersionForReviewAsync(
             Guid customizationRequestId, Guid customizationRequestVersionId, Guid currentUserId, CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<CustomizationRequestVersionDto>.Unauthorized());
+        {
+            CustomizationRequestId = customizationRequestId;
+            CustomizationRequestVersionId = customizationRequestVersionId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(SubmitVersionResult);
+        }
 
         public Task<ServiceResult<CustomizationRequestVersionDto>> WithdrawVersionAsync(
             Guid customizationRequestId, Guid customizationRequestVersionId, Guid currentUserId, CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<CustomizationRequestVersionDto>.Unauthorized());
+        {
+            CustomizationRequestId = customizationRequestId;
+            CustomizationRequestVersionId = customizationRequestVersionId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(WithdrawVersionResult);
+        }
 
         public Task<ServiceResult<CustomizationRequestDto>> AcceptVersionAsync(
             Guid customizationRequestId, Guid currentUserId, AcceptCustomizationRequestDto request, CancellationToken cancellationToken = default)
@@ -311,7 +442,12 @@ public sealed class CustomizationRequestsControllerTests
 
         public Task<ServiceResult<CustomizationRequestDto>> CancelAsync(
             Guid customizationRequestId, Guid currentUserId, CancelCustomizationRequestDto request, CancellationToken cancellationToken = default)
-            => Task.FromResult(DetailResult);
+        {
+            CustomizationRequestId = customizationRequestId;
+            CurrentUserId = currentUserId;
+            CancelRequest = request;
+            return Task.FromResult(DetailResult);
+        }
 
         public Task<ServiceResult<ProductionCustomizationVersionListResponseDto>> GetProductionVersionQueueAsync(
             Guid currentUserId, ProductionCustomizationVersionQueryDto query, CancellationToken cancellationToken = default)

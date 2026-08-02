@@ -835,6 +835,126 @@ public sealed class CustomizationRequestServiceTests
 
     #endregion
 
+    #region WithdrawVersionAsync
+
+    [Fact]
+    public async Task WithdrawVersionAsync_DesignerWithdrawsDraftVersion()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateDraftVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        var requestRepo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = detail
+        };
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        var service = CreateService(
+            requestRepo,
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole),
+            productVersions: new FakeProductVersionRepository([productVersion]));
+
+        var result = await service.WithdrawVersionAsync(
+            entity.CustomizationRequestId,
+            version.CustomizationRequestVersionId,
+            ids.DesignerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationVersionStatus.WITHDRAWN, version.Status);
+        Assert.NotNull(version.WithdrawnAt);
+    }
+
+    [Fact]
+    public async Task WithdrawVersionAsync_ReviewedVersionReturnsConflict()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateDraftVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        version.Status = CustomizationVersionStatus.REVIEWING;
+        version.FeasibilityStatus = ProductionFeasibilityStatus.FEASIBLE;
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole));
+
+        var result = await service.WithdrawVersionAsync(
+            entity.CustomizationRequestId,
+            version.CustomizationRequestVersionId,
+            ids.DesignerId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationVersionAlreadyReviewed, result.ErrorCode);
+    }
+
+    #endregion
+
+    #region GetProductionVersionDetailAsync
+
+    [Fact]
+    public async Task GetProductionVersionDetailAsync_ProductionUserGetsDetail()
+    {
+        var ids = CreateIds();
+        var queueItem = CreateVersionQueueItem(ids);
+        var versionRepo = new FakeCustomizationRequestVersionRepository
+        {
+            VersionQueueItems = [queueItem]
+        };
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetProductionVersionDetailAsync(
+            queueItem.Version.CustomizationRequestVersionId,
+            ids.ProductionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(queueItem.Version.CustomizationRequestVersionId, result.Data!.Version.CustomizationRequestVersionId);
+        Assert.Equal("Cafe Project", result.Data.Project.ProjectName);
+    }
+
+    [Fact]
+    public async Task GetProductionVersionDetailAsync_CustomerReturnsForbidden()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole));
+
+        var result = await service.GetProductionVersionDetailAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProductionVersionDetailAsync_MissingVersionReturnsNotFound()
+    {
+        var service = CreateService(
+            new FakeCustomizationRequestRepository(),
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(ProductionRole));
+
+        var result = await service.GetProductionVersionDetailAsync(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.CustomizationVersionNotFound, result.ErrorCode);
+    }
+
+    #endregion
+
     #region AcceptVersionAsync
 
     [Fact]
@@ -1530,18 +1650,33 @@ public sealed class CustomizationRequestServiceTests
             Guid customizationRequestVersionId,
             CancellationToken cancellationToken = default)
         {
-            if (!_productionDetails.TryGetValue(customizationRequestVersionId, out var detail))
+            if (_productionDetails.TryGetValue(customizationRequestVersionId, out var detail))
+            {
+                if (_versions.TryGetValue(customizationRequestVersionId, out var version) &&
+                    _productVersions.TryGetValue(version.ProductVersionId, out var productVersion))
+                {
+                    detail.Version = ToReadModel(version, productVersion);
+                }
+
+                return Task.FromResult<ProductionCustomizationVersionDetailReadModel?>(detail);
+            }
+
+            var queueItem = VersionQueueItems.FirstOrDefault(
+                item => item.Version.CustomizationRequestVersionId == customizationRequestVersionId);
+            if (queueItem is null)
             {
                 return Task.FromResult<ProductionCustomizationVersionDetailReadModel?>(null);
             }
 
-            if (_versions.TryGetValue(customizationRequestVersionId, out var version) &&
-                _productVersions.TryGetValue(version.ProductVersionId, out var productVersion))
-            {
-                detail.Version = ToReadModel(version, productVersion);
-            }
-
-            return Task.FromResult<ProductionCustomizationVersionDetailReadModel?>(detail);
+            return Task.FromResult<ProductionCustomizationVersionDetailReadModel?>(
+                new ProductionCustomizationVersionDetailReadModel
+                {
+                    Version = queueItem.Version,
+                    Request = queueItem.Request,
+                    ProposalName = queueItem.ProposalName,
+                    ProposalStatus = queueItem.ProposalStatus,
+                    SourceProductVersion = queueItem.SourceProductVersion
+                });
         }
 
         public Task<bool> TryMarkProductionReviewedAsync(

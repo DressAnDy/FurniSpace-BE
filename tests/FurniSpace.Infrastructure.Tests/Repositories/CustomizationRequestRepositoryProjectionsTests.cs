@@ -47,4 +47,24 @@ public sealed class CustomizationRequestRepositoryProjectionsTests
         Assert.Equal(source.ProjectName, detail.ProjectName);
         Assert.Equal(source.AssignedDesignerId, detail.AssignedDesignerId);
     }
+
+    [Fact]
+    public void ToDetailReadModel_CopiesDimensionFields()
+    {
+        var source = new CustomizationRequestReadModel
+        {
+            CustomizationRequestId = Guid.NewGuid(),
+            RequestedWidth = 60m,
+            RequestedHeight = 90m,
+            RequestedDepth = 45m,
+            RequestedChangeNote = "Rounded corners"
+        };
+
+        var detail = CustomizationRequestRepositoryProjections.ToDetailReadModel(source);
+
+        Assert.Equal(60m, detail.RequestedWidth);
+        Assert.Equal(90m, detail.RequestedHeight);
+        Assert.Equal(45m, detail.RequestedDepth);
+        Assert.Equal("Rounded corners", detail.RequestedChangeNote);
+    }
 }

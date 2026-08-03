@@ -53,6 +53,7 @@ proposal_scenes
 proposal_items
 proposal_scene_variants
 customization_requests
+customization_request_versions
 quotations
 quotation_items
 orders
@@ -129,8 +130,10 @@ Customer có thể:
 - Xem Proposal đã publish.
 - Xem và chỉnh Customer Scene Variant.
 - Tạo Customization Request.
-- Xem Customization Request do Designer tạo cho Project.
-- Accept hoặc reject kết quả customization.
+- Xem các Customization Version thuộc Project của mình.
+- Xem model, preview, feasibility và báo giá của từng Customization Version.
+- Accept một Customization Version khả thi.
+- Hủy toàn bộ Customization Request khi còn SUBMITTED hoặc REVIEWING.
 - Chọn final Proposal.
 - Xem, yêu cầu revision, accept hoặc reject Quotation.
 - Xem Payment của mình.
@@ -147,7 +150,9 @@ Customer không thể:
 ```text
 - Assign Sales, Designer hoặc Production.
 - Publish Proposal.
-- Tự đặt giá customization.
+- Tự tạo hoặc sửa Product Version customization.
+- Tự đặt feasibility, additional cost hoặc production days.
+- Accept Customization Version chưa FEASIBLE hoặc đã PRODUCTION_REJECTED/WITHDRAWN.
 - Tự tạo Deposit hoặc Remaining Payment obligation.
 - Tự set Payment thành PAID.
 - Tự update Production status.
@@ -208,15 +213,21 @@ Designer chịu trách nhiệm:
 - Tạo revision Proposal.
 - Review Customer Scene Variant.
 - Tạo Customization Request cho Customer của Project được assign.
-- Review customization design/spec.
-- Tạo approved project-specific Product Version theo flow Customer accept.
+- Chuyển Customization Request từ SUBMITTED sang REVIEWING.
+- Tạo nhiều PROJECT_SPECIFIC Product Version cho một Customization Request.
+- Tạo và quản lý customization_request_versions.
+- Chỉnh metadata/model/preview của version khi version còn DRAFT.
+- Submit từng version từ DRAFT sang REVIEWING.
+- Withdraw version không còn sử dụng.
+- Sau khi Customer accept, thay sản phẩm cũ bằng accepted Product Version trong Room Planner và sync Proposal Item theo flow Room Planner.
 ```
 
 Designer không thể:
 
 ```text
-- Set customization additional cost.
+- Set Production feasibility hoặc additional cost.
 - Production review customization.
+- Accept Customization Version thay Customer.
 - Tạo hoặc sửa Payment.
 - Cập nhật Production Item status.
 - Complete Order hoặc Project.
@@ -233,22 +244,31 @@ Production chịu trách nhiệm:
 - Start Production Request.
 - Update Production Item status.
 - Ghi production note, material note, cancellation reason.
-- Review customization feasibility.
-- Set material availability.
-- Set estimated production days.
-- Set customization additional cost.
+- Xem global Customization Version queue mà không cần được assign vào Project.
+- Xem Customization Version đã được Designer submit.
+- Review feasibility, material availability, production days và additional cost theo từng version.
 - Complete Production Request.
 - Start Delivery hoặc phối hợp Delivery.
 - Cập nhật delivered_quantity.
 ```
 
-Assignment là ownership chính, không giới hạn visibility global queue.
+Assignment là ownership chính của Production Request, không giới hạn visibility global queue.
+
+Đối với Customization Version:
+
+```text
+- Không cần Project assignment.
+- Quyền xem đến từ role PRODUCTION_STAFF hoặc ADMIN.
+- Chỉ xem version đã submit; DRAFT không hiển thị.
+- production_reviewed_by lưu người thực tế review.
+```
 
 Production không thể:
 
 ```text
 - Cấu hình Order financial.
 - Tạo Deposit Payment.
+- Accept, withdraw hoặc cancel customization.
 - Customer-confirm Adjustment.
 - Customer-confirm Delivery.
 - Complete Project.
@@ -284,10 +304,16 @@ Customer submits Project
 → Designer creates and publishes Proposals
 → Customer reviews, requests revision, compares options
 → Customer/Designer creates Customization Request when needed
-→ Designer reviews specification
-→ Production reviews feasibility and additional cost
-→ Customer accepts/rejects customization
-→ Accepted customization creates project-specific Product Version
+→ Designer starts request review
+→ Designer creates one or more PROJECT_SPECIFIC Product Versions
+→ each Product Version is linked through customization_request_versions
+→ Designer submits individual version for collaborative review
+→ Production reviews feasibility and pricing per version through global queue
+→ Designer may create additional versions while preserving older versions
+→ Customer accepts one FEASIBLE version or cancels the whole request
+→ accepted version is stored in customization_requests.accepted_request_version_id
+→ other active versions become WITHDRAWN
+→ Designer applies the accepted Product Version to Room Planner and syncs Proposal Item
 → Customer selects final Proposal
 → Sales creates and sends Quotation
 → Customer accepts Quotation
@@ -312,8 +338,6 @@ Customer submits Project
 → Sales/Admin explicitly completes Order and Project
 → Customer creates Project Review
 ```
-
----
 
 # 5. Account & Role Module
 
@@ -892,9 +916,15 @@ PROJECT_DESIGNER_ASSIGNED
 PROJECT_SCHEDULE_CREATED
 PROJECT_SCHEDULE_CONFIRMED
 PROPOSAL_PUBLISHED
-CUSTOMIZATION_REQUEST_CREATED
-CUSTOMIZATION_PRODUCTION_REVIEWED
-CUSTOMIZATION_WAITING_CUSTOMER_APPROVAL
+CUSTOMIZATION_REQUEST_SUBMITTED
+CUSTOMIZATION_REVIEW_STARTED
+CUSTOMIZATION_VERSION_CREATED
+CUSTOMIZATION_VERSION_SUBMITTED
+CUSTOMIZATION_VERSION_FEASIBLE
+CUSTOMIZATION_VERSION_REJECTED_BY_PRODUCTION
+CUSTOMIZATION_VERSION_ACCEPTED
+CUSTOMIZATION_VERSION_WITHDRAWN
+CUSTOMIZATION_REQUEST_CANCELLED
 QUOTATION_SENT
 PAYMENT_CREATED
 PAYMENT_PAID
@@ -915,9 +945,9 @@ PROJECT_COMPLETED
 - receiver_id is required.
 - deleted_at is soft delete.
 - is_read/read_at controlled by notification API.
+- Customization Version notifications reference CUSTOMIZATION_REQUEST_VERSION.
+- Version-level Production review notifies assigned Designer and Project Customer.
 ```
-
----
 
 # 12. Proposal Module
 
@@ -926,6 +956,7 @@ PROJECT_COMPLETED
 ```text
 proposals
 proposal_scenes
+proposal_scene_areas
 proposal_items
 proposal_scene_variants
 files
@@ -972,34 +1003,34 @@ Customer selects one final Proposal
 
 ```text
 - Proposal Item contains Product only.
-- product_version_id references original selected version.
-- approved_product_version_id references accepted customization version.
+- proposal_items.product_version_id is the actual Product Version currently used by the item.
+- Proposal Item does not store approved_product_version_id.
 - Snapshot dimensions/material/color/price do not auto-change from catalog.
 - quantity must be positive.
 - total_price_snapshot = quantity × unit_price_snapshot.
+- Customer acceptance of Customization does not directly mutate Proposal Item.
+- Designer later applies the accepted Product Version in Room Planner and runs the normal sync flow.
 ```
 
 ## Final Selection Gate
 
-Customer cannot select final Proposal while Customization Request is unresolved.
+Customer cannot select final Proposal while a related Customization Request is unresolved.
 
-Pending statuses:
+Pending request statuses:
 
 ```text
 SUBMITTED
-DESIGN_REVIEWING
-PRODUCTION_REVIEWING
-WAITING_FOR_CUSTOMER_FINAL_APPROVAL
+REVIEWING
 ```
 
-Resolved statuses:
+Resolved request statuses:
 
 ```text
 ACCEPTED
-REJECTED_BY_CUSTOMER
-NOT_FEASIBLE
 CANCELLED
 ```
+
+No additional guard is required to verify that an accepted customization has already been applied to Proposal Item.
 
 ## Integration Test Scenarios
 
@@ -1009,12 +1040,11 @@ CANCELLED
 - Customer sees only published Proposal.
 - Request revision.
 - Select exactly one final Proposal.
-- Block selection when customization pending.
+- Block selection when customization request is SUBMITTED or REVIEWING.
 - Prevent edit after SELECTED.
 - Verify Proposal Item snapshots.
+- Verify Quotation later reads proposal_items.product_version_id directly.
 ```
-
----
 
 # 13. Room Planner & Scene Variant Module
 
@@ -1105,23 +1135,41 @@ Designer applies accepted variant
 
 # 14. Customization Module
 
-## Table
+## Tables
 
 ```text
 customization_requests
+customization_request_versions
+product_versions
+files
+file_links
 ```
 
-## Status
+## Request Status
 
 ```text
 SUBMITTED
-DESIGN_REVIEWING
-PRODUCTION_REVIEWING
-WAITING_FOR_CUSTOMER_FINAL_APPROVAL
-NOT_FEASIBLE
+REVIEWING
 ACCEPTED
-REJECTED_BY_CUSTOMER
 CANCELLED
+```
+
+## Version Status
+
+```text
+DRAFT
+REVIEWING
+PRODUCTION_REJECTED
+ACCEPTED
+WITHDRAWN
+```
+
+## Production Feasibility Status
+
+```text
+PENDING
+FEASIBLE
+NOT_FEASIBLE
 ```
 
 ## Actors
@@ -1132,123 +1180,368 @@ CUSTOMER
 assigned DESIGNER
 ADMIN
 
-Designer review:
+Start request review:
 assigned DESIGNER
 ADMIN
 
-Production review:
+Create/update/submit/withdraw version:
+assigned DESIGNER
+ADMIN
+
+Production queue/detail/review:
 PRODUCTION
 ADMIN
 
-Final decision:
+Accept version:
 CUSTOMER
+
+Cancel request:
+CUSTOMER
+assigned SALES
+assigned DESIGNER
+ADMIN
 ```
 
-## Creator Rule
+## Creator And Ownership Rules
 
-No additional creator field is added to `customization_requests`.
+No dedicated generic creator field is added to `customization_requests`.
 
 ```text
 requested_by_customer_id
 = Customer who owns the requirement and makes final decision
 ```
 
-Designer can create request for the Customer of an assigned Project, but the database does not persist a separate dedicated request-creator column.
+Designer or Admin may create the request for the Customer of the Project, but the request does not persist a separate actual API actor field.
 
-## Flow
+Each alternative does record:
 
 ```text
-Customer/Designer creates request
-→ SUBMITTED
-
-Designer reviews specification
-→ PRODUCTION_REVIEWING
-
-Production marks FEASIBLE
-→ WAITING_FOR_CUSTOMER_FINAL_APPROVAL
-
-Production marks NOT_FEASIBLE
-→ NOT_FEASIBLE
-
-Customer accepts
-→ ACCEPTED
-→ create PROJECT_SPECIFIC Product Version
-→ set customization_requests.approved_product_version_id
-→ set proposal_items.approved_product_version_id
-→ update Proposal Item snapshots
-
-Customer rejects
-→ REJECTED_BY_CUSTOMER
-→ Proposal Item unchanged
-
-Authorized cancel before accepted
-→ CANCELLED
+customization_request_versions.created_by_designer_id
 ```
 
+## Request Data Model
+
+```text
+source_product_version_id
+= Product Version snapshotted from proposal_items.product_version_id at submission
+
+accepted_request_version_id
+= selected customization_request_versions row after Customer acceptance
+```
+
+The request does not permanently store `proposal_item_id`.
+
+## Request Flow
+
+```text
+Customer/Designer creates request from Proposal Item
+→ Backend snapshots source_product_version_id
+→ SUBMITTED
+
+Assigned Designer starts handling
+→ REVIEWING
+
+While REVIEWING:
+→ Designer may create Version 1, Version 2, ... Version N
+→ Production and Customer review individual versions
+→ request remains REVIEWING
+
+Customer accepts one FEASIBLE version
+→ selected version ACCEPTED
+→ request.accepted_request_version_id set
+→ request ACCEPTED
+→ other active DRAFT/REVIEWING versions WITHDRAWN
+
+Authorized actor cancels whole request
+→ request CANCELLED
+→ active DRAFT/REVIEWING versions WITHDRAWN
+```
+
+## Create Version Flow
+
+Designer creates a new alternative only while request is `REVIEWING`.
+
+Atomic SQL transaction:
+
+```text
+Create PROJECT_SPECIFIC Product Version
+Create customization_request_versions row
+Create file_links for already uploaded files
+```
+
+Product Version rules:
+
+```text
+product_id = source Product Version.product_id
+project_id = request.project_id
+version_type = PROJECT_SPECIFIC
+is_project_specific = true
+is_public = false
+is_default = false
+status = ACTIVE
+```
+
+Initial version values:
+
+```text
+version_no = next number within request
+status = DRAFT
+feasibility_status = PENDING
+created_by_designer_id = current Designer
+```
+
+Files are uploaded before create/update and linked by:
+
+```text
+reference_type = PRODUCT_VERSION
+reference_id = customization_request_versions.product_version_id
+```
+
+Supported review assets:
+
+```text
+MODEL_3D
+PRODUCT_PREVIEW
+TEXTURE when present
+```
+
+## Draft Update Rules
+
+While version is `DRAFT`, assigned Designer/Admin may update:
+
+```text
+version_title
+designer_note
+Product Version name/specification
+material
+color
+dimensions
+estimated price
+model/preview/texture file links
+```
+
+Immutable through this flow:
+
+```text
+product_id
+project_id
+version_type
+version_no
+created_by_designer_id
+```
+
+Version metadata and files cannot be changed after leaving `DRAFT`.
+
+## Submit Version For Review
+
+```text
+DRAFT
+→ REVIEWING
+submitted_for_review_at set
+```
+
+Preconditions include:
+
+```text
+- parent request REVIEWING
+- Product Version ACTIVE and PROJECT_SPECIFIC
+- Product Version belongs to same Project and Product as source
+- required model/preview information is present
+```
+
+Submitting a new version does not invalidate an older feasible version.
+
+## Production Global Queue
+
+Production is not assigned to Project for this flow.
+
+Global queue access:
+
+```text
+role = PRODUCTION_STAFF or ADMIN
+request.status = REVIEWING
+version.status = REVIEWING
+submitted_for_review_at is not null
+```
+
+Default pending filter:
+
+```text
+feasibility_status = PENDING
+```
+
+Production can view only the Project and customization data required for feasibility review. Production cannot see DRAFT versions.
+
 ## Production Review Rules
+
+Production reviews one `customization_request_version`, not the whole request.
 
 Feasible:
 
 ```text
-material_available = true
-estimated_production_days required
-estimated_additional_cost required
-additional_cost_reason required when cost > 0
+version.status remains REVIEWING
+feasibility_status = FEASIBLE
+production_reviewed_by set
+production_reviewed_at set
+estimated_production_days > 0
+estimated_additional_cost >= 0
+material_available provided
 ```
 
 Not feasible:
 
 ```text
-status = NOT_FEASIBLE
-Customer cannot accept
-Proposal Item unchanged
+version.status = PRODUCTION_REJECTED
+feasibility_status = NOT_FEASIBLE
+production_reviewed_by set
+production_reviewed_at set
+production_rejected_at set
+feasibility_note required
 ```
 
-## Price Rule
+Production rejection:
 
 ```text
-estimated_additional_cost is additional unit cost
-
-approved unit price
-= original proposal item unit price
-+ estimated additional cost
-
-approved total
-= approved unit price × quantity
+- does not cancel parent request
+- does not delete Product Version
+- does not delete files
+- allows Designer to create another version
 ```
 
-## Accepted Product Version Rules
+Concurrent Production review must allow only one update while feasibility is `PENDING`.
+
+## Customer Accept Rules
+
+Customer sends a specific `customizationRequestVersionId`.
+
+Preconditions:
 
 ```text
-- Same product_id as original Product Version.
-- project_id = current Project.
-- version_type = PROJECT_SPECIFIC.
-- is_project_specific = true.
-- is_public = false.
-- is_default = false.
-- Original Product Version remains unchanged.
-- Null requested value falls back to original version value.
-- Customer accept must be idempotent.
+request.status = REVIEWING
+version belongs to request
+version.status = REVIEWING
+version.feasibility_status = FEASIBLE
+Product Version is ACTIVE
+Product Version is PROJECT_SPECIFIC
+Product Version belongs to request Project
+Product Version belongs to same Product as source
+```
+
+Atomic side effects:
+
+```text
+selected version → ACCEPTED
+selected version.accepted_at set
+request.accepted_request_version_id set
+request → ACCEPTED
+other DRAFT/REVIEWING versions → WITHDRAWN
+withdrawn_at set for those versions
+```
+
+Unaffected:
+
+```text
+Proposal Item
+MongoDB scene
+source Product Version
+Quotation
+Order
+```
+
+Customer may accept an older feasible version even after newer versions exist.
+
+A `PRODUCTION_REJECTED` or `WITHDRAWN` version cannot be accepted.
+
+## Withdraw Rules
+
+Assigned Designer/Admin may:
+
+```text
+DRAFT / REVIEWING
+→ WITHDRAWN
+```
+
+Do not withdraw:
+
+```text
+ACCEPTED
+PRODUCTION_REJECTED
+already WITHDRAWN
+```
+
+Withdraw does not delete Product Version or files.
+
+## Cancellation Rules
+
+```text
+SUBMITTED / REVIEWING
+→ CANCELLED
+```
+
+When cancelled:
+
+```text
+all DRAFT/REVIEWING versions → WITHDRAWN
+Product Versions and files remain stored
+```
+
+## Database Constraints
+
+```text
+(customization_request_id, version_no) unique
+(customization_request_id, product_version_id) unique
+version_no > 0
+estimated_production_days is null or > 0
+estimated_additional_cost is null or >= 0
+```
+
+Partial unique index:
+
+```sql
+CREATE UNIQUE INDEX uq_customization_one_accepted_version
+ON customization_request_versions(customization_request_id)
+WHERE status = 'ACCEPTED';
+```
+
+Backend validates that `accepted_request_version_id` belongs to the same request.
+
+## Concurrency Rules
+
+```text
+- Concurrent version creation must not duplicate version_no.
+- Create Product Version + version row + file links is transactional.
+- Concurrent Production review allows one successful review while PENDING.
+- Concurrent Customer acceptance allows only one accepted version.
+- Customer acceptance and withdrawal of other versions is transactional.
 ```
 
 ## Integration Test Scenarios
 
 ```text
-- Customer creates request.
+- Customer creates request from Proposal Item.
 - Assigned Designer creates request for Customer.
 - Unassigned Designer forbidden.
-- Designer cannot set price.
-- Production review mandatory.
-- Sales cannot production-review.
-- Customer cannot accept before review.
-- Not feasible cannot be accepted.
-- Accept creates one project-specific version.
-- Retry accept does not duplicate version/cost.
-- Reject leaves Proposal Item unchanged.
+- Source Product Version is snapshotted.
+- Designer starts review.
+- Create Version 1 and Version 2 without overwriting.
+- Update metadata/files while DRAFT.
+- Reject update after REVIEWING.
+- Submit DRAFT version.
+- Production sees submitted version globally without Project assignment.
+- Production cannot see DRAFT version.
+- Production marks Version 1 FEASIBLE.
+- Production marks Version 2 NOT_FEASIBLE.
+- Not feasible version and files remain stored.
+- Designer creates Version 3 after rejection.
+- Customer accepts older Version 1.
+- Accepted request references Version 1.
+- Other active versions become WITHDRAWN.
+- Production-rejected versions remain PRODUCTION_REJECTED.
+- Acceptance does not mutate Proposal Item.
+- Cancel request withdraws active versions.
+- One accepted version enforced under concurrency.
 - Pending request blocks final Proposal selection.
 ```
-
----
 
 # 15. Quotation Module
 
@@ -1312,8 +1605,10 @@ Customer rejects
 
 ```text
 PRODUCT_ITEM:
-- based on Proposal Item/Product Version
-- approved_product_version_id is preferred when customization accepted
+- based on Proposal Item
+- product_version_id is copied directly from proposal_items.product_version_id
+- no approved/original Product Version coalesce
+- no Customization Request join to infer version
 - snapshot name/version/code/price/spec
 
 MANUAL_ITEM:
@@ -1322,11 +1617,14 @@ MANUAL_ITEM:
 - does not participate in physical Delivery gate
 ```
 
+No additional Proposal readiness guard is required for accepted customization.
+
 ## Integration Test Scenarios
 
 ```text
 - Create only after final Proposal selected.
-- Snapshot approved customized version.
+- Snapshot Product Version directly from Proposal Item.
+- Standard and PROJECT_SPECIFIC Product Versions both map correctly.
 - Send valid Quotation.
 - Revision cycle.
 - Expiration.
@@ -1334,8 +1632,6 @@ MANUAL_ITEM:
 - Duplicate accept idempotent.
 - Cannot modify accepted Quotation.
 ```
-
----
 
 # 16. Order Module
 
@@ -2295,15 +2591,17 @@ Các action sau phải chạy trong một database transaction:
 - Accept Quotation and create Order.
 - Create Production Request and Production Items.
 - Payment SUCCESS and Order business effect.
-- Customer accepts customization and creates project-specific Product Version.
+- Create customization Product Version + customization_request_versions + file_links.
+- Accept Customization Version + set accepted_request_version_id + withdraw other active versions.
+- Cancel Customization Request + withdraw active versions.
 - Complete Production Request and apply Adjustments.
 - Customer confirms final Delivery Item and updates Order/Project.
 - Explicit complete Order and Project.
 ```
 
-Rollback toàn bộ khi một side effect fail.
+Upload binary file lên external storage không nằm trong SQL transaction. API Customization chỉ nhận file IDs đã upload và tạo `file_links`.
 
----
+Rollback toàn bộ SQL side effects khi một bước trong transaction thất bại.
 
 # 26. Idempotency Requirements
 
@@ -2314,7 +2612,11 @@ Integration Test cần gọi lặp các action quan trọng:
 - Assign same staff.
 - Select final Proposal.
 - Accept Quotation.
-- Customer accepts customization.
+- Start Customization Request review.
+- Retry the same Customization Version creation request when an idempotency strategy is provided.
+- Submit the same Customization Version for review.
+- Accept the same Customization Version.
+- Cancel Customization Request.
 - Process Payment webhook.
 - Complete Production Request.
 - Confirm Order Adjustment.
@@ -2330,12 +2632,11 @@ Expected:
 - Không duplicate entity.
 - Không cộng tiền hai lần.
 - Không apply Adjustment hai lần.
-- Không tạo Product Version hai lần.
+- Không duplicate accepted Customization Version.
+- Không withdraw version nhiều lần gây sai trạng thái.
 - Không tạo notification quan trọng hai lần.
-- Response trả trạng thái hiện tại hoặc success idempotent.
+- Response trả trạng thái hiện tại hoặc success idempotent khi business rule cho phép.
 ```
-
----
 
 # 27. Concurrency Requirements
 
@@ -2366,8 +2667,14 @@ Expected:
 ## Customization
 
 ```text
+- Concurrent version creation:
+  unique version_no within one request.
+- Concurrent Production review:
+  only one reviewer updates a PENDING version.
 - Concurrent Customer acceptance:
-  one approved Product Version only.
+  one version ACCEPTED only.
+- Acceptance transaction keeps request.accepted_request_version_id
+  consistent with the accepted version.
 ```
 
 ## Quotation
@@ -2376,8 +2683,6 @@ Expected:
 - Concurrent Quotation accept:
   one Order only.
 ```
-
----
 
 # 28. Suggested Integration Test Suites
 
@@ -2419,12 +2724,20 @@ Final selection
 ## Suite D — Customization
 
 ```text
-Customer/Designer create
-Designer review
-Production review
-Customer decision
-Project-specific Product Version
+Customer/Designer create request
+Source Product Version snapshot
+Designer starts review
+Create multiple PROJECT_SPECIFIC versions
+Update Draft metadata/files
+Submit version for review
+Production global queue and scoped detail
+Production FEASIBLE / NOT_FEASIBLE review per version
+Customer accepts older feasible version
+Withdraw other active versions
+Cancel request
+Project-specific Product Version/file access
 Selection blocker
+Concurrency
 ```
 
 ## Suite E — Quotation & Order
@@ -2518,7 +2831,10 @@ Proposal A2
 Scene A1
 Proposal Item A1
 Customization Request A1
-Project-Specific Product Version A1
+Customization Request Version A1.1
+Customization Request Version A1.2
+Project-Specific Product Version A1.1
+Project-Specific Product Version A1.2
 Quotation A1
 Order A1
 Product Order Item A1
@@ -2576,7 +2892,7 @@ Một Integration Test end-to-end thành công phải chứng minh:
 4. Designer được assign.
 5. Space được verified.
 6. Proposal được tạo, publish và chọn final.
-7. Customization được xử lý đầy đủ nếu có.
+7. Customization được xử lý theo multi-version flow; Customer accept đúng một FEASIBLE version nếu có.
 8. Quotation được accept.
 9. Order được tạo đúng snapshot.
 10. Deposit được thanh toán đủ.

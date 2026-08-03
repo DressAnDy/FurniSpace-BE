@@ -68,6 +68,14 @@ public sealed class RoomPlannerSceneRepositoryAdapter : IRoomPlannerSceneReposit
 
     private static void NormalizeDynamicJsonValues(InfrastructureRoomPlannerSceneDocument document)
     {
+        document.Objects ??= [];
+        document.Layers ??= [];
+        document.Camera ??= new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerCameraDocument();
+        document.Lighting ??= new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerLightingDocument();
+        document.Validation ??= new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerValidationDocument();
+        document.SceneLinks ??= new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneLinksDocument();
+        document.Metadata ??= new FurniSpace.Infrastructure.Data.Mongo.RoomPlannerSceneMetadataDocument();
+
         foreach (var sceneObject in document.Objects)
         {
             sceneObject.MaterialOverrides = NormalizeDictionary(sceneObject.MaterialOverrides);
@@ -75,13 +83,12 @@ public sealed class RoomPlannerSceneRepositoryAdapter : IRoomPlannerSceneReposit
 
         if (document.BlueprintLayout is not null)
         {
+            document.BlueprintLayout.Floors ??= [];
             document.BlueprintLayout.Metadata = NormalizeDictionary(document.BlueprintLayout.Metadata);
             NormalizeBlueprintFloorDictionaries(document.BlueprintLayout.Floors);
         }
 
-        document.Lighting.CustomLights = document.Lighting.CustomLights
-            .Select(NormalizeDictionary)
-            .ToList();
+        document.Lighting.CustomLights = NormalizeDictionaries(document.Lighting.CustomLights);
 
         if (document.EditorState is not null)
         {
@@ -94,6 +101,11 @@ public sealed class RoomPlannerSceneRepositoryAdapter : IRoomPlannerSceneReposit
     {
         foreach (var floor in floors)
         {
+            floor.Points ??= [];
+            floor.Walls ??= [];
+            floor.Doors ??= [];
+            floor.Windows ??= [];
+            floor.Openings ??= [];
             floor.Rooms = NormalizeDictionaries(floor.Rooms);
             floor.Slabs = NormalizeDictionaries(floor.Slabs);
             floor.Stairs = NormalizeDictionaries(floor.Stairs);
@@ -105,11 +117,18 @@ public sealed class RoomPlannerSceneRepositoryAdapter : IRoomPlannerSceneReposit
     }
 
     private static List<Dictionary<string, object?>> NormalizeDictionaries(
-        IEnumerable<Dictionary<string, object?>> values) =>
-        values.Select(NormalizeDictionary).ToList();
+        IEnumerable<Dictionary<string, object?>>? values) =>
+        values is null
+            ? []
+            : values.Select(NormalizeDictionary).ToList();
 
-    private static Dictionary<string, object?> NormalizeDictionary(Dictionary<string, object?> values)
+    private static Dictionary<string, object?> NormalizeDictionary(Dictionary<string, object?>? values)
     {
+        if (values is null)
+        {
+            return [];
+        }
+
         return values.ToDictionary(
             pair => pair.Key,
             pair => NormalizeDynamicValue(pair.Value));

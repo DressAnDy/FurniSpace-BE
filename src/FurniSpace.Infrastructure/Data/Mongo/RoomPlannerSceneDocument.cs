@@ -13,7 +13,7 @@ public sealed class RoomPlannerSceneDocument
     public Guid SqlSceneId { get; set; }
 
     [BsonElement("schemaVersion")]
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 3;
 
     [BsonElement("editorVersion")]
     public string? EditorVersion { get; set; }

@@ -76,6 +76,8 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
                 ProposalNotEditableMessage));
         }
 
+        NormalizePayload(request);
+
         var payloadValidationError = ValidatePayload(request, context);
         if (payloadValidationError is not null)
         {
@@ -89,13 +91,13 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         }
 
         var now = DateTime.UtcNow;
-        var existingDocument = await GetExistingDocumentAsync(context, cancellationToken);
-        NormalizeBlueprintForNewWrite(request.BlueprintLayout!);
-        var document = BuildDocument(context, request, currentUserId, now, existingDocument);
-
+        RoomPlannerSceneDocument? existingDocument;
         RoomPlannerSceneDocument saved;
         try
         {
+            existingDocument = await GetExistingDocumentAsync(context, cancellationToken);
+            NormalizeBlueprintForNewWrite(request.BlueprintLayout!);
+            var document = BuildDocument(context, request, currentUserId, now, existingDocument);
             saved = await _sceneDocuments.UpsertBySqlSceneIdAsync(document, cancellationToken);
         }
         catch
@@ -104,6 +106,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
                 RoomPlannerSaveFailedCode,
                 "Room Planner scene could not be saved."));
         }
+
         if (string.IsNullOrWhiteSpace(saved.Id))
         {
             return ServiceResult<RoomPlannerSceneSaveResponseDto>.Failure(Error.InternalServerError(
@@ -131,7 +134,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             {
                 SceneId = sceneId,
                 MongoSceneId = saved.Id,
-                LastSavedAt = saved.Metadata.UpdatedAt ?? now
+                LastSavedAt = saved.Metadata?.UpdatedAt ?? now
             },
             "Room planner scene saved successfully.");
     }
@@ -170,7 +173,18 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
                 "Empty Room Planner scene template returned successfully.");
         }
 
-        var document = await _sceneDocuments.GetByIdAsync(context.MongoSceneId, cancellationToken);
+        RoomPlannerSceneDocument? document;
+        try
+        {
+            document = await _sceneDocuments.GetByIdAsync(context.MongoSceneId, cancellationToken);
+        }
+        catch
+        {
+            return ServiceResult<RoomPlannerSceneResponseDto>.Failure(Error.InternalServerError(
+                RoomPlannerLoadFailedCode,
+                "Room Planner scene could not be loaded."));
+        }
+
         if (document is null)
         {
             return ServiceResult<RoomPlannerSceneResponseDto>.Failure(Error.NotFound(
@@ -222,9 +236,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             EditorState = request.EditorState,
             Metadata = new RoomPlannerMetadataDocument
             {
-                CreatedBy = existingDocument?.Metadata.CreatedBy ?? currentUserId,
+                CreatedBy = existingDocument?.Metadata?.CreatedBy ?? currentUserId,
                 UpdatedBy = currentUserId,
-                CreatedAt = existingDocument?.Metadata.CreatedAt ?? now,
+                CreatedAt = existingDocument?.Metadata?.CreatedAt ?? now,
                 UpdatedAt = now
             }
         };
@@ -241,7 +255,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             ProjectAreaIds = ToOrderedProjectAreaIds(context.SceneAreas),
             Areas = ToSceneAreaDtos(context.SceneAreas),
             SchemaVersion = 3,
-            EditorVersion = "ROOM_PLANNER_BABYLON_V1",
+            EditorVersion = EmptyTemplateEditorVersion,
             Unit = "meter",
             BlueprintLayout = CreateEmptyBlueprintLayout(context),
             Objects = [],
@@ -249,6 +263,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             Camera = new RoomPlannerCameraDocument(),
             Lighting = new RoomPlannerLightingDocument(),
             Validation = new RoomPlannerValidationDocument(),
+            EditorState = new RoomPlannerEditorStateDocument(),
             LastSavedAt = null
         };
 
@@ -274,7 +289,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             Lighting = document.Lighting,
             Validation = document.Validation,
             EditorState = document.EditorState,
-            LastSavedAt = document.Metadata.UpdatedAt
+            LastSavedAt = document.Metadata?.UpdatedAt
         };
 
     private static Error? ValidateDocumentForLoad(
@@ -356,6 +371,60 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         return await _sceneDocuments.GetBySqlSceneIdAsync(context.SceneId, cancellationToken);
     }
 
+    private static void NormalizePayload(RoomPlannerScenePayloadDto request)
+    {
+        request.Objects ??= [];
+        request.Layers ??= [];
+        request.Camera ??= new RoomPlannerCameraDocument();
+        request.Lighting ??= new RoomPlannerLightingDocument();
+        request.Lighting.CustomLights ??= [];
+        request.Validation ??= new RoomPlannerValidationDocument();
+
+        if (request.EditorState is not null)
+        {
+            request.EditorState.SnapSettings ??= [];
+        }
+
+        if (request.BlueprintLayout is null)
+        {
+            return;
+        }
+
+        request.BlueprintLayout.Floors ??= [];
+        request.BlueprintLayout.Metadata ??= [];
+
+        foreach (var floor in request.BlueprintLayout.Floors)
+        {
+            floor.Points ??= [];
+            floor.Walls ??= [];
+            floor.Doors ??= [];
+            floor.Windows ??= [];
+            floor.Openings ??= [];
+            floor.Rooms ??= [];
+            floor.Slabs ??= [];
+            floor.Stairs ??= [];
+            floor.Balconies ??= [];
+            floor.Yards ??= [];
+            floor.Columns ??= [];
+            floor.Beams ??= [];
+
+            foreach (var wall in floor.Walls)
+            {
+                wall.Start ??= new RoomPlannerPoint2Document();
+                wall.End ??= new RoomPlannerPoint2Document();
+                wall.Style ??= new RoomPlannerStyleDocument();
+            }
+        }
+
+        foreach (var sceneObject in request.Objects)
+        {
+            sceneObject.MaterialOverrides ??= [];
+            sceneObject.Transform ??= new RoomPlannerTransformDocument();
+            sceneObject.DimensionsSnapshot ??= new RoomPlannerDimensionsSnapshotDocument();
+            sceneObject.Placement ??= new RoomPlannerPlacementDocument();
+        }
+    }
+
     private static Error? ValidatePayload(
         RoomPlannerScenePayloadDto request,
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context)
@@ -384,7 +453,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
         if (!UnitsMatch(request.Unit, request.BlueprintLayout.Unit))
         {
-            return Error.BadRequest(BlueprintFloorMappingMismatchCode, "Blueprint layout unit must match scene unit.");
+            return Error.BadRequest(
+                RoomPlannerUnitMismatchCode,
+                "Root unit must match blueprintLayout.unit.");
         }
 
         if (context.SceneAreas.Any(area => area.ProjectId != context.ProjectId))
@@ -452,7 +523,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             !floorIds.Contains(sceneObject.FloorId));
 
         return hasInvalidFloorReference
-            ? Error.BadRequest(InvalidObjectFloorReferenceCode, "Scene object references a nonexistent blueprint floor.")
+            ? Error.BadRequest(
+                InvalidObjectFloorReferenceCode,
+                "Object references unknown floorId that does not exist in blueprintLayout.floors.")
             : null;
     }
 
@@ -466,32 +539,66 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             var wallIdValues = floor.Walls
                 .Select(wall => NormalizeIdentifier(wall.WallId))
                 .ToList();
+            var openingIdValues = floor.Doors
+                .Concat(floor.Windows)
+                .Concat(floor.Openings)
+                .Select(opening => NormalizeIdentifier(opening.OpeningId))
+                .ToList();
             var pointIds = pointIdValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
             var wallIds = wallIdValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+            // pointId / wallId / openingId uniqueness is scoped per floor (schema v3 multi-floor).
             if (ContainsDuplicateIdentifiers(pointIdValues) ||
                 ContainsDuplicateIdentifiers(wallIdValues) ||
+                ContainsDuplicateIdentifiers(openingIdValues) ||
                 pointIds.Contains(string.Empty) ||
-                wallIds.Contains(string.Empty))
+                wallIds.Contains(string.Empty) ||
+                openingIdValues.Any(string.IsNullOrWhiteSpace))
             {
                 return Error.BadRequest(InvalidBlueprintGeometryCode, "Blueprint stable geometry ids are invalid.");
             }
 
-            if (floor.Walls.Any(wall => !pointIds.Contains(NormalizeIdentifier(wall.StartPointId)) ||
-                                        !pointIds.Contains(NormalizeIdentifier(wall.EndPointId))))
+            if (floor.Walls.Any(wall => HasInvalidWallPointReference(wall, pointIds)))
             {
-                return Error.BadRequest(InvalidWallPointReferenceCode, "Blueprint wall references a nonexistent point.");
+                return Error.BadRequest(
+                    InvalidWallPointReferenceCode,
+                    "Wall references a point that does not exist in the same floor.");
             }
 
             if (HasInvalidOpeningReference(floor.Doors, wallIds) ||
                 HasInvalidOpeningReference(floor.Windows, wallIds) ||
                 HasInvalidOpeningReference(floor.Openings, wallIds))
             {
-                return Error.BadRequest(InvalidOpeningWallReferenceCode, "Blueprint opening references a nonexistent wall.");
+                return Error.BadRequest(
+                    InvalidOpeningWallReferenceCode,
+                    "Opening references a wall that does not exist in the same floor.");
             }
         }
 
         return null;
+    }
+
+    private static bool HasInvalidWallPointReference(
+        RoomPlannerWallDocument wall,
+        HashSet<string> pointIds)
+    {
+        var startPointId = NormalizeIdentifier(wall.StartPointId);
+        var endPointId = NormalizeIdentifier(wall.EndPointId);
+        var hasStartPointId = startPointId.Length > 0;
+        var hasEndPointId = endPointId.Length > 0;
+
+        if (!hasStartPointId && !hasEndPointId)
+        {
+            // Coordinate-only walls are valid in schema v3 when Start/End are present.
+            return wall.Start is null || wall.End is null;
+        }
+
+        if (!hasStartPointId || !hasEndPointId)
+        {
+            return true;
+        }
+
+        return !pointIds.Contains(startPointId) || !pointIds.Contains(endPointId);
     }
 
     private static bool HasInvalidOpeningReference(
@@ -611,27 +718,40 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     }
 
     private static RoomPlannerBlueprintLayoutDocument CreateEmptyBlueprintLayout(
-        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context) =>
-        new()
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context)
+    {
+        var floors = new List<RoomPlannerBlueprintFloorDocument>();
+        var elevation = 0m;
+
+        foreach (var (area, index) in context.SceneAreas
+                     .OrderBy(area => area.SortOrder)
+                     .ThenBy(area => area.ProjectAreaId)
+                     .Select((area, index) => (area, index)))
+        {
+            floors.Add(new RoomPlannerBlueprintFloorDocument
+            {
+                Id = $"floor-{context.SceneId:N}-{area.ProjectAreaId:N}",
+                ProjectAreaId = area.ProjectAreaId,
+                Name = area.AreaName,
+                LevelIndex = index,
+                Elevation = elevation,
+                FloorHeight = DefaultFloorHeight,
+                SlabThickness = DefaultSlabThickness
+            });
+
+            elevation += DefaultFloorHeight + DefaultSlabThickness;
+        }
+
+        return new RoomPlannerBlueprintLayoutDocument
         {
             Id = $"blueprint-{context.SceneId:N}",
             Name = "Room Planner Blueprint",
             Unit = "meter",
-            Floors = context.SceneAreas
-                .OrderBy(area => area.SortOrder)
-                .ThenBy(area => area.ProjectAreaId)
-                .Select((area, index) => new RoomPlannerBlueprintFloorDocument
-                {
-                    Id = $"floor-{context.SceneId:N}-{area.ProjectAreaId:N}",
-                    ProjectAreaId = area.ProjectAreaId,
-                    Name = area.AreaName,
-                    LevelIndex = index,
-                    Elevation = 0,
-                    FloorHeight = 3,
-                    SlabThickness = 0.12m
-                })
-                .ToList()
+            Scale = 1,
+            Origin = new RoomPlannerPoint2Document { X = 0, Z = 0 },
+            Floors = floors
         };
+    }
 
     private static List<ProposalSceneAreaDto> ToSceneAreaDtos(
         IEnumerable<Infrastructure.ReadModels.Proposals.ProposalSceneAreaReadModel> areas) =>

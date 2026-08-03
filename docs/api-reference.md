@@ -942,14 +942,30 @@ Route: `proposal-scenes`
 | GET | `/proposal-scenes/{sceneId}/room-planner` | CUSTOMER, DESIGNER, SALES, ADMIN | Load Mongo scene payload |
 | PUT | `/proposal-scenes/{sceneId}/room-planner` | DESIGNER, ADMIN | Save scene payload |
 
-### Request / response payload (`RoomPlannerScenePayloadDto`)
+### Request / response payload (`RoomPlannerScenePayloadDto`, schema v3)
 
 ```json
 {
-  "schemaVersion": 1,
-  "editorVersion": "1.0.0",
+  "schemaVersion": 3,
+  "editorVersion": "ROOM_PLANNER_BABYLON_BUILDING_V1",
   "unit": "meter",
-  "layout": { },
+  "blueprintLayout": {
+    "id": "blueprint-{sceneId}",
+    "unit": "meter",
+    "floors": [
+      {
+        "id": "floor-...",
+        "projectAreaId": "00000000-0000-0000-0000-000000000000",
+        "elevation": 0,
+        "floorHeight": 3,
+        "points": [],
+        "walls": [],
+        "doors": [],
+        "windows": [],
+        "openings": []
+      }
+    ]
+  },
   "objects": [],
   "layers": [],
   "stylePreset": null,
@@ -962,11 +978,11 @@ Route: `proposal-scenes`
 
 | Top-level field | Type |
 | --- | --- |
-| `schemaVersion` | int (default 1) |
+| `schemaVersion` | int (required `3`) |
 | `editorVersion` | string? |
-| `unit` | string (default `"meter"`) |
-| `layout` | layout document (walls, doors, windows, floor, points, …) |
-| `objects` | furniture objects with transform / productVersionId / placement |
+| `unit` | string (must match `blueprintLayout.unit`) |
+| `blueprintLayout` | multi-floor blueprint (`floors[]` is source of truth) |
+| `objects` | furniture objects with `floorId`, transform, `productVersionId`, placement |
 | `layers` | layer visibility/lock |
 | `stylePreset` | string? |
 | `camera` | mode, position, target, zoom |
@@ -974,7 +990,15 @@ Route: `proposal-scenes`
 | `validation` | status, warnings, errors |
 | `editorState` | active tool, selection, grid/snap |
 
-**GET response** also includes: `sceneId`, `mongoSceneId?`, `proposalId?`, `projectId?`, `projectAreaId?`, `lastSavedAt?`
+Notes:
+
+- Root legacy `layout` is not required for schema v3 and is cleared on save.
+- `pointId` / `wallId` / `openingId` uniqueness is scoped **per floor**, not globally.
+- Each floor `projectAreaId` must match SQL `proposal_scene_areas` for the scene.
+- GET with no Mongo document returns an empty schema v3 template built from SQL scene areas (does not create Mongo).
+- GET when SQL has `mongoSceneId` but Mongo doc is missing returns `ROOM_PLANNER_DOCUMENT_NOT_FOUND`.
+
+**GET response** also includes: `sceneId`, `mongoSceneId?`, `proposalId?`, `projectId?`, `projectAreaIds[]`, `areas[]`, `lastSavedAt?`
 
 **PUT response** (`RoomPlannerSceneSaveResponseDto`): `sceneId`, `mongoSceneId`, `lastSavedAt`
 

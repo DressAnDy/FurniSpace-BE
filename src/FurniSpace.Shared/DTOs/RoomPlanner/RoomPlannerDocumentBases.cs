@@ -113,7 +113,7 @@ public abstract class RoomPlannerBlueprintFloorBase<TPoint, TWall>
 
 public abstract class RoomPlannerScenePayloadBase<TLayout, TObject, TLayer, TCamera, TLighting, TValidation, TEditorState>
 {
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 3;
     public string? EditorVersion { get; set; }
     public string Unit { get; set; } = "meter";
     public TLayout Layout { get; set; } = default!;

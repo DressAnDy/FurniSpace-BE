@@ -307,7 +307,6 @@ public sealed class RoomPlannerSceneServiceTests
     [Theory]
     [InlineData("missing-mapped-floor")]
     [InlineData("unmapped-floor")]
-    [InlineData("unit-mismatch")]
     public async Task SaveSceneAsync_WhenBlueprintMappingInvalid_ReturnsFloorMappingMismatch(string scenario)
     {
         var request = CreateSaveRequest();
@@ -320,6 +319,21 @@ public sealed class RoomPlannerSceneServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal("BLUEPRINT_FLOOR_MAPPING_MISMATCH", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SaveSceneAsync_WhenUnitMismatch_ReturnsRoomPlannerUnitMismatch()
+    {
+        var request = CreateSaveRequest();
+        ApplyInvalidBlueprintScenario(request, "unit-mismatch");
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext() },
+            new FakeSceneDocumentRepository());
+
+        var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("ROOM_PLANNER_UNIT_MISMATCH", result.ErrorCode);
     }
 
     [Theory]
@@ -397,7 +411,104 @@ public sealed class RoomPlannerSceneServiceTests
         var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
 
         Assert.Equal(400, result.Status);
-        Assert.Equal("INVALID_OBJECT_FLOOR_REFERENCE", result.ErrorCode);
+        Assert.Equal("ROOM_PLANNER_OBJECT_FLOOR_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SaveSceneAsync_WhenWallIdsDuplicateAcrossFloors_SavesSuccessfully()
+    {
+        var secondAreaId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        var context = CreateContext();
+        context.SceneAreas =
+        [
+            CreateSceneArea(),
+            new ProposalSceneAreaReadModel
+            {
+                ProposalSceneAreaId = Guid.NewGuid(),
+                SceneId = SceneId,
+                ProjectAreaId = secondAreaId,
+                ProjectId = ProjectId,
+                AreaName = "Second floor",
+                SortOrder = 1
+            }
+        ];
+        var request = CreateSaveRequest();
+        request.BlueprintLayout!.Floors.Add(new RoomPlannerBlueprintFloorDocument
+        {
+            Id = "floor-02",
+            ProjectAreaId = secondAreaId,
+            Name = "Second floor",
+            LevelIndex = 1,
+            Elevation = 3.12m,
+            FloorHeight = 3,
+            Points =
+            [
+                new RoomPlannerPoint2Document { PointId = "p1", X = 0, Z = 0 },
+                new RoomPlannerPoint2Document { PointId = "p2", X = 4, Z = 0 }
+            ],
+            Walls =
+            [
+                new RoomPlannerWallDocument
+                {
+                    WallId = "w1",
+                    StartPointId = "p1",
+                    EndPointId = "p2"
+                }
+            ]
+        });
+        var documents = new FakeSceneDocumentRepository();
+        var service = CreateService(new FakeSqlSceneRepository { Context = context }, documents);
+
+        var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, documents.UpsertedDocument!.BlueprintLayout!.Floors.Count);
+        Assert.Equal("w1", documents.UpsertedDocument.BlueprintLayout.Floors[0].Walls[0].WallId);
+        Assert.Equal("w1", documents.UpsertedDocument.BlueprintLayout.Floors[1].Walls[0].WallId);
+    }
+
+    [Fact]
+    public async Task SaveSceneAsync_WhenNullNestedCollections_NormalizesAndSaves()
+    {
+        var request = CreateSaveRequest();
+        request.Objects = null!;
+        request.Layers = null!;
+        request.BlueprintLayout!.Metadata = null!;
+        request.BlueprintLayout.Floors[0].Rooms = null!;
+        request.BlueprintLayout.Floors[0].Slabs = null!;
+        request.BlueprintLayout.Floors[0].Openings = null!;
+        var documents = new FakeSceneDocumentRepository();
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext() },
+            documents);
+
+        var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(documents.UpsertedDocument);
+        Assert.Empty(documents.UpsertedDocument!.Objects);
+        Assert.Empty(documents.UpsertedDocument.BlueprintLayout!.Floors[0].Rooms);
+    }
+
+    [Fact]
+    public async Task SaveSceneAsync_WhenWallUsesCoordinatesOnly_SavesSuccessfully()
+    {
+        var request = CreateSaveRequest();
+        request.BlueprintLayout!.Floors[0].Walls[0].StartPointId = null;
+        request.BlueprintLayout.Floors[0].Walls[0].EndPointId = null;
+        request.BlueprintLayout.Floors[0].Walls[0].Start = new RoomPlannerPoint2Document { X = 0, Z = 0 };
+        request.BlueprintLayout.Floors[0].Walls[0].End = new RoomPlannerPoint2Document { X = 5, Z = 0 };
+        request.BlueprintLayout.Floors[0].Doors.Clear();
+        request.BlueprintLayout.Floors[0].Windows.Clear();
+        var documents = new FakeSceneDocumentRepository();
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext() },
+            documents);
+
+        var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(documents.UpsertedDocument!.BlueprintLayout!.Floors[0].Walls[0].StartPointId);
     }
 
     [Fact]
@@ -479,7 +590,7 @@ public sealed class RoomPlannerSceneServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal(document.Id, result.Data!.MongoSceneId);
-        Assert.Equal("ROOM_PLANNER_BABYLON_V1", result.Data.EditorVersion);
+        Assert.Equal("ROOM_PLANNER_BABYLON_V1", result.Data.EditorVersion); // from saved document
         Assert.Equal("floor-01", result.Data.BlueprintLayout!.Floors[0].Id);
         Assert.Equal("p1", result.Data.BlueprintLayout.Floors[0].Points[0].PointId);
         Assert.Equal("w1", result.Data.BlueprintLayout.Floors[0].Windows[0].WallId);
@@ -562,9 +673,12 @@ public sealed class RoomPlannerSceneServiceTests
         var secondResult = await service.GetSceneAsync(SceneId, DesignerId, "DESIGNER");
 
         Assert.Equal(200, firstResult.Status);
-        Assert.Equal([ProjectAreaId, secondAreaId], firstResult.Data!.ProjectAreaIds);
+        Assert.Equal("ROOM_PLANNER_BABYLON_BUILDING_V1", firstResult.Data!.EditorVersion);
+        Assert.Equal([ProjectAreaId, secondAreaId], firstResult.Data.ProjectAreaIds);
         Assert.Equal([ProjectAreaId, secondAreaId], firstResult.Data.Areas.Select(area => area.ProjectAreaId).ToList());
         Assert.Equal([ProjectAreaId, secondAreaId], firstResult.Data.BlueprintLayout!.Floors.Select(floor => floor.ProjectAreaId).ToList());
+        Assert.Equal(0m, firstResult.Data.BlueprintLayout.Floors[0].Elevation);
+        Assert.Equal(3.12m, firstResult.Data.BlueprintLayout.Floors[1].Elevation);
         Assert.Equal(
             firstResult.Data.BlueprintLayout.Floors.Select(floor => floor.Id).ToList(),
             secondResult.Data!.BlueprintLayout!.Floors.Select(floor => floor.Id).ToList());

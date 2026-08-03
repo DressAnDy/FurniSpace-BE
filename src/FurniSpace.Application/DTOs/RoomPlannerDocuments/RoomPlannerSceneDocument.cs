@@ -3,7 +3,7 @@ namespace FurniSpace.Application.DTOs.RoomPlannerDocuments;
 public sealed class RoomPlannerSceneDocument
 {
     public string? Id { get; set; }
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 3;
     public string? EditorVersion { get; set; }
     public Guid SqlSceneId { get; set; }
     public Guid ProposalId { get; set; }

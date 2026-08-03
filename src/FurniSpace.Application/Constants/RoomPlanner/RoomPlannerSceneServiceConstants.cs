@@ -12,7 +12,7 @@ internal static class RoomPlannerSceneServiceConstants
     internal const string DuplicateFloorIdCode = "DUPLICATE_FLOOR_ID";
     internal const string DuplicateObjectIdCode = "DUPLICATE_OBJECT_ID";
     internal const string InvalidBlueprintGeometryCode = "INVALID_BLUEPRINT_GEOMETRY";
-    internal const string InvalidObjectFloorReferenceCode = "INVALID_OBJECT_FLOOR_REFERENCE";
+    internal const string InvalidObjectFloorReferenceCode = "ROOM_PLANNER_OBJECT_FLOOR_NOT_FOUND";
     internal const string InvalidOpeningWallReferenceCode = "INVALID_OPENING_WALL_REFERENCE";
     internal const string InvalidWallPointReferenceCode = "INVALID_WALL_POINT_REFERENCE";
     internal const string ModelFileLinkedCode = "MODEL_FILE_NOT_LINKED";
@@ -20,9 +20,14 @@ internal static class RoomPlannerSceneServiceConstants
     internal const string ProductVersionNotFoundCode = "PRODUCT_VERSION_NOT_FOUND";
     internal const string ProjectAreaProjectMismatchCode = "PROJECT_AREA_PROJECT_MISMATCH";
     internal const string RoomPlannerSaveFailedCode = "ROOM_PLANNER_SAVE_FAILED";
+    internal const string RoomPlannerLoadFailedCode = "ROOM_PLANNER_LOAD_FAILED";
     internal const string RoomPlannerDocumentInvalidCode = "ROOM_PLANNER_DOCUMENT_INVALID";
     internal const string RoomPlannerDocumentNotFoundCode = "ROOM_PLANNER_DOCUMENT_NOT_FOUND";
     internal const string RoomPlannerSceneRequiredCode = "ROOM_PLANNER_SCENE_REQUIRED";
     internal const string RoomPlannerSchemaVersionUnsupportedCode = "ROOM_PLANNER_SCHEMA_VERSION_UNSUPPORTED";
     internal const string RoomPlannerSqlLinkFailedCode = "ROOM_PLANNER_SQL_LINK_FAILED";
+    internal const string RoomPlannerUnitMismatchCode = "ROOM_PLANNER_UNIT_MISMATCH";
+    internal const string EmptyTemplateEditorVersion = "ROOM_PLANNER_BABYLON_BUILDING_V1";
+    internal const decimal DefaultFloorHeight = 3m;
+    internal const decimal DefaultSlabThickness = 0.12m;
 }

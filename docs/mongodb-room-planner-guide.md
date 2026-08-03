@@ -75,20 +75,19 @@ mongodb://mongodb:27017
 
 ## Quy Tắc Lưu Trữ Dữ Liệu
 
-MongoDB chỉ dùng để lưu trạng thái visual/editor của Room Planner, ví dụ:
+MongoDB chỉ dùng để lưu trạng thái visual/editor của Room Planner (schema v3), ví dụ:
 
 ```text
-layout
-walls
-openings
-floor
-furniture object placement
-object transform
-camera
-lighting
-validation
-editor state
+schemaVersion = 3
+blueprintLayout.floors[]   (source of truth cho multi-floor)
+  points / walls / doors / windows / openings
+  elevation / floorHeight / projectAreaId
+objects[] (mỗi object có floorId)
+camera / lighting / validation / editorState
+blueprintLayout.metadata   (free-form JSON, không phải source of truth)
 ```
+
+Legacy root `layout` không còn được yêu cầu cho Room Planner multi-floor; BE clear `layout` khi save schema v3.
 
 PostgreSQL vẫn là nguồn dữ liệu chính cho business data như:
 
@@ -96,6 +95,7 @@ PostgreSQL vẫn là nguồn dữ liệu chính cho business data như:
 projects
 proposals
 proposal_scenes
+proposal_scene_areas
 proposal_items
 products
 product_versions
@@ -110,11 +110,15 @@ External storage vẫn dùng để lưu file thật như hình ảnh, file model
 ## Mapping Giữa SQL Và MongoDB
 
 ```text
-SQL proposal_scenes.scene_id       -> MongoDB room_planner_scenes.sqlSceneId
-SQL proposal_scenes.mongo_scene_id -> MongoDB room_planner_scenes._id
+SQL proposal_scenes.scene_id              -> MongoDB room_planner_scenes.sqlSceneId
+SQL proposal_scenes.mongo_scene_id        -> MongoDB room_planner_scenes._id
+SQL proposal_scene_areas.project_area_id  -> MongoDB blueprintLayout.floors[].projectAreaId
+                                            + sceneLinks.projectAreaIds
 ```
 
-Một record SQL trong bảng `proposal_scenes` sẽ map với một document chính thức trong collection `room_planner_scenes`.
+Một record SQL trong bảng `proposal_scenes` sẽ map với một document chính thức trong collection `room_planner_scenes`. Mỗi floor trong `blueprintLayout.floors[]` map 1-1 với SQL `proposal_scene_areas`.
+
+`pointId` / `wallId` / `openingId` chỉ cần unique trong cùng một floor (không validate global trên toàn scene).
 
 ## Xử Lý Lỗi Thường Gặp
 

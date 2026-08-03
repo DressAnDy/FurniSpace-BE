@@ -305,6 +305,47 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
     }
 
     [Fact]
+    public async Task UpsertBySqlSceneIdAsync_WhenDynamicCollectionsNull_NormalizesToEmpty()
+    {
+        var inner = new FakeInfrastructureRoomPlannerSceneRepository();
+        var adapter = new RoomPlannerSceneRepositoryAdapter(inner);
+        var document = CreateApplicationDocument("app-mongo-id");
+        document.Objects[0].MaterialOverrides = null!;
+        document.Lighting.CustomLights = null!;
+        document.BlueprintLayout = new RoomPlannerBlueprintLayoutDocument
+        {
+            Id = "blueprint-01",
+            Unit = "meter",
+            Metadata = null!,
+            Floors =
+            [
+                new RoomPlannerBlueprintFloorDocument
+                {
+                    Id = "floor-01",
+                    ProjectAreaId = Guid.NewGuid(),
+                    Rooms = null!,
+                    Slabs = null!,
+                    Stairs = null!,
+                    Balconies = null!,
+                    Yards = null!,
+                    Columns = null!,
+                    Beams = null!
+                }
+            ]
+        };
+        document.EditorState = new RoomPlannerEditorStateDocument { SnapSettings = null! };
+
+        var result = await adapter.UpsertBySqlSceneIdAsync(document);
+
+        Assert.NotNull(inner.UpsertedDocument);
+        Assert.Empty(inner.UpsertedDocument.Objects[0].MaterialOverrides);
+        Assert.Empty(inner.UpsertedDocument.Lighting.CustomLights);
+        Assert.Empty(inner.UpsertedDocument.BlueprintLayout!.Metadata);
+        Assert.Empty(inner.UpsertedDocument.BlueprintLayout.Floors[0].Rooms);
+        Assert.Empty(result.EditorState!.SnapSettings);
+    }
+
+    [Fact]
     public async Task UpsertBySqlSceneIdAsync_NormalizesJsonElementDynamicValues()
     {
         var inner = new FakeInfrastructureRoomPlannerSceneRepository();

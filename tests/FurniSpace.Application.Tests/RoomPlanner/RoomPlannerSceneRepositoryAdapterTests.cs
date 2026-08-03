@@ -310,39 +310,114 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
         var inner = new FakeInfrastructureRoomPlannerSceneRepository();
         var adapter = new RoomPlannerSceneRepositoryAdapter(inner);
         var document = CreateApplicationDocument("app-mongo-id");
-        document.Objects[0].MaterialOverrides = null!;
-        document.Lighting.CustomLights = null!;
+        document.Objects = null!;
+        document.Layers = null!;
+        document.Camera = null!;
+        document.Lighting = null!;
+        document.Validation = null!;
+        document.SceneLinks = null!;
+        document.Metadata = null!;
         document.BlueprintLayout = new RoomPlannerBlueprintLayoutDocument
         {
             Id = "blueprint-01",
             Unit = "meter",
             Metadata = null!,
-            Floors =
-            [
-                new RoomPlannerBlueprintFloorDocument
-                {
-                    Id = "floor-01",
-                    ProjectAreaId = Guid.NewGuid(),
-                    Rooms = null!,
-                    Slabs = null!,
-                    Stairs = null!,
-                    Balconies = null!,
-                    Yards = null!,
-                    Columns = null!,
-                    Beams = null!
-                }
-            ]
+            Floors = null!
         };
+        document.BlueprintLayout.Floors =
+        [
+            new RoomPlannerBlueprintFloorDocument
+            {
+                Id = "floor-01",
+                ProjectAreaId = Guid.NewGuid(),
+                Points = null!,
+                Walls = null!,
+                Doors = null!,
+                Windows = null!,
+                Openings = null!,
+                Rooms = null!,
+                Slabs = null!,
+                Stairs = null!,
+                Balconies = null!,
+                Yards = null!,
+                Columns = null!,
+                Beams = null!
+            }
+        ];
         document.EditorState = new RoomPlannerEditorStateDocument { SnapSettings = null! };
 
         var result = await adapter.UpsertBySqlSceneIdAsync(document);
 
         Assert.NotNull(inner.UpsertedDocument);
-        Assert.Empty(inner.UpsertedDocument.Objects[0].MaterialOverrides);
+        Assert.Empty(inner.UpsertedDocument.Objects);
+        Assert.Empty(inner.UpsertedDocument.Layers);
+        Assert.NotNull(inner.UpsertedDocument.Camera);
+        Assert.NotNull(inner.UpsertedDocument.Lighting);
         Assert.Empty(inner.UpsertedDocument.Lighting.CustomLights);
+        Assert.NotNull(inner.UpsertedDocument.Validation);
+        Assert.NotNull(inner.UpsertedDocument.SceneLinks);
+        Assert.NotNull(inner.UpsertedDocument.Metadata);
         Assert.Empty(inner.UpsertedDocument.BlueprintLayout!.Metadata);
+        Assert.Empty(inner.UpsertedDocument.BlueprintLayout.Floors[0].Points);
         Assert.Empty(inner.UpsertedDocument.BlueprintLayout.Floors[0].Rooms);
         Assert.Empty(result.EditorState!.SnapSettings);
+    }
+
+    [Fact]
+    public async Task UpsertBySqlSceneIdAsync_WhenBlueprintLayoutNull_SkipsFloorNormalization()
+    {
+        var inner = new FakeInfrastructureRoomPlannerSceneRepository();
+        var adapter = new RoomPlannerSceneRepositoryAdapter(inner);
+        var document = CreateApplicationDocument("app-mongo-id");
+        document.BlueprintLayout = null;
+        document.EditorState = null;
+
+        await adapter.UpsertBySqlSceneIdAsync(document);
+
+        Assert.NotNull(inner.UpsertedDocument);
+        Assert.Null(inner.UpsertedDocument.BlueprintLayout);
+        Assert.Null(inner.UpsertedDocument.EditorState);
+    }
+
+    [Fact]
+    public async Task GetBySqlSceneIdAsync_WhenInnerReturnsNull_ReturnsNull()
+    {
+        var adapter = new RoomPlannerSceneRepositoryAdapter(new FakeInfrastructureRoomPlannerSceneRepository());
+
+        var result = await adapter.GetBySqlSceneIdAsync(Guid.NewGuid());
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task UpsertBySqlSceneIdAsync_NormalizesAllJsonElementValueKinds()
+    {
+        var inner = new FakeInfrastructureRoomPlannerSceneRepository();
+        var adapter = new RoomPlannerSceneRepositoryAdapter(inner);
+        var document = CreateApplicationDocument("app-mongo-id");
+        document.Objects[0].MaterialOverrides = new Dictionary<string, object?>
+        {
+            ["text"] = CreateJsonElement("\"hello\""),
+            ["int"] = CreateJsonElement("42"),
+            ["float"] = CreateJsonElement("3.14"),
+            ["flagTrue"] = CreateJsonElement("true"),
+            ["flagFalse"] = CreateJsonElement("false"),
+            ["missing"] = CreateJsonElement("null"),
+            ["plain"] = "already-normalized",
+            ["nested"] = CreateJsonElement("{\"items\":[1,null,false]}")
+        };
+
+        await adapter.UpsertBySqlSceneIdAsync(document);
+
+        var overrides = inner.UpsertedDocument!.Objects[0].MaterialOverrides;
+        Assert.Equal("hello", overrides["text"]);
+        Assert.Equal(42L, Convert.ToInt64(overrides["int"]));
+        Assert.Equal(3.14d, Convert.ToDouble(overrides["float"]), 3);
+        Assert.Equal(true, overrides["flagTrue"]);
+        Assert.Equal(false, overrides["flagFalse"]);
+        Assert.Null(overrides["missing"]);
+        Assert.Equal("already-normalized", overrides["plain"]);
+        Assert.IsType<Dictionary<string, object?>>(overrides["nested"]);
     }
 
     [Fact]

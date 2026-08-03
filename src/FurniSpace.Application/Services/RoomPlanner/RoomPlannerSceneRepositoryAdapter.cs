@@ -97,13 +97,8 @@ public sealed class RoomPlannerSceneRepositoryAdapter : IRoomPlannerSceneReposit
     }
 
     private static void NormalizeBlueprintFloorDictionaries(
-        IEnumerable<FurniSpace.Infrastructure.Data.Mongo.RoomPlannerBlueprintFloorDocument>? floors)
+        IEnumerable<FurniSpace.Infrastructure.Data.Mongo.RoomPlannerBlueprintFloorDocument> floors)
     {
-        if (floors is null)
-        {
-            return;
-        }
-
         foreach (var floor in floors)
         {
             floor.Points ??= [];

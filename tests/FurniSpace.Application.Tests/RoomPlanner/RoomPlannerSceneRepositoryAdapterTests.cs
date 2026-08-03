@@ -413,8 +413,8 @@ public sealed class RoomPlannerSceneRepositoryAdapterTests
         Assert.Equal("hello", overrides["text"]);
         Assert.Equal(42L, Convert.ToInt64(overrides["int"]));
         Assert.Equal(3.14d, Convert.ToDouble(overrides["float"]), 3);
-        Assert.Equal(true, overrides["flagTrue"]);
-        Assert.Equal(false, overrides["flagFalse"]);
+        Assert.True(Assert.IsType<bool>(overrides["flagTrue"]));
+        Assert.False(Assert.IsType<bool>(overrides["flagFalse"]));
         Assert.Null(overrides["missing"]);
         Assert.Equal("already-normalized", overrides["plain"]);
         Assert.IsType<Dictionary<string, object?>>(overrides["nested"]);

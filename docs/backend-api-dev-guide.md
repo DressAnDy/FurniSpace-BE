@@ -8,6 +8,7 @@ Related guides (deeper topics):
 | --- | --- |
 | `docs/api-reference.md` | Full REST + SignalR API reference (request / response) |
 | `docs/integration-test-build-guide.md` | Testcontainers, Core suite, fixtures |
+| `docs/integration-test-remaining-suites.md` | Handoff for Suites E–J + Mongo external work |
 | `docs/payment-service-guide.md` | Deposit / PayOS / SePay flows |
 | `docs/redis-cache-guide.md` | Cache keys and TTL details |
 | `docs/signalr-notification-guide.md` | Realtime hubs and groups |

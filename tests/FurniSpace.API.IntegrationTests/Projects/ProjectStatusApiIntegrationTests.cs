@@ -60,6 +60,33 @@ public sealed class ProjectStatusApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task UpdateStatus_AsCustomer_ReturnsForbidden()
+    {
+        ProjectConsultationScenario scenario;
+        await using (var context = _fixture.Database.CreateDbContext())
+        {
+            scenario = await ProjectScenarioSeeder.SeedInConsultationAsync(context);
+        }
+
+        using var request = IntegrationHttp.AuthenticatedJson(
+            HttpMethod.Patch,
+            $"/projects/{scenario.ProjectId}/status",
+            scenario.CustomerAccountId,
+            CoreRoles.Customer,
+            new UpdateProjectStatusRequestDto
+            {
+                Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT
+            });
+
+        var response = await _fixture.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        await using var verification = _fixture.Database.CreateDbContext();
+        var project = await verification.ProjectSet.SingleAsync();
+        Assert.Equal(ProjectStatus.IN_CONSULTATION, project.Status);
+    }
+
+    [Fact]
     public async Task GetById_WhenProjectDoesNotExist_ReturnsNotFound()
     {
         SeededAccount customer;

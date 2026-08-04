@@ -207,7 +207,7 @@ public sealed class PaymentAttemptWebhookApiIntegrationTests : IAsyncLifetime
         return result.Data;
     }
 
-    private HttpRequestMessage CreatePayOsAttemptRequest(Guid customerId, Guid paymentId)
+    private static HttpRequestMessage CreatePayOsAttemptRequest(Guid customerId, Guid paymentId)
     {
         return IntegrationHttp.AuthenticatedJson(
             HttpMethod.Post,

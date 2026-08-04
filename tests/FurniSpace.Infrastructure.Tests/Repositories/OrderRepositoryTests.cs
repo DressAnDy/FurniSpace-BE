@@ -136,6 +136,22 @@ public sealed class OrderRepositoryTests
     }
 
     [Fact]
+    public async Task TryIncrementDeliveredQuantityAsync_WhenItemMissingInMemory_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        var repository = new OrderRepository(context);
+
+        var updated = await repository.TryIncrementDeliveredQuantityAsync(
+            Guid.NewGuid(),
+            1,
+            deliveryNote: null,
+            deliveredBy: Guid.NewGuid(),
+            deliveredAt: DateTime.UtcNow);
+
+        Assert.Null(updated);
+    }
+
+    [Fact]
     public async Task TryIncrementDeliveredQuantityAsync_DefaultInterfaceImplementation_ReturnsNull()
     {
         IOrderRepository repository = new MinimalOrderRepository();

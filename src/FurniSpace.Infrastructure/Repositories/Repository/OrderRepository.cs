@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
@@ -221,6 +222,24 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                 cancellationToken);
         }
 
+        return await TryIncrementDeliveredQuantityRelationalAsync(
+            orderItemId,
+            increment,
+            deliveryNote,
+            deliveredBy,
+            deliveredAt,
+            cancellationToken);
+    }
+
+    [ExcludeFromCodeCoverage(Justification = "Provider-specific atomic SQL update is covered by API integration tests.")]
+    private async Task<OrderItem?> TryIncrementDeliveredQuantityRelationalAsync(
+        Guid orderItemId,
+        int increment,
+        string? deliveryNote,
+        Guid deliveredBy,
+        DateTime deliveredAt,
+        CancellationToken cancellationToken)
+    {
         var updated = await DbContext.OrderItemSet
             .Where(item =>
                 item.OrderItemId == orderItemId &&

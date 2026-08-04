@@ -134,8 +134,8 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         if (!string.IsNullOrWhiteSpace(normalizedSearch))
         {
             query = query.Where(staff =>
-                staff.FullName.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase) ||
-                staff.Email.Contains(normalizedSearch, StringComparison.OrdinalIgnoreCase));
+                EF.Functions.ILike(staff.FullName, $"%{normalizedSearch}%") ||
+                EF.Functions.ILike(staff.Email, $"%{normalizedSearch}%"));
         }
 
         return query

@@ -43,6 +43,9 @@ public sealed class ApiIntegrationFixture : IAsyncLifetime
         SetEnvironment("REDIS_CONNECTION", PlaceholderRedis);
         SetEnvironment("Elasticsearch__Url", PlaceholderElasticsearch);
         SetEnvironment("ELASTICSEARCH_URL", PlaceholderElasticsearch);
+        SetEnvironment("PAYOS_ENABLED", "true");
+        SetEnvironment("PAYOS_RETURN_URL", "https://frontend.integration.test/payments/return");
+        SetEnvironment("PAYOS_CANCEL_URL", "https://frontend.integration.test/payments/cancel");
 
         try
         {

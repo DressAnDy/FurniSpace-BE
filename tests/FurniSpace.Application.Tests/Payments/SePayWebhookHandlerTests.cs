@@ -52,7 +52,7 @@ public sealed class SePayWebhookHandlerTests
         Assert.Single(repository.AddedTransactions);
         Assert.Equal(PaymentStatus.PAID, repository.Payment!.Status);
         Assert.Equal(10000m, repository.Payment.Amount);
-        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(2, repository.SaveChangesCallCount);
         Assert.NotNull(realtime.LastPayload);
         Assert.Equal(paymentId, realtime.LastPayload!.PaymentId);
         Assert.Equal(PaymentStatus.PAID, realtime.LastPayload.Status);

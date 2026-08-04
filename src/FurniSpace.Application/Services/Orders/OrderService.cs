@@ -525,15 +525,24 @@ public sealed class OrderService : IOrderService
         }
 
         var now = DateTime.UtcNow;
-        context.Item.DeliveredQuantity = deliveredQuantity + increment;
-        context.Item.DeliveryNote = request.DeliveryNote?.Trim();
-        context.Item.LastDeliveredAt = now;
-        context.Item.LastDeliveredBy = currentUserId;
-        _orders.UpdateItem(context.Item);
+        var updatedItem = await _orders.TryIncrementDeliveredQuantityAsync(
+            context.Item.OrderItemId,
+            increment,
+            request.DeliveryNote?.Trim(),
+            currentUserId,
+            now,
+            cancellationToken);
+        if (updatedItem is null)
+        {
+            return BadRequest<OrderItemDeliveredQuantityDto>(
+                OrderErrorCodes.DeliveredQuantityExceeded,
+                "Delivered quantity cannot exceed ordered quantity.");
+        }
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<OrderItemDeliveredQuantityDto>.Success(
-            ToDeliveredQuantityDto(context.Item),
+            ToDeliveredQuantityDto(updatedItem),
             "Delivered quantity updated successfully.");
     }
 

@@ -81,4 +81,35 @@ public sealed class QuotationAcceptanceApiIntegrationTests : IAsyncLifetime
         await using var verification = _fixture.Database.CreateDbContext();
         Assert.Equal(0, await verification.OrderSet.CountAsync());
     }
+
+    [Fact]
+    public async Task Accept_WhenCalledConcurrently_CreatesOneOrderOnly()
+    {
+        QuotationAcceptScenario scenario;
+        await using (var context = _fixture.Database.CreateDbContext())
+        {
+            scenario = await QuotationAcceptScenarioSeeder.SeedSentQuotationAsync(context);
+        }
+
+        var responses = await Task.WhenAll(
+            AcceptQuotationAsync(scenario),
+            AcceptQuotationAsync(scenario));
+
+        Assert.Contains(responses, response => response.StatusCode == HttpStatusCode.OK);
+        await using var verification = _fixture.Database.CreateDbContext();
+        Assert.Equal(1, await verification.OrderSet.CountAsync());
+        Assert.Equal(QuotationStatus.ACCEPTED, (await verification.QuotationSet.SingleAsync()).Status);
+        Assert.Equal(ProjectStatus.ORDER_CONFIRMED, (await verification.ProjectSet.SingleAsync()).Status);
+    }
+
+    private async Task<HttpResponseMessage> AcceptQuotationAsync(QuotationAcceptScenario scenario)
+    {
+        using var request = IntegrationHttp.Authenticated(
+            HttpMethod.Patch,
+            $"/quotations/{scenario.QuotationId}/accept",
+            scenario.CustomerAccountId,
+            CoreRoles.Customer);
+
+        return await _fixture.Client.SendAsync(request);
+    }
 }

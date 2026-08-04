@@ -1,8 +1,10 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using FurniSpace.API.IntegrationTests.Authentication;
+using FurniSpace.Application.Common;
 
 namespace FurniSpace.API.IntegrationTests.Support;
 
@@ -31,6 +33,17 @@ public static class IntegrationHttp
         string role,
         T body) =>
         Authenticated(method, path, userId, role, JsonContent.Create(body, options: JsonOptions));
+
+    public static async Task<T> ReadDataAsync<T>(
+        HttpResponseMessage response,
+        HttpStatusCode expectedStatus)
+        where T : class
+    {
+        Assert.Equal(expectedStatus, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<ServiceResult<T>>(JsonOptions);
+        Assert.NotNull(result?.Data);
+        return result.Data;
+    }
 
     private static JsonSerializerOptions CreateJsonOptions()
     {

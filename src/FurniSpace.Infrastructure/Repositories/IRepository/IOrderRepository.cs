@@ -117,6 +117,15 @@ public interface IOrderRepository : IGenericRepository<Order>
     {
     }
 
+    Task<OrderItem?> TryIncrementDeliveredQuantityAsync(
+        Guid orderItemId,
+        int increment,
+        string? deliveryNote,
+        Guid deliveredBy,
+        DateTime deliveredAt,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<OrderItem?>(null);
+
     void RemoveAdjustmentItem(OrderAdjustmentItem item)
     {
     }

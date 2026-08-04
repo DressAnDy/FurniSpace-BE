@@ -151,12 +151,63 @@ public sealed class OrderServiceTests
         Assert.Null(result.Data.Items[0].CustomerConfirmedAt);
     }
 
+    [Fact]
+    public async Task UpdateDeliveredQuantityAsync_WhenAtomicIncrementFails_ReturnsExceeded()
+    {
+        var orderId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.DELIVERING
+        };
+        var item = new OrderItem
+        {
+            OrderItemId = orderItemId,
+            OrderId = orderId,
+            ItemType = QuotationItemType.PRODUCT_ITEM,
+            Status = OrderItemStatus.READY,
+            Quantity = 2,
+            DeliveredQuantity = 1
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            },
+            Order = order,
+            OrderItem = item,
+            AtomicDeliveredQuantityResult = null
+        });
+
+        var result = await service.UpdateDeliveredQuantityAsync(
+            orderItemId,
+            _salesId,
+            new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = 1 });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliveredQuantityExceeded, result.ErrorCode);
+    }
+
     private static OrderService BuildService(OrderServiceTestOptions? options = null)
     {
         options ??= new OrderServiceTestOptions();
         return new OrderService(
-            new FakeOrderRepository(options.Orders, options.OrderDetail),
-            new FakeProjectRepository(options.ProjectDetail, options.Role),
+            new FakeOrderRepository(
+                options.Orders,
+                options.OrderDetail,
+                options.Order,
+                options.OrderItem,
+                options.AtomicDeliveredQuantityResult),
+            new FakeProjectRepository(options.ProjectDetail, options.Role, options.Project),
             new EmptyPaymentRepository(),
             new EmptyProjectScheduleRepository(),
             new FakeUnitOfWork());
@@ -224,11 +275,22 @@ public sealed class OrderServiceTests
         public IReadOnlyList<OrderListItemReadModel> Orders { get; init; } = [];
 
         public OrderDetailReadModel? OrderDetail { get; init; }
+
+        public Order? Order { get; init; }
+
+        public OrderItem? OrderItem { get; init; }
+
+        public OrderItem? AtomicDeliveredQuantityResult { get; init; }
+
+        public Project? Project { get; init; }
     }
 
     private sealed class FakeOrderRepository(
         IReadOnlyList<OrderListItemReadModel> orders,
-        OrderDetailReadModel? orderDetail) : IOrderRepository
+        OrderDetailReadModel? orderDetail,
+        Order? order = null,
+        OrderItem? orderItem = null,
+        OrderItem? atomicDeliveredQuantityResult = null) : IOrderRepository
     {
         public Task<IReadOnlyList<OrderListItemReadModel>> GetByProjectAsync(
             Guid projectId,
@@ -246,7 +308,21 @@ public sealed class OrderServiceTests
         }
 
         public Task<Order?> GetByIdAsync(Guid orderId, CancellationToken cancellationToken = default)
-            => Task.FromResult<Order?>(null);
+            => Task.FromResult(order?.OrderId == orderId ? order : null);
+
+        public Task<OrderItem?> GetItemByIdAsync(
+            Guid orderItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(orderItem?.OrderItemId == orderItemId ? orderItem : null);
+
+        public Task<OrderItem?> TryIncrementDeliveredQuantityAsync(
+            Guid orderItemId,
+            int increment,
+            string? deliveryNote,
+            Guid deliveredBy,
+            DateTime deliveredAt,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(atomicDeliveredQuantityResult);
 
         public Task<bool> ExistsForQuotationAsync(Guid quotationId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
@@ -276,7 +352,10 @@ public sealed class OrderServiceTests
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
 
-    private sealed class FakeProjectRepository(ProjectDetailReadModel? project, string role) : IProjectRepository
+    private sealed class FakeProjectRepository(
+        ProjectDetailReadModel? project,
+        string role,
+        Project? projectEntity) : IProjectRepository
     {
         public Task<ProjectDetailReadModel?> GetDetailAsync(
             Guid projectId,
@@ -291,7 +370,7 @@ public sealed class OrderServiceTests
         public IQueryable<Project> Query() => Enumerable.Empty<Project>().AsQueryable();
 
         public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
-            => Task.FromResult<Project?>(null);
+            => Task.FromResult(projectEntity?.ProjectId == id ? projectEntity : null);
 
         public Task<IReadOnlyList<Project>> ListAsync(CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<Project>>([]);

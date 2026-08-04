@@ -32,6 +32,8 @@ internal static class PaymentWebhookChargeSupport
             }
 
             payments.UpdatePayment(payment);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+
             await paymentBusinessEffects.ApplyAsync(payment, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             await unitOfWork.CommitTransactionAsync(cancellationToken);

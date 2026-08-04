@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
@@ -200,6 +201,90 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
     public void UpdateItem(OrderItem item)
     {
         DbContext.OrderItemSet.Update(item);
+    }
+
+    public async Task<OrderItem?> TryIncrementDeliveredQuantityAsync(
+        Guid orderItemId,
+        int increment,
+        string? deliveryNote,
+        Guid deliveredBy,
+        DateTime deliveredAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (!DbContext.Database.IsRelational())
+        {
+            return await TryIncrementDeliveredQuantityInMemoryAsync(
+                orderItemId,
+                increment,
+                deliveryNote,
+                deliveredBy,
+                deliveredAt,
+                cancellationToken);
+        }
+
+        return await TryIncrementDeliveredQuantityRelationalAsync(
+            orderItemId,
+            increment,
+            deliveryNote,
+            deliveredBy,
+            deliveredAt,
+            cancellationToken);
+    }
+
+    [ExcludeFromCodeCoverage(Justification = "Provider-specific atomic SQL update is covered by API integration tests.")]
+    private async Task<OrderItem?> TryIncrementDeliveredQuantityRelationalAsync(
+        Guid orderItemId,
+        int increment,
+        string? deliveryNote,
+        Guid deliveredBy,
+        DateTime deliveredAt,
+        CancellationToken cancellationToken)
+    {
+        var updated = await DbContext.OrderItemSet
+            .Where(item =>
+                item.OrderItemId == orderItemId &&
+                item.Status == OrderItemStatus.READY &&
+                (item.Quantity ?? 0) > 0 &&
+                (item.DeliveredQuantity ?? 0) + increment <= (item.Quantity ?? 0))
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(item => item.DeliveredQuantity, item => (item.DeliveredQuantity ?? 0) + increment)
+                .SetProperty(item => item.DeliveryNote, deliveryNote)
+                .SetProperty(item => item.LastDeliveredAt, deliveredAt)
+                .SetProperty(item => item.LastDeliveredBy, deliveredBy),
+                cancellationToken);
+
+        return updated == 0
+            ? null
+            : await GetItemByIdAsync(orderItemId, cancellationToken);
+    }
+
+    private async Task<OrderItem?> TryIncrementDeliveredQuantityInMemoryAsync(
+        Guid orderItemId,
+        int increment,
+        string? deliveryNote,
+        Guid deliveredBy,
+        DateTime deliveredAt,
+        CancellationToken cancellationToken)
+    {
+        var item = await GetItemByIdAsync(orderItemId, cancellationToken);
+        if (item is null || item.Status != OrderItemStatus.READY)
+        {
+            return null;
+        }
+
+        var quantity = item.Quantity ?? 0;
+        var deliveredQuantity = item.DeliveredQuantity ?? 0;
+        if (quantity <= 0 || deliveredQuantity + increment > quantity)
+        {
+            return null;
+        }
+
+        item.DeliveredQuantity = deliveredQuantity + increment;
+        item.DeliveryNote = deliveryNote;
+        item.LastDeliveredAt = deliveredAt;
+        item.LastDeliveredBy = deliveredBy;
+        UpdateItem(item);
+        return item;
     }
 
     public void RemoveAdjustmentItem(OrderAdjustmentItem item)

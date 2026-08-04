@@ -162,3 +162,19 @@ Prefer:
 3. `docs/api-reference.md` for HTTP contracts
 
 When docs and code disagree, **code + unit tests win**; update this handoff if you discover a mismatch.
+
+## Current Implementation Update
+
+Suites E, F, G, H, and J now have Core integration coverage in:
+
+- `tests/FurniSpace.API.IntegrationTests/Quotations/QuotationLifecycleApiIntegrationTests.cs`
+- `tests/FurniSpace.API.IntegrationTests/Payments/PaymentAttemptWebhookApiIntegrationTests.cs`
+- `tests/FurniSpace.API.IntegrationTests/Production/ProductionWorkflowApiIntegrationTests.cs`
+- `tests/FurniSpace.API.IntegrationTests/Delivery/DeliveryWorkflowApiIntegrationTests.cs`
+- `tests/FurniSpace.API.IntegrationTests/CrossCutting/CrossCuttingApiIntegrationTests.cs`
+
+Suite I final-payment and explicit order/project completion coverage is in
+`tests/FurniSpace.API.IntegrationTests/Orders/FinalPaymentReviewApiIntegrationTests.cs`.
+Project review remains pending because the API layer does not expose a project review endpoint yet.
+
+Room Planner / Mongo remains deferred to an `ExternalDependency` suite.

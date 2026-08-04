@@ -49,7 +49,9 @@ public sealed class FurniSpaceWebApplicationFactory : WebApplicationFactory<Prog
                 ["Smtp:Host"] = "127.0.0.1",
                 ["Smtp:FromEmail"] = "integration@furnispace.test",
                 ["FirebaseStorage:Bucket"] = "furnispace-integration",
-                ["PayOS:Enabled"] = "false",
+                ["PayOS:Enabled"] = "true",
+                ["PayOS:ReturnUrl"] = "https://frontend.integration.test/payments/return",
+                ["PayOS:CancelUrl"] = "https://frontend.integration.test/payments/cancel",
                 ["SePay:Enabled"] = "false",
                 ["MongoDb:ConnectionString"] = "mongodb://127.0.0.1:1",
                 ["MongoDb:DatabaseName"] = "furnispace_integration",
@@ -102,7 +104,9 @@ public sealed class FurniSpaceWebApplicationFactory : WebApplicationFactory<Prog
             services.AddScoped<IProjectSearchIndexer, NoOpSearchIndexer>();
             services.AddScoped<IChatMessageSearchIndexer, NoOpSearchIndexer>();
             services.AddScoped<IProjectFileSearchIndexer, NoOpSearchIndexer>();
-            services.AddScoped<INotificationDispatcher, NoOpNotificationDispatcher>();
+            services.AddSingleton<CapturingNotificationDispatcher>();
+            services.AddSingleton<INotificationDispatcher>(serviceProvider =>
+                serviceProvider.GetRequiredService<CapturingNotificationDispatcher>());
             services.AddScoped<IFileStorageService, FakeFileStorageService>();
             services.AddSingleton<ICacheService, InMemoryCacheService>();
             services.AddSingleton<ISearchIndexService, CoreSearchIndexService>();

@@ -133,9 +133,9 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
 
         if (!string.IsNullOrWhiteSpace(normalizedSearch))
         {
-            query = query.Where(staff =>
-                EF.Functions.ILike(staff.FullName, $"%{normalizedSearch}%") ||
-                EF.Functions.ILike(staff.Email, $"%{normalizedSearch}%"));
+            query = DbContext.Database.IsRelational()
+                ? ApplyRelationalStaffSearch(query, normalizedSearch)
+                : ApplyInMemoryStaffSearch(query, normalizedSearch);
         }
 
         return query
@@ -143,6 +143,30 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             .ThenBy(staff => staff.FullName)
             .ThenBy(staff => staff.Email)
             .ToListAsync(cancellationToken);
+    }
+
+    private static IQueryable<AvailableProductionStaffReadModel> ApplyRelationalStaffSearch(
+        IQueryable<AvailableProductionStaffReadModel> query,
+        string search)
+    {
+        var pattern = $"%{search}%";
+        return query.Where(staff =>
+            EF.Functions.ILike(staff.FullName, pattern) ||
+            EF.Functions.ILike(staff.Email, pattern));
+    }
+
+    private static IQueryable<AvailableProductionStaffReadModel> ApplyInMemoryStaffSearch(
+        IQueryable<AvailableProductionStaffReadModel> query,
+        string search)
+    {
+        return query.Where(staff =>
+            StaffFieldContains(staff.FullName, search) ||
+            StaffFieldContains(staff.Email, search));
+    }
+
+    private static bool StaffFieldContains(string? value, string search)
+    {
+        return value?.Contains(search, StringComparison.OrdinalIgnoreCase) == true;
     }
 
     public Task<List<ProductionRequestListItemReadModel>> GetQueueAsync(

@@ -1,10 +1,15 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.ReadModels.Orders;
+using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -71,6 +76,78 @@ public sealed class OrderRepositoryTests
 
         Assert.NotNull(order);
         Assert.Equal(data.OrderId, order!.OrderId);
+    }
+
+    [Fact]
+    public async Task TryIncrementDeliveredQuantityAsync_WhenValidInMemory_UpdatesTrackedItem()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        item.Quantity = 3;
+        item.DeliveredQuantity = 1;
+        item.Status = OrderItemStatus.READY;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+        var deliveredBy = Guid.NewGuid();
+        var deliveredAt = DateTime.UtcNow;
+
+        var updated = await repository.TryIncrementDeliveredQuantityAsync(
+            item.OrderItemId,
+            2,
+            "Loaded at front desk",
+            deliveredBy,
+            deliveredAt);
+
+        Assert.NotNull(updated);
+        Assert.Equal(3, updated!.DeliveredQuantity);
+        Assert.Equal("Loaded at front desk", updated.DeliveryNote);
+        Assert.Equal(deliveredBy, updated.LastDeliveredBy);
+        Assert.Equal(deliveredAt, updated.LastDeliveredAt);
+    }
+
+    [Theory]
+    [InlineData(OrderItemStatus.PENDING, 3, 1, 1)]
+    [InlineData(OrderItemStatus.READY, 0, 0, 1)]
+    [InlineData(OrderItemStatus.READY, 2, 2, 1)]
+    public async Task TryIncrementDeliveredQuantityAsync_WhenInvalidInMemory_ReturnsNull(
+        OrderItemStatus status,
+        int quantity,
+        int deliveredQuantity,
+        int increment)
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        item.Status = status;
+        item.Quantity = quantity;
+        item.DeliveredQuantity = deliveredQuantity;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var updated = await repository.TryIncrementDeliveredQuantityAsync(
+            item.OrderItemId,
+            increment,
+            deliveryNote: null,
+            deliveredBy: Guid.NewGuid(),
+            deliveredAt: DateTime.UtcNow);
+
+        Assert.Null(updated);
+    }
+
+    [Fact]
+    public async Task TryIncrementDeliveredQuantityAsync_DefaultInterfaceImplementation_ReturnsNull()
+    {
+        IOrderRepository repository = new MinimalOrderRepository();
+
+        var updated = await repository.TryIncrementDeliveredQuantityAsync(
+            Guid.NewGuid(),
+            1,
+            deliveryNote: null,
+            deliveredBy: Guid.NewGuid(),
+            deliveredAt: DateTime.UtcNow);
+
+        Assert.Null(updated);
     }
 
     private static AppDbContext CreateContext()
@@ -181,4 +258,48 @@ public sealed class OrderRepositoryTests
         Guid QuotationId,
         Guid CustomerId,
         Guid SalesId);
+
+    private sealed class MinimalOrderRepository : IOrderRepository
+    {
+        public Task<IReadOnlyList<OrderListItemReadModel>> GetByProjectAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<OrderListItemReadModel>>([]);
+
+        public Task<OrderDetailReadModel?> GetDetailAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<OrderDetailReadModel?>(null);
+
+        public Task<Order?> GetByIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Order?>(null);
+
+        public Task<bool> ExistsForQuotationAsync(Guid quotationId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task AddAsync(Order order, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public void Update(Order order)
+        {
+        }
+
+        public IQueryable<Order> Query() => Enumerable.Empty<Order>().AsQueryable();
+
+        public Task<IReadOnlyList<Order>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<Order>>([]);
+
+        public Task AddRangeAsync(IEnumerable<Order> entities, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public void Remove(Order entity)
+        {
+        }
+
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+    }
 }

@@ -330,6 +330,11 @@ public sealed class QuotationService : IQuotationService
         }
 
         var itemName = request.ItemName ?? item.ItemName;
+        if (HasManualCustomizationCost(item, request.CustomizationUnitAdditionalCost))
+        {
+            return InvalidManualCustomizationCost();
+        }
+
         var financialInput = ResolveFinancialInput(
             item,
             request.Quantity,
@@ -379,6 +384,11 @@ public sealed class QuotationService : IQuotationService
             return BadRequestDetail(
                 QuotationErrorCodes.QuotationItemNotFound,
                 "Quotation item not found.");
+        }
+
+        if (HasManualCustomizationCost(item, request.CustomizationUnitAdditionalCost))
+        {
+            return InvalidManualCustomizationCost();
         }
 
         var financialInput = ResolveFinancialInput(
@@ -435,6 +445,11 @@ public sealed class QuotationService : IQuotationService
                 return BadRequestDetail(
                     QuotationErrorCodes.QuotationItemNotFound,
                     "Quotation item not found.");
+            }
+
+            if (HasManualCustomizationCost(item, requestedItem.CustomizationUnitAdditionalCost))
+            {
+                return InvalidManualCustomizationCost();
             }
 
             var financialInput = ResolveFinancialInput(
@@ -1375,6 +1390,18 @@ public sealed class QuotationService : IQuotationService
         item.ProposalItemId = null;
         item.ProductVersionId = null;
         item.IsCustomized = false;
+    }
+
+    private static bool HasManualCustomizationCost(QuotationItem item, decimal? customizationCost)
+    {
+        return item.ItemType == QuotationItemType.MANUAL_ITEM && customizationCost is > 0m;
+    }
+
+    private static ServiceResult<QuotationDetailDto> InvalidManualCustomizationCost()
+    {
+        return BadRequestDetail(
+            QuotationErrorCodes.InvalidQuotationItem,
+            "Manual quotation items cannot include customization additional cost.");
     }
 
     private static bool HasDuplicateQuotationItems(List<BulkUpdateQuotationItemFinancialsItemDto> items)

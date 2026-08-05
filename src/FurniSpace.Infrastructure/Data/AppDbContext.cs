@@ -687,7 +687,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.SceneObjectId).HasColumnName("scene_object_id").HasColumnType("character varying(100)");
             entity.Property(e => e.ProjectAreaId).HasColumnName(ProjectAreaIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
-            entity.Property(e => e.ApprovedProductVersionId).HasColumnName("approved_product_version_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.ItemName).HasColumnName("item_name").HasColumnType(Varchar150ColumnType).IsRequired();
             entity.Property(e => e.ItemType).HasColumnName("item_type").HasColumnType(Varchar50ColumnType);
             entity.Property(e => e.Quantity).HasColumnName(QuantityColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1);
@@ -706,8 +705,6 @@ public class AppDbContext : DbContext
             entity.HasOne<ProposalScene>().WithMany().HasForeignKey(e => e.SceneId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ProjectAreaId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ApprovedProductVersionId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasIndex(e => e.ApprovedProductVersionId);
             entity.HasIndex(e => new { e.SceneId, e.SceneObjectId })
                 .IsUnique()
                 .HasFilter("scene_id IS NOT NULL AND scene_object_id IS NOT NULL")

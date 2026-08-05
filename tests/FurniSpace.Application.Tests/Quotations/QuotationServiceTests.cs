@@ -606,7 +606,6 @@ public sealed class QuotationServiceTests
                 ItemName = "Installation",
                 Quantity = 3,
                 UnitPrice = 20m,
-                CustomizationUnitAdditionalCost = 999m,
                 DiscountAmount = 10m,
                 TaxRate = 8m
             });
@@ -652,6 +651,30 @@ public sealed class QuotationServiceTests
         Assert.Equal("Revision installation", item.ItemName);
         Assert.Equal(99m, item.TotalAmount);
         Assert.Equal(99m, quotation.TotalAmount);
+    }
+
+    [Fact]
+    public async Task UpdateManualItemAsync_WhenCustomizationCostProvided_ReturnsInvalid()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var item = MakeQuotationItem(quotation.QuotationId, QuotationItemType.MANUAL_ITEM, subtotal: 50m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.UpdateManualItemAsync(
+            quotation.QuotationId,
+            item.QuotationItemId,
+            _salesId,
+            new UpdateManualQuotationItemRequestDto
+            {
+                ItemName = "Installation",
+                CustomizationUnitAdditionalCost = 1m
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationItem, result.ErrorCode);
     }
 
     [Fact]
@@ -731,7 +754,7 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
-    public async Task UpdateItemFinancialsAsync_WhenManualItemIgnoresCustomizationCost_RecalculatesWithZeroCustomization()
+    public async Task UpdateItemFinancialsAsync_WhenManualItemHasCustomizationCost_ReturnsInvalid()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
         var item = MakeQuotationItem(quotation.QuotationId, QuotationItemType.MANUAL_ITEM, subtotal: 50m);
@@ -756,15 +779,10 @@ public sealed class QuotationServiceTests
                 TaxRate = 10m
             });
 
-        Assert.Equal(200, result.Status);
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationItem, result.ErrorCode);
+        Assert.Equal(50m, item.SubtotalAmount);
         Assert.Equal(0m, item.CustomizationAdditionalCost);
-        Assert.Null(item.ProposalItemId);
-        Assert.Null(item.ProductVersionId);
-        Assert.False(item.IsCustomized);
-        Assert.Equal(100m, item.GrossAmount);
-        Assert.Equal(90m, item.TaxableAmount);
-        Assert.Equal(9m, item.TaxAmount);
-        Assert.Equal(99m, item.TotalAmount);
     }
 
     [Fact]
@@ -829,7 +847,6 @@ public sealed class QuotationServiceTests
                         QuotationItemId = manualItem.QuotationItemId,
                         Quantity = 1,
                         UnitPrice = 50m,
-                        CustomizationUnitAdditionalCost = 999m,
                         DiscountAmount = 5m,
                         TaxRate = 0m
                     }
@@ -843,6 +860,37 @@ public sealed class QuotationServiceTests
         Assert.Equal(290m, quotation.SubtotalAmount);
         Assert.Equal(45m, quotation.DiscountAmount);
         Assert.Equal(265m, quotation.TotalAmount);
+    }
+
+    [Fact]
+    public async Task BulkUpdateItemFinancialsAsync_WhenManualItemHasCustomizationCost_ReturnsInvalid()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var manualItem = MakeQuotationItem(quotation.QuotationId, QuotationItemType.MANUAL_ITEM, subtotal: 50m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(manualItem);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.BulkUpdateItemFinancialsAsync(
+            quotation.QuotationId,
+            _salesId,
+            new BulkUpdateQuotationItemFinancialsRequestDto
+            {
+                Items =
+                [
+                    new()
+                    {
+                        QuotationItemId = manualItem.QuotationItemId,
+                        Quantity = 1,
+                        UnitPrice = 50m,
+                        CustomizationUnitAdditionalCost = 1m
+                    }
+                ]
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationItem, result.ErrorCode);
     }
 
     [Fact]

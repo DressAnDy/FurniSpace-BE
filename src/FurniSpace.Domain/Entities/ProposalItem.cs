@@ -10,7 +10,6 @@ public class ProposalItem
     public string? SceneObjectId { get; set; }
     public Guid? ProjectAreaId { get; set; }
     public Guid? ProductVersionId { get; set; }
-    public Guid? ApprovedProductVersionId { get; set; }
     public string ItemName { get; set; } = null!;
     public string? ItemType { get; set; }
     public int? Quantity { get; set; }

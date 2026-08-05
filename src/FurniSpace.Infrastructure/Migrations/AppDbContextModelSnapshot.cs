@@ -2187,10 +2187,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("proposal_item_id");
 
-                    b.Property<Guid?>("ApprovedProductVersionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("approved_product_version_id");
-
                     b.Property<string>("Color")
                         .HasColumnType("varchar(100)")
                         .HasColumnName("color");
@@ -2273,8 +2269,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnName("width");
 
                     b.HasKey("ProposalItemId");
-
-                    b.HasIndex("ApprovedProductVersionId");
 
                     b.HasIndex("ProductVersionId");
 
@@ -3351,11 +3345,6 @@ namespace FurniSpace.Infrastructure.Migrations
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.ProposalItem", b =>
                 {
-                    b.HasOne("FurniSpace.Domain.Entities.ProductVersion", null)
-                        .WithMany()
-                        .HasForeignKey("ApprovedProductVersionId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("FurniSpace.Domain.Entities.ProductVersion", null)
                         .WithMany()
                         .HasForeignKey("ProductVersionId")

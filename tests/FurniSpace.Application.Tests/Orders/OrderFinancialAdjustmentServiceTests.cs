@@ -34,7 +34,7 @@ public sealed class OrderFinancialAdjustmentServiceTests
         var result = await service.UpdateFinancialAdjustmentAsync(
             _orderId,
             _customerId,
-            CreateRequest(5_000_000m, 25_000_000m));
+            CreateRequest(25_000_000m));
 
         Assert.Equal(403, result.Status);
     }
@@ -51,14 +51,14 @@ public sealed class OrderFinancialAdjustmentServiceTests
         var result = await service.UpdateFinancialAdjustmentAsync(
             _orderId,
             _salesId,
-            CreateRequest(5_000_000m, 25_000_000m));
+            CreateRequest(25_000_000m));
 
         Assert.Equal(400, result.Status);
         Assert.Equal(OrderErrorCodes.OrderPaymentAlreadyStarted, result.ErrorCode);
     }
 
     [Fact]
-    public async Task UpdateFinancialAdjustmentAsync_WhenDepositPending_UpdatesOrderAndPayment()
+    public async Task UpdateFinancialAdjustmentAsync_WhenDepositPending_UpdatesDepositAndKeepsAdjustmentDiscount()
     {
         var depositPayment = CreateDepositPayment(PaymentStatus.PENDING);
         depositPayment.Amount = 30_000_000m;
@@ -72,30 +72,52 @@ public sealed class OrderFinancialAdjustmentServiceTests
         var result = await service.UpdateFinancialAdjustmentAsync(
             _orderId,
             _salesId,
-            CreateRequest(5_000_000m, 25_000_000m, "Final discount approved by Sales Manager."));
+            CreateRequest(25_000_000m, "Deposit configured before production."));
 
         Assert.Equal(200, result.Status);
-        Assert.Equal(95_000_000m, result.Data!.FinalTotalAmount);
-        Assert.Equal(5_000_000m, result.Data.AdditionalDiscountAmount);
+        Assert.Equal(100_000_000m, result.Data!.FinalTotalAmount);
+        Assert.Equal(0m, result.Data.AdditionalDiscountAmount);
         Assert.Equal(25_000_000m, result.Data.DepositAmount);
-        Assert.Equal(95_000_000m, result.Data.RemainingAmount);
-        Assert.NotNull(options.Order);
-        Assert.Equal(100_000_000m, options.Order.OriginalTotalAmount);
-        Assert.NotNull(options.DepositPayment);
-        Assert.Equal(25_000_000m, options.DepositPayment.Amount);
-        Assert.Equal("Final discount approved by Sales Manager.", options.DepositPayment.Note);
-        Assert.Equal(1, options.UnitOfWork.SaveChangesCount);
+        Assert.Equal(100_000_000m, result.Data.RemainingAmount);
+        var updatedOrder = options.Order ?? throw new InvalidOperationException("Order should be updated.");
+        Assert.Equal(100_000_000m, updatedOrder.OriginalTotalAmount);
+        Assert.Equal(0m, updatedOrder.AdditionalDiscountAmount);
+        var updatedPayment = options.DepositPayment ?? throw new InvalidOperationException("Deposit payment should be updated.");
+        Assert.Equal(25_000_000m, updatedPayment.Amount);
+        Assert.Equal("Deposit configured before production.", updatedPayment.Note);
+        var unitOfWork = options.UnitOfWork ?? throw new InvalidOperationException("Unit of work should be tracked.");
+        Assert.Equal(1, unitOfWork.SaveChangesCount);
     }
 
     [Fact]
-    public async Task UpdateFinancialAdjustmentAsync_WhenDiscountTooHigh_ReturnsInvalidFinancialAdjustment()
+    public async Task UpdateFinancialAdjustmentAsync_WhenDirectDiscountSubmitted_ReturnsInvalidFinancialAdjustment()
     {
         var service = BuildService(new TestOptions { Role = "ADMIN" });
 
         var result = await service.UpdateFinancialAdjustmentAsync(
             _orderId,
             Guid.NewGuid(),
-            CreateRequest(100_000_000m, 25_000_000m));
+            CreateRequest(25_000_000m, additionalDiscountAmount: 5_000_000m));
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.InvalidFinancialAdjustment, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateFinancialAdjustmentAsync_WhenDepositExceedsAdjustedTotal_ReturnsInvalidFinancialAdjustment()
+    {
+        var order = CreateOrder(OrderStatus.DEPOSIT_PENDING);
+        order.AdditionalDiscountAmount = 10_000_000m;
+        var service = BuildService(new TestOptions
+        {
+            Role = "ADMIN",
+            Order = order
+        });
+
+        var result = await service.UpdateFinancialAdjustmentAsync(
+            _orderId,
+            Guid.NewGuid(),
+            CreateRequest(95_000_000m));
 
         Assert.Equal(400, result.Status);
         Assert.Equal(OrderErrorCodes.InvalidFinancialAdjustment, result.ErrorCode);
@@ -113,16 +135,16 @@ public sealed class OrderFinancialAdjustmentServiceTests
         var result = await service.UpdateFinancialAdjustmentAsync(
             _orderId,
             _salesId,
-            CreateRequest(5_000_000m, 25_000_000m));
+            CreateRequest(25_000_000m));
 
         Assert.Equal(400, result.Status);
         Assert.Equal(OrderErrorCodes.InvalidOrderStatus, result.ErrorCode);
     }
 
     private static UpdateOrderFinancialAdjustmentRequestDto CreateRequest(
-        decimal additionalDiscountAmount,
         decimal depositAmount,
-        string? adjustmentNote = null) => new()
+        string? adjustmentNote = null,
+        decimal? additionalDiscountAmount = null) => new()
     {
         AdditionalDiscountAmount = additionalDiscountAmount,
         DepositAmount = depositAmount,

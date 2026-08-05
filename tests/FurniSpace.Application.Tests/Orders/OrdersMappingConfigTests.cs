@@ -69,6 +69,14 @@ public sealed class OrdersMappingConfigTests
                     DeliveredQuantity = 1,
                     CustomerConfirmedAt = null,
                     UnitPrice = 50m,
+                    CustomizationUnitAdditionalCost = 5m,
+                    CustomizationAdditionalCost = 5m,
+                    GrossAmount = 110m,
+                    DiscountAmount = 10m,
+                    TaxableAmount = 100m,
+                    TaxRate = 8m,
+                    TaxAmount = 8m,
+                    TotalAmount = 108m,
                     SubtotalAmount = 100m
                 }
             ]
@@ -83,6 +91,15 @@ public sealed class OrdersMappingConfigTests
         Assert.Equal(OrderItemStatus.READY, item.Status);
         Assert.Equal(1, item.DeliveredQuantity);
         Assert.Null(item.CustomerConfirmedAt);
+        Assert.Equal(50m, item.UnitPrice);
+        Assert.Equal(5m, item.CustomizationUnitAdditionalCost);
+        Assert.Equal(5m, item.CustomizationAdditionalCost);
+        Assert.Equal(110m, item.GrossAmount);
+        Assert.Equal(10m, item.DiscountAmount);
+        Assert.Equal(100m, item.TaxableAmount);
+        Assert.Equal(8m, item.TaxRate);
+        Assert.Equal(8m, item.TaxAmount);
+        Assert.Equal(108m, item.TotalAmount);
     }
 
     [Fact]

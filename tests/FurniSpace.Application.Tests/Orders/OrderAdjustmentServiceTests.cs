@@ -100,10 +100,14 @@ public sealed class OrderAdjustmentServiceTests
     }
 
     [Fact]
-    public async Task AddAdjustmentItemAsync_WhenUnavailableItem_UsesOrderItemSubtotalAndRecalculates()
+    public async Task AddAdjustmentItemAsync_WhenUnavailableItem_UsesOrderItemTotalAndRecalculates()
     {
         await using var context = CreateContext();
         var seeded = SeedAdjustmentItemScenario(context, ProductionItemStatus.CANCELLED);
+        var orderItem = context.OrderItemSet.Local.Single(item => item.OrderItemId == seeded.OrderItemId);
+        orderItem.TaxableAmount = 2_000_000m;
+        orderItem.TaxAmount = 200_000m;
+        orderItem.TotalAmount = 2_200_000m;
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -114,16 +118,18 @@ public sealed class OrderAdjustmentServiceTests
             {
                 AdjustmentType = OrderAdjustmentItemType.UNAVAILABLE_ITEM,
                 OrderItemId = seeded.OrderItemId,
-                AdjustmentAmount = 2_000_000m,
+                AdjustmentAmount = 2_200_000m,
                 Reason = "Material unavailable."
             });
 
         Assert.Equal(201, result.Status);
         Assert.Equal("UNAVAILABLE_ITEM", result.Data!.AdjustmentType);
-        Assert.Equal(2_000_000m, result.Data.AdjustmentAmount);
+        Assert.Equal(2_200_000m, result.Data.PreviousItemAmount);
+        Assert.Equal(2_200_000m, result.Data.AdjustmentAmount);
+        Assert.Equal(2_200_000m, result.Data.ItemTotalAmount);
         var adjustment = context.OrderAdjustmentSet.Single();
-        Assert.Equal(2_000_000m, adjustment.ItemAdjustmentAmount);
-        Assert.Equal(2_000_000m, adjustment.TotalAdjustmentAmount);
+        Assert.Equal(2_200_000m, adjustment.ItemAdjustmentAmount);
+        Assert.Equal(2_200_000m, adjustment.TotalAdjustmentAmount);
     }
 
     [Fact]

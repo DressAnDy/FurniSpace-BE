@@ -147,16 +147,15 @@ public sealed class OrderService : IOrderService
             return validation;
         }
 
-        var additionalDiscountAmount = request.AdditionalDiscountAmount!.Value;
         var depositAmount = request.DepositAmount!.Value;
         var baseBeforeDiscount = OrderFinancialAdjustmentCalculator.CalculateBaseBeforeAdditionalDiscount(
             order.OriginalTotalAmount,
             order.ItemAdjustmentAmount ?? 0m);
+        var additionalDiscountAmount = order.AdditionalDiscountAmount ?? 0m;
         var finalTotalAmount = OrderFinancialAdjustmentCalculator.CalculateFinalTotalAmount(
             baseBeforeDiscount,
             additionalDiscountAmount);
 
-        order.AdditionalDiscountAmount = additionalDiscountAmount;
         order.DepositAmount = depositAmount;
         order.FinalTotalAmount = finalTotalAmount;
 
@@ -877,14 +876,14 @@ public sealed class OrderService : IOrderService
                 NotFound<OrderAdjustmentItemDto>(OrderErrorCodes.OrderItemNotFound, OrderItemNotFoundMessage));
         }
 
-        var subtotal = orderItem.SubtotalAmount ?? 0m;
-        if (request.AdjustmentAmount.HasValue && request.AdjustmentAmount.Value != subtotal)
+        var itemTotalAmount = GetTaxInclusiveItemTotal(orderItem);
+        if (request.AdjustmentAmount.HasValue && request.AdjustmentAmount.Value != itemTotalAmount)
         {
             return new OrderAdjustmentItemBuildResult(
                 null,
                 BadRequest<OrderAdjustmentItemDto>(
                     OrderErrorCodes.InvalidUnavailableItemAmount,
-                    "Unavailable item adjustment amount must equal order item subtotal amount."));
+                    "Unavailable item adjustment amount must equal order item total amount."));
         }
 
         if (!await _orders.HasCancelledProductionItemAsync(orderItem.OrderItemId, cancellationToken))
@@ -902,8 +901,8 @@ public sealed class OrderService : IOrderService
                 currentUserId,
                 OrderAdjustmentItemType.UNAVAILABLE_ITEM,
                 orderItem.OrderItemId,
-                subtotal,
-                subtotal,
+                itemTotalAmount,
+                itemTotalAmount,
                 request.Reason!),
             null);
     }
@@ -1119,11 +1118,11 @@ public sealed class OrderService : IOrderService
         Order order,
         UpdateOrderFinancialAdjustmentRequestDto request)
     {
-        if (!request.AdditionalDiscountAmount.HasValue)
+        if (request.AdditionalDiscountAmount.HasValue)
         {
             return BadRequestDetail(
                 OrderErrorCodes.InvalidFinancialAdjustment,
-                "Additional discount amount is required.");
+                "Additional discount amount must be updated through order adjustment flow.");
         }
 
         if (!request.DepositAmount.HasValue)
@@ -1133,29 +1132,13 @@ public sealed class OrderService : IOrderService
                 "Deposit amount is required.");
         }
 
-        var additionalDiscountAmount = request.AdditionalDiscountAmount.Value;
         var depositAmount = request.DepositAmount.Value;
         var baseBeforeDiscount = OrderFinancialAdjustmentCalculator.CalculateBaseBeforeAdditionalDiscount(
             order.OriginalTotalAmount,
             order.ItemAdjustmentAmount ?? 0m);
-
-        if (additionalDiscountAmount < 0m)
-        {
-            return BadRequestDetail(
-                OrderErrorCodes.InvalidFinancialAdjustment,
-                "Additional discount amount must be greater than or equal to zero.");
-        }
-
-        if (additionalDiscountAmount >= baseBeforeDiscount)
-        {
-            return BadRequestDetail(
-                OrderErrorCodes.InvalidFinancialAdjustment,
-                "Additional discount amount must be less than the order total before discount.");
-        }
-
         var finalTotalAmount = OrderFinancialAdjustmentCalculator.CalculateFinalTotalAmount(
             baseBeforeDiscount,
-            additionalDiscountAmount);
+            order.AdditionalDiscountAmount ?? 0m);
         if (depositAmount <= 0m)
         {
             return BadRequestDetail(
@@ -1334,6 +1317,9 @@ public sealed class OrderService : IOrderService
             AdjustmentType = item.AdjustmentType.ToString(),
             PreviousItemAmount = item.PreviousItemAmount,
             AdjustmentAmount = item.AdjustmentAmount,
+            ItemTotalAmount = item.AdjustmentType == OrderAdjustmentItemType.UNAVAILABLE_ITEM
+                ? item.PreviousItemAmount
+                : null,
             Reason = item.Reason
         };
     }
@@ -1438,6 +1424,11 @@ public sealed class OrderService : IOrderService
         return BadRequest<OrderAdjustmentItemDto>(
             OrderErrorCodes.InvalidAdjustmentItem,
             "Order adjustment item is invalid.");
+    }
+
+    private static decimal GetTaxInclusiveItemTotal(OrderItem orderItem)
+    {
+        return orderItem.TotalAmount ?? orderItem.SubtotalAmount ?? 0m;
     }
 
     private sealed record OrderAdjustmentAccess<T>(

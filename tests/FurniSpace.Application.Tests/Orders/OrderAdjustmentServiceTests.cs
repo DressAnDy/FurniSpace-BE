@@ -100,10 +100,14 @@ public sealed class OrderAdjustmentServiceTests
     }
 
     [Fact]
-    public async Task AddAdjustmentItemAsync_WhenUnavailableItem_UsesOrderItemSubtotalAndRecalculates()
+    public async Task AddAdjustmentItemAsync_WhenUnavailableItem_UsesOrderItemTotalAndRecalculates()
     {
         await using var context = CreateContext();
         var seeded = SeedAdjustmentItemScenario(context, ProductionItemStatus.CANCELLED);
+        var orderItem = context.OrderItemSet.Local.Single(item => item.OrderItemId == seeded.OrderItemId);
+        orderItem.TaxableAmount = 2_000_000m;
+        orderItem.TaxAmount = 200_000m;
+        orderItem.TotalAmount = 2_200_000m;
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -114,16 +118,18 @@ public sealed class OrderAdjustmentServiceTests
             {
                 AdjustmentType = OrderAdjustmentItemType.UNAVAILABLE_ITEM,
                 OrderItemId = seeded.OrderItemId,
-                AdjustmentAmount = 2_000_000m,
+                AdjustmentAmount = 2_200_000m,
                 Reason = "Material unavailable."
             });
 
         Assert.Equal(201, result.Status);
         Assert.Equal("UNAVAILABLE_ITEM", result.Data!.AdjustmentType);
-        Assert.Equal(2_000_000m, result.Data.AdjustmentAmount);
+        Assert.Equal(2_200_000m, result.Data.PreviousItemAmount);
+        Assert.Equal(2_200_000m, result.Data.AdjustmentAmount);
+        Assert.Equal(2_200_000m, result.Data.ItemTotalAmount);
         var adjustment = context.OrderAdjustmentSet.Single();
-        Assert.Equal(2_000_000m, adjustment.ItemAdjustmentAmount);
-        Assert.Equal(2_000_000m, adjustment.TotalAdjustmentAmount);
+        Assert.Equal(2_200_000m, adjustment.ItemAdjustmentAmount);
+        Assert.Equal(2_200_000m, adjustment.TotalAdjustmentAmount);
     }
 
     [Fact]
@@ -1069,7 +1075,7 @@ public sealed class OrderAdjustmentServiceTests
             DeliveredQuantity = deliveredQuantity,
             Status = status
         };
-        context.OrderItemSet.Add(item);
+        context.OrderItemSet.Add(WithFinancialSnapshot(item));
         return item;
     }
 
@@ -1111,11 +1117,25 @@ public sealed class OrderAdjustmentServiceTests
             CreatedBy = _salesId,
             CreatedAt = DateTime.UtcNow
         };
-        context.OrderItemSet.Add(orderItem);
+        context.OrderItemSet.Add(WithFinancialSnapshot(orderItem, 2_000_000m));
         context.ProductionRequestSet.Add(productionRequest);
         context.ProductionItemSet.Add(productionItem);
         context.OrderAdjustmentSet.Add(adjustment);
         return new SeededAdjustmentItem(adjustment.OrderAdjustmentId, orderItem.OrderItemId);
+    }
+
+    private static OrderItem WithFinancialSnapshot(OrderItem item, decimal totalAmount = 2_000_000m)
+    {
+        item.UnitPrice = totalAmount / Math.Max(item.Quantity ?? 1, 1);
+        item.CustomizationFee = 0m;
+        item.GrossAmount = totalAmount;
+        item.DiscountAmount = 0m;
+        item.TaxableAmount = totalAmount;
+        item.TaxRate = 0m;
+        item.TaxAmount = 0m;
+        item.TotalAmount = totalAmount;
+        item.SubtotalAmount = totalAmount;
+        return item;
     }
 
     private OrderAdjustmentItem CreateAdjustmentItem(

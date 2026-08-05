@@ -207,6 +207,12 @@ public sealed class OrderRepositoryTests
             ProjectId = projectId,
             ProposalId = Guid.NewGuid(),
             QuotationCode = "QT-001",
+            SubtotalAmount = 100m,
+            DiscountAmount = 0m,
+            TaxableAmount = 100m,
+            TaxAmount = 0m,
+            TotalAmount = 100m,
+            Currency = "VND",
             Status = QuotationStatus.ACCEPTED,
             CreatedAt = DateTime.UtcNow
         });
@@ -218,6 +224,13 @@ public sealed class OrderRepositoryTests
             ItemType = QuotationItemType.PRODUCT_ITEM,
             Quantity = 1,
             UnitPrice = 100m,
+            CustomizationAdditionalCost = 0m,
+            GrossAmount = 100m,
+            DiscountAmount = 0m,
+            TaxableAmount = 100m,
+            TaxRate = 0m,
+            TaxAmount = 0m,
+            TotalAmount = 100m,
             SubtotalAmount = 100m
         });
         context.OrderSet.Add(new Order
@@ -247,6 +260,13 @@ public sealed class OrderRepositoryTests
             Status = OrderItemStatus.READY,
             DeliveredQuantity = 1,
             UnitPrice = 100m,
+            CustomizationFee = 0m,
+            GrossAmount = 100m,
+            DiscountAmount = 0m,
+            TaxableAmount = 100m,
+            TaxRate = 0m,
+            TaxAmount = 0m,
+            TotalAmount = 100m,
             SubtotalAmount = 100m
         });
 

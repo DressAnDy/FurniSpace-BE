@@ -14,10 +14,10 @@ using FurniSpace.Application.Services.ProjectSchedules;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.Orders;
+using FurniSpace.Infrastructure.ReadModels.Production;
 using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.ProjectSchedules;
@@ -358,6 +358,26 @@ public sealed class ProjectScheduleServiceTests
     }
 
     [Fact]
+    public async Task GetListByProjectAsync_ReturnsSuccess_WhenProductionHasAssignedProductionRequest()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject();
+        var productionRepo = new FakeProductionRequestRepository { HasViewableAssignedRequest = true };
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ProjectDetail = project,
+            ProductionRequestRepo = productionRepo
+        });
+
+        var result = await service.GetListByProjectAsync(project.ProjectId, productionId, new ProjectScheduleListQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(project.ProjectId, productionRepo.LastProjectId);
+        Assert.Equal(productionId, productionRepo.LastProductionAccountId);
+    }
+
+    [Fact]
     public async Task GetListByProjectAsync_ReturnsForbidden_ForUnrelatedProductionStaff()
     {
         var project = CreateProject();
@@ -445,6 +465,26 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
         Assert.Equal(detail.ScheduleId, result.Data.ScheduleId);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_ReturnsSuccess_WhenProductionHasAssignedProductionRequest()
+    {
+        var productionId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(assignedStaffId: Guid.NewGuid());
+        var productionRepo = new FakeProductionRequestRepository { HasViewableAssignedRequest = true };
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ScheduleDetail = detail,
+            ProductionRequestRepo = productionRepo
+        });
+
+        var result = await service.GetDetailAsync(detail.ScheduleId, productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(detail.ProjectId, productionRepo.LastProjectId);
+        Assert.Equal(productionId, productionRepo.LastProductionAccountId);
     }
 
     // ── SCH-04: Update ──────────────────────────────────────────────────────────
@@ -550,6 +590,27 @@ public sealed class ProjectScheduleServiceTests
         var result = await service.UpdateAsync(detail.ScheduleId, productionId, new UpdateProjectScheduleRequestDto());
 
         Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ProductionWithOnlyProductionRequestAccess_ReturnsForbidden()
+    {
+        var productionId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(
+            assignedStaffId: Guid.NewGuid(),
+            scheduleType: ProjectScheduleType.DELIVERY);
+        var productionRepo = new FakeProductionRequestRepository { HasViewableAssignedRequest = true };
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ScheduleDetail = detail,
+            ProductionRequestRepo = productionRepo
+        });
+
+        var result = await service.UpdateAsync(detail.ScheduleId, productionId, new UpdateProjectScheduleRequestDto());
+
+        Assert.Equal(403, result.Status);
+        Assert.Null(productionRepo.LastProjectId);
     }
 
     [Fact]
@@ -854,6 +915,7 @@ public sealed class ProjectScheduleServiceTests
         public FakeNotificationDispatcher? Dispatcher { get; init; }
         public FakeProjectRepository? ProjectRepo { get; init; }
         public FakeOrderRepository? OrderRepo { get; init; }
+        public FakeProductionRequestRepository? ProductionRequestRepo { get; init; }
     }
 
     private static ProjectScheduleService BuildService(ScheduleServiceTestOptions? options = null)
@@ -868,9 +930,11 @@ public sealed class ProjectScheduleServiceTests
             projectRepo,
             fileRepo,
             options.OrderRepo ?? new FakeOrderRepository(),
-            dispatcher,
-            global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(scheduleRepo.SaveChangesAsync),
-            Options.Create(new ProjectWorkflowSettings()));
+            options.ProductionRequestRepo ?? new FakeProductionRequestRepository(),
+            new ProjectScheduleServiceDependencies(
+                global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(scheduleRepo.SaveChangesAsync),
+                dispatcher,
+                new ProjectWorkflowSettings()));
     }
 
     private static CreateProjectScheduleRequestDto ValidMeasurementCreateRequest(Guid designerId) => new()
@@ -1118,6 +1182,82 @@ public sealed class ProjectScheduleServiceTests
             _entities.AddRange(entities);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FakeProductionRequestRepository : IProductionRequestRepository
+    {
+        public bool HasViewableAssignedRequest { get; set; }
+        public Guid? LastProjectId { get; private set; }
+        public Guid? LastProductionAccountId { get; private set; }
+
+        public Task<bool> HasViewableAssignedRequestAsync(
+            Guid projectId,
+            Guid productionAccountId,
+            CancellationToken cancellationToken = default)
+        {
+            LastProjectId = projectId;
+            LastProductionAccountId = productionAccountId;
+            return Task.FromResult(HasViewableAssignedRequest);
+        }
+
+        public Task<bool> HasActiveRequestForOrderAsync(Guid orderId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<int> CountCreatedOnAsync(DateOnly date, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<List<OrderItem>> GetProductOrderItemsAsync(Guid orderId, CancellationToken cancellationToken = default)
+            => Task.FromResult(new List<OrderItem>());
+
+        public Task AddItemsAsync(List<ProductionItem> items, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<bool> IsActiveProductionStaffAsync(Guid accountId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<ProductionAssigneeReadModel?> GetAssigneeAsync(
+            Guid accountId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductionAssigneeReadModel?>(null);
+
+        public Task<List<AvailableProductionStaffReadModel>> GetAvailableStaffAsync(
+            string? search,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new List<AvailableProductionStaffReadModel>());
+
+        public Task<List<ProductionRequestListItemReadModel>> GetQueueAsync(
+            ProductionRequestQueueReadModel query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new List<ProductionRequestListItemReadModel>());
+
+        public Task<ProductionRequestDetailReadModel?> GetDetailAsync(
+            Guid productionRequestId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductionRequestDetailReadModel?>(null);
+
+        public Task<ProductionItem?> GetItemByIdAsync(Guid productionItemId, CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductionItem?>(null);
+
+        public Task<ProductionRequestDetailReadModel?> GetDetailByItemIdAsync(
+            Guid productionItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductionRequestDetailReadModel?>(null);
+
+        public void UpdateItem(ProductionItem item) { }
+
+        public IQueryable<ProductionRequest> Query() => Enumerable.Empty<ProductionRequest>().AsQueryable();
+        public Task<ProductionRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductionRequest?>(null);
+        public Task<IReadOnlyList<ProductionRequest>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProductionRequest>>([]);
+        public Task AddAsync(ProductionRequest entity, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+        public Task AddRangeAsync(IEnumerable<ProductionRequest> entities, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+        public void Update(ProductionRequest entity) { }
+        public void Remove(ProductionRequest entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
     }
 
     private sealed class FakeProjectRepository : IProjectRepository

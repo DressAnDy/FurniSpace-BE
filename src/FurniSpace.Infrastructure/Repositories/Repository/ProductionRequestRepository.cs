@@ -22,6 +22,15 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         ProductionRequestStatus.BLOCKED
     ];
 
+    private static readonly ProductionRequestStatus[] ScheduleReadRequestStatuses =
+    [
+        ProductionRequestStatus.PENDING_REVIEW,
+        ProductionRequestStatus.FEASIBLE,
+        ProductionRequestStatus.IN_PRODUCTION,
+        ProductionRequestStatus.BLOCKED,
+        ProductionRequestStatus.COMPLETED
+    ];
+
     public ProductionRequestRepository(AppDbContext dbContext)
         : base(dbContext)
     {
@@ -177,6 +186,20 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             .OrderByDescending(request => request.CreatedAt)
             .ThenBy(request => request.ProductionCode)
             .ToListAsync(cancellationToken);
+    }
+
+    public Task<bool> HasViewableAssignedRequestAsync(
+        Guid projectId,
+        Guid productionAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProductionRequestSet.AnyAsync(
+            request =>
+                request.ProjectId == projectId &&
+                request.AssignedTo == productionAccountId &&
+                request.Status.HasValue &&
+                ScheduleReadRequestStatuses.Contains(request.Status.Value),
+            cancellationToken);
     }
 
     public async Task<ProductionRequestDetailReadModel?> GetDetailAsync(

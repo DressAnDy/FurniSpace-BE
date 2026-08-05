@@ -40,6 +40,11 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         ProductionRequestQueueReadModel query,
         CancellationToken cancellationToken = default);
 
+    Task<bool> HasViewableAssignedRequestAsync(
+        Guid projectId,
+        Guid productionAccountId,
+        CancellationToken cancellationToken = default);
+
     Task<ProductionRequestDetailReadModel?> GetDetailAsync(
         Guid productionRequestId,
         CancellationToken cancellationToken = default);

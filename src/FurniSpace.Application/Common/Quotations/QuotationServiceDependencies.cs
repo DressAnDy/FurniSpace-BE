@@ -9,5 +9,6 @@ namespace FurniSpace.Application.Common.Quotations;
 public sealed record QuotationServiceDependencies(
     IUnitOfWork UnitOfWork,
     OrderWorkflowSettings OrderWorkflowSettings,
+    QuotationRecalculationService RecalculationService,
     INotificationDispatcher? Notifications,
     ILogger<QuotationService>? Logger);

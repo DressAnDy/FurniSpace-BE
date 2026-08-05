@@ -10,5 +10,6 @@ public sealed class OrderAdjustmentItemDto
     public string AdjustmentType { get; set; } = string.Empty;
     public decimal PreviousItemAmount { get; set; }
     public decimal AdjustmentAmount { get; set; }
+    public decimal? ItemTotalAmount { get; set; }
     public string Reason { get; set; } = string.Empty;
 }

@@ -123,11 +123,13 @@ public static class DependencyInjection
                 sp.GetService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>());
         });
         services.AddScoped<IProposalService, ProposalService>();
+        services.AddScoped<QuotationRecalculationService>();
         services.AddScoped<QuotationServiceDependencies>(sp =>
         {
             return new QuotationServiceDependencies(
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<IOptions<OrderWorkflowSettings>>().Value,
+                sp.GetRequiredService<QuotationRecalculationService>(),
                 sp.GetService<INotificationDispatcher>(),
                 sp.GetService<ILogger<QuotationService>>());
         });
@@ -196,6 +198,13 @@ public static class DependencyInjection
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<ProjectStatusTransitionEvaluator>();
+        services.AddScoped<ProjectScheduleServiceDependencies>(sp =>
+        {
+            return new ProjectScheduleServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<INotificationDispatcher>(),
+                sp.GetRequiredService<IOptions<ProjectWorkflowSettings>>().Value);
+        });
         services.AddScoped<ProjectServiceDependencies>(sp =>
         {
             return new ProjectServiceDependencies(

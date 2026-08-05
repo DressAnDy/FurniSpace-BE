@@ -251,6 +251,12 @@ public sealed class CustomizationRequestRepositoryTests
             ProposalId = proposalId,
             ProjectId = Guid.NewGuid(),
             QuotationCode = "QT-001",
+            SubtotalAmount = 100m,
+            DiscountAmount = 0m,
+            TaxableAmount = 100m,
+            TaxAmount = 0m,
+            TotalAmount = 100m,
+            Currency = "VND",
             Status = QuotationStatus.DRAFT
         });
         await context.SaveChangesAsync();

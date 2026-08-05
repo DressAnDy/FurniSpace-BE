@@ -40,8 +40,10 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
                 VersionNo = item.VersionNo,
                 SubtotalAmount = item.SubtotalAmount,
                 DiscountAmount = item.DiscountAmount,
+                TaxableAmount = item.TaxableAmount,
                 TaxAmount = item.TaxAmount,
                 TotalAmount = item.TotalAmount,
+                Currency = item.Currency,
                 Status = item.Status,
                 ValidUntil = item.ValidUntil,
                 CustomerNote = item.CustomerNote,
@@ -175,8 +177,10 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
                     VersionNo = quotation.VersionNo,
                     SubtotalAmount = quotation.SubtotalAmount,
                     DiscountAmount = quotation.DiscountAmount,
+                    TaxableAmount = quotation.TaxableAmount,
                     TaxAmount = quotation.TaxAmount,
                     TotalAmount = quotation.TotalAmount,
+                    Currency = quotation.Currency,
                     Status = quotation.Status,
                     ValidUntil = quotation.ValidUntil,
                     CustomerNote = quotation.CustomerNote,
@@ -198,7 +202,8 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
     {
         return await DbContext.QuotationItemSet
             .Where(item => item.QuotationId == quotationId)
-            .OrderBy(item => item.QuotationItemId)
+            .OrderBy(item => item.DisplayOrder ?? int.MaxValue)
+            .ThenBy(item => item.QuotationItemId)
             .Select(item => new QuotationItemReadModel
             {
                 QuotationItemId = item.QuotationItemId,
@@ -211,10 +216,16 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
                 ProductVersionCodeSnapshot = item.ProductVersionCodeSnapshot,
                 ItemName = item.ItemName,
                 Description = item.Description,
+                DisplayOrder = item.DisplayOrder,
                 Quantity = item.Quantity,
                 UnitPrice = item.UnitPrice,
                 CustomizationAdditionalCost = item.CustomizationAdditionalCost,
+                GrossAmount = item.GrossAmount,
                 DiscountAmount = item.DiscountAmount,
+                TaxableAmount = item.TaxableAmount,
+                TaxRate = item.TaxRate,
+                TaxAmount = item.TaxAmount,
+                TotalAmount = item.TotalAmount,
                 SubtotalAmount = item.SubtotalAmount,
                 IsCustomized = item.IsCustomized,
                 CustomizationNote = item.CustomizationNote,

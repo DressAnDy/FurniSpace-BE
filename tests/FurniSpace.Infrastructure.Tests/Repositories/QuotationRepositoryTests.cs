@@ -53,6 +53,13 @@ public sealed class QuotationRepositoryTests
             ItemName = "Delivery fee",
             Quantity = 1,
             UnitPrice = 50m,
+            CustomizationAdditionalCost = 0m,
+            GrossAmount = 50m,
+            DiscountAmount = 0m,
+            TaxableAmount = 50m,
+            TaxRate = 0m,
+            TaxAmount = 0m,
+            TotalAmount = 50m,
             SubtotalAmount = 50m
         });
         await context.SaveChangesAsync();
@@ -129,7 +136,17 @@ public sealed class QuotationRepositoryTests
             QuotationItemId = Guid.NewGuid(),
             QuotationId = Guid.NewGuid(),
             ItemType = QuotationItemType.PRODUCT_ITEM,
-            ItemName = "Counter"
+            ItemName = "Counter",
+            Quantity = 1,
+            UnitPrice = 100m,
+            CustomizationAdditionalCost = 0m,
+            GrossAmount = 100m,
+            DiscountAmount = 0m,
+            TaxableAmount = 100m,
+            TaxRate = 0m,
+            TaxAmount = 0m,
+            TotalAmount = 100m,
+            SubtotalAmount = 100m
         };
 
         await repository.AddItemAsync(item);
@@ -221,7 +238,16 @@ public sealed class QuotationRepositoryTests
             OrderItemId = Guid.NewGuid(),
             OrderId = order.OrderId,
             Quantity = 1,
-            Status = OrderItemStatus.PENDING
+            Status = OrderItemStatus.PENDING,
+            UnitPrice = 100m,
+            CustomizationFee = 0m,
+            GrossAmount = 100m,
+            DiscountAmount = 0m,
+            TaxableAmount = 100m,
+            TaxRate = 0m,
+            TaxAmount = 0m,
+            TotalAmount = 100m,
+            SubtotalAmount = 100m
         };
 
         await repository.AddOrderAsync(order);
@@ -271,8 +297,10 @@ public sealed class QuotationRepositoryTests
             VersionNo = versionNo,
             SubtotalAmount = 100m,
             DiscountAmount = 0m,
+            TaxableAmount = 100m,
             TaxAmount = 0m,
             TotalAmount = 100m,
+            Currency = "VND",
             Status = status,
             CreatedAt = DateTime.UtcNow.AddMinutes(versionNo)
         };
@@ -313,6 +341,13 @@ public sealed class QuotationRepositoryTests
             ItemName = itemName,
             Quantity = 1,
             UnitPrice = 100m,
+            CustomizationAdditionalCost = 0m,
+            GrossAmount = 100m,
+            DiscountAmount = 0m,
+            TaxableAmount = 100m,
+            TaxRate = 0m,
+            TaxAmount = 0m,
+            TotalAmount = 100m,
             SubtotalAmount = 100m
         };
     }

@@ -346,8 +346,14 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                     DeliveredQuantity = pair.orderItem.DeliveredQuantity,
                     CustomerConfirmedAt = pair.orderItem.CustomerConfirmedAt,
                     UnitPrice = pair.orderItem.UnitPrice,
+                    CustomizationUnitAdditionalCost = pair.orderItem.CustomizationFee,
                     CustomizationAdditionalCost = pair.orderItem.CustomizationFee,
+                    GrossAmount = pair.orderItem.GrossAmount,
                     DiscountAmount = pair.orderItem.DiscountAmount,
+                    TaxableAmount = pair.orderItem.TaxableAmount,
+                    TaxRate = pair.orderItem.TaxRate,
+                    TaxAmount = pair.orderItem.TaxAmount,
+                    TotalAmount = pair.orderItem.TotalAmount,
                     SubtotalAmount = pair.orderItem.SubtotalAmount,
                     IsCustomized = quotationItem != null ? quotationItem.IsCustomized : null
                 })

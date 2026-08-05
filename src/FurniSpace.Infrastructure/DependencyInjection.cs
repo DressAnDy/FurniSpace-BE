@@ -159,6 +159,8 @@ public static class DependencyInjection
         builder.MapEnum<QuotationItemType>("quotation_item_type", translator);
         builder.MapEnum<OrderStatus>("order_status", translator);
         builder.MapEnum<OrderItemStatus>("order_item_status", translator);
+        builder.MapEnum<OrderAdjustmentStatus>("order_adjustment_status", translator);
+        builder.MapEnum<OrderAdjustmentItemType>("order_adjustment_item_type", translator);
         builder.MapEnum<PaymentStatus>("payment_status", translator);
         builder.MapEnum<PaymentType>("payment_type", translator);
         builder.MapEnum<PaymentProvider>("payment_provider", translator);

@@ -4,6 +4,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace FurniSpace.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260805093643_AlignQuotationOrderItemFinancialSchema")]
+    partial class AlignQuotationOrderItemFinancialSchema
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2187,6 +2190,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("proposal_item_id");
 
+                    b.Property<Guid?>("ApprovedProductVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_product_version_id");
+
                     b.Property<string>("Color")
                         .HasColumnType("varchar(100)")
                         .HasColumnName("color");
@@ -2269,6 +2276,8 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnName("width");
 
                     b.HasKey("ProposalItemId");
+
+                    b.HasIndex("ApprovedProductVersionId");
 
                     b.HasIndex("ProductVersionId");
 
@@ -2643,12 +2652,6 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text")
                         .HasColumnName("description");
-
-                    b.Property<int?>("DisplayOrder")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("display_order");
 
                     b.Property<decimal?>("DiscountAmount")
                         .IsRequired()
@@ -3345,6 +3348,11 @@ namespace FurniSpace.Infrastructure.Migrations
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.ProposalItem", b =>
                 {
+                    b.HasOne("FurniSpace.Domain.Entities.ProductVersion", null)
+                        .WithMany()
+                        .HasForeignKey("ApprovedProductVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("FurniSpace.Domain.Entities.ProductVersion", null)
                         .WithMany()
                         .HasForeignKey("ProductVersionId")

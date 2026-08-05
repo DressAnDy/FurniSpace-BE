@@ -894,6 +894,25 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_WhenOrderItemsAlreadySynced_AllowsIdempotentCompletion()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        context.OrderItemSet.Local.Single(item => item.OrderItemId == seeded.CompletedOrderItemId).Status =
+            OrderItemStatus.READY;
+        context.OrderItemSet.Local.Single(item => item.OrderItemId == seeded.CancelledOrderItemId).Status =
+            OrderItemStatus.UNAVAILABLE;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("COMPLETED", result.Data!.ProductionStatus);
+        Assert.Equal("READY_FOR_DELIVERY", result.Data.OrderStatus);
+    }
+
+    [Fact]
     public async Task CompleteAsync_WhenProductionItemOrderItemMissing_ReturnsMappingInvalid()
     {
         await using var context = CreateContext();
@@ -1250,7 +1269,7 @@ public sealed class ProductionRequestServiceTests
         QuotationItemType itemType,
         string productName)
     {
-        return new OrderItem
+        return WithFinancialSnapshot(new OrderItem
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
@@ -1261,7 +1280,21 @@ public sealed class ProductionRequestServiceTests
             Quantity = 2,
             Status = OrderItemStatus.PENDING,
             ProductionNote = "Use premium finish"
-        };
+        });
+    }
+
+    private static OrderItem WithFinancialSnapshot(OrderItem item, decimal totalAmount = 2_000_000m)
+    {
+        item.UnitPrice = totalAmount / Math.Max(item.Quantity ?? 1, 1);
+        item.CustomizationFee = 0m;
+        item.GrossAmount = totalAmount;
+        item.DiscountAmount = 0m;
+        item.TaxableAmount = totalAmount;
+        item.TaxRate = 0m;
+        item.TaxAmount = 0m;
+        item.TotalAmount = totalAmount;
+        item.SubtotalAmount = totalAmount;
+        return item;
     }
 
     private static ProductionRequest CreateProductionRequest(

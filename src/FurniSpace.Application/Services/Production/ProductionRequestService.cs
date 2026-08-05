@@ -777,7 +777,12 @@ public sealed class ProductionRequestService : IProductionRequestService
     {
         var itemAdjustmentAmount = applicableAdjustments.Sum(adjustment => adjustment.ItemAdjustmentAmount);
         var additionalDiscountAmount = applicableAdjustments.Sum(adjustment => adjustment.AdditionalDiscountAmount);
-        return order.OriginalTotalAmount - itemAdjustmentAmount - additionalDiscountAmount;
+        var baseBeforeDiscount = OrderFinancialAdjustmentCalculator.CalculateBaseBeforeAdditionalDiscount(
+            order.OriginalTotalAmount,
+            itemAdjustmentAmount);
+        return OrderFinancialAdjustmentCalculator.CalculateFinalTotalAmount(
+            baseBeforeDiscount,
+            additionalDiscountAmount);
     }
 
     private static int CountAppliedAdjustments(List<OrderAdjustment> adjustments)
@@ -815,6 +820,11 @@ public sealed class ProductionRequestService : IProductionRequestService
             }
 
             var targetStatus = ResolveCompletedOrderItemStatus(productionItem);
+            if (orderItem.Status == targetStatus)
+            {
+                continue;
+            }
+
             var error = OrderItemStatusTransitionService.Validate(
                 orderItem.Status,
                 targetStatus,
@@ -844,6 +854,11 @@ public sealed class ProductionRequestService : IProductionRequestService
             }
 
             var targetStatus = ResolveCompletedOrderItemStatus(productionItem);
+            if (orderItem.Status == targetStatus)
+            {
+                continue;
+            }
+
             var error = OrderItemStatusTransitionService.Validate(
                 orderItem.Status,
                 targetStatus,

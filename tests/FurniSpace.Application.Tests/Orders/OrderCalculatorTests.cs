@@ -28,7 +28,8 @@ public sealed class OrderCalculatorTests
 
     [Theory]
     [InlineData(100_000_000, 0, 5_000_000, 95_000_000)]
-    [InlineData(100_000_000, 10_000_000, 5_000_000, 105_000_000)]
+    [InlineData(100_000_000, 10_000_000, 5_000_000, 85_000_000)]
+    [InlineData(1_000, 200, 50, 750)]
     public void OrderFinancialAdjustmentCalculator_CalculatesFinalTotal(
         decimal originalTotal,
         decimal itemAdjustment,

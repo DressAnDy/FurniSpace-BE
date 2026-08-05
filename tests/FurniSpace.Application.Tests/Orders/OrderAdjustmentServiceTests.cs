@@ -1069,7 +1069,7 @@ public sealed class OrderAdjustmentServiceTests
             DeliveredQuantity = deliveredQuantity,
             Status = status
         };
-        context.OrderItemSet.Add(item);
+        context.OrderItemSet.Add(WithFinancialSnapshot(item));
         return item;
     }
 
@@ -1111,11 +1111,25 @@ public sealed class OrderAdjustmentServiceTests
             CreatedBy = _salesId,
             CreatedAt = DateTime.UtcNow
         };
-        context.OrderItemSet.Add(orderItem);
+        context.OrderItemSet.Add(WithFinancialSnapshot(orderItem, 2_000_000m));
         context.ProductionRequestSet.Add(productionRequest);
         context.ProductionItemSet.Add(productionItem);
         context.OrderAdjustmentSet.Add(adjustment);
         return new SeededAdjustmentItem(adjustment.OrderAdjustmentId, orderItem.OrderItemId);
+    }
+
+    private static OrderItem WithFinancialSnapshot(OrderItem item, decimal totalAmount = 2_000_000m)
+    {
+        item.UnitPrice = totalAmount / Math.Max(item.Quantity ?? 1, 1);
+        item.CustomizationFee = 0m;
+        item.GrossAmount = totalAmount;
+        item.DiscountAmount = 0m;
+        item.TaxableAmount = totalAmount;
+        item.TaxRate = 0m;
+        item.TaxAmount = 0m;
+        item.TotalAmount = totalAmount;
+        item.SubtotalAmount = totalAmount;
+        return item;
     }
 
     private OrderAdjustmentItem CreateAdjustmentItem(

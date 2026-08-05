@@ -1250,7 +1250,7 @@ public sealed class ProductionRequestServiceTests
         QuotationItemType itemType,
         string productName)
     {
-        return new OrderItem
+        return WithFinancialSnapshot(new OrderItem
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
@@ -1261,7 +1261,21 @@ public sealed class ProductionRequestServiceTests
             Quantity = 2,
             Status = OrderItemStatus.PENDING,
             ProductionNote = "Use premium finish"
-        };
+        });
+    }
+
+    private static OrderItem WithFinancialSnapshot(OrderItem item, decimal totalAmount = 2_000_000m)
+    {
+        item.UnitPrice = totalAmount / Math.Max(item.Quantity ?? 1, 1);
+        item.CustomizationFee = 0m;
+        item.GrossAmount = totalAmount;
+        item.DiscountAmount = 0m;
+        item.TaxableAmount = totalAmount;
+        item.TaxRate = 0m;
+        item.TaxAmount = 0m;
+        item.TotalAmount = totalAmount;
+        item.SubtotalAmount = totalAmount;
+        return item;
     }
 
     private static ProductionRequest CreateProductionRequest(

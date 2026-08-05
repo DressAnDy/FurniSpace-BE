@@ -1,8 +1,32 @@
-using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Application.DTOs.Quotations;
 
-public class QuotationDto : Quotation
+public class QuotationDto
 {
     public const string ResourceName = "quotation";
+
+    public Guid QuotationId { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid ProposalId { get; set; }
+    public string QuotationCode { get; set; } = string.Empty;
+    public int? VersionNo { get; set; }
+    public decimal? SubtotalAmount { get; set; }
+    public decimal? TotalDiscountAmount { get; set; }
+    public decimal? TaxableAmount { get; set; }
+    public decimal? TaxAmount { get; set; }
+    public decimal? TotalAmount { get; set; }
+    public string Currency { get; set; } = "VND";
+    public QuotationStatus? Status { get; set; }
+    public DateOnly? ValidUntil { get; set; }
+    public string? CustomerNote { get; set; }
+    public string? SalesNote { get; set; }
+    public string? RevisionReason { get; set; }
+    public string? RejectReason { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public DateTime? SentAt { get; set; }
+    public DateTime? AcceptedAt { get; set; }
+    public DateTime? RejectedAt { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 }

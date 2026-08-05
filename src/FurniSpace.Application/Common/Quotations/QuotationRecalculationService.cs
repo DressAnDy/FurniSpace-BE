@@ -2,9 +2,7 @@ using FurniSpace.Domain.Entities;
 
 namespace FurniSpace.Application.Common.Quotations;
 
-public sealed class QuotationRecalculationService(
-    QuotationItemFinancialCalculator itemCalculator,
-    QuotationFinancialSummaryCalculator summaryCalculator)
+public sealed class QuotationRecalculationService
 {
     public Quotation Recalculate(
         Quotation quotation,
@@ -23,10 +21,10 @@ public sealed class QuotationRecalculationService(
 
         foreach (var item in items)
         {
-            itemCalculator.Calculate(item);
+            QuotationItemFinancialCalculator.Calculate(item);
         }
 
-        var summary = summaryCalculator.Calculate(items);
+        var summary = QuotationFinancialSummaryCalculator.Calculate(items);
         quotation.SubtotalAmount = summary.SubtotalAmount;
         quotation.DiscountAmount = summary.TotalDiscountAmount;
         quotation.TaxableAmount = summary.TaxableAmount;

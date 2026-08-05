@@ -6,6 +6,8 @@ internal static class QuotationServiceConstants
 {
     internal const string ProjectNotFoundMessage = "Project not found.";
     internal const string QuotationNotFoundMessage = "Quotation not found.";
+    internal const string QuotationItemNotFoundMessage = "Quotation item not found.";
+    internal const string QuotationItemsNotEditableMessage = "Quotation items cannot be updated in this quotation status.";
     internal const string QuotationCodeParameter = "QuotationCode";
     internal const string QuotationReferenceType = "QUOTATION";
 

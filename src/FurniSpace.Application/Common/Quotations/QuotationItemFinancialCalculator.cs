@@ -2,9 +2,9 @@ using FurniSpace.Domain.Entities;
 
 namespace FurniSpace.Application.Common.Quotations;
 
-public sealed class QuotationItemFinancialCalculator
+public static class QuotationItemFinancialCalculator
 {
-    public QuotationItem Calculate(QuotationItem item)
+    public static QuotationItem Calculate(QuotationItem item)
     {
         var quantity = item.Quantity ?? 0;
         var unitPrice = item.UnitPrice ?? 0m;

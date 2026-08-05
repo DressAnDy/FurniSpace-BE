@@ -35,7 +35,6 @@ public sealed class QuotationServiceTests
     [Fact]
     public void QuotationItemFinancialCalculator_WhenItemHasDiscountAndTax_CalculatesExpectedAmounts()
     {
-        var calculator = new QuotationItemFinancialCalculator();
         var item = new QuotationItem
         {
             Quantity = 2,
@@ -45,7 +44,7 @@ public sealed class QuotationServiceTests
             TaxRate = 10m
         };
 
-        calculator.Calculate(item);
+        QuotationItemFinancialCalculator.Calculate(item);
 
         Assert.Equal(240m, item.GrossAmount);
         Assert.Equal(200m, item.TaxableAmount);
@@ -1627,9 +1626,7 @@ public sealed class QuotationServiceTests
 
     private static QuotationRecalculationService CreateRecalculationService()
     {
-        return new QuotationRecalculationService(
-            new QuotationItemFinancialCalculator(),
-            new QuotationFinancialSummaryCalculator());
+        return new QuotationRecalculationService();
     }
 
     private Project? ProjectEntity { get; set; }

@@ -259,7 +259,7 @@ public sealed class QuotationService : IQuotationService
         {
             return BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationStatus,
-                "Quotation items cannot be updated in this quotation status.");
+                QuotationItemsNotEditableMessage);
         }
 
         var validation = ValidateQuotationItem(
@@ -318,7 +318,7 @@ public sealed class QuotationService : IQuotationService
         {
             return BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationStatus,
-                "Quotation items cannot be updated in this quotation status.");
+                QuotationItemsNotEditableMessage);
         }
 
         var item = await _quotations.GetItemAsync(quotationItemId, cancellationToken);
@@ -326,7 +326,7 @@ public sealed class QuotationService : IQuotationService
         {
             return BadRequestDetail(
                 QuotationErrorCodes.QuotationItemNotFound,
-                "Quotation item not found.");
+                QuotationItemNotFoundMessage);
         }
 
         var itemName = request.ItemName ?? item.ItemName;
@@ -383,7 +383,7 @@ public sealed class QuotationService : IQuotationService
         {
             return BadRequestDetail(
                 QuotationErrorCodes.QuotationItemNotFound,
-                "Quotation item not found.");
+                QuotationItemNotFoundMessage);
         }
 
         if (HasManualCustomizationCost(item, request.CustomizationUnitAdditionalCost))
@@ -444,7 +444,7 @@ public sealed class QuotationService : IQuotationService
             {
                 return BadRequestDetail(
                     QuotationErrorCodes.QuotationItemNotFound,
-                    "Quotation item not found.");
+                    QuotationItemNotFoundMessage);
             }
 
             if (HasManualCustomizationCost(item, requestedItem.CustomizationUnitAdditionalCost))
@@ -561,7 +561,7 @@ public sealed class QuotationService : IQuotationService
         {
             return BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationStatus,
-                "Quotation items cannot be updated in this quotation status.");
+                QuotationItemsNotEditableMessage);
         }
 
         var item = await _quotations.GetItemAsync(quotationItemId, cancellationToken);
@@ -569,7 +569,7 @@ public sealed class QuotationService : IQuotationService
         {
             return BadRequestDetail(
                 QuotationErrorCodes.QuotationItemNotFound,
-                "Quotation item not found.");
+                QuotationItemNotFoundMessage);
         }
 
         if (item.ItemType != QuotationItemType.MANUAL_ITEM)
@@ -1250,7 +1250,7 @@ public sealed class QuotationService : IQuotationService
             ? context
             : new QuotationMutationContext(BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationStatus,
-                "Quotation items cannot be updated in this quotation status."));
+                QuotationItemsNotEditableMessage));
     }
 
     private async Task<QuotationMutationContext> GetCustomerContextAsync(

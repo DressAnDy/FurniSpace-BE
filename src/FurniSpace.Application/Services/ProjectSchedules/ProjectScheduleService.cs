@@ -13,7 +13,6 @@ using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
-using Microsoft.Extensions.Options;
 
 namespace FurniSpace.Application.Services.ProjectSchedules;
 
@@ -34,18 +33,16 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         IProjectFileRepository files,
         IOrderRepository orders,
         IProductionRequestRepository productionRequests,
-        INotificationDispatcher dispatcher,
-        IUnitOfWork unitOfWork,
-        IOptions<ProjectWorkflowSettings> workflowSettings)
+        ProjectScheduleServiceDependencies dependencies)
     {
         _schedules = schedules;
         _projects = projects;
         _files = files;
         _orders = orders;
         _productionRequests = productionRequests;
-        _dispatcher = dispatcher;
-        _unitOfWork = unitOfWork;
-        _workflowSettings = workflowSettings.Value;
+        _dispatcher = dependencies.Dispatcher;
+        _unitOfWork = dependencies.UnitOfWork;
+        _workflowSettings = dependencies.WorkflowSettings;
     }
 
     public async Task<ServiceResult<ProjectScheduleDto>> CreateAsync(
@@ -1075,3 +1072,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
     }
 }
+
+public sealed record ProjectScheduleServiceDependencies(
+    IUnitOfWork UnitOfWork,
+    INotificationDispatcher Dispatcher,
+    ProjectWorkflowSettings WorkflowSettings);

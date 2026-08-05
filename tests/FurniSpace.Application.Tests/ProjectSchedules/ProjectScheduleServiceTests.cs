@@ -18,7 +18,6 @@ using FurniSpace.Infrastructure.ReadModels.Production;
 using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.ProjectSchedules;
@@ -932,9 +931,10 @@ public sealed class ProjectScheduleServiceTests
             fileRepo,
             options.OrderRepo ?? new FakeOrderRepository(),
             options.ProductionRequestRepo ?? new FakeProductionRequestRepository(),
-            dispatcher,
-            global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(scheduleRepo.SaveChangesAsync),
-            Options.Create(new ProjectWorkflowSettings()));
+            new ProjectScheduleServiceDependencies(
+                global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(scheduleRepo.SaveChangesAsync),
+                dispatcher,
+                new ProjectWorkflowSettings()));
     }
 
     private static CreateProjectScheduleRequestDto ValidMeasurementCreateRequest(Guid designerId) => new()

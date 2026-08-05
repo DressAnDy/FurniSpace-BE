@@ -19,7 +19,12 @@ public class QuotationItem
     public int? Quantity { get; set; }
     public decimal? UnitPrice { get; set; }
     public decimal? CustomizationAdditionalCost { get; set; }
+    public decimal? GrossAmount { get; set; }
     public decimal? DiscountAmount { get; set; }
+    public decimal? TaxableAmount { get; set; }
+    public decimal? TaxRate { get; set; }
+    public decimal? TaxAmount { get; set; }
+    public decimal? TotalAmount { get; set; }
     public decimal? SubtotalAmount { get; set; }
     public bool? IsCustomized { get; set; }
     public string? CustomizationNote { get; set; }

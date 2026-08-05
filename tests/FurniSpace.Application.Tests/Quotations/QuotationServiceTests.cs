@@ -51,7 +51,7 @@ public sealed class QuotationServiceTests
         Assert.Equal(200m, item.TaxableAmount);
         Assert.Equal(20m, item.TaxAmount);
         Assert.Equal(220m, item.TotalAmount);
-        Assert.Equal(220m, item.SubtotalAmount);
+        Assert.Equal(240m, item.SubtotalAmount);
     }
 
     [Fact]
@@ -154,15 +154,30 @@ public sealed class QuotationServiceTests
     public async Task GetDetailAsync_WhenAuthorized_ReturnsItems()
     {
         var detail = MakeDetail(QuotationStatus.SENT);
+        detail.QuotationCode = "QTN-DETAIL";
+        detail.VersionNo = 3;
+        detail.SubtotalAmount = 240m;
         detail.DiscountAmount = 40m;
         detail.TaxableAmount = 200m;
         detail.TaxAmount = 20m;
         detail.TotalAmount = 220m;
+        detail.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
+        detail.CustomerNote = "Customer note";
+        detail.SalesNote = "Sales note";
+        detail.RevisionReason = "Revision reason";
+        detail.RejectReason = "Reject reason";
+        detail.CreatedBy = _salesId;
+        detail.SentAt = DateTime.UtcNow.AddHours(-4);
+        detail.AcceptedAt = DateTime.UtcNow.AddHours(-3);
+        detail.RejectedAt = DateTime.UtcNow.AddHours(-2);
+        detail.CreatedAt = DateTime.UtcNow.AddDays(-1);
+        detail.UpdatedAt = DateTime.UtcNow;
         detail.Items =
         [
             new QuotationItemReadModel
             {
                 QuotationItemId = Guid.NewGuid(),
+                QuotationId = detail.QuotationId,
                 ItemName = "Counter",
                 CustomizationAdditionalCost = 20m,
                 GrossAmount = 240m,
@@ -178,8 +193,31 @@ public sealed class QuotationServiceTests
         var result = await service.GetDetailAsync(detail.QuotationId, _salesId);
 
         Assert.Equal(200, result.Status);
+        Assert.Equal(detail.QuotationId, result.Data!.QuotationId);
+        Assert.Equal(detail.ProjectId, result.Data.ProjectId);
+        Assert.Equal(detail.ProposalId, result.Data.ProposalId);
+        Assert.Equal("QTN-DETAIL", result.Data.QuotationCode);
+        Assert.Equal(3, result.Data.VersionNo);
+        Assert.Equal(240m, result.Data.SubtotalAmount);
         Assert.Equal(40m, result.Data!.TotalDiscountAmount);
+        Assert.Equal(200m, result.Data.TaxableAmount);
+        Assert.Equal(20m, result.Data.TaxAmount);
+        Assert.Equal(220m, result.Data.TotalAmount);
+        Assert.Equal("VND", result.Data.Currency);
+        Assert.Equal(QuotationStatus.SENT, result.Data.Status);
+        Assert.Equal(detail.ValidUntil, result.Data.ValidUntil);
+        Assert.Equal("Customer note", result.Data.CustomerNote);
+        Assert.Equal("Sales note", result.Data.SalesNote);
+        Assert.Equal("Revision reason", result.Data.RevisionReason);
+        Assert.Equal("Reject reason", result.Data.RejectReason);
+        Assert.Equal(_salesId, result.Data.CreatedBy);
+        Assert.Equal(detail.SentAt, result.Data.SentAt);
+        Assert.Equal(detail.AcceptedAt, result.Data.AcceptedAt);
+        Assert.Equal(detail.RejectedAt, result.Data.RejectedAt);
+        Assert.Equal(detail.CreatedAt, result.Data.CreatedAt);
+        Assert.Equal(detail.UpdatedAt, result.Data.UpdatedAt);
         var item = Assert.Single(result.Data.Items);
+        Assert.Equal(detail.QuotationId, item.QuotationId);
         Assert.Equal(20m, item.CustomizationUnitAdditionalCost);
         Assert.Equal(240m, item.GrossAmount);
         Assert.Equal(200m, item.TaxableAmount);
@@ -417,7 +455,7 @@ public sealed class QuotationServiceTests
         Assert.Equal(55m, item.TaxableAmount);
         Assert.Equal(5.5m, item.TaxAmount);
         Assert.Equal(60.5m, item.TotalAmount);
-        Assert.Equal(60.5m, item.SubtotalAmount);
+        Assert.Equal(60m, item.SubtotalAmount);
         Assert.Equal(260m, quotation.SubtotalAmount);
         Assert.Equal(5m, quotation.DiscountAmount);
         Assert.Equal(255m, quotation.TaxableAmount);
@@ -583,7 +621,7 @@ public sealed class QuotationServiceTests
         Assert.Equal(50m, item.TaxableAmount);
         Assert.Equal(4m, item.TaxAmount);
         Assert.Equal(54m, item.TotalAmount);
-        Assert.Equal(54m, item.SubtotalAmount);
+        Assert.Equal(60m, item.SubtotalAmount);
         Assert.Equal(54m, quotation.TotalAmount);
     }
 
@@ -1212,7 +1250,7 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
-    public async Task AcceptAsync_WhenOrderAlreadyExists_ReturnsOrderAlreadyCreated()
+    public async Task AcceptAsync_WhenOrderAlreadyExists_ReturnsAcceptedResult()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.SENT);
         var orders = new FakeOrderRepository { OrderExistsForQuotation = true };
@@ -1222,8 +1260,43 @@ public sealed class QuotationServiceTests
 
         var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(QuotationErrorCodes.OrderAlreadyCreated, result.ErrorCode);
+        Assert.Equal(200, result.Status);
+        Assert.Empty(orders.AddedOrders);
+    }
+
+    [Fact]
+    public async Task AcceptAsync_WhenConcurrentOrderAppearsDuringSave_ReturnsAcceptedResult()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.SENT);
+        var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
+        quotations.AddedQuotations.Add(quotation);
+        AddAcceptReadyItems(quotations, quotation.QuotationId);
+        var orders = new FakeOrderRepository();
+        var rollbackCalled = false;
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(new()
+        {
+            Quotations = quotations,
+            Orders = orders,
+            Role = "CUSTOMER",
+            UnitOfWork = TestUnitOfWork.ForTransaction(
+                _ => Task.CompletedTask,
+                _ => throw new InvalidOperationException("unique order race"),
+                _ => Task.CompletedTask,
+                _ =>
+                {
+                    rollbackCalled = true;
+                    orders.OrderExistsForQuotation = true;
+                    return Task.CompletedTask;
+                }),
+            Notifications = dispatcher
+        });
+
+        var result = await service.AcceptAsync(quotation.QuotationId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.True(rollbackCalled);
+        Assert.Null(dispatcher.LastType);
     }
 
     [Fact]
@@ -1686,7 +1759,7 @@ public sealed class QuotationServiceTests
         Assert.Equal(taxRate, item.TaxRate);
         Assert.Equal(taxAmount, item.TaxAmount);
         Assert.Equal(totalAmount, item.TotalAmount);
-        Assert.Equal(totalAmount, item.SubtotalAmount);
+        Assert.Equal(grossAmount, item.SubtotalAmount);
     }
 
     private SelectedProposalForQuotationReadModel MakeSelectedProposal()

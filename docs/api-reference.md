@@ -1034,11 +1034,11 @@ Accepting a quotation creates an **Order** with deposit/remaining amounts (defau
 
 ### Update quotation
 
+Only non-calculated header fields are writable. The backend recalculates `subtotalAmount`, `totalDiscountAmount`, `taxableAmount`, `taxAmount`, and `totalAmount` from quotation items.
+
 ```json
 {
-  "validUntil": "2026-08-31T00:00:00Z",
-  "discountAmount": 1000000,
-  "taxAmount": 0,
+  "validUntil": "2026-08-31",
   "customerNote": null,
   "salesNote": "VIP discount",
   "revisionReason": null
@@ -1054,6 +1054,7 @@ Accepting a quotation creates an **Order** with deposit/remaining amounts (defau
   "quantity": 1,
   "unitPrice": 2000000,
   "discountAmount": 0,
+  "taxRate": 0,
   "note": null
 }
 ```
@@ -1078,9 +1079,11 @@ Accepting a quotation creates an **Order** with deposit/remaining amounts (defau
   "quotationCode": "QT-...",
   "versionNo": 1,
   "subtotalAmount": 100000000,
-  "discountAmount": 1000000,
+  "totalDiscountAmount": 1000000,
+  "taxableAmount": 99000000,
   "taxAmount": 0,
   "totalAmount": 99000000,
+  "currency": "VND",
   "status": "SENT",
   "validUntil": "...",
   "customerNote": null,
@@ -1102,10 +1105,16 @@ Accepting a quotation creates an **Order** with deposit/remaining amounts (defau
       "productVersionId": "...",
       "productNameSnapshot": "Oak Cafe Table",
       "productVersionNameSnapshot": "Natural Oak",
+      "productVersionCodeSnapshot": "TABLE-OAK-001-A",
       "quantity": 4,
       "unitPrice": 4500000,
-      "customizationAdditionalCost": 0,
+      "customizationUnitAdditionalCost": 0,
+      "grossAmount": 18000000,
       "discountAmount": 0,
+      "taxableAmount": 18000000,
+      "taxRate": 0,
+      "taxAmount": 0,
+      "totalAmount": 18000000,
       "subtotalAmount": 18000000,
       "isCustomized": false,
       "customizationNote": null,
@@ -1114,6 +1123,22 @@ Accepting a quotation creates an **Order** with deposit/remaining amounts (defau
   ]
 }
 ```
+
+Quotation item formula:
+
+- `grossAmount = quantity * (unitPrice + customizationUnitAdditionalCost)`
+- `taxableAmount = grossAmount - discountAmount`
+- `taxAmount = ROUND(taxableAmount * taxRate / 100)`
+- `totalAmount = taxableAmount + taxAmount`
+- `subtotalAmount` is retained as a compatibility field and mirrors `grossAmount`.
+
+Quotation header formula:
+
+- `subtotalAmount = SUM(item.grossAmount)`
+- `totalDiscountAmount = SUM(item.discountAmount)`
+- `taxableAmount = SUM(item.taxableAmount)`
+- `taxAmount = SUM(item.taxAmount)`
+- `totalAmount = SUM(item.totalAmount)`
 
 `QuotationStatus`: `DRAFT`, `SENT`, `REVISION_REQUESTED`, `REVISED`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `CANCELLED`
 

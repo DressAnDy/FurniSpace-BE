@@ -24,7 +24,7 @@ public sealed class QuotationItemFinancialCalculator
         item.TaxRate = taxRate;
         item.TaxAmount = taxAmount;
         item.TotalAmount = RoundMoney(taxableAmount + taxAmount);
-        item.SubtotalAmount = item.TotalAmount;
+        item.SubtotalAmount = grossAmount;
 
         return item;
     }

@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using System.Collections.Concurrent;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Quotations;
@@ -19,6 +20,8 @@ namespace FurniSpace.Application.Services.Quotations;
 
 public sealed class QuotationService : IQuotationService
 {
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> QuotationMutationLocks = new();
+
     private readonly IQuotationRepository _quotations;
     private readonly IProjectRepository _projects;
     private readonly IOrderRepository _orders;
@@ -211,6 +214,7 @@ public sealed class QuotationService : IQuotationService
         UpdateQuotationRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -244,6 +248,7 @@ public sealed class QuotationService : IQuotationService
         CreateManualQuotationItemRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -302,6 +307,7 @@ public sealed class QuotationService : IQuotationService
         UpdateManualQuotationItemRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -360,6 +366,7 @@ public sealed class QuotationService : IQuotationService
         UpdateQuotationItemFinancialsRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetEditableItemMutationContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -405,6 +412,7 @@ public sealed class QuotationService : IQuotationService
         BulkUpdateQuotationItemFinancialsRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetEditableItemMutationContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -474,6 +482,7 @@ public sealed class QuotationService : IQuotationService
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -526,6 +535,7 @@ public sealed class QuotationService : IQuotationService
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -568,6 +578,7 @@ public sealed class QuotationService : IQuotationService
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetCustomerContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -584,11 +595,7 @@ public sealed class QuotationService : IQuotationService
 
         if (await _orders.ExistsForQuotationAsync(quotation.QuotationId, cancellationToken))
         {
-            return detail.Status == QuotationStatus.ACCEPTED
-                ? await LoadDetailResultAsync(quotationId, "Quotation accepted successfully.", cancellationToken)
-                : BadRequestDetail(
-                    QuotationErrorCodes.OrderAlreadyCreated,
-                    "Order has already been created for this quotation.");
+            return await LoadDetailResultAsync(quotationId, "Quotation accepted successfully.", cancellationToken);
         }
 
         await ExpireIfNeededAsync(detail, cancellationToken);
@@ -658,6 +665,11 @@ public sealed class QuotationService : IQuotationService
         catch
         {
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            if (await _orders.ExistsForQuotationAsync(quotationId, cancellationToken))
+            {
+                return await LoadDetailResultAsync(quotationId, "Quotation accepted successfully.", cancellationToken);
+            }
+
             throw;
         }
 
@@ -671,6 +683,7 @@ public sealed class QuotationService : IQuotationService
         RequestQuotationRevisionDto request,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetCustomerContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -711,6 +724,7 @@ public sealed class QuotationService : IQuotationService
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -739,6 +753,7 @@ public sealed class QuotationService : IQuotationService
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -766,6 +781,7 @@ public sealed class QuotationService : IQuotationService
         RejectQuotationRequestDto request,
         CancellationToken cancellationToken = default)
     {
+        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
         var context = await GetCustomerContextAsync(quotationId, currentUserId, cancellationToken);
         if (context.Result is not null)
         {
@@ -1421,6 +1437,15 @@ public sealed class QuotationService : IQuotationService
         return status is QuotationStatus.DRAFT or QuotationStatus.REVISION_REQUESTED or QuotationStatus.REVISED;
     }
 
+    private static async Task<QuotationMutationLock> AcquireQuotationMutationLockAsync(
+        Guid quotationId,
+        CancellationToken cancellationToken)
+    {
+        var semaphore = QuotationMutationLocks.GetOrAdd(quotationId, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(cancellationToken);
+        return new QuotationMutationLock(semaphore);
+    }
+
     private sealed record QuotationMutationContext(
         QuotationDetailReadModel? Detail,
         Quotation? Quotation,
@@ -1434,6 +1459,15 @@ public sealed class QuotationService : IQuotationService
         public QuotationMutationContext(QuotationDetailReadModel detail, Quotation quotation)
             : this(detail, quotation, null)
         {
+        }
+    }
+
+    private sealed class QuotationMutationLock(SemaphoreSlim semaphore) : IAsyncDisposable
+    {
+        public ValueTask DisposeAsync()
+        {
+            semaphore.Release();
+            return ValueTask.CompletedTask;
         }
     }
 

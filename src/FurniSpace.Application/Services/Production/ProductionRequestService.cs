@@ -820,6 +820,11 @@ public sealed class ProductionRequestService : IProductionRequestService
             }
 
             var targetStatus = ResolveCompletedOrderItemStatus(productionItem);
+            if (orderItem.Status == targetStatus)
+            {
+                continue;
+            }
+
             var error = OrderItemStatusTransitionService.Validate(
                 orderItem.Status,
                 targetStatus,
@@ -849,6 +854,11 @@ public sealed class ProductionRequestService : IProductionRequestService
             }
 
             var targetStatus = ResolveCompletedOrderItemStatus(productionItem);
+            if (orderItem.Status == targetStatus)
+            {
+                continue;
+            }
+
             var error = OrderItemStatusTransitionService.Validate(
                 orderItem.Status,
                 targetStatus,

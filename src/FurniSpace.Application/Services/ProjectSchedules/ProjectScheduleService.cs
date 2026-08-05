@@ -23,6 +23,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private readonly IProjectRepository _projects;
     private readonly IProjectFileRepository _files;
     private readonly IOrderRepository _orders;
+    private readonly IProductionRequestRepository _productionRequests;
     private readonly INotificationDispatcher _dispatcher;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ProjectWorkflowSettings _workflowSettings;
@@ -32,6 +33,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         IProjectRepository projects,
         IProjectFileRepository files,
         IOrderRepository orders,
+        IProductionRequestRepository productionRequests,
         INotificationDispatcher dispatcher,
         IUnitOfWork unitOfWork,
         IOptions<ProjectWorkflowSettings> workflowSettings)
@@ -40,6 +42,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         _projects = projects;
         _files = files;
         _orders = orders;
+        _productionRequests = productionRequests;
         _dispatcher = dispatcher;
         _unitOfWork = unitOfWork;
         _workflowSettings = workflowSettings.Value;
@@ -433,7 +436,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             ApplicationRoles.Customer => project.CustomerId == currentUserId,
             ApplicationRoles.Sales => project.AssignedSalesId == currentUserId,
             ApplicationRoles.Designer => project.AssignedDesignerId == currentUserId,
-            ApplicationRoles.Production => await _schedules.HasAssignedScheduleAsync(project.ProjectId, currentUserId, cancellationToken),
+            ApplicationRoles.Production => await CanProductionViewProjectScheduleContextAsync(
+                project.ProjectId,
+                currentUserId,
+                cancellationToken),
             _ => false
         };
     }
@@ -452,13 +458,22 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         if (IsProduction(role))
         {
-            return await _schedules.HasAssignedScheduleAsync(
+            return await CanProductionViewProjectScheduleContextAsync(
                 schedule.ProjectId,
                 currentUserId,
                 cancellationToken);
         }
 
         return false;
+    }
+
+    private async Task<bool> CanProductionViewProjectScheduleContextAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        return await _schedules.HasAssignedScheduleAsync(projectId, currentUserId, cancellationToken) ||
+            await _productionRequests.HasViewableAssignedRequestAsync(projectId, currentUserId, cancellationToken);
     }
 
     private async Task<ServiceResult<ProjectScheduleDto>?> ValidateCreateScheduleBusinessRulesAsync(

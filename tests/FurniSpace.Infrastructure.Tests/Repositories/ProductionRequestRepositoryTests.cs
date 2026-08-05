@@ -74,6 +74,62 @@ public sealed class ProductionRequestRepositoryTests
         Assert.Equal(staffId, Assert.Single(staff).AccountId);
     }
 
+    [Theory]
+    [InlineData(ProductionRequestStatus.PENDING_REVIEW, true)]
+    [InlineData(ProductionRequestStatus.FEASIBLE, true)]
+    [InlineData(ProductionRequestStatus.IN_PRODUCTION, true)]
+    [InlineData(ProductionRequestStatus.BLOCKED, true)]
+    [InlineData(ProductionRequestStatus.COMPLETED, true)]
+    [InlineData(ProductionRequestStatus.CANCELLED, false)]
+    public async Task HasViewableAssignedRequestAsync_UsesScheduleReadStatusPolicy(
+        ProductionRequestStatus status,
+        bool expected)
+    {
+        await using var context = CreateContext();
+        var staffId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var otherProjectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        context.ProjectSet.AddRange(CreateProject(projectId, salesId), CreateProject(otherProjectId, salesId));
+        context.OrderSet.Add(CreateOrder(orderId, projectId, salesId));
+        context.ProductionRequestSet.AddRange(
+            CreateRequest(orderId, projectId, staffId, status),
+            CreateRequest(orderId, otherProjectId, staffId, ProductionRequestStatus.IN_PRODUCTION));
+        await context.SaveChangesAsync();
+        var repository = new ProductionRequestRepository(context);
+
+        var hasAccess = await repository.HasViewableAssignedRequestAsync(projectId, staffId);
+        var hasOtherStaffAccess = await repository.HasViewableAssignedRequestAsync(projectId, Guid.NewGuid());
+
+        Assert.Equal(expected, hasAccess);
+        Assert.False(hasOtherStaffAccess);
+    }
+
+    [Fact]
+    public async Task HasViewableAssignedRequestAsync_ReturnsFalse_ForDifferentProject()
+    {
+        await using var context = CreateContext();
+        var staffId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var otherProjectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        context.ProjectSet.AddRange(CreateProject(projectId, salesId), CreateProject(otherProjectId, salesId));
+        context.OrderSet.Add(CreateOrder(orderId, otherProjectId, salesId));
+        context.ProductionRequestSet.Add(CreateRequest(
+            orderId,
+            otherProjectId,
+            staffId,
+            ProductionRequestStatus.IN_PRODUCTION));
+        await context.SaveChangesAsync();
+        var repository = new ProductionRequestRepository(context);
+
+        var hasAccess = await repository.HasViewableAssignedRequestAsync(projectId, staffId);
+
+        Assert.False(hasAccess);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

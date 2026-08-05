@@ -894,6 +894,25 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_WhenOrderItemsAlreadySynced_AllowsIdempotentCompletion()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        context.OrderItemSet.Local.Single(item => item.OrderItemId == seeded.CompletedOrderItemId).Status =
+            OrderItemStatus.READY;
+        context.OrderItemSet.Local.Single(item => item.OrderItemId == seeded.CancelledOrderItemId).Status =
+            OrderItemStatus.UNAVAILABLE;
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("COMPLETED", result.Data!.ProductionStatus);
+        Assert.Equal("READY_FOR_DELIVERY", result.Data.OrderStatus);
+    }
+
+    [Fact]
     public async Task CompleteAsync_WhenProductionItemOrderItemMissing_ReturnsMappingInvalid()
     {
         await using var context = CreateContext();

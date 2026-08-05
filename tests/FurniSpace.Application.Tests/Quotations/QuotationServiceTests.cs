@@ -33,6 +33,64 @@ public sealed class QuotationServiceTests
     private readonly Guid _proposalId = Guid.NewGuid();
 
     [Fact]
+    public void QuotationItemFinancialCalculator_WhenItemHasDiscountAndTax_CalculatesExpectedAmounts()
+    {
+        var calculator = new QuotationItemFinancialCalculator();
+        var item = new QuotationItem
+        {
+            Quantity = 2,
+            UnitPrice = 100m,
+            CustomizationAdditionalCost = 20m,
+            DiscountAmount = 40m,
+            TaxRate = 10m
+        };
+
+        calculator.Calculate(item);
+
+        Assert.Equal(240m, item.GrossAmount);
+        Assert.Equal(200m, item.TaxableAmount);
+        Assert.Equal(20m, item.TaxAmount);
+        Assert.Equal(220m, item.TotalAmount);
+        Assert.Equal(220m, item.SubtotalAmount);
+    }
+
+    [Fact]
+    public void QuotationRecalculationService_WhenItemsExist_AggregatesHeaderTotals()
+    {
+        var service = CreateRecalculationService();
+        var quotation = new Quotation();
+        var items = new List<QuotationItem>
+        {
+            new()
+            {
+                QuotationItemId = Guid.NewGuid(),
+                Quantity = 2,
+                UnitPrice = 100m,
+                CustomizationAdditionalCost = 20m,
+                DiscountAmount = 40m,
+                TaxRate = 10m
+            },
+            new()
+            {
+                QuotationItemId = Guid.NewGuid(),
+                Quantity = 1,
+                UnitPrice = 50m,
+                DiscountAmount = 5m,
+                TaxRate = 0m
+            }
+        };
+
+        service.Recalculate(quotation, items);
+
+        Assert.Equal(290m, quotation.SubtotalAmount);
+        Assert.Equal(45m, quotation.DiscountAmount);
+        Assert.Equal(245m, quotation.TaxableAmount);
+        Assert.Equal(20m, quotation.TaxAmount);
+        Assert.Equal(265m, quotation.TotalAmount);
+        Assert.Equal("VND", quotation.Currency);
+    }
+
+    [Fact]
     public async Task GetByProjectAsync_CustomerSeesOnlyAvailableQuotations()
     {
         var quotations = new FakeQuotationRepository();
@@ -159,8 +217,16 @@ public sealed class QuotationServiceTests
         Assert.Single(quotations.AddedQuotations);
         Assert.Single(quotations.AddedItems);
         Assert.Equal(QuotationStatus.DRAFT, quotations.AddedQuotations[0].Status);
+        Assert.Equal(200m, quotations.AddedQuotations[0].SubtotalAmount);
+        Assert.Equal(0m, quotations.AddedQuotations[0].DiscountAmount);
+        Assert.Equal(200m, quotations.AddedQuotations[0].TaxableAmount);
+        Assert.Equal(0m, quotations.AddedQuotations[0].TaxAmount);
         Assert.Equal(200m, quotations.AddedQuotations[0].TotalAmount);
         Assert.Equal(QuotationItemType.PRODUCT_ITEM, quotations.AddedItems[0].ItemType);
+        Assert.Equal(200m, quotations.AddedItems[0].GrossAmount);
+        Assert.Equal(200m, quotations.AddedItems[0].TaxableAmount);
+        Assert.Equal(0m, quotations.AddedItems[0].TaxAmount);
+        Assert.Equal(200m, quotations.AddedItems[0].TotalAmount);
     }
 
     [Fact]
@@ -266,7 +332,11 @@ public sealed class QuotationServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal("Ready", quotation.SalesNote);
-        Assert.Equal(195m, quotation.TotalAmount);
+        Assert.Equal(200m, quotation.SubtotalAmount);
+        Assert.Equal(0m, quotation.DiscountAmount);
+        Assert.Equal(200m, quotation.TaxableAmount);
+        Assert.Equal(0m, quotation.TaxAmount);
+        Assert.Equal(200m, quotation.TotalAmount);
     }
 
     [Fact]
@@ -306,7 +376,14 @@ public sealed class QuotationServiceTests
         Assert.Equal(200, result.Status);
         var item = Assert.Single(quotations.AddedItems.Where(added => added.ItemType == QuotationItemType.MANUAL_ITEM));
         Assert.Equal("Delivery", item.ItemName);
+        Assert.Equal(60m, item.GrossAmount);
+        Assert.Equal(55m, item.TaxableAmount);
+        Assert.Equal(0m, item.TaxAmount);
+        Assert.Equal(55m, item.TotalAmount);
         Assert.Equal(55m, item.SubtotalAmount);
+        Assert.Equal(260m, quotation.SubtotalAmount);
+        Assert.Equal(5m, quotation.DiscountAmount);
+        Assert.Equal(255m, quotation.TaxableAmount);
         Assert.Equal(255m, quotation.TotalAmount);
     }
 
@@ -322,6 +399,29 @@ public sealed class QuotationServiceTests
             quotation.QuotationId,
             _salesId,
             new CreateManualQuotationItemRequestDto { ItemName = " ", Quantity = 0, UnitPrice = 10m });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationItem, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AddManualItemAsync_WhenDiscountExceedsGross_ReturnsInvalidItem()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.AddManualItemAsync(
+            quotation.QuotationId,
+            _salesId,
+            new CreateManualQuotationItemRequestDto
+            {
+                ItemName = "Shipping",
+                Quantity = 1,
+                UnitPrice = 10m,
+                DiscountAmount = 11m
+            });
 
         Assert.Equal(400, result.Status);
         Assert.Equal(QuotationErrorCodes.InvalidQuotationItem, result.ErrorCode);
@@ -371,6 +471,10 @@ public sealed class QuotationServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal("Installation", item.ItemName);
+        Assert.Equal(60m, item.GrossAmount);
+        Assert.Equal(50m, item.TaxableAmount);
+        Assert.Equal(0m, item.TaxAmount);
+        Assert.Equal(50m, item.TotalAmount);
         Assert.Equal(50m, item.SubtotalAmount);
         Assert.Equal(50m, quotation.TotalAmount);
     }
@@ -841,8 +945,16 @@ public sealed class QuotationServiceTests
             new QuotationServiceDependencies(
                 options.UnitOfWork ?? TestUnitOfWork.Instance,
                 new OrderWorkflowSettings { DepositPercent = 30 },
+                CreateRecalculationService(),
                 options.Notifications,
                 Logger: null));
+    }
+
+    private static QuotationRecalculationService CreateRecalculationService()
+    {
+        return new QuotationRecalculationService(
+            new QuotationItemFinancialCalculator(),
+            new QuotationFinancialSummaryCalculator());
     }
 
     private Project? ProjectEntity { get; set; }
@@ -912,6 +1024,12 @@ public sealed class QuotationServiceTests
                     ProductNameSnapshot = "Counter",
                     Quantity = 1,
                     UnitPrice = 100m,
+                    GrossAmount = 100m,
+                    DiscountAmount = 0m,
+                    TaxableAmount = 100m,
+                    TaxRate = 0m,
+                    TaxAmount = 0m,
+                    TotalAmount = 100m,
                     SubtotalAmount = 100m
                 },
                 new QuotationItemReadModel
@@ -921,6 +1039,12 @@ public sealed class QuotationServiceTests
                     ItemName = "Lighting",
                     Quantity = 1,
                     UnitPrice = 150m,
+                    GrossAmount = 150m,
+                    DiscountAmount = 0m,
+                    TaxableAmount = 150m,
+                    TaxRate = 0m,
+                    TaxAmount = 0m,
+                    TotalAmount = 150m,
                     SubtotalAmount = 150m
                 }
             ]
@@ -1021,7 +1145,12 @@ public sealed class QuotationServiceTests
                     ProposalId = item.ProposalId,
                     QuotationCode = item.QuotationCode,
                     VersionNo = item.VersionNo,
+                    SubtotalAmount = item.SubtotalAmount,
+                    DiscountAmount = item.DiscountAmount,
+                    TaxableAmount = item.TaxableAmount,
+                    TaxAmount = item.TaxAmount,
                     TotalAmount = item.TotalAmount,
+                    Currency = item.Currency,
                     Status = item.Status,
                     Items = AddedItems.Select(added => new QuotationItemReadModel
                     {
@@ -1033,6 +1162,13 @@ public sealed class QuotationServiceTests
                         ItemName = added.ItemName,
                         Quantity = added.Quantity,
                         UnitPrice = added.UnitPrice,
+                        CustomizationAdditionalCost = added.CustomizationAdditionalCost,
+                        GrossAmount = added.GrossAmount,
+                        DiscountAmount = added.DiscountAmount,
+                        TaxableAmount = added.TaxableAmount,
+                        TaxRate = added.TaxRate,
+                        TaxAmount = added.TaxAmount,
+                        TotalAmount = added.TotalAmount,
                         SubtotalAmount = added.SubtotalAmount
                     }).ToList()
                 })

@@ -25,6 +25,7 @@ public sealed class QuotationService : IQuotationService
     private readonly ICustomizationRequestRepository _customizationRequests;
     private readonly IUnitOfWork _unitOfWork;
     private readonly OrderWorkflowSettings _orderWorkflowSettings;
+    private readonly QuotationRecalculationService _recalculationService;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<QuotationService>? _logger;
 
@@ -41,6 +42,7 @@ public sealed class QuotationService : IQuotationService
         _customizationRequests = customizationRequests;
         _unitOfWork = dependencies.UnitOfWork;
         _orderWorkflowSettings = dependencies.OrderWorkflowSettings;
+        _recalculationService = dependencies.RecalculationService;
         _notifications = dependencies.Notifications;
         _logger = dependencies.Logger;
     }
@@ -172,13 +174,22 @@ public sealed class QuotationService : IQuotationService
         }
 
         var proposalItems = await _quotations.GetProposalItemsAsync(selected.ProposalId, cancellationToken);
-        var quotation = CreateDraftQuotation(selected, currentUserId, proposalItems);
+        var quotationItems = proposalItems
+            .Select(item => ToQuotationItem(Guid.NewGuid(), item))
+            .ToList();
+        var quotation = CreateDraftQuotation(selected, currentUserId);
+        foreach (var item in quotationItems)
+        {
+            item.QuotationId = quotation.QuotationId;
+        }
+
+        _recalculationService.Recalculate(quotation, quotationItems);
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
             await _quotations.AddAsync(quotation, cancellationToken);
-            foreach (var item in proposalItems.Select(item => ToQuotationItem(quotation.QuotationId, item)))
+            foreach (var item in quotationItems)
             {
                 await _quotations.AddItemAsync(item, cancellationToken);
             }
@@ -225,8 +236,6 @@ public sealed class QuotationService : IQuotationService
 
         var quotation = context.Quotation!;
         quotation.ValidUntil = request.ValidUntil;
-        quotation.DiscountAmount = request.DiscountAmount ?? 0m;
-        quotation.TaxAmount = request.TaxAmount ?? 0m;
         quotation.CustomerNote = request.CustomerNote?.Trim();
         quotation.SalesNote = request.SalesNote?.Trim();
         quotation.RevisionReason = request.RevisionReason?.Trim();
@@ -275,7 +284,7 @@ public sealed class QuotationService : IQuotationService
             UnitPrice = request.UnitPrice,
             CustomizationAdditionalCost = 0m,
             DiscountAmount = request.DiscountAmount ?? 0m,
-            SubtotalAmount = CalculateItemSubtotal(request.Quantity, request.UnitPrice, 0m, request.DiscountAmount),
+            TaxRate = 0m,
             IsCustomized = false,
             Note = request.Note?.Trim()
         };
@@ -340,7 +349,6 @@ public sealed class QuotationService : IQuotationService
         item.UnitPrice = unitPrice;
         item.CustomizationAdditionalCost = 0m;
         item.DiscountAmount = discount ?? 0m;
-        item.SubtotalAmount = CalculateItemSubtotal(quantity, unitPrice, 0m, discount);
         item.Note = request.Note?.Trim() ?? item.Note;
         _quotations.UpdateItem(item);
 
@@ -686,11 +694,9 @@ public sealed class QuotationService : IQuotationService
 
     private static Quotation CreateDraftQuotation(
         SelectedProposalForQuotationReadModel selected,
-        Guid currentUserId,
-        IReadOnlyList<ProposalItem> proposalItems)
+        Guid currentUserId)
     {
         var now = DateTime.UtcNow;
-        var subtotal = proposalItems.Sum(item => item.TotalPriceSnapshot ?? 0m);
         return new Quotation
         {
             QuotationId = Guid.NewGuid(),
@@ -698,10 +704,12 @@ public sealed class QuotationService : IQuotationService
             ProposalId = selected.ProposalId,
             QuotationCode = $"QTN-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..30],
             VersionNo = 1,
-            SubtotalAmount = subtotal,
+            SubtotalAmount = 0m,
             DiscountAmount = 0m,
+            TaxableAmount = 0m,
             TaxAmount = 0m,
-            TotalAmount = subtotal,
+            TotalAmount = 0m,
+            Currency = "VND",
             Status = QuotationStatus.DRAFT,
             CreatedBy = currentUserId,
             CreatedAt = now,
@@ -760,7 +768,12 @@ public sealed class QuotationService : IQuotationService
             Status = OrderItemStatus.PENDING,
             UnitPrice = quotationItem.UnitPrice,
             CustomizationFee = quotationItem.CustomizationAdditionalCost,
+            GrossAmount = quotationItem.GrossAmount,
             DiscountAmount = quotationItem.DiscountAmount,
+            TaxableAmount = quotationItem.TaxableAmount,
+            TaxRate = quotationItem.TaxRate,
+            TaxAmount = quotationItem.TaxAmount,
+            TotalAmount = quotationItem.TotalAmount,
             SubtotalAmount = quotationItem.SubtotalAmount
         };
     }
@@ -781,7 +794,7 @@ public sealed class QuotationService : IQuotationService
             UnitPrice = item.UnitPriceSnapshot,
             CustomizationAdditionalCost = 0m,
             DiscountAmount = 0m,
-            SubtotalAmount = item.TotalPriceSnapshot,
+            TaxRate = 0m,
             IsCustomized = item.IsCustomized,
             CustomizationNote = item.Note,
             Note = item.Note
@@ -1088,11 +1101,7 @@ public sealed class QuotationService : IQuotationService
         Guid? excludedItemId = null)
     {
         var items = await _quotations.GetItemsByQuotationAsync(quotation.QuotationId, cancellationToken);
-        var subtotal = items
-            .Where(item => item.QuotationItemId != excludedItemId)
-            .Sum(item => item.SubtotalAmount ?? 0m) + (unsavedItem?.SubtotalAmount ?? 0m);
-        quotation.SubtotalAmount = subtotal;
-        quotation.TotalAmount = subtotal - (quotation.DiscountAmount ?? 0m) + (quotation.TaxAmount ?? 0m);
+        _recalculationService.Recalculate(quotation, items, unsavedItem, excludedItemId);
     }
 
     private async Task<ServiceResult<QuotationDetailDto>> LoadDetailResultAsync(
@@ -1121,7 +1130,11 @@ public sealed class QuotationService : IQuotationService
         decimal? unitPrice,
         decimal? discountAmount)
     {
-        if (string.IsNullOrWhiteSpace(itemName) || quantity is null or <= 0 || unitPrice is null or < 0m || discountAmount < 0m)
+        if (string.IsNullOrWhiteSpace(itemName) ||
+            quantity is null or <= 0 ||
+            unitPrice is null or < 0m ||
+            discountAmount < 0m ||
+            discountAmount > quantity * unitPrice)
         {
             return BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationItem,
@@ -1129,15 +1142,6 @@ public sealed class QuotationService : IQuotationService
         }
 
         return null;
-    }
-
-    private static decimal CalculateItemSubtotal(
-        int? quantity,
-        decimal? unitPrice,
-        decimal? customizationAdditionalCost,
-        decimal? discountAmount)
-    {
-        return (quantity ?? 0) * ((unitPrice ?? 0m) + (customizationAdditionalCost ?? 0m)) - (discountAmount ?? 0m);
     }
 
     private static bool IsHeaderEditable(QuotationStatus? status)

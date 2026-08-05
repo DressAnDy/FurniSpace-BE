@@ -123,11 +123,15 @@ public static class DependencyInjection
                 sp.GetService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>());
         });
         services.AddScoped<IProposalService, ProposalService>();
+        services.AddScoped<QuotationItemFinancialCalculator>();
+        services.AddScoped<QuotationFinancialSummaryCalculator>();
+        services.AddScoped<QuotationRecalculationService>();
         services.AddScoped<QuotationServiceDependencies>(sp =>
         {
             return new QuotationServiceDependencies(
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<IOptions<OrderWorkflowSettings>>().Value,
+                sp.GetRequiredService<QuotationRecalculationService>(),
                 sp.GetService<INotificationDispatcher>(),
                 sp.GetService<ILogger<QuotationService>>());
         });

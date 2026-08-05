@@ -4,7 +4,7 @@ namespace FurniSpace.Application.Common.Quotations;
 
 public sealed class QuotationRecalculationService
 {
-    public Quotation Recalculate(
+    public static Quotation Recalculate(
         Quotation quotation,
         IEnumerable<QuotationItem> persistedItems,
         QuotationItem? pendingItem = null,

@@ -28,7 +28,7 @@ public sealed class QuotationService : IQuotationService
     private readonly ICustomizationRequestRepository _customizationRequests;
     private readonly IUnitOfWork _unitOfWork;
     private readonly OrderWorkflowSettings _orderWorkflowSettings;
-    private readonly QuotationRecalculationService _recalculationService;
+    //private readonly QuotationRecalculationService _recalculationService;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<QuotationService>? _logger;
 
@@ -45,7 +45,7 @@ public sealed class QuotationService : IQuotationService
         _customizationRequests = customizationRequests;
         _unitOfWork = dependencies.UnitOfWork;
         _orderWorkflowSettings = dependencies.OrderWorkflowSettings;
-        _recalculationService = dependencies.RecalculationService;
+        //_recalculationService = dependencies.RecalculationService;
         _notifications = dependencies.Notifications;
         _logger = dependencies.Logger;
     }
@@ -182,7 +182,7 @@ public sealed class QuotationService : IQuotationService
             .Select(item => ToQuotationItem(quotation.QuotationId, item))
             .ToList();
 
-        _recalculationService.Recalculate(quotation, quotationItems);
+        QuotationRecalculationService.Recalculate(quotation, quotationItems);
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
@@ -513,7 +513,7 @@ public sealed class QuotationService : IQuotationService
             return validation;
         }
 
-        _recalculationService.Recalculate(quotation, items);
+        QuotationRecalculationService.Recalculate(quotation, items);
         if (quotation.TotalAmount is <= 0m)
         {
             return QuotationNotReadyToSendResult();
@@ -641,7 +641,7 @@ public sealed class QuotationService : IQuotationService
             return itemValidation;
         }
 
-        _recalculationService.Recalculate(quotation, quotationItems);
+        QuotationRecalculationService.Recalculate(quotation, quotationItems);
         if (quotation.TotalAmount is <= 0m)
         {
             return QuotationNotReadyToSendResult();
@@ -1320,7 +1320,7 @@ public sealed class QuotationService : IQuotationService
         Guid? excludedItemId = null)
     {
         var items = await _quotations.GetItemsByQuotationAsync(quotation.QuotationId, cancellationToken);
-        _recalculationService.Recalculate(quotation, items, unsavedItem, excludedItemId);
+        QuotationRecalculationService.Recalculate(quotation, items, unsavedItem, excludedItemId);
     }
 
     private async Task<ServiceResult<QuotationDetailDto>> LoadDetailResultAsync(

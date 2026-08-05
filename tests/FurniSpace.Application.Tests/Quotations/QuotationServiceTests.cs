@@ -79,7 +79,7 @@ public sealed class QuotationServiceTests
             }
         };
 
-        service.Recalculate(quotation, items);
+        QuotationRecalculationService.Recalculate(quotation, items);
 
         Assert.Equal(290m, quotation.SubtotalAmount);
         Assert.Equal(45m, quotation.DiscountAmount);

@@ -37,6 +37,8 @@ public sealed class QuotationsControllerTests
     [InlineData(nameof(QuotationsController.Update), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.AddManualItem), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.UpdateManualItem), "SALES,ADMIN")]
+    [InlineData(nameof(QuotationsController.UpdateItemFinancials), "SALES,ADMIN")]
+    [InlineData(nameof(QuotationsController.BulkUpdateItemFinancials), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.Send), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.DeleteManualItem), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.Accept), "CUSTOMER")]
@@ -159,6 +161,42 @@ public sealed class QuotationsControllerTests
         Assert.Equal(quotationId, service.QuotationId);
         Assert.Equal(itemId, service.QuotationItemId);
         Assert.Same(request, service.UpdateItemRequest);
+    }
+
+    [Fact]
+    public async Task UpdateItemFinancials_ReturnsServiceResultAndPassesRequest()
+    {
+        var quotationId = Guid.NewGuid();
+        var itemId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new UpdateQuotationItemFinancialsRequestDto { Quantity = 2 };
+        var service = new FakeQuotationService();
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.UpdateItemFinancials(quotationId, itemId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(quotationId, service.QuotationId);
+        Assert.Equal(itemId, service.QuotationItemId);
+        Assert.Same(request, service.FinancialsRequest);
+    }
+
+    [Fact]
+    public async Task BulkUpdateItemFinancials_ReturnsServiceResultAndPassesRequest()
+    {
+        var quotationId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new BulkUpdateQuotationItemFinancialsRequestDto();
+        var service = new FakeQuotationService();
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.BulkUpdateItemFinancials(quotationId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(quotationId, service.QuotationId);
+        Assert.Same(request, service.BulkFinancialsRequest);
     }
 
     [Fact]
@@ -286,6 +324,8 @@ public sealed class QuotationsControllerTests
     [InlineData(nameof(QuotationsController.Update))]
     [InlineData(nameof(QuotationsController.AddManualItem))]
     [InlineData(nameof(QuotationsController.UpdateManualItem))]
+    [InlineData(nameof(QuotationsController.UpdateItemFinancials))]
+    [InlineData(nameof(QuotationsController.BulkUpdateItemFinancials))]
     [InlineData(nameof(QuotationsController.Send))]
     [InlineData(nameof(QuotationsController.DeleteManualItem))]
     [InlineData(nameof(QuotationsController.Accept))]
@@ -305,6 +345,8 @@ public sealed class QuotationsControllerTests
             nameof(QuotationsController.Update) => await controller.Update(Guid.NewGuid(), new UpdateQuotationRequestDto()),
             nameof(QuotationsController.AddManualItem) => await controller.AddManualItem(Guid.NewGuid(), new CreateManualQuotationItemRequestDto()),
             nameof(QuotationsController.UpdateManualItem) => await controller.UpdateManualItem(Guid.NewGuid(), Guid.NewGuid(), new UpdateManualQuotationItemRequestDto()),
+            nameof(QuotationsController.UpdateItemFinancials) => await controller.UpdateItemFinancials(Guid.NewGuid(), Guid.NewGuid(), new UpdateQuotationItemFinancialsRequestDto()),
+            nameof(QuotationsController.BulkUpdateItemFinancials) => await controller.BulkUpdateItemFinancials(Guid.NewGuid(), new BulkUpdateQuotationItemFinancialsRequestDto()),
             nameof(QuotationsController.Send) => await controller.Send(Guid.NewGuid()),
             nameof(QuotationsController.DeleteManualItem) => await controller.DeleteManualItem(Guid.NewGuid(), Guid.NewGuid()),
             nameof(QuotationsController.Accept) => await controller.Accept(Guid.NewGuid()),
@@ -358,6 +400,8 @@ public sealed class QuotationsControllerTests
         public UpdateQuotationRequestDto? UpdateRequest { get; private set; }
         public CreateManualQuotationItemRequestDto? CreateItemRequest { get; private set; }
         public UpdateManualQuotationItemRequestDto? UpdateItemRequest { get; private set; }
+        public UpdateQuotationItemFinancialsRequestDto? FinancialsRequest { get; private set; }
+        public BulkUpdateQuotationItemFinancialsRequestDto? BulkFinancialsRequest { get; private set; }
         public RequestQuotationRevisionDto? RevisionRequest { get; private set; }
         public RejectQuotationRequestDto? RejectRequest { get; private set; }
 
@@ -428,6 +472,32 @@ public sealed class QuotationsControllerTests
             QuotationItemId = quotationItemId;
             CurrentUserId = currentUserId;
             UpdateItemRequest = request;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<ServiceResult<QuotationDetailDto>> UpdateItemFinancialsAsync(
+            Guid quotationId,
+            Guid quotationItemId,
+            Guid currentUserId,
+            UpdateQuotationItemFinancialsRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            QuotationId = quotationId;
+            QuotationItemId = quotationItemId;
+            CurrentUserId = currentUserId;
+            FinancialsRequest = request;
+            return Task.FromResult(DetailResult);
+        }
+
+        public Task<ServiceResult<QuotationDetailDto>> BulkUpdateItemFinancialsAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            BulkUpdateQuotationItemFinancialsRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            QuotationId = quotationId;
+            CurrentUserId = currentUserId;
+            BulkFinancialsRequest = request;
             return Task.FromResult(DetailResult);
         }
 

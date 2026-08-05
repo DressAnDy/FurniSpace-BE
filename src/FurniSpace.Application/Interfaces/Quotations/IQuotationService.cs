@@ -40,6 +40,19 @@ public interface IQuotationService
         UpdateManualQuotationItemRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<QuotationDetailDto>> UpdateItemFinancialsAsync(
+        Guid quotationId,
+        Guid quotationItemId,
+        Guid currentUserId,
+        UpdateQuotationItemFinancialsRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<QuotationDetailDto>> BulkUpdateItemFinancialsAsync(
+        Guid quotationId,
+        Guid currentUserId,
+        BulkUpdateQuotationItemFinancialsRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<QuotationDetailDto>> SendAsync(
         Guid quotationId,
         Guid currentUserId,

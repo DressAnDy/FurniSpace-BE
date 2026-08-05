@@ -140,6 +140,48 @@ public sealed class QuotationsController : BaseApiController
     }
 
     [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("quotations/{quotationId:guid}/items/{quotationItemId:guid}/financials")]
+    public async Task<IActionResult> UpdateItemFinancials(
+        Guid quotationId,
+        Guid quotationItemId,
+        [FromBody] UpdateQuotationItemFinancialsRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _quotations.UpdateItemFinancialsAsync(
+            quotationId,
+            quotationItemId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPut("quotations/{quotationId:guid}/items/financials")]
+    public async Task<IActionResult> BulkUpdateItemFinancials(
+        Guid quotationId,
+        [FromBody] BulkUpdateQuotationItemFinancialsRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _quotations.BulkUpdateItemFinancialsAsync(
+            quotationId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
     [HttpPatch("quotations/{quotationId:guid}/send")]
     public async Task<IActionResult> Send(
         Guid quotationId,

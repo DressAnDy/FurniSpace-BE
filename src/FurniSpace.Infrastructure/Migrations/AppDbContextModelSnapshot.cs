@@ -2650,6 +2650,12 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
+                    b.Property<int?>("DisplayOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("display_order");
+
                     b.Property<decimal?>("DiscountAmount")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

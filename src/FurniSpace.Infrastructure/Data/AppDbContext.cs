@@ -885,6 +885,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductVersionCodeSnapshot).HasColumnName("product_version_code_snapshot").HasColumnType(Varchar50ColumnType);
             entity.Property(e => e.ItemName).HasColumnName("item_name").HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.Description).HasColumnName(DescriptionColumnName).HasColumnType(TextColumnType);
+            entity.Property(e => e.DisplayOrder).HasColumnName("display_order").HasColumnType(IntegerColumnType).HasDefaultValue(0);
             entity.Property(e => e.Quantity).HasColumnName(QuantityColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1).IsRequired();
             entity.Property(e => e.UnitPrice).HasColumnName("unit_price").HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.CustomizationAdditionalCost).HasColumnName(CustomizationUnitAdditionalCostColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();

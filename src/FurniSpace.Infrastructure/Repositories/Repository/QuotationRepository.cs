@@ -202,7 +202,8 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
     {
         return await DbContext.QuotationItemSet
             .Where(item => item.QuotationId == quotationId)
-            .OrderBy(item => item.QuotationItemId)
+            .OrderBy(item => item.DisplayOrder ?? int.MaxValue)
+            .ThenBy(item => item.QuotationItemId)
             .Select(item => new QuotationItemReadModel
             {
                 QuotationItemId = item.QuotationItemId,
@@ -215,6 +216,7 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
                 ProductVersionCodeSnapshot = item.ProductVersionCodeSnapshot,
                 ItemName = item.ItemName,
                 Description = item.Description,
+                DisplayOrder = item.DisplayOrder,
                 Quantity = item.Quantity,
                 UnitPrice = item.UnitPrice,
                 CustomizationAdditionalCost = item.CustomizationAdditionalCost,

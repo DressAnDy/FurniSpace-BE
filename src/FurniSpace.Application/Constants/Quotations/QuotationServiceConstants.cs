@@ -29,6 +29,7 @@ internal static class QuotationServiceConstants
     internal static readonly QuotationStatus[] ManualItemEditableStatuses =
     [
         QuotationStatus.DRAFT,
+        QuotationStatus.REVISION_REQUESTED,
         QuotationStatus.REVISED
     ];
 }

@@ -482,10 +482,17 @@ public sealed class QuotationService : IQuotationService
 
         var quotation = context.Quotation!;
         var detail = context.Detail!;
-        var validation = ValidateSendState(detail);
+        var items = (await _quotations.GetItemsByQuotationAsync(quotationId, cancellationToken)).ToList();
+        var validation = ValidateSendState(quotation, items);
         if (validation is not null)
         {
             return validation;
+        }
+
+        _recalculationService.Recalculate(quotation, items);
+        if (quotation.TotalAmount is <= 0m)
+        {
+            return QuotationNotReadyToSendResult();
         }
 
         var project = await _projects.GetByIdAsync(quotation.ProjectId, cancellationToken);
@@ -500,6 +507,11 @@ public sealed class QuotationService : IQuotationService
         quotation.UpdatedAt = now;
         project.Status = ProjectStatus.QUOTATION_SENT;
         project.UpdatedAt = now;
+        foreach (var item in items)
+        {
+            _quotations.UpdateItem(item);
+        }
+
         _quotations.Update(quotation);
         _projects.Update(project);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -695,6 +707,7 @@ public sealed class QuotationService : IQuotationService
         context.Quotation!.VersionNo = (context.Quotation.VersionNo ?? 0) + 1;
         context.Quotation.Status = QuotationStatus.REVISED;
         context.Quotation.UpdatedAt = DateTime.UtcNow;
+        await RecalculateQuotationTotalsAsync(context.Quotation, cancellationToken);
         _quotations.Update(context.Quotation);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -911,19 +924,38 @@ public sealed class QuotationService : IQuotationService
         };
     }
 
-    private static ServiceResult<QuotationDetailDto>? ValidateSendState(QuotationDetailReadModel quotation)
+    private static ServiceResult<QuotationDetailDto>? ValidateSendState(
+        Quotation quotation,
+        List<QuotationItem> items)
     {
         if (quotation.Status is not (QuotationStatus.DRAFT or QuotationStatus.REVISED) ||
             quotation.ValidUntil is null ||
-            quotation.TotalAmount is null or <= 0m ||
-            quotation.Items.Count == 0)
+            items.Count == 0)
         {
-            return BadRequestDetail(
-                QuotationErrorCodes.QuotationNotReadyToSend,
-                "Quotation is not ready to send.");
+            return QuotationNotReadyToSendResult();
         }
 
-        return null;
+        return items.Exists(IsInvalidSendItem)
+            ? QuotationNotReadyToSendResult()
+            : null;
+    }
+
+    private static bool IsInvalidSendItem(QuotationItem item)
+    {
+        return ValidateQuotationItem(
+            item.ItemName,
+            item.Quantity,
+            item.UnitPrice,
+            item.CustomizationAdditionalCost,
+            item.DiscountAmount,
+            item.TaxRate) is not null;
+    }
+
+    private static ServiceResult<QuotationDetailDto> QuotationNotReadyToSendResult()
+    {
+        return BadRequestDetail(
+            QuotationErrorCodes.QuotationNotReadyToSend,
+            "Quotation is not ready to send.");
     }
 
     private static ServiceResult<QuotationDetailDto>? ValidateAcceptState(QuotationDetailReadModel quotation)

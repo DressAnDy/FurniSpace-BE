@@ -392,6 +392,31 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task AddManualItemAsync_WhenRevisionRequested_AddsManualItemAndRecalculatesTotals()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.AddManualItemAsync(
+            quotation.QuotationId,
+            _salesId,
+            new CreateManualQuotationItemRequestDto
+            {
+                ItemName = "Revision fee",
+                Quantity = 1,
+                UnitPrice = 100m,
+                TaxRate = 8m
+            });
+
+        Assert.Equal(200, result.Status);
+        var item = Assert.Single(quotations.AddedItems);
+        Assert.Equal(108m, item.TotalAmount);
+        Assert.Equal(108m, quotation.TotalAmount);
+    }
+
+    [Fact]
     public async Task AddManualItemAsync_WhenInvalidRequest_ReturnsInvalidItem()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
@@ -529,6 +554,35 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task UpdateManualItemAsync_WhenRevisionRequested_UpdatesItemAndTotals()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        var item = MakeQuotationItem(quotation.QuotationId, QuotationItemType.MANUAL_ITEM, subtotal: 50m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.UpdateManualItemAsync(
+            quotation.QuotationId,
+            item.QuotationItemId,
+            _salesId,
+            new UpdateManualQuotationItemRequestDto
+            {
+                ItemName = "Revision installation",
+                Quantity = 1,
+                UnitPrice = 100m,
+                DiscountAmount = 10m,
+                TaxRate = 10m
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Revision installation", item.ItemName);
+        Assert.Equal(99m, item.TotalAmount);
+        Assert.Equal(99m, quotation.TotalAmount);
+    }
+
+    [Fact]
     public async Task UpdateManualItemAsync_WhenItemMissing_ReturnsItemNotFound()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
@@ -576,6 +630,32 @@ public sealed class QuotationServiceTests
         Assert.Equal(20m, item.TaxAmount);
         Assert.Equal(220m, item.TotalAmount);
         Assert.Equal(220m, quotation.TotalAmount);
+    }
+
+    [Fact]
+    public async Task UpdateItemFinancialsAsync_WhenRevisionRequested_RecalculatesItemAndHeader()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        var item = MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 100m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.UpdateItemFinancialsAsync(
+            quotation.QuotationId,
+            item.QuotationItemId,
+            _salesId,
+            new UpdateQuotationItemFinancialsRequestDto
+            {
+                Quantity = 1,
+                UnitPrice = 100m,
+                TaxRate = 10m
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(110m, item.TotalAmount);
+        Assert.Equal(110m, quotation.TotalAmount);
     }
 
     [Fact]
@@ -821,6 +901,7 @@ public sealed class QuotationServiceTests
         detail.Items = [new QuotationItemReadModel { QuotationItemId = Guid.NewGuid(), QuotationId = quotation.QuotationId }];
         var quotations = new FakeQuotationRepository { Detail = detail };
         quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 250m));
         var dispatcher = new FakeNotificationDispatcher();
         var service = BuildService(new() { Quotations = quotations, Role = "SALES", Notifications = dispatcher });
 
@@ -831,6 +912,43 @@ public sealed class QuotationServiceTests
         Assert.Equal(ProjectStatus.QUOTATION_SENT, ProjectEntity!.Status);
         Assert.Equal(NotificationType.QuotationSent, dispatcher.LastType);
         Assert.Contains(_customerId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenCalculatedFieldsAreStale_RecalculatesBeforeSending()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        quotation.TotalAmount = 1m;
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
+        var item = MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 1m);
+        item.Quantity = 2;
+        item.UnitPrice = 100m;
+        item.CustomizationAdditionalCost = 20m;
+        item.DiscountAmount = 40m;
+        item.TaxRate = 10m;
+        item.TotalAmount = 1m;
+        var detail = MakeDetail(QuotationStatus.DRAFT);
+        detail.QuotationId = quotation.QuotationId;
+        detail.ValidUntil = quotation.ValidUntil;
+        detail.Items = [new QuotationItemReadModel { QuotationItemId = item.QuotationItemId, QuotationId = quotation.QuotationId }];
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.SendAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.SENT, quotation.Status);
+        Assert.Equal(240m, item.GrossAmount);
+        Assert.Equal(200m, item.TaxableAmount);
+        Assert.Equal(20m, item.TaxAmount);
+        Assert.Equal(220m, item.TotalAmount);
+        Assert.Equal(240m, quotation.SubtotalAmount);
+        Assert.Equal(40m, quotation.DiscountAmount);
+        Assert.Equal(200m, quotation.TaxableAmount);
+        Assert.Equal(20m, quotation.TaxAmount);
+        Assert.Equal(220m, quotation.TotalAmount);
     }
 
     [Fact]
@@ -852,12 +970,53 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task SendAsync_WhenItemFinancialInputsInvalid_ReturnsNotReady()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
+        var item = MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 100m);
+        item.DiscountAmount = 101m;
+        var detail = MakeDetail(QuotationStatus.DRAFT);
+        detail.QuotationId = quotation.QuotationId;
+        detail.ValidUntil = quotation.ValidUntil;
+        detail.Items = [new QuotationItemReadModel { QuotationItemId = item.QuotationItemId, QuotationId = quotation.QuotationId }];
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.SendAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(QuotationErrorCodes.QuotationNotReadyToSend, result.ErrorCode);
+        Assert.Equal(QuotationStatus.DRAFT, quotation.Status);
+    }
+
+    [Fact]
     public async Task DeleteManualItemAsync_WhenValid_RemovesItemAndRecalculatesTotals()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
         var manualItem = MakeQuotationItem(quotation.QuotationId, QuotationItemType.MANUAL_ITEM, subtotal: 50m);
         var productItem = MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 200m);
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.DRAFT) };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.AddRange([manualItem, productItem]);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.DeleteManualItemAsync(quotation.QuotationId, manualItem.QuotationItemId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.DoesNotContain(quotations.AddedItems, item => item.QuotationItemId == manualItem.QuotationItemId);
+        Assert.Equal(200m, quotation.TotalAmount);
+    }
+
+    [Fact]
+    public async Task DeleteManualItemAsync_WhenRevisionRequested_RemovesItemAndRecalculatesTotals()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        var manualItem = MakeQuotationItem(quotation.QuotationId, QuotationItemType.MANUAL_ITEM, subtotal: 50m);
+        var productItem = MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 200m);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
         quotations.AddedQuotations.Add(quotation);
         quotations.AddedItems.AddRange([manualItem, productItem]);
         var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
@@ -1107,6 +1266,31 @@ public sealed class QuotationServiceTests
         Assert.Equal(200, result.Status);
         Assert.Equal(3, quotation.VersionNo);
         Assert.Equal(QuotationStatus.REVISED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task ReviseAsync_WhenRevisionRequested_RecalculatesExistingItems()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        quotation.VersionNo = 1;
+        var item = MakeQuotationItem(quotation.QuotationId, QuotationItemType.PRODUCT_ITEM, subtotal: 10m);
+        item.Quantity = 2;
+        item.UnitPrice = 100m;
+        item.CustomizationAdditionalCost = 20m;
+        item.DiscountAmount = 40m;
+        item.TaxRate = 10m;
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.REVISED, quotation.Status);
+        Assert.Equal(220m, quotation.TotalAmount);
+        Assert.Equal(220m, item.TotalAmount);
     }
 
     [Fact]

@@ -12,21 +12,21 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.API", "src\Furni
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Shared", "src\FurniSpace.Shared\FurniSpace.Shared.csproj", "{CFA843AE-9611-42AC-9D01-82B8D8433CBC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Domain.Tests", "tests\FurniSpace.Domain.Tests\FurniSpace.Domain.Tests.csproj", "{F79CE4A4-3A31-4AEF-9AB1-457F65A16A93}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Domain.Tests", "tests\UnitTests\FurniSpace.Domain.Tests\FurniSpace.Domain.Tests.csproj", "{F79CE4A4-3A31-4AEF-9AB1-457F65A16A93}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Application.Tests", "tests\FurniSpace.Application.Tests\FurniSpace.Application.Tests.csproj", "{11D53F90-7F6C-4F7A-9CD3-7E4C78E1B143}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Application.Tests", "tests\UnitTests\FurniSpace.Application.Tests\FurniSpace.Application.Tests.csproj", "{11D53F90-7F6C-4F7A-9CD3-7E4C78E1B143}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Infrastructure.Tests", "tests\FurniSpace.Infrastructure.Tests\FurniSpace.Infrastructure.Tests.csproj", "{B1839218-621B-4A53-B18D-4B4DAF9DCBB8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Infrastructure.Tests", "tests\UnitTests\FurniSpace.Infrastructure.Tests\FurniSpace.Infrastructure.Tests.csproj", "{B1839218-621B-4A53-B18D-4B4DAF9DCBB8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.API.Tests", "tests\FurniSpace.API.Tests\FurniSpace.API.Tests.csproj", "{F27B9432-636E-44B1-9FF6-6A84798F34EA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.API.Tests", "tests\UnitTests\FurniSpace.API.Tests\FurniSpace.API.Tests.csproj", "{F27B9432-636E-44B1-9FF6-6A84798F34EA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Testing", "tests\FurniSpace.Testing\FurniSpace.Testing.csproj", "{722E07FB-80BE-4E33-8365-A290CBEE5219}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Testing", "tests\IntegrationTests\FurniSpace.Testing\FurniSpace.Testing.csproj", "{722E07FB-80BE-4E33-8365-A290CBEE5219}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Infrastructure.IntegrationTests", "tests\FurniSpace.Infrastructure.IntegrationTests\FurniSpace.Infrastructure.IntegrationTests.csproj", "{3B9B9946-403C-4B9D-B14D-B35247D1B1D5}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Infrastructure.IntegrationTests", "tests\IntegrationTests\FurniSpace.Infrastructure.IntegrationTests\FurniSpace.Infrastructure.IntegrationTests.csproj", "{3B9B9946-403C-4B9D-B14D-B35247D1B1D5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Application.IntegrationTests", "tests\FurniSpace.Application.IntegrationTests\FurniSpace.Application.IntegrationTests.csproj", "{8E3A8E4C-6D71-4E48-9C08-6F7DAB5BBF22}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.Application.IntegrationTests", "tests\IntegrationTests\FurniSpace.Application.IntegrationTests\FurniSpace.Application.IntegrationTests.csproj", "{8E3A8E4C-6D71-4E48-9C08-6F7DAB5BBF22}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.API.IntegrationTests", "tests\FurniSpace.API.IntegrationTests\FurniSpace.API.IntegrationTests.csproj", "{0E4D00B7-BAF5-44F9-A005-9BCF8CB735A9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FurniSpace.API.IntegrationTests", "tests\IntegrationTests\FurniSpace.API.IntegrationTests\FurniSpace.API.IntegrationTests.csproj", "{0E4D00B7-BAF5-44F9-A005-9BCF8CB735A9}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

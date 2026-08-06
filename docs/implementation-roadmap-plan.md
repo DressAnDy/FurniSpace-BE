@@ -59,46 +59,48 @@ Seed data **không** đặt trong `src/` (production). Cấu trúc đề xuất:
 
 ```text
 tests/
-  FurniSpace.Testing/                          ← shared test library (reference từ mọi *IntegrationTests)
-    Fixtures/
-      PostgresIntegrationFixture.cs            ← container + connection + migrate
-      IntegrationCollectionDefinition.cs       ← xUnit collection fixture
-    Infrastructure/
-      DatabaseMigrationHelper.cs               ← MigrateAsync(AppDbContext)
-    Seeding/
-      IntegrationSeedContext.cs                ← optional: DbContext + metadata test run
-      Core/
-        RoleSeed.cs                              ← roles ADMIN, SALES, ...
-        AccountSeed.cs                           ← customer, sales, designer, admin
-      Modules/
-        ProjectChatSeed.cs                       ← tách từ ProjectChatTestDataFactory hiện tại
-        ProjectSeed.cs
-        CatalogFileSeed.cs                       ← product + preview file_links
-        ProductSeed.cs
-      IntegrationDataFactory.cs                  ← facade: SeedMinimalAsync(), SeedProjectChatScenarioAsync(), ...
-    Fakes/
-      FakeFileStorageService.cs
-      NoOpEmailService.cs
+  IntegrationTests/
+    FurniSpace.Testing/                          ← shared test library (reference từ mọi *IntegrationTests)
+      Fixtures/
+        PostgresIntegrationFixture.cs            ← container + connection + migrate
+        IntegrationCollectionDefinition.cs       ← xUnit collection fixture
+      Infrastructure/
+        DatabaseMigrationHelper.cs               ← MigrateAsync(AppDbContext)
+      Seeding/
+        IntegrationSeedContext.cs                ← optional: DbContext + metadata test run
+        Core/
+          RoleSeed.cs                              ← roles ADMIN, SALES, ...
+          AccountSeed.cs                           ← customer, sales, designer, admin
+        Modules/
+          ProjectChatSeed.cs                       ← tách từ ProjectChatTestDataFactory hiện tại
+          ProjectSeed.cs
+          CatalogFileSeed.cs                       ← product + preview file_links
+          ProductSeed.cs
+        IntegrationDataFactory.cs                  ← facade: SeedMinimalAsync(), SeedProjectChatScenarioAsync(), ...
+      Fakes/
+        FakeFileStorageService.cs
+        NoOpEmailService.cs
 
-  FurniSpace.Infrastructure.IntegrationTests/
-    Repositories/
-      ProjectChatRepositoryIntegrationTests.cs   ← gọi IntegrationDataFactory, không seed inline
+    FurniSpace.Infrastructure.IntegrationTests/
+      Repositories/
+        ProjectChatRepositoryIntegrationTests.cs   ← gọi IntegrationDataFactory, không seed inline
 
-  FurniSpace.Application.IntegrationTests/     ← Phase 2
-    ...                                          ← dùng cùng FurniSpace.Testing.Seeding
+    FurniSpace.Application.IntegrationTests/       ← Phase 2
+      ...                                          ← dùng cùng FurniSpace.Testing.Seeding
 
-  FurniSpace.Infrastructure.Tests/               ← unit InMemory (giữ nguyên)
-    ProjectChats/
-      ProjectChatTestDataFactory.cs              ← Phase 0: refactor gọi lại Core/Modules seed
-                                                   hoặc obsolete → redirect sang Testing
+  UnitTests/
+    FurniSpace.Infrastructure.Tests/               ← unit InMemory (giữ nguyên)
+      ProjectChats/
+        ProjectChatTestDataFactory.cs              ← Phase 0: refactor gọi lại Core/Modules seed
+                                                     hoặc obsolete → redirect sang Testing
 ```
 
 **Quy ước:**
 
 | Loại | Đặt ở đâu | Ví dụ |
 |------|-----------|--------|
-| Seed **dùng chung** nhiều module | `FurniSpace.Testing/Seeding/Core/` | Role, Account |
-| Seed **theo nghiệp vụ** | `FurniSpace.Testing/Seeding/Modules/` | ProjectChat, CatalogFile |
+| Seed **dùng chung** nhiều module | `tests/IntegrationTests/FurniSpace.Testing/Seeding/Core/` | Role, Account |
+| Seed **theo nghiệp vụ** | `tests/IntegrationTests/FurniSpace.Testing/Seeding/Modules/` | ProjectChat, CatalogFile |
 | **Facade** gom scenario | `IntegrationDataFactory.cs` | `SeedCatalogPreviewScenarioAsync()` |
 | Seed **chỉ phục vụ 1 test file** | Cùng file test hoặc nested class | Tránh trừ khi thật sự one-off |
 | Production seeder | `Infrastructure/Data/DataSeeder.cs` | **Không** dùng cho integration test |
@@ -113,7 +115,7 @@ PostgresIntegrationFixture (1 lần / collection)
   → (optional) Respawn / truncate giữa tests
 ```
 
-**File hiện có:** `tests/FurniSpace.Infrastructure.Tests/ProjectChats/ProjectChatTestDataFactory.cs` sẽ **di chuyển logic** sang `FurniSpace.Testing/Seeding/Modules/ProjectChatSeed.cs` + `IntegrationDataFactory`; file cũ có thể giữ wrapper mỏng cho unit test InMemory hoặc reference trực tiếp Testing project.
+**File hiện có:** `tests/UnitTests/FurniSpace.Infrastructure.Tests/ProjectChats/ProjectChatTestDataFactory.cs` sẽ **di chuyển logic** sang `FurniSpace.Testing/Seeding/Modules/ProjectChatSeed.cs` + `IntegrationDataFactory`; file cũ có thể giữ wrapper mỏng cho unit test InMemory hoặc reference trực tiếp Testing project.
 
 ---
 
@@ -123,9 +125,9 @@ PostgresIntegrationFixture (1 lần / collection)
 
 | Hạng mục | Mô tả |
 |----------|--------|
-| 0.1 | Tạo `tests/FurniSpace.Testing/` — fixture Postgres, migrate helper, trait `Category=Integration` |
-| 0.2 | Cập nhật `FurniSpace.sln` — thêm project test |
-| 0.3 | Doc quy ước: unit vs integration, lệnh filter CI |
+| 0.1 | Tạo `tests/IntegrationTests/FurniSpace.Testing/` — fixture Postgres, migrate helper, trait `Category=Integration` |
+| 0.2 | Dùng `tests/UnitTests/FurniSpace.UnitTests.sln` và `tests/IntegrationTests/FurniSpace.IntegrationTests.sln`; giữ `FurniSpace.sln` làm meta-solution |
+| 0.3 | Doc quy ước: unit vs integration, solution và lệnh filter theo tier |
 | 0.4 | Quyết định: project integration **tách riêng** hay folder trong `Infrastructure.Tests` (khuyến nghị: **tách riêng**) |
 
 ### Phase 1 — Repository + PostgreSQL
@@ -185,10 +187,10 @@ PostgresIntegrationFixture (1 lần / collection)
 
 ```bash
 # Unit only (CI nhanh)
-dotnet test --filter "Category!=Integration"
+dotnet test tests/UnitTests/FurniSpace.UnitTests.sln
 
 # Integration only (cần Docker)
-dotnet test --filter "Category=Integration"
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --filter "Category=Core"
 ```
 
 ---
@@ -198,7 +200,7 @@ dotnet test --filter "Category=Integration"
 | Mức | Thành phần | Mô tả tác động |
 |-----|------------|----------------|
 | **Nặng** | `FurniSpace.API/Program.cs` | Phase 3: `partial Program`, skip startup migrate trong test |
-| **TB** | `.github/workflows/ci.yml` | Job Docker + filter integration |
+| **TB** | `.github/workflows/ci.yml` | Unit job dùng UnitTests solution; Docker job dùng IntegrationTests solution + filter Core |
 | **TB** | `tests/` (project mới) | `FurniSpace.Testing`, `*.IntegrationTests` |
 | **Nhẹ** | `FurniSpace.Application/DependencyInjection.cs` | Optional overload cho test overrides |
 | **Nhẹ** | `FurniSpace.Infrastructure/DependencyInjection.cs` | Optional public `AddPostgres(connectionString)` |
@@ -580,10 +582,10 @@ Sau khi ổn định
 
 | Nghiệp vụ | Path |
 |-----------|------|
-| Integration | `tests/FurniSpace.Testing/Seeding/Core/`, `Modules/`, `IntegrationDataFactory.cs` |
-| Integration | `tests/FurniSpace.Infrastructure.IntegrationTests/` |
-| Integration | `tests/FurniSpace.Application.IntegrationTests/` (Phase 2) |
-| Integration | `tests/FurniSpace.API.IntegrationTests/` (Phase 3) |
+| Integration | `tests/IntegrationTests/FurniSpace.Testing/Seeding/Core/`, `Modules/`, `IntegrationDataFactory.cs` |
+| Integration | `tests/IntegrationTests/FurniSpace.Infrastructure.IntegrationTests/` |
+| Integration | `tests/IntegrationTests/FurniSpace.Application.IntegrationTests/` (Phase 2) |
+| Integration | `tests/IntegrationTests/FurniSpace.API.IntegrationTests/` (Phase 3) |
 | Rate limit | `src/FurniSpace.API/Extensions/RateLimitingExtensions.cs` |
 | Consistency | `src/FurniSpace.Application/Common/CatalogFileStorageOperations.cs` (Phase 3b) |
 | Consistency | `src/FurniSpace.Application/DTOs/**/*ErrorCodes.cs` (Phase 1) |

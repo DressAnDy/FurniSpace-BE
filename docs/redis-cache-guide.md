@@ -494,8 +494,8 @@ PONG
 Run the application tests after implementing Redis:
 
 ```powershell
-dotnet test tests/FurniSpace.Application.Tests/FurniSpace.Application.Tests.csproj
-dotnet test tests/FurniSpace.Infrastructure.Tests/FurniSpace.Infrastructure.Tests.csproj
+dotnet test tests/UnitTests/FurniSpace.Application.Tests/FurniSpace.Application.Tests.csproj
+dotnet test tests/UnitTests/FurniSpace.Infrastructure.Tests/FurniSpace.Infrastructure.Tests.csproj
 ```
 
 ## 16. Implementation Checklist

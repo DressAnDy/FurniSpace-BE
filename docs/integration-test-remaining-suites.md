@@ -4,7 +4,7 @@ Companion to:
 
 - `docs/FurniSpace_System_Flow_Integration_Test_Context_Updated.md` (§28 suites)
 - `docs/integration-test-build-guide.md`
-- Existing Core suite under `tests/FurniSpace.API.IntegrationTests/`
+- Existing Core suite under `tests/IntegrationTests/FurniSpace.API.IntegrationTests/`
 
 ## Status snapshot
 
@@ -25,7 +25,7 @@ Companion to:
 ## Already implemented (do not rewrite)
 
 ```text
-tests/FurniSpace.API.IntegrationTests/
+tests/IntegrationTests/FurniSpace.API.IntegrationTests/
   Pipeline/
   Categories/
   Products/
@@ -37,7 +37,7 @@ tests/FurniSpace.API.IntegrationTests/
   Quotations/        # accept → order
   Payments/          # status-by-code, order deposit, project start fee
 
-tests/FurniSpace.Testing/Seeding/
+tests/IntegrationTests/FurniSpace.Testing/Seeding/
   CoreAccountSeeder.cs
   ProjectScenarioSeeder.cs
   MeasurementScenarioSeeder.cs
@@ -52,7 +52,7 @@ Harness: `ApiIntegrationCollection` + `FurniSpaceWebApplicationFactory` (Postgre
 Run Core:
 
 ```powershell
-dotnet test tests\FurniSpace.API.IntegrationTests\FurniSpace.API.IntegrationTests.csproj -c Release --filter "Category=Core"
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln -c Release --filter "Category=Core"
 ```
 
 ## Suite E — Quotation & Order (remaining)
@@ -145,19 +145,19 @@ Mark tests `[Trait("Category", "ExternalDependency")]` and run in a separate CI 
 
 ## Implementation checklist for the next developer
 
-1. Add scenario seeders under `tests/FurniSpace.Testing/Seeding/` (no demo `DataSeeder`).
+1. Add scenario seeders under `tests/IntegrationTests/FurniSpace.Testing/Seeding/` (no demo `DataSeeder`).
 2. One focused test class per workflow; `[Collection(ApiIntegrationCollection.Name)]` + `Category=Core`.
 3. Reset DB in `InitializeAsync` via `_fixture.Database.ResetAsync()`.
 4. Authenticate with `IntegrationHttp.Authenticated*` using seeded account IDs/roles.
 5. Assert HTTP status **and** Postgres side effects.
 6. Prefer SQL seeding over Mongo for Core; keep Mongo in ExternalDependency.
-7. Extend CI only after suite is green locally with Docker.
+7. Add new integration projects to `tests/IntegrationTests/FurniSpace.IntegrationTests.sln`; extend CI only after the suite is green locally with Docker.
 
 ## Source of truth for business rules
 
 Prefer:
 
-1. Application services + existing unit tests under `tests/FurniSpace.Application.Tests/`
+1. Application services + existing unit tests under `tests/UnitTests/FurniSpace.Application.Tests/`
 2. `docs/FurniSpace_System_Flow_Integration_Test_Context_Updated.md` (status matrix §24, transactions §25)
 3. `docs/api-reference.md` for HTTP contracts
 
@@ -167,14 +167,14 @@ When docs and code disagree, **code + unit tests win**; update this handoff if y
 
 Suites E, F, G, H, and J now have Core integration coverage in:
 
-- `tests/FurniSpace.API.IntegrationTests/Quotations/QuotationLifecycleApiIntegrationTests.cs`
-- `tests/FurniSpace.API.IntegrationTests/Payments/PaymentAttemptWebhookApiIntegrationTests.cs`
-- `tests/FurniSpace.API.IntegrationTests/Production/ProductionWorkflowApiIntegrationTests.cs`
-- `tests/FurniSpace.API.IntegrationTests/Delivery/DeliveryWorkflowApiIntegrationTests.cs`
-- `tests/FurniSpace.API.IntegrationTests/CrossCutting/CrossCuttingApiIntegrationTests.cs`
+- `tests/IntegrationTests/FurniSpace.API.IntegrationTests/Quotations/QuotationLifecycleApiIntegrationTests.cs`
+- `tests/IntegrationTests/FurniSpace.API.IntegrationTests/Payments/PaymentAttemptWebhookApiIntegrationTests.cs`
+- `tests/IntegrationTests/FurniSpace.API.IntegrationTests/Production/ProductionWorkflowApiIntegrationTests.cs`
+- `tests/IntegrationTests/FurniSpace.API.IntegrationTests/Delivery/DeliveryWorkflowApiIntegrationTests.cs`
+- `tests/IntegrationTests/FurniSpace.API.IntegrationTests/CrossCutting/CrossCuttingApiIntegrationTests.cs`
 
 Suite I final-payment and explicit order/project completion coverage is in
-`tests/FurniSpace.API.IntegrationTests/Orders/FinalPaymentReviewApiIntegrationTests.cs`.
+`tests/IntegrationTests/FurniSpace.API.IntegrationTests/Orders/FinalPaymentReviewApiIntegrationTests.cs`.
 Project review remains pending because the API layer does not expose a project review endpoint yet.
 
 Room Planner / Mongo remains deferred to an `ExternalDependency` suite.

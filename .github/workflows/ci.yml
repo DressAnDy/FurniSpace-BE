@@ -28,17 +28,13 @@ jobs:
           restore-keys: ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        run: dotnet restore FurniSpace.sln
+        run: dotnet restore tests/UnitTests/FurniSpace.UnitTests.sln
 
       - name: Build
-        run: dotnet build FurniSpace.sln --no-restore -c Release
+        run: dotnet build tests/UnitTests/FurniSpace.UnitTests.sln --no-restore -c Release
 
-      - name: Run tests
-        run: |
-          dotnet test tests/FurniSpace.Domain.Tests/FurniSpace.Domain.Tests.csproj --no-build -c Release
-          dotnet test tests/FurniSpace.Application.Tests/FurniSpace.Application.Tests.csproj --no-build -c Release
-          dotnet test tests/FurniSpace.Infrastructure.Tests/FurniSpace.Infrastructure.Tests.csproj --no-build -c Release
-          dotnet test tests/FurniSpace.API.Tests/FurniSpace.API.Tests.csproj --no-build -c Release
+      - name: Run unit tests
+        run: dotnet test tests/UnitTests/FurniSpace.UnitTests.sln --no-build -c Release
 
   integration-test:
     runs-on: ubuntu-latest
@@ -60,36 +56,19 @@ jobs:
           restore-keys: ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        run: dotnet restore FurniSpace.sln
+        run: dotnet restore tests/IntegrationTests/FurniSpace.IntegrationTests.sln
 
       - name: Build integration tests
-        run: dotnet build FurniSpace.sln --no-restore -c Release
+        run: dotnet build tests/IntegrationTests/FurniSpace.IntegrationTests.sln --no-restore -c Release
 
-      - name: Run Infrastructure integration tests
+      - name: Run Core integration tests
         run: >
-          dotnet test tests/FurniSpace.Infrastructure.IntegrationTests/FurniSpace.Infrastructure.IntegrationTests.csproj
+          dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln
           --no-build
           -c Release
+          --maxcpucount:1
           --filter "Category=Core"
-          --logger "trx;LogFileName=infrastructure-integration-tests.trx"
-          --results-directory TestResults/integration
-
-      - name: Run Application integration tests
-        run: >
-          dotnet test tests/FurniSpace.Application.IntegrationTests/FurniSpace.Application.IntegrationTests.csproj
-          --no-build
-          -c Release
-          --filter "Category=Core"
-          --logger "trx;LogFileName=application-integration-tests.trx"
-          --results-directory TestResults/integration
-
-      - name: Run API integration tests
-        run: >
-          dotnet test tests/FurniSpace.API.IntegrationTests/FurniSpace.API.IntegrationTests.csproj
-          --no-build
-          -c Release
-          --filter "Category=Core"
-          --logger "trx;LogFileName=api-integration-tests.trx"
+          --logger trx
           --results-directory TestResults/integration
 
       - name: Upload integration test results

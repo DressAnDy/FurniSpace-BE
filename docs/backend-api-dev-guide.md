@@ -71,11 +71,21 @@ src/
   FurniSpace.Infrastructure/
   FurniSpace.Shared/
 tests/
-  FurniSpace.*.Tests/                 # unit
-  FurniSpace.*.IntegrationTests/      # Testcontainers / WebApplicationFactory
-  FurniSpace.Testing/                 # shared fixtures, fakes, seeders
+  UnitTests/
+    FurniSpace.UnitTests.sln
+    FurniSpace.*.Tests/
+  IntegrationTests/
+    FurniSpace.IntegrationTests.sln
+    FurniSpace.*.IntegrationTests/    # Testcontainers / WebApplicationFactory
+    FurniSpace.Testing/               # shared fixtures, fakes, seeders
 docs/
 ```
+
+Solutions:
+
+- `tests/UnitTests/FurniSpace.UnitTests.sln`: source projects + four `*.Tests` projects; no Docker required.
+- `tests/IntegrationTests/FurniSpace.IntegrationTests.sln`: source projects + `FurniSpace.Testing` + three `*.IntegrationTests` projects; Docker required.
+- `FurniSpace.sln`: full meta-solution for IDE navigation and full builds.
 
 | Project | Responsibility |
 | --- | --- |
@@ -476,10 +486,12 @@ Local day-to-day: keep `ASPNETCORE_ENVIRONMENT=Development`. Do not switch your 
 Verify:
 
 ```powershell
-dotnet restore FurniSpace.sln
-dotnet build FurniSpace.sln --no-restore
-dotnet test tests/FurniSpace.Application.Tests --no-build
-dotnet test tests/FurniSpace.API.IntegrationTests --filter "Category=Core"
+dotnet restore tests/UnitTests/FurniSpace.UnitTests.sln
+dotnet build tests/UnitTests/FurniSpace.UnitTests.sln --no-restore
+dotnet test tests/UnitTests/FurniSpace.UnitTests.sln --no-build
+
+# Docker required
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --filter "Category=Core"
 ```
 
 ---
@@ -556,21 +568,21 @@ dotnet run --project src/FurniSpace.API -- reindex products
 
 | Suite | Projects | Notes |
 | --- | --- | --- |
-| Unit | `*.Tests` | No Docker; CI + Sonar (`Category!=Integration`) |
+| Unit | `tests/UnitTests/FurniSpace.UnitTests.sln` → `*.Tests` | No Docker; CI + Sonar |
 | Core integration | `*.IntegrationTests` + trait `Category=Core` | Postgres Testcontainers; Redis/ES/email/storage faked in API factory |
 | Shared harness | `FurniSpace.Testing` | Excluded from Sonar coverage (test infra) |
 
 ```powershell
-# Unit (example)
-dotnet test tests/FurniSpace.Application.Tests
+# All unit tests
+dotnet test tests/UnitTests/FurniSpace.UnitTests.sln
 
-# Core API integration (Docker required)
-dotnet test tests/FurniSpace.API.IntegrationTests --filter "Category=Core"
+# All Core integration tests (Docker required)
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --filter "Category=Core"
 ```
 
 API integration uses `WebApplicationFactory`, test auth headers (`X-Test-User-Id`, `X-Test-Role`), Respawn reset before each test. Full details: `docs/integration-test-build-guide.md`.
 
-CI (`.github/workflows/ci.yml`): build Release → unit tests → Core integration (Infra → Application → API). Sonar (`.github/workflows/build.yml`) runs unit coverage only.
+CI (`.github/workflows/ci.yml`): build/test the unit solution, then build/test the Core integration solution. Sonar (`.github/workflows/build.yml`) builds and collects coverage from the unit solution only.
 
 ---
 

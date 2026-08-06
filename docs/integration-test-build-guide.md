@@ -45,39 +45,27 @@ Các điểm chính:
 
 ### 2.2 Test hiện có
 
-Solution hiện có bốn test project:
+Test được chia thành hai solution chuyên biệt, ngoài `FurniSpace.sln` dùng làm meta-solution:
 
-- `FurniSpace.Domain.Tests`
-- `FurniSpace.Application.Tests`
-- `FurniSpace.Infrastructure.Tests`
-- `FurniSpace.API.Tests`
+- `tests/UnitTests/FurniSpace.UnitTests.sln`: `FurniSpace.Domain.Tests`, `FurniSpace.Application.Tests`, `FurniSpace.Infrastructure.Tests`, `FurniSpace.API.Tests`.
+- `tests/IntegrationTests/FurniSpace.IntegrationTests.sln`: `FurniSpace.Testing`, `FurniSpace.Infrastructure.IntegrationTests`, `FurniSpace.Application.IntegrationTests`, `FurniSpace.API.IntegrationTests`.
 
-`FurniSpace.API.Tests` hiện chủ yếu khởi tạo controller trực tiếp với fake service. Các test này hữu ích ở mức unit/controller test, nhưng chưa kiểm tra:
+`FurniSpace.API.Tests` chủ yếu khởi tạo controller trực tiếp với fake service. Các test này hữu ích ở mức unit/controller. Phần kiểm tra HTTP pipeline và persistence thật nằm trong các project integration:
 
-- ASP.NET Core routing và middleware pipeline.
-- Authentication handler và role authorization thực tế.
-- Dependency Injection graph khi host khởi động.
-- EF Core migration, transaction và truy vấn PostgreSQL thực.
-- Redis session/refresh-token/JWT blacklist.
-- JSON serialization, cookie, header và HTTP response hoàn chỉnh.
+- `FurniSpace.Infrastructure.IntegrationTests`: repository trên PostgreSQL Testcontainer.
+- `FurniSpace.Application.IntegrationTests`: application service với PostgreSQL thật.
+- `FurniSpace.API.IntegrationTests`: `WebApplicationFactory<Program>`, test authentication, HTTP pipeline và database side effects.
+- `FurniSpace.Testing`: Postgres fixture, Respawn, fakes và scenario seeders dùng chung.
 
-Chưa có các thành phần thường dùng cho API integration test:
-
-- `WebApplicationFactory<Program>`.
-- Testcontainers hoặc một cơ chế cấp phát dependency cô lập tương đương.
-- Database reset/fixture chuẩn.
-- Test authentication handler.
-- Integration-test job riêng trong CI.
+Core integration suite đã có job Docker riêng trong CI. External-dependency suite cho MongoDB/Elasticsearch vẫn là phạm vi tương lai và phải dùng trait `Category=ExternalDependency`.
 
 ### 2.3 Các trở ngại hiện tại
 
-1. `Program` chưa được expose cho `WebApplicationFactory`.
-2. Startup luôn chạy migration và seed; exception bị log rồi bỏ qua. Trong test, lỗi database phải làm host fail ngay để tránh kết quả sai.
-3. `AddInfrastructure` đăng ký mọi provider cùng lúc. Elasticsearch initializer có thể chạy khi host start dù test không dùng search.
-4. Redis connection được tạo từ cấu hình runtime; test hiện chưa có cách cấp phát instance riêng.
-5. Demo seed không phù hợp làm dữ liệu test độc lập vì lớn, dùng thời gian động và tạo trạng thái dùng chung.
-6. Các provider ra Internet gồm Gmail API, Firebase và PayOS phải được thay bằng fake/stub.
-7. CI hiện chỉ chạy bốn project test hiện tại và chưa khởi tạo dependency integration-test.
+1. Core suite hiện chỉ cấp phát PostgreSQL thật; Redis, MongoDB và Elasticsearch thật chưa thuộc PR gate.
+2. Các provider ra Internet gồm Gmail API, Firebase và PayOS phải luôn được thay bằng fake/stub.
+3. Demo seed không phù hợp làm dữ liệu test độc lập; integration tests phải dùng scenario seeders và reset bằng Respawn.
+4. Test dùng chung database/fixture không được chạy song song nếu chưa có database hoặc schema cô lập.
+5. External-dependency suite cần fixture và CI job riêng trước khi được bật.
 
 ## 3. Chiến lược đề xuất
 
@@ -109,39 +97,41 @@ Không nên đưa Gmail, Firebase hoặc PayOS thật vào CI integration test. 
 
 ```text
 tests/
-  FurniSpace.Testing/
-    Fixtures/
-      PostgresIntegrationFixture.cs
-      RedisIntegrationFixture.cs        # bổ sung ở phase auth/session sau
-      IntegrationCollectionDefinition.cs
-    Infrastructure/
-      DatabaseMigrationHelper.cs
-      DatabaseReset.cs
-    Fakes/
-      FakeEmailService.cs
-      FakeFileStorageService.cs
-      FakePayOsClient.cs
-      NoOpSearchIndexService.cs
-    Seeding/
-      Core/
-      Modules/
-      IntegrationDataFactory.cs
+  IntegrationTests/
+    FurniSpace.IntegrationTests.sln
+    FurniSpace.Testing/
+      Fixtures/
+        PostgresIntegrationFixture.cs
+        RedisIntegrationFixture.cs        # bổ sung ở phase auth/session sau
+        IntegrationCollectionDefinition.cs
+      Infrastructure/
+        DatabaseMigrationHelper.cs
+        DatabaseReset.cs
+      Fakes/
+        FakeEmailService.cs
+        FakeFileStorageService.cs
+        FakePayOsClient.cs
+        NoOpSearchIndexService.cs
+      Seeding/
+        Core/
+        Modules/
+        IntegrationDataFactory.cs
 
-  FurniSpace.Infrastructure.IntegrationTests/
-    Repositories/
+    FurniSpace.Infrastructure.IntegrationTests/
+      Repositories/
 
-  FurniSpace.Application.IntegrationTests/
-    Identity/
-    Catalog/
-    Projects/
+    FurniSpace.Application.IntegrationTests/
+      Identity/
+      Catalog/
+      Projects/
 
-  FurniSpace.API.IntegrationTests/
-    Fixtures/
-      FurniSpaceWebApplicationFactory.cs
-      IntegrationTestCollection.cs
-    Authentication/
-      TestAuthHandler.cs
-      TestUser.cs
+    FurniSpace.API.IntegrationTests/
+      Fixtures/
+        FurniSpaceWebApplicationFactory.cs
+        IntegrationTestCollection.cs
+      Authentication/
+        TestAuthHandler.cs
+        TestUser.cs
     Auth/
     Catalog/
     Projects/
@@ -369,14 +359,14 @@ Yêu cầu cho job:
 Lệnh mục tiêu:
 
 ```powershell
-dotnet test tests\FurniSpace.API.IntegrationTests\FurniSpace.API.IntegrationTests.csproj -c Release
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln -c Release --filter "Category=Core"
 ```
 
 Có thể dùng trait để tách suite:
 
 ```powershell
-dotnet test tests\FurniSpace.API.IntegrationTests\FurniSpace.API.IntegrationTests.csproj --filter "Category=Core"
-dotnet test tests\FurniSpace.API.IntegrationTests\FurniSpace.API.IntegrationTests.csproj --filter "Category=ExternalDependency"
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --filter "Category=Core"
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --filter "Category=ExternalDependency"
 ```
 
 ## 5. Danh sách thay đổi dự kiến trong codebase
@@ -404,7 +394,7 @@ dotnet test tests\FurniSpace.API.IntegrationTests\FurniSpace.API.IntegrationTest
 
 ### Test code mới
 
-- `tests/FurniSpace.API.IntegrationTests/FurniSpace.API.IntegrationTests.csproj`
+- `tests/IntegrationTests/FurniSpace.API.IntegrationTests/FurniSpace.API.IntegrationTests.csproj`
 - Web application factory và xUnit collection fixture.
 - PostgreSQL/Redis container fixtures.
 - Database migration/reset helper.
@@ -418,7 +408,7 @@ dotnet test tests\FurniSpace.API.IntegrationTests\FurniSpace.API.IntegrationTest
 - Fixture env overrides cho JWT/Postgres/Redis/ES placeholders (thay cho `appsettings.IntegrationTest.json`).
 - `.github/workflows/ci.yml` thêm core integration-test job.
 - Có thể thêm `docker-compose.integration.yml` nếu team chọn Compose thay Testcontainers, nhưng không nên duy trì cả hai cách làm cho cùng một suite.
-- Cập nhật `FurniSpace.sln` để chứa project mới.
+- Cập nhật `tests/IntegrationTests/FurniSpace.IntegrationTests.sln` khi thêm integration project mới; chỉ cập nhật meta-solution `FurniSpace.sln` nếu project cần xuất hiện trong workspace tổng.
 
 ## 6. Yêu cầu để thực hiện test
 
@@ -461,7 +451,7 @@ dotnet test tests\FurniSpace.API.IntegrationTests\FurniSpace.API.IntegrationTest
 
 Bộ integration test được xem là sẵn sàng khi:
 
-- Fresh clone chạy được bằng một lệnh `dotnet test`.
+- Fresh clone chạy được bằng `dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --filter "Category=Core"` khi Docker đang chạy.
 - Không cần sửa `.env` cá nhân.
 - Không gọi dịch vụ Internet thật.
 - PostgreSQL migration được kiểm tra trên engine thật.

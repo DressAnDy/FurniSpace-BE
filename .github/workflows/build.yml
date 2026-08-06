@@ -71,12 +71,11 @@ jobs:
             /d:sonar.coverage.exclusions="**/Migrations/**,**/*Tests/**,**/FurniSpace.Testing/**,**/Program.cs,**/Constants/**/*,**/RoomPlannerDocumentBases.cs" `
 
 
-          dotnet build FurniSpace.sln -c $env:BUILD_CONFIGURATION
+          dotnet build tests/UnitTests/FurniSpace.UnitTests.sln -c $env:BUILD_CONFIGURATION
 
-          dotnet test FurniSpace.sln `
+          dotnet test tests/UnitTests/FurniSpace.UnitTests.sln `
             -c $env:BUILD_CONFIGURATION `
             --no-build `
-            --filter "Category!=Integration" `
             --settings coverlet.runsettings `
             --collect:"XPlat Code Coverage" `
             --results-directory TestResults/coverage `

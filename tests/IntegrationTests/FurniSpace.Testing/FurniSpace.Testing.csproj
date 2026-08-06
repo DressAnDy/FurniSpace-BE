@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\FurniSpace.Infrastructure\FurniSpace.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\FurniSpace.Application\FurniSpace.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\FurniSpace.Infrastructure\FurniSpace.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\src\FurniSpace.Application\FurniSpace.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>

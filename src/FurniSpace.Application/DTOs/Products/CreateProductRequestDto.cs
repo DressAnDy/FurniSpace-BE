@@ -6,4 +6,5 @@ public sealed class CreateProductRequestDto
     public string? ProductCode { get; set; }
     public string ProductName { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public int[]? BusinessTypeIds { get; set; }
 }

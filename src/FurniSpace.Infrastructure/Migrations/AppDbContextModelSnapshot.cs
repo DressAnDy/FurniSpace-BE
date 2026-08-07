@@ -22,21 +22,25 @@ namespace FurniSpace.Infrastructure.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "account_status", new[] { "ACTIVE", "INACTIVE", "SUSPENDED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "customization_status", new[] { "SUBMITTED", "DESIGN_REVIEWING", "PRODUCTION_REVIEWING", "WAITING_FOR_CUSTOMER_FINAL_APPROVAL", "NOT_FEASIBLE", "ACCEPTED", "REJECTED_BY_CUSTOMER", "CANCELLED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "customization_status", new[] { "SUBMITTED", "REVIEWING", "ACCEPTED", "CANCELLED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "customization_version_status", new[] { "DRAFT", "REVIEWING", "PRODUCTION_REJECTED", "ACCEPTED", "WITHDRAWN" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_status", new[] { "ACTIVE", "ARCHIVED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_type", new[] { "SPACE_IMAGE", "FLOOR_PLAN", "REFERENCE_IMAGE", "BRAND_ASSET", "CAD_FILE", "PDF_DRAWING", "MEASUREMENT_REPORT", "LIDAR_SCAN", "MODEL_3D", "TEXTURE", "PRODUCT_PREVIEW", "PROPOSAL_PREVIEW", "PROPOSAL_FILE", "QUOTATION_FILE", "ORDER_DOCUMENT", "PRODUCTION_FILE", "DELIVERY_PHOTO", "DELIVERY_NOTE", "REVIEW_IMAGE", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_visibility", new[] { "CUSTOMER_VISIBLE", "STAFF_ONLY", "PRIVATE" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "notification_status", new[] { "UNREAD", "READ" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_adjustment_item_type", new[] { "UNAVAILABLE_ITEM", "ADDITIONAL_DISCOUNT" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_adjustment_status", new[] { "DRAFT", "CONFIRMED", "APPLIED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_item_status", new[] { "PENDING", "IN_PRODUCTION", "READY", "UNAVAILABLE", "DELIVERED", "CANCELLED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_status", new[] { "CREATED", "DEPOSIT_PENDING", "DEPOSIT_PAID", "IN_PRODUCTION", "PRODUCTION_PARTIALLY_FAILED", "PRODUCTION_COMPLETED", "READY_FOR_DELIVERY", "DELIVERY_SCHEDULED", "DELIVERING", "DELIVERED", "FINAL_PAYMENT_PENDING", "COMPLETED", "CANCELLED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_status", new[] { "CREATED", "DEPOSIT_PENDING", "DEPOSIT_PAID", "IN_PRODUCTION", "READY_FOR_DELIVERY", "DELIVERING", "DELIVERED", "FINAL_PAYMENT_PENDING", "COMPLETED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_method", new[] { "PAYMENT_LINK", "QR_CODE", "BANK_TRANSFER", "CASH", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_provider", new[] { "PAYOS", "SEPAY", "CASH", "MANUAL_BANK_TRANSFER", "OTHER" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_status", new[] { "PENDING", "PROCESSING", "PARTIALLY_PAID", "PAID", "FAILED", "CANCELLED", "EXPIRED", "REFUNDED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_status", new[] { "PENDING", "PROCESSING", "PAID", "CANCELLED", "EXPIRED", "REFUNDED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_transaction_status", new[] { "PENDING", "SUCCESS", "FAILED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_transaction_type", new[] { "CHARGE", "REFUND", "ADJUSTMENT" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_type", new[] { "PROJECT_START_FEE", "DEPOSIT", "REMAINING_PAYMENT", "FULL_PAYMENT", "REFUND", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "product_status", new[] { "ACTIVE", "INACTIVE", "ARCHIVED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "product_version_type", new[] { "STANDARD", "CUSTOM", "PROJECT_SPECIFIC" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_feasibility_status", new[] { "PENDING", "FEASIBLE", "NOT_FEASIBLE" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_item_status", new[] { "PENDING", "IN_PRODUCTION", "COMPLETED", "BLOCKED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_request_status", new[] { "PENDING_REVIEW", "FEASIBLE", "IN_PRODUCTION", "COMPLETED", "BLOCKED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_area_status", new[] { "DRAFT", "NEED_MEASUREMENT", "MEASURED", "VERIFIED", "CANCELLED" });
@@ -47,7 +51,7 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_schedule_status", new[] { "PENDING_CONFIRMATION", "CONFIRMED", "COMPLETED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_schedule_type", new[] { "MEASUREMENT", "CONSULTATION", "DESIGN_REVIEW", "DELIVERY", "HANDOVER", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_status", new[] { "SUBMITTED", "IN_CONSULTATION", "NEED_BASIC_INFORMATION", "WAITING_FOR_DESIGNER_ASSIGNMENT", "MEASUREMENT_REQUIRED", "SPACE_VERIFIED", "PROPOSAL_CONSULTING", "PROPOSAL_SELECTED", "QUOTATION_SENT", "QUOTATION_REVISION_REQUESTED", "ORDER_CONFIRMED", "IN_PRODUCTION", "PRODUCTION_BLOCKED", "READY_FOR_DELIVERY", "DELIVERING", "DELIVERED", "COMPLETED", "REJECTED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_scene_type", new[] { "TWO_D", "THREE_D" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_scene_type", new[] { "TWO_D", "THREE_D", "ROOM_PLANNER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_scene_variant_status", new[] { "DRAFT", "SUBMITTED", "ACCEPTED", "REJECTED", "APPLIED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_scene_variant_type", new[] { "CUSTOMER_SUGGESTION", "DESIGNER_REVISION" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_status", new[] { "DRAFT", "PUBLISHED", "SELECTED", "REVISION_REQUESTED", "REJECTED", "ARCHIVED" });
@@ -127,6 +131,53 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.ToTable("accounts", (string)null);
                 });
 
+            modelBuilder.Entity("FurniSpace.Domain.Entities.BusinessType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("varchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("status");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("business_types", (string)null);
+                });
+
             modelBuilder.Entity("FurniSpace.Domain.Entities.Category", b =>
                 {
                     b.Property<Guid>("CategoryId")
@@ -172,57 +223,13 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("customization_request_id");
 
-                    b.Property<string>("AdditionalCostReason")
-                        .HasColumnType("text")
-                        .HasColumnName("additional_cost_reason");
-
-                    b.Property<Guid?>("ApprovedProductVersionId")
+                    b.Property<Guid?>("AcceptedRequestVersionId")
                         .HasColumnType("uuid")
-                        .HasColumnName("approved_product_version_id");
+                        .HasColumnName("accepted_request_version_id");
 
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
-
-                    b.Property<DateTime?>("CustomerAcceptedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("customer_accepted_at");
-
-                    b.Property<DateTime?>("CustomerRejectedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("customer_rejected_at");
-
-                    b.Property<Guid?>("DesignerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("designer_id");
-
-                    b.Property<string>("DesignerSpecNote")
-                        .HasColumnType("text")
-                        .HasColumnName("designer_spec_note");
-
-                    b.Property<decimal?>("EstimatedAdditionalCost")
-                        .HasColumnType("numeric(12,2)")
-                        .HasColumnName("estimated_additional_cost");
-
-                    b.Property<int?>("EstimatedProductionDays")
-                        .HasColumnType("integer")
-                        .HasColumnName("estimated_production_days");
-
-                    b.Property<string>("FeasibilityNote")
-                        .HasColumnType("text")
-                        .HasColumnName("feasibility_note");
-
-                    b.Property<bool?>("MaterialAvailable")
-                        .HasColumnType("boolean")
-                        .HasColumnName("material_available");
-
-                    b.Property<Guid?>("ProductionReviewBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("production_review_by");
-
-                    b.Property<string>("ProductionRiskNote")
-                        .HasColumnType("text")
-                        .HasColumnName("production_risk_note");
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid")
@@ -231,10 +238,6 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.Property<Guid>("ProposalId")
                         .HasColumnType("uuid")
                         .HasColumnName("proposal_id");
-
-                    b.Property<Guid>("ProposalItemId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("proposal_item_id");
 
                     b.Property<string>("RequestDescription")
                         .HasColumnType("text")
@@ -273,9 +276,9 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("numeric(10,2)")
                         .HasColumnName("requested_width");
 
-                    b.Property<Guid?>("SalesReviewBy")
+                    b.Property<Guid>("SourceProductVersionId")
                         .HasColumnType("uuid")
-                        .HasColumnName("sales_review_by");
+                        .HasColumnName("source_product_version_id");
 
                     b.Property<CustomizationStatus?>("Status")
                         .ValueGeneratedOnAdd()
@@ -289,26 +292,145 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasKey("CustomizationRequestId");
 
-                    b.HasIndex("ApprovedProductVersionId");
-
-                    b.HasIndex("DesignerId");
-
-                    b.HasIndex("ProductionReviewBy");
+                    b.HasIndex("AcceptedRequestVersionId");
 
                     b.HasIndex("ProjectId");
 
                     b.HasIndex("ProposalId");
 
-                    b.HasIndex("ProposalItemId");
-
                     b.HasIndex("RequestedByCustomerId");
 
-                    b.HasIndex("SalesReviewBy");
+                    b.HasIndex("SourceProductVersionId");
 
-                    b.ToTable("customization_requests", null, t =>
-                        {
-                            t.HasCheckConstraint("ck_customization_requests_additional_cost_reason", "estimated_additional_cost IS NULL OR estimated_additional_cost <= 0 OR additional_cost_reason IS NOT NULL AND btrim(additional_cost_reason) <> ''");
-                        });
+                    b.HasIndex("Status");
+
+                    b.ToTable("customization_requests", (string)null);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.CustomizationRequestVersion", b =>
+                {
+                    b.Property<Guid>("CustomizationRequestVersionId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("customization_request_version_id");
+
+                    b.Property<DateTime?>("AcceptedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("accepted_at");
+
+                    b.Property<string>("AdditionalCostReason")
+                        .HasColumnType("text")
+                        .HasColumnName("additional_cost_reason");
+
+                    b.Property<string>("AlternativeMaterialNote")
+                        .HasColumnType("text")
+                        .HasColumnName("alternative_material_note");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedByDesignerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_designer_id");
+
+                    b.Property<Guid>("CustomizationRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customization_request_id");
+
+                    b.Property<string>("DesignerNote")
+                        .HasColumnType("text")
+                        .HasColumnName("designer_note");
+
+                    b.Property<decimal?>("EstimatedAdditionalCost")
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("estimated_additional_cost");
+
+                    b.Property<int?>("EstimatedProductionDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("estimated_production_days");
+
+                    b.Property<string>("FeasibilityNote")
+                        .HasColumnType("text")
+                        .HasColumnName("feasibility_note");
+
+                    b.Property<ProductionFeasibilityStatus>("FeasibilityStatus")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("production_feasibility_status")
+                        .HasColumnName("feasibility_status")
+                        .HasDefaultValueSql("'PENDING'::production_feasibility_status");
+
+                    b.Property<bool?>("MaterialAvailable")
+                        .HasColumnType("boolean")
+                        .HasColumnName("material_available");
+
+                    b.Property<Guid>("ProductVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_version_id");
+
+                    b.Property<DateTime?>("ProductionRejectedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("production_rejected_at");
+
+                    b.Property<DateTime?>("ProductionReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("production_reviewed_at");
+
+                    b.Property<Guid?>("ProductionReviewedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("production_reviewed_by");
+
+                    b.Property<string>("ProductionRiskNote")
+                        .HasColumnType("text")
+                        .HasColumnName("production_risk_note");
+
+                    b.Property<CustomizationVersionStatus>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("customization_version_status")
+                        .HasColumnName("status")
+                        .HasDefaultValueSql("'DRAFT'::customization_version_status");
+
+                    b.Property<DateTime?>("SubmittedForReviewAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_for_review_at");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<int>("VersionNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("version_no");
+
+                    b.Property<string>("VersionTitle")
+                        .HasColumnType("varchar(150)")
+                        .HasColumnName("version_title");
+
+                    b.Property<DateTime?>("WithdrawnAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("withdrawn_at");
+
+                    b.HasKey("CustomizationRequestVersionId");
+
+                    b.HasIndex("CreatedByDesignerId");
+
+                    b.HasIndex("CustomizationRequestId");
+
+                    b.HasIndex("FeasibilityStatus");
+
+                    b.HasIndex("ProductVersionId");
+
+                    b.HasIndex("ProductionReviewedBy");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("CustomizationRequestId", "ProductVersionId")
+                        .IsUnique();
+
+                    b.HasIndex("CustomizationRequestId", "VersionNo")
+                        .IsUnique();
+
+                    b.ToTable("customization_request_versions", (string)null);
                 });
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.FileLink", b =>
@@ -603,6 +725,175 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.ToTable("orders", (string)null);
                 });
 
+            modelBuilder.Entity("FurniSpace.Domain.Entities.OrderAdjustment", b =>
+                {
+                    b.Property<Guid>("OrderAdjustmentId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_adjustment_id");
+
+                    b.Property<decimal>("AdditionalDiscountAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(12,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("additional_discount_amount");
+
+                    b.Property<DateTime?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("applied_at");
+
+                    b.Property<Guid?>("AppliedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("applied_by");
+
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text")
+                        .HasColumnName("cancellation_reason");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cancelled_at");
+
+                    b.Property<Guid?>("CancelledBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cancelled_by");
+
+                    b.Property<DateTime?>("ConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("confirmed_at");
+
+                    b.Property<Guid?>("ConfirmedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("confirmed_by");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("InternalNote")
+                        .HasColumnType("text")
+                        .HasColumnName("internal_note");
+
+                    b.Property<decimal>("ItemAdjustmentAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(12,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("item_adjustment_amount");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<int>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("order_adjustment_status")
+                        .HasColumnName("status")
+                        .HasDefaultValueSql("'DRAFT'::order_adjustment_status");
+
+                    b.Property<decimal>("TotalAdjustmentAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(12,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("total_adjustment_amount");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("OrderAdjustmentId");
+
+                    b.HasIndex("AppliedBy");
+
+                    b.HasIndex("CancelledBy");
+
+                    b.HasIndex("ConfirmedBy");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.ToTable("order_adjustments", (string)null);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.OrderAdjustmentItem", b =>
+                {
+                    b.Property<Guid>("OrderAdjustmentItemId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_adjustment_item_id");
+
+                    b.Property<decimal>("AdjustmentAmount")
+                        .HasColumnType("numeric(12,2)")
+                        .HasColumnName("adjustment_amount");
+
+                    b.Property<int>("AdjustmentType")
+                        .HasColumnType("order_adjustment_item_type")
+                        .HasColumnName("adjustment_type");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("OrderAdjustmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_adjustment_id");
+
+                    b.Property<Guid?>("OrderItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_item_id");
+
+                    b.Property<decimal>("PreviousItemAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(12,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("previous_item_amount");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("OrderAdjustmentItemId");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("OrderItemId");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("OrderAdjustmentId", "OrderItemId", "AdjustmentType")
+                        .IsUnique();
+
+                    b.ToTable("order_adjustment_items", (string)null);
+                });
+
             modelBuilder.Entity("FurniSpace.Domain.Entities.OrderItem", b =>
                 {
                     b.Property<Guid>("OrderItemId")
@@ -621,10 +912,11 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnName("customer_confirmed_at");
 
                     b.Property<decimal?>("CustomizationFee")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
-                        .HasColumnName("customization_fee");
+                        .HasColumnName("customization_unit_additional_cost");
 
                     b.Property<int?>("DeliveredQuantity")
                         .ValueGeneratedOnAdd()
@@ -637,10 +929,22 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnName("delivery_note");
 
                     b.Property<decimal?>("DiscountAmount")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("discount_amount");
+
+                    b.Property<decimal?>("GrossAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("gross_amount");
+
+                    b.Property<QuotationItemType>("ItemType")
+                        .HasColumnType("quotation_item_type")
+                        .HasColumnName("item_type");
 
                     b.Property<DateTime?>("LastDeliveredAt")
                         .HasColumnType("timestamp with time zone")
@@ -675,6 +979,7 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnName("production_note");
 
                     b.Property<int?>("Quantity")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(1)
@@ -692,17 +997,54 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.Property<decimal?>("SubtotalAmount")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("subtotal_amount");
+
+                    b.Property<decimal?>("TaxAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("tax_amount");
+
+                    b.Property<decimal?>("TaxRate")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(7,4)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("tax_rate");
+
+                    b.Property<decimal?>("TaxableAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("taxable_amount");
+
+                    b.Property<decimal?>("TotalAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("total_amount");
+
+                    b.Property<DateTime?>("UnavailableConfirmedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("unavailable_confirmed_at");
+
+                    b.Property<Guid?>("UnavailableConfirmedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("unavailable_confirmed_by");
 
                     b.Property<string>("UnavailableReason")
                         .HasColumnType("text")
                         .HasColumnName("unavailable_reason");
 
                     b.Property<decimal?>("UnitPrice")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("unit_price");
 
@@ -715,6 +1057,8 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasIndex("ProductVersionId");
 
                     b.HasIndex("QuotationItemId");
+
+                    b.HasIndex("UnavailableConfirmedBy");
 
                     b.ToTable("order_items", (string)null);
                 });
@@ -757,12 +1101,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("order_id");
 
-                    b.Property<decimal>("PaidAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("paid_amount");
-
                     b.Property<DateTime?>("PaidAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("paid_at");
@@ -790,12 +1128,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("quotation_id");
 
-                    b.Property<decimal>("RemainingAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("remaining_amount");
-
                     b.Property<PaymentStatus?>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("payment_status")
@@ -808,16 +1140,25 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasKey("PaymentId");
 
+                    b.HasIndex("OrderId")
+                        .HasDatabaseName("idx_payments_order_id");
+
                     b.HasIndex("PaidBy");
 
                     b.HasIndex("PaymentCode")
                         .IsUnique()
                         .HasDatabaseName("uq_payments_payment_code");
 
-                    b.HasIndex("QuotationId");
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("idx_payments_project_id");
+
+                    b.HasIndex("QuotationId")
+                        .HasDatabaseName("idx_payments_quotation_id");
 
                     b.HasIndex("OrderId", "PaymentType")
-                        .HasDatabaseName("idx_payments_order_type");
+                        .IsUnique()
+                        .HasDatabaseName("uq_payments_active_order_type")
+                        .HasFilter("order_id IS NOT NULL AND status IN ('PENDING', 'PROCESSING')");
 
                     b.HasIndex("ProjectId", "CreatedAt")
                         .HasDatabaseName("idx_payments_project_time");
@@ -876,6 +1217,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("payment_provider")
                         .HasColumnName("payment_provider");
 
+                    b.Property<string>("PaymentUrl")
+                        .HasColumnType("text")
+                        .HasColumnName("payment_url");
+
                     b.Property<Guid?>("ProjectId")
                         .HasColumnType("uuid")
                         .HasColumnName("project_id");
@@ -887,6 +1232,10 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.Property<string>("ProviderTransactionId")
                         .HasColumnType("varchar(255)")
                         .HasColumnName("provider_transaction_id");
+
+                    b.Property<string>("QrContent")
+                        .HasColumnType("text")
+                        .HasColumnName("qr_content");
 
                     b.Property<string>("RawProviderPayload")
                         .HasColumnType("jsonb")
@@ -920,7 +1269,9 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasIndex("ConfirmedBy");
 
                     b.HasIndex("PaymentId")
-                        .HasDatabaseName("idx_payment_transactions_payment_id");
+                        .IsUnique()
+                        .HasDatabaseName("idx_payment_transactions_payment_id")
+                        .HasFilter("status = 'SUCCESS'");
 
                     b.HasIndex("ProviderReferenceCode")
                         .HasDatabaseName("idx_payment_transactions_provider_reference_code");
@@ -929,7 +1280,8 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDatabaseName("idx_payment_transactions_provider_transaction_id");
 
                     b.HasIndex("TransactionCode")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("uq_payment_transactions_code");
 
                     b.HasIndex("OrderId", "CreatedAt")
                         .HasDatabaseName("idx_payment_transactions_order_time");
@@ -950,6 +1302,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("product_id");
+
+                    b.Property<int[]>("BusinessTypeIds")
+                        .HasColumnType("integer[]")
+                        .HasColumnName("business_type_ids");
 
                     b.Property<Guid?>("CategoryId")
                         .HasColumnType("uuid")
@@ -983,6 +1339,11 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnName("updated_at");
 
                     b.HasKey("ProductId");
+
+                    b.HasIndex("BusinessTypeIds")
+                        .HasDatabaseName("idx_products_business_type_ids");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("BusinessTypeIds"), "gin");
 
                     b.HasIndex("ProductCode")
                         .IsUnique();
@@ -1100,7 +1461,10 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasIndex("VersionCode")
                         .IsUnique();
 
-                    b.ToTable("product_versions", (string)null);
+                    b.ToTable("product_versions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_product_versions_project_specific", "(version_type = 'PROJECT_SPECIFIC'::product_version_type AND project_id IS NOT NULL AND is_project_specific = TRUE AND is_public = FALSE AND is_default = FALSE) OR version_type <> 'PROJECT_SPECIFIC'::product_version_type");
+                        });
                 });
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.ProductionItem", b =>
@@ -1109,6 +1473,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("production_item_id");
+
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text")
+                        .HasColumnName("cancellation_reason");
 
                     b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1152,6 +1520,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDefaultValue(1)
                         .HasColumnName("quantity");
 
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
                     b.Property<ProductionItemStatus?>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("production_item_status")
@@ -1164,7 +1536,8 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasIndex("ProductVersionId");
 
-                    b.HasIndex("ProductionRequestId");
+                    b.HasIndex("ProductionRequestId", "OrderItemId")
+                        .IsUnique();
 
                     b.ToTable("production_items", (string)null);
                 });
@@ -1187,6 +1560,10 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.Property<Guid?>("AssignedTo")
                         .HasColumnType("uuid")
                         .HasColumnName("assigned_to");
+
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text")
+                        .HasColumnName("cancellation_reason");
 
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1810,10 +2187,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("proposal_item_id");
 
-                    b.Property<Guid?>("ApprovedProductVersionId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("approved_product_version_id");
-
                     b.Property<string>("Color")
                         .HasColumnType("varchar(100)")
                         .HasColumnName("color");
@@ -1897,8 +2270,6 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasKey("ProposalItemId");
 
-                    b.HasIndex("ApprovedProductVersionId");
-
                     b.HasIndex("ProductVersionId");
 
                     b.HasIndex("ProjectAreaId");
@@ -1907,7 +2278,9 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDatabaseName("idx_proposal_items_proposal_list_sort");
 
                     b.HasIndex("SceneId", "SceneObjectId")
-                        .HasDatabaseName("idx_proposal_items_scene_object");
+                        .IsUnique()
+                        .HasDatabaseName("uq_proposal_items_scene_object")
+                        .HasFilter("scene_id IS NOT NULL AND scene_object_id IS NOT NULL");
 
                     b.ToTable("proposal_items", (string)null);
                 });
@@ -1941,10 +2314,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("preview_file_id");
 
-                    b.Property<Guid?>("ProjectAreaId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("project_area_id");
-
                     b.Property<Guid>("ProposalId")
                         .HasColumnType("uuid")
                         .HasColumnName("proposal_id");
@@ -1975,12 +2344,54 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasIndex("PreviewFileId");
 
-                    b.HasIndex("ProjectAreaId");
-
                     b.HasIndex("ProposalId", "VersionNo", "CreatedAt", "SceneId")
                         .HasDatabaseName("idx_proposal_scenes_proposal_list_sort");
 
                     b.ToTable("proposal_scenes", (string)null);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.ProposalSceneArea", b =>
+                {
+                    b.Property<Guid>("ProposalSceneAreaId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("proposal_scene_area_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ProjectAreaId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_area_id");
+
+                    b.Property<Guid>("SceneId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("scene_id");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("sort_order");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("ProposalSceneAreaId");
+
+                    b.HasIndex("ProjectAreaId")
+                        .HasDatabaseName("idx_proposal_scene_areas_project_area_id");
+
+                    b.HasIndex("SceneId")
+                        .HasDatabaseName("idx_proposal_scene_areas_scene_id");
+
+                    b.HasIndex("SceneId", "ProjectAreaId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_proposal_scene_areas_scene_project_area");
+
+                    b.ToTable("proposal_scene_areas", (string)null);
                 });
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.ProposalSceneVariant", b =>
@@ -2098,15 +2509,23 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("varchar(10)")
+                        .HasDefaultValue("VND")
+                        .HasColumnName("currency");
+
                     b.Property<string>("CustomerNote")
                         .HasColumnType("text")
                         .HasColumnName("customer_note");
 
                     b.Property<decimal?>("DiscountAmount")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
-                        .HasColumnName("discount_amount");
+                        .HasColumnName("total_discount_amount");
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid")
@@ -2148,20 +2567,30 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDefaultValueSql("'DRAFT'::quotation_status");
 
                     b.Property<decimal?>("SubtotalAmount")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("subtotal_amount");
 
                     b.Property<decimal?>("TaxAmount")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("tax_amount");
 
-                    b.Property<decimal?>("TotalAmount")
+                    b.Property<decimal?>("TaxableAmount")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("taxable_amount");
+
+                    b.Property<decimal?>("TotalAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("total_amount");
 
@@ -2201,10 +2630,11 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnName("quotation_item_id");
 
                     b.Property<decimal?>("CustomizationAdditionalCost")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
-                        .HasColumnName("customization_additional_cost");
+                        .HasColumnName("customization_unit_additional_cost");
 
                     b.Property<string>("CustomizationNote")
                         .HasColumnType("text")
@@ -2214,11 +2644,25 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("description");
 
-                    b.Property<decimal?>("DiscountAmount")
+                    b.Property<int?>("DisplayOrder")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("display_order");
+
+                    b.Property<decimal?>("DiscountAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("discount_amount");
+
+                    b.Property<decimal?>("GrossAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("gross_amount");
 
                     b.Property<bool?>("IsCustomized")
                         .ValueGeneratedOnAdd()
@@ -2261,6 +2705,7 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnName("proposal_item_id");
 
                     b.Property<int?>("Quantity")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(1)
@@ -2272,13 +2717,42 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.Property<decimal?>("SubtotalAmount")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("subtotal_amount");
 
-                    b.Property<decimal?>("UnitPrice")
+                    b.Property<decimal?>("TaxAmount")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("tax_amount");
+
+                    b.Property<decimal?>("TaxRate")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(7,4)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("tax_rate");
+
+                    b.Property<decimal?>("TaxableAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("taxable_amount");
+
+                    b.Property<decimal?>("TotalAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("total_amount");
+
+                    b.Property<decimal?>("UnitPrice")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("unit_price");
 
@@ -2413,19 +2887,9 @@ namespace FurniSpace.Infrastructure.Migrations
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.CustomizationRequest", b =>
                 {
-                    b.HasOne("FurniSpace.Domain.Entities.ProductVersion", null)
+                    b.HasOne("FurniSpace.Domain.Entities.CustomizationRequestVersion", null)
                         .WithMany()
-                        .HasForeignKey("ApprovedProductVersionId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
-                        .WithMany()
-                        .HasForeignKey("DesignerId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
-                        .WithMany()
-                        .HasForeignKey("ProductionReviewBy")
+                        .HasForeignKey("AcceptedRequestVersionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("FurniSpace.Domain.Entities.Project", null)
@@ -2440,21 +2904,46 @@ namespace FurniSpace.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("FurniSpace.Domain.Entities.ProposalItem", null)
-                        .WithMany()
-                        .HasForeignKey("ProposalItemId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("FurniSpace.Domain.Entities.Account", null)
                         .WithMany()
                         .HasForeignKey("RequestedByCustomerId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("FurniSpace.Domain.Entities.ProductVersion", null)
+                        .WithMany()
+                        .HasForeignKey("SourceProductVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.CustomizationRequestVersion", b =>
+                {
                     b.HasOne("FurniSpace.Domain.Entities.Account", null)
                         .WithMany()
-                        .HasForeignKey("SalesReviewBy")
+                        .HasForeignKey("CreatedByDesignerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.CustomizationRequest", "CustomizationRequest")
+                        .WithMany("Versions")
+                        .HasForeignKey("CustomizationRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.ProductVersion", "ProductVersion")
+                        .WithMany()
+                        .HasForeignKey("ProductVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ProductionReviewedBy")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("CustomizationRequest");
+
+                    b.Navigation("ProductVersion");
                 });
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.FileLink", b =>
@@ -2521,6 +3010,66 @@ namespace FurniSpace.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("FurniSpace.Domain.Entities.OrderAdjustment", b =>
+                {
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AppliedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CancelledBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ConfirmedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.Order", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.OrderAdjustmentItem", b =>
+                {
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.OrderAdjustment", null)
+                        .WithMany()
+                        .HasForeignKey("OrderAdjustmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.OrderItem", null)
+                        .WithMany()
+                        .HasForeignKey("OrderItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("FurniSpace.Domain.Entities.OrderItem", b =>
                 {
                     b.HasOne("FurniSpace.Domain.Entities.Account", null)
@@ -2542,6 +3091,11 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasOne("FurniSpace.Domain.Entities.QuotationItem", null)
                         .WithMany()
                         .HasForeignKey("QuotationItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("UnavailableConfirmedBy")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
@@ -2793,11 +3347,6 @@ namespace FurniSpace.Infrastructure.Migrations
                 {
                     b.HasOne("FurniSpace.Domain.Entities.ProductVersion", null)
                         .WithMany()
-                        .HasForeignKey("ApprovedProductVersionId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("FurniSpace.Domain.Entities.ProductVersion", null)
-                        .WithMany()
                         .HasForeignKey("ProductVersionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
@@ -2830,16 +3379,30 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasForeignKey("PreviewFileId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("FurniSpace.Domain.Entities.ProjectArea", null)
-                        .WithMany()
-                        .HasForeignKey("ProjectAreaId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("FurniSpace.Domain.Entities.Proposal", null)
                         .WithMany()
                         .HasForeignKey("ProposalId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.ProposalSceneArea", b =>
+                {
+                    b.HasOne("FurniSpace.Domain.Entities.ProjectArea", "ProjectArea")
+                        .WithMany("ProposalSceneAreas")
+                        .HasForeignKey("ProjectAreaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.ProposalScene", "Scene")
+                        .WithMany("SceneAreas")
+                        .HasForeignKey("SceneId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ProjectArea");
+
+                    b.Navigation("Scene");
                 });
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.ProposalSceneVariant", b =>
@@ -2919,6 +3482,21 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasForeignKey("UploadedBy")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.CustomizationRequest", b =>
+                {
+                    b.Navigation("Versions");
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.ProjectArea", b =>
+                {
+                    b.Navigation("ProposalSceneAreas");
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.ProposalScene", b =>
+                {
+                    b.Navigation("SceneAreas");
                 });
 #pragma warning restore 612, 618
         }

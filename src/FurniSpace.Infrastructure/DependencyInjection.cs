@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddElasticsearch(configuration);
         services.AddMongoRoomPlanner();
         services.AddScoped<IAccountRepository, AccountRepository>();
+        services.AddScoped<IBusinessTypeRepository, BusinessTypeRepository>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IProductRepository, ProductRepository>();
         services.AddScoped<IProductVersionRepository, ProductVersionRepository>();
@@ -79,8 +80,10 @@ public static class DependencyInjection
         services.AddScoped<IProposalRepository, ProposalRepository>();
         services.AddScoped<IQuotationRepository, QuotationRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IProductionRequestRepository, ProductionRequestRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddScoped<ICustomizationRequestRepository, CustomizationRequestRepository>();
+        services.AddScoped<ICustomizationRequestVersionRepository, CustomizationRequestVersionRepository>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepository>();
         services.AddScoped<IRoomPlannerProposalSceneRepository, RoomPlannerProposalSceneRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -124,11 +127,12 @@ public static class DependencyInjection
                 "PostgreSQL connection string is missing. Set ConnectionStrings__DefaultConnection.");
         }
 
-        var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
-        MapPostgresEnums(dataSourceBuilder);
-        var dataSource = dataSourceBuilder.Build();
-
-        services.AddSingleton(dataSource);
+        services.AddSingleton(_ =>
+        {
+            var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+            MapPostgresEnums(dataSourceBuilder);
+            return dataSourceBuilder.Build();
+        });
         services.AddDbContext<AppDbContext>((serviceProvider, options) =>
             options.UseNpgsql(serviceProvider.GetRequiredService<NpgsqlDataSource>(), npgsql =>
                 npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
@@ -149,10 +153,14 @@ public static class DependencyInjection
         builder.MapEnum<ProposalSceneVariantStatus>("proposal_scene_variant_status", translator);
         builder.MapEnum<ProposalSceneVariantType>("proposal_scene_variant_type", translator);
         builder.MapEnum<CustomizationStatus>("customization_status", translator);
+        builder.MapEnum<CustomizationVersionStatus>("customization_version_status", translator);
+        builder.MapEnum<ProductionFeasibilityStatus>("production_feasibility_status", translator);
         builder.MapEnum<QuotationStatus>("quotation_status", translator);
         builder.MapEnum<QuotationItemType>("quotation_item_type", translator);
         builder.MapEnum<OrderStatus>("order_status", translator);
         builder.MapEnum<OrderItemStatus>("order_item_status", translator);
+        builder.MapEnum<OrderAdjustmentStatus>("order_adjustment_status", translator);
+        builder.MapEnum<OrderAdjustmentItemType>("order_adjustment_item_type", translator);
         builder.MapEnum<PaymentStatus>("payment_status", translator);
         builder.MapEnum<PaymentType>("payment_type", translator);
         builder.MapEnum<PaymentProvider>("payment_provider", translator);
@@ -211,7 +219,10 @@ public static class DependencyInjection
         services.AddSingleton(new ElasticsearchClient(settings));
         services.AddScoped<ISearchIndexService, ElasticsearchIndexService>();
         services.AddScoped<IIndexManager, ElasticsearchIndexManager>();
-        services.AddHostedService<ElasticsearchIndexInitializer>();
+        if (configuration.GetValue("Elasticsearch:InitializeIndices", true))
+        {
+            services.AddHostedService<ElasticsearchIndexInitializer>();
+        }
     }
 
     private static string AppendRedisPasswordIfNeeded(string connectionString)

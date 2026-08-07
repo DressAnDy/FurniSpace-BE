@@ -1,5 +1,6 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.CustomizationRequests;
 using FurniSpace.Application.Common.Identity;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Payments;
@@ -7,12 +8,14 @@ using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Quotations;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Interfaces.Accounts;
+using FurniSpace.Application.Interfaces.BusinessTypes;
 using FurniSpace.Application.Interfaces.Categories;
 using FurniSpace.Application.Interfaces.CustomizationRequests;
 using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
+using FurniSpace.Application.Interfaces.Production;
 using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Application.Interfaces.Quotations;
 using FurniSpace.Application.Interfaces.ProjectFiles;
@@ -26,6 +29,7 @@ using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Accounts;
+using FurniSpace.Application.Services.BusinessTypes;
 using FurniSpace.Application.Services.Search;
 using FurniSpace.Application.Services.Categories;
 using FurniSpace.Application.Services.CustomizationRequests;
@@ -33,6 +37,7 @@ using FurniSpace.Application.Services.Identity;
 using FurniSpace.Application.Services.Notifications;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Services.ProductVersions;
+using FurniSpace.Application.Services.Production;
 using FurniSpace.Application.Services.Proposals;
 using FurniSpace.Application.Services.Quotations;
 using FurniSpace.Application.Services.ProjectFiles;
@@ -96,10 +101,19 @@ public static class DependencyInjection
         });
         services.AddInfrastructure(configuration);
         services.AddScoped<IAccountService, AccountService>();
+        services.AddScoped<IBusinessTypeService, BusinessTypeService>();
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductPreviewImageService, ProductPreviewImageService>();
         services.AddScoped<IProductVersionService, ProductVersionService>();
+        services.AddScoped<ProductionRequestServiceDependencies>(sp =>
+        {
+            return new ProductionRequestServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetService<INotificationDispatcher>(),
+                sp.GetService<ILogger<ProductionRequestService>>());
+        });
+        services.AddScoped<IProductionRequestService, ProductionRequestService>();
         services.AddScoped<ProposalServiceDependencies>(sp =>
         {
             return new ProposalServiceDependencies(
@@ -109,15 +123,27 @@ public static class DependencyInjection
                 sp.GetService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>());
         });
         services.AddScoped<IProposalService, ProposalService>();
+        services.AddScoped<QuotationRecalculationService>();
         services.AddScoped<QuotationServiceDependencies>(sp =>
         {
             return new QuotationServiceDependencies(
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<IOptions<OrderWorkflowSettings>>().Value,
+                sp.GetRequiredService<QuotationRecalculationService>(),
                 sp.GetService<INotificationDispatcher>(),
                 sp.GetService<ILogger<QuotationService>>());
         });
         services.AddScoped<IQuotationService, QuotationService>();
+        services.AddScoped<CustomizationRequestServiceDependencies>(sp =>
+            new CustomizationRequestServiceDependencies(
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestVersionRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProposalRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProductVersionRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectFileRepository>(),
+                sp.GetRequiredService<INotificationDispatcher>(),
+                sp.GetRequiredService<IUnitOfWork>()));
         services.AddScoped<ICustomizationRequestService, CustomizationRequestService>();
         services.AddScoped<IFileUploadValidator, FileUploadValidator>();
         services.AddScoped<ProjectChatFileUploadDependencies>(sp =>
@@ -146,7 +172,8 @@ public static class DependencyInjection
                 sp.GetRequiredService<IProductSearchIndexer>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
                 sp.GetRequiredService<IOptions<ProductPreviewImageSettings>>().Value,
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
+                sp.GetService<ILogger<ProductService>>());
         });
         services.AddScoped<ProjectFileServiceDependencies>(sp =>
         {
@@ -171,6 +198,13 @@ public static class DependencyInjection
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<ProjectStatusTransitionEvaluator>();
+        services.AddScoped<ProjectScheduleServiceDependencies>(sp =>
+        {
+            return new ProjectScheduleServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<INotificationDispatcher>(),
+                sp.GetRequiredService<IOptions<ProjectWorkflowSettings>>().Value);
+        });
         services.AddScoped<ProjectServiceDependencies>(sp =>
         {
             return new ProjectServiceDependencies(

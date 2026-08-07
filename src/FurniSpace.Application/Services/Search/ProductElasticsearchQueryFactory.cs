@@ -69,6 +69,12 @@ public static class ProductElasticsearchQueryFactory
             filters.Add(new SearchFilter("categoryId", SearchFilterOperator.Term, request.CategoryId.Value.ToString()));
         }
 
+        var businessTypeIds = NormalizeBusinessTypeIds(request.BusinessTypeIds);
+        if (businessTypeIds is not null)
+        {
+            filters.Add(new SearchFilter("businessTypeIds", SearchFilterOperator.Terms, Values: businessTypeIds.Cast<object>().ToArray()));
+        }
+
         if (!string.IsNullOrWhiteSpace(request.Material))
         {
             filters.Add(new SearchFilter("material", SearchFilterOperator.Term, request.Material.Trim()));
@@ -107,6 +113,7 @@ public static class ProductElasticsearchQueryFactory
         {
             Query = NormalizeOptional(request.Query),
             CategoryId = request.CategoryId,
+            BusinessTypeIds = NormalizeBusinessTypeIds(request.BusinessTypeIds),
             Material = NormalizeOptional(request.Material),
             Color = NormalizeOptional(request.Color),
             MinPrice = request.MinPrice,
@@ -175,5 +182,15 @@ public static class ProductElasticsearchQueryFactory
         }
 
         return value.Trim();
+    }
+
+    private static int[]? NormalizeBusinessTypeIds(int[]? businessTypeIds)
+    {
+        var normalized = businessTypeIds?
+            .Where(id => id > 0)
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+        return normalized is { Length: > 0 } ? normalized : null;
     }
 }

@@ -30,7 +30,7 @@ public sealed class ProductVersionsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Roles = "DESIGNER,ADMIN")]
     [HttpPost("products/{productId:guid}/versions")]
     public async Task<IActionResult> Create(
         Guid productId,

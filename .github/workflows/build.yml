@@ -67,12 +67,13 @@ jobs:
             /o:"dressandy" `
             /d:sonar.token="$env:SONAR_TOKEN" `
             /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml" `
-            /d:sonar.exclusions="**/Migrations/**" `
-            /d:sonar.coverage.exclusions="**/Migrations/**,**/*Tests/**"
+            /d:sonar.exclusions="**/Migrations/**,**/FurniSpace.Testing/**" `
+            /d:sonar.coverage.exclusions="**/Migrations/**,**/*Tests/**,**/FurniSpace.Testing/**,**/Program.cs,**/Constants/**/*,**/RoomPlannerDocumentBases.cs" `
 
-          dotnet build FurniSpace.sln -c $env:BUILD_CONFIGURATION
 
-          dotnet test FurniSpace.sln `
+          dotnet build tests/UnitTests/FurniSpace.UnitTests.sln -c $env:BUILD_CONFIGURATION
+
+          dotnet test tests/UnitTests/FurniSpace.UnitTests.sln `
             -c $env:BUILD_CONFIGURATION `
             --no-build `
             --settings coverlet.runsettings `

@@ -13,7 +13,7 @@ public sealed class RoomPlannerSceneDocument
     public Guid SqlSceneId { get; set; }
 
     [BsonElement("schemaVersion")]
-    public int SchemaVersion { get; set; } = 1;
+    public int SchemaVersion { get; set; } = 3;
 
     [BsonElement("editorVersion")]
     public string? EditorVersion { get; set; }
@@ -25,15 +25,19 @@ public sealed class RoomPlannerSceneDocument
     public Guid? ProposalId { get; set; }
 
     [BsonElement("projectAreaId")]
+    [BsonIgnoreIfNull]
     public Guid? ProjectAreaId { get; set; }
 
     [BsonElement("proposalItemId")]
+    [BsonIgnoreIfNull]
     public Guid? ProposalItemId { get; set; }
 
     [BsonElement("productVersionId")]
+    [BsonIgnoreIfNull]
     public Guid? ProductVersionId { get; set; }
 
     [BsonElement("modelFileIdSnapshot")]
+    [BsonIgnoreIfNull]
     public Guid? ModelFileIdSnapshot { get; set; }
 
     [BsonElement("sceneKind")]
@@ -42,8 +46,16 @@ public sealed class RoomPlannerSceneDocument
     [BsonElement("unit")]
     public string Unit { get; set; } = "meter";
 
+    [BsonElement("sceneLinks")]
+    public RoomPlannerSceneLinksDocument SceneLinks { get; set; } = new();
+
+    [BsonElement("blueprintLayout")]
+    [BsonIgnoreIfNull]
+    public RoomPlannerBlueprintLayoutDocument? BlueprintLayout { get; set; }
+
     [BsonElement("layout")]
-    public RoomPlannerLayoutDocument Layout { get; set; } = new();
+    [BsonIgnoreIfNull]
+    public RoomPlannerLayoutDocument? Layout { get; set; }
 
     [BsonElement("objects")]
     public List<RoomPlannerObjectDocument> Objects { get; set; } = [];

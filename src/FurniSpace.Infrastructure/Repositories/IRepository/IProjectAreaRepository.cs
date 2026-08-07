@@ -23,4 +23,12 @@ public interface IProjectAreaRepository : IGenericRepository<ProjectArea>
     Task<bool> HasActiveUsageAsync(
         Guid projectAreaId,
         CancellationToken cancellationToken = default);
+
+    Task<bool> HasActiveSceneUsageAsync(
+        Guid projectAreaId,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> HasActiveProposalItemUsageAsync(
+        Guid projectAreaId,
+        CancellationToken cancellationToken = default);
 }

@@ -7,4 +7,6 @@ public static class ProjectScheduleErrorCodes
     public const string MeasurementFileRequired = "MEASUREMENT_FILE_REQUIRED";
     public const string DesignerNotAssigned = "DESIGNER_NOT_ASSIGNED";
     public const string InvalidProjectStatus = "INVALID_PROJECT_STATUS";
+    public const string OrderNotReadyForDelivery = "ORDER_NOT_READY_FOR_DELIVERY";
+    public const string InvalidDeliverySchedule = "INVALID_DELIVERY_SCHEDULE";
 }

@@ -59,6 +59,7 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
             {
                 ProductId = item.ProductId,
                 CategoryId = item.CategoryId,
+                BusinessTypeIds = item.BusinessTypeIds,
                 CategoryName = category == null ? null : category.CategoryName,
                 ProductCode = item.ProductCode,
                 ProductName = item.ProductName,
@@ -93,17 +94,39 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
     public async Task<IReadOnlyList<ProductListItemReadModel>> GetPublicListAsync(
         int page,
         int limit,
+        IReadOnlyCollection<int>? businessTypeIds = null,
         CancellationToken cancellationToken = default)
     {
-        return await BuildProductListQuery(categoryId: null, includeDefaultVersion: true)
+        if (ShouldUseClientBusinessTypeFilter(businessTypeIds))
+        {
+            var unfiltered = await BuildProductListQuery(categoryId: null, includeDefaultVersion: true)
+                .ToListAsync(cancellationToken);
+            return unfiltered
+                .Where(product => ProductMatchesBusinessTypeFilter(product.BusinessTypeIds, businessTypeIds))
+                .Skip((page - 1) * limit)
+                .Take(limit)
+                .ToList();
+        }
+
+        return await BuildProductListQuery(
+                categoryId: null,
+                includeDefaultVersion: true,
+                businessTypeIds: businessTypeIds)
             .Skip((page - 1) * limit)
             .Take(limit)
             .ToListAsync(cancellationToken);
     }
 
-    public Task<int> CountAsync(CancellationToken cancellationToken = default)
+    public Task<int> CountAsync(
+        IReadOnlyCollection<int>? businessTypeIds = null,
+        CancellationToken cancellationToken = default)
     {
-        return Query().CountAsync(cancellationToken);
+        if (ShouldUseClientBusinessTypeFilter(businessTypeIds))
+        {
+            return CountWithClientBusinessTypeFilterAsync(businessTypeIds, cancellationToken);
+        }
+
+        return ApplyBusinessTypeFilter(Query(), businessTypeIds).CountAsync(cancellationToken);
     }
 
     public Task<ProductCategoryReadModel?> GetCategoryAsync(
@@ -135,10 +158,11 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
 
     private IQueryable<ProductListItemReadModel> BuildProductListQuery(
         Guid? categoryId,
-        bool includeDefaultVersion)
+        bool includeDefaultVersion,
+        IReadOnlyCollection<int>? businessTypeIds = null)
     {
         return
-            from product in DbContext.ProductSet
+            from product in ApplyBusinessTypeFilter(DbContext.ProductSet, businessTypeIds)
             join category in DbContext.CategorySet
                 on product.CategoryId equals category.CategoryId into categories
             from category in categories.DefaultIfEmpty()
@@ -148,6 +172,7 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
             {
                 ProductId = product.ProductId,
                 CategoryId = product.CategoryId,
+                BusinessTypeIds = product.BusinessTypeIds,
                 CategoryName = category == null ? null : category.CategoryName,
                 ProductCode = product.ProductCode,
                 ProductName = product.ProductName,
@@ -307,6 +332,12 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
 
     private static bool MatchesSearchQuery(ProductListItemReadModel item, ProductSearchQueryReadModel query)
     {
+        if (query.BusinessTypeIds is { Length: > 0 } businessTypeIds &&
+            !ProductMatchesBusinessTypeFilter(item.BusinessTypeIds, businessTypeIds))
+        {
+            return false;
+        }
+
         if (!string.IsNullOrWhiteSpace(query.Material) &&
             !string.Equals(item.DefaultVersion?.Material, query.Material.Trim(), StringComparison.OrdinalIgnoreCase))
         {
@@ -373,5 +404,49 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
                 .ThenBy(item => item.ProductName, StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
+    }
+
+    private static IQueryable<Product> ApplyBusinessTypeFilter(
+        IQueryable<Product> products,
+        IReadOnlyCollection<int>? businessTypeIds)
+    {
+        if (businessTypeIds is null || businessTypeIds.Count == 0)
+        {
+            return products;
+        }
+
+        var filterIds = businessTypeIds.ToArray();
+        return products.Where(product =>
+            product.BusinessTypeIds != null &&
+            product.BusinessTypeIds.Any(id => filterIds.Contains(id)));
+    }
+
+    private bool ShouldUseClientBusinessTypeFilter(IReadOnlyCollection<int>? businessTypeIds)
+    {
+        return businessTypeIds is { Count: > 0 } &&
+            string.Equals(
+                DbContext.Database.ProviderName,
+                "Microsoft.EntityFrameworkCore.InMemory",
+                StringComparison.Ordinal);
+    }
+
+    private async Task<int> CountWithClientBusinessTypeFilterAsync(
+        IReadOnlyCollection<int>? businessTypeIds,
+        CancellationToken cancellationToken)
+    {
+        var productBusinessTypes = await Query()
+            .Select(product => product.BusinessTypeIds)
+            .ToListAsync(cancellationToken);
+        return productBusinessTypes.Count(ids => ProductMatchesBusinessTypeFilter(ids, businessTypeIds));
+    }
+
+    private static bool ProductMatchesBusinessTypeFilter(
+        int[]? productBusinessTypeIds,
+        IReadOnlyCollection<int>? businessTypeIds)
+    {
+        return businessTypeIds is null ||
+            businessTypeIds.Count == 0 ||
+            productBusinessTypeIds is { Length: > 0 } &&
+            productBusinessTypeIds.Any(id => businessTypeIds.Contains(id));
     }
 }

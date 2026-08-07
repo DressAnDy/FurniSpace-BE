@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Storage;
 
 namespace FurniSpace.Application.Constants.CustomizationRequests;
 
@@ -6,18 +7,24 @@ internal static class CustomizationRequestServiceConstants
 {
     internal const string AllStatusesFilter = "ALL";
     internal const int MaxProductionQueuePageSize = 100;
+    internal const int MaxProductVersionPreviewFileCount = ProductPreviewImageSettings.DefaultMaxCount;
     internal const string CustomizationReferenceType = "CUSTOMIZATION_REQUEST";
+    internal const string CustomizationVersionReferenceType = "CUSTOMIZATION_REQUEST_VERSION";
+    internal const string CustomizationRequestNotFoundMessage = "Customization request not found.";
+    internal const string CustomizationVersionNotFoundMessage = "Customization request version not found.";
     internal const string FeasibleResult = "FEASIBLE";
     internal const string NotFeasibleResult = "NOT_FEASIBLE";
-    internal const string AcceptDecision = "ACCEPT";
-    internal const string RejectDecision = "REJECT";
 
-    internal static readonly CustomizationStatus[] ProductionVisibleStatuses =
+    internal static readonly CustomizationStatus[] ActiveRequestStatuses =
     [
-        CustomizationStatus.PRODUCTION_REVIEWING,
-        CustomizationStatus.WAITING_FOR_CUSTOMER_FINAL_APPROVAL,
-        CustomizationStatus.NOT_FEASIBLE,
-        CustomizationStatus.ACCEPTED
+        CustomizationStatus.SUBMITTED,
+        CustomizationStatus.REVIEWING
+    ];
+
+    internal static readonly CustomizationVersionStatus[] NonTerminalVersionStatuses =
+    [
+        CustomizationVersionStatus.DRAFT,
+        CustomizationVersionStatus.REVIEWING
     ];
 
     internal static readonly ProjectStatus[] ProjectStatusesAfterProposalSelection =

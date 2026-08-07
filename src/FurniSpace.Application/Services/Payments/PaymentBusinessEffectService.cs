@@ -1,6 +1,6 @@
 using FurniSpace.Application.Common.Notifications;
-using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
 using static FurniSpace.Application.Constants.Payments.PaymentBusinessEffectServiceConstants;
@@ -44,6 +44,8 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
         {
             return;
         }
+
+        await DispatchCustomerPaymentPaidNotificationAsync(payment, cancellationToken);
 
         switch (payment.PaymentType)
         {
@@ -141,25 +143,9 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
             return;
         }
 
-        if ((order.RemainingAmount ?? 0m) > 0m)
-        {
-            return;
-        }
-
-        order.Status = OrderStatus.COMPLETED;
-        order.UpdatedAt = DateTime.UtcNow;
-        _orders.Update(order);
-
-        if (order.CustomerConfirmedDeliveryAt.HasValue)
-        {
-            var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
-            if (project is not null && project.Status != ProjectStatus.COMPLETED)
-            {
-                project.Status = ProjectStatus.COMPLETED;
-                project.UpdatedAt = DateTime.UtcNow;
-                _projects.Update(project);
-            }
-        }
+        // Remaining payment PAID only updates order financial summary via ApplyOrderCollectionEffectsAsync.
+        // Order/project completion is explicit in a later workflow step.
+        await Task.CompletedTask;
     }
 
     private async Task DispatchProjectStartFeePaidNotificationAsync(
@@ -226,6 +212,18 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
                 "Failed to dispatch order deposit paid notification for order {OrderId}",
                 order.OrderId);
         }
+    }
+
+    private Task DispatchCustomerPaymentPaidNotificationAsync(
+        Payment payment,
+        CancellationToken cancellationToken)
+    {
+        return PaymentCustomerNotificationSupport.TryDispatchAsync(
+            _notifications,
+            _logger,
+            NotificationType.PaymentPaid,
+            payment,
+            cancellationToken: cancellationToken);
     }
 
     private static bool IsOrderScopedPayment(PaymentType? paymentType)

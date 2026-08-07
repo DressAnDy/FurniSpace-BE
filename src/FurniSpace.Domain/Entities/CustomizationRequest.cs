@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Domain.Entities;
@@ -8,7 +9,7 @@ public class CustomizationRequest
     public Guid CustomizationRequestId { get; set; }
     public Guid ProjectId { get; set; }
     public Guid ProposalId { get; set; }
-    public Guid ProposalItemId { get; set; }
+    public Guid SourceProductVersionId { get; set; }
     public Guid? RequestedByCustomerId { get; set; }
     public string RequestTitle { get; set; } = null!;
     public string? RequestDescription { get; set; }
@@ -18,21 +19,10 @@ public class CustomizationRequest
     public string? RequestedMaterial { get; set; }
     public string? RequestedColor { get; set; }
     public string? RequestedChangeNote { get; set; }
-    public Guid? DesignerId { get; set; }
-    public string? DesignerSpecNote { get; set; }
-    public Guid? ProductionReviewBy { get; set; }
-    public string? FeasibilityNote { get; set; }
-    public int? EstimatedProductionDays { get; set; }
-    public decimal? EstimatedAdditionalCost { get; set; }
-    public string? AdditionalCostReason { get; set; }
-    public bool? MaterialAvailable { get; set; }
-    public string? ProductionRiskNote { get; set; }
-    public Guid? SalesReviewBy { get; set; }
-    public Guid? ApprovedProductVersionId { get; set; }
+    public Guid? AcceptedRequestVersionId { get; set; }
     public CustomizationStatus? Status { get; set; }
-    public DateTime? CustomerAcceptedAt { get; set; }
-    public DateTime? CustomerRejectedAt { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
-}
 
+    public ICollection<CustomizationRequestVersion> Versions { get; set; } = new List<CustomizationRequestVersion>();
+}

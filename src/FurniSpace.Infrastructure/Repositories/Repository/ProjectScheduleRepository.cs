@@ -191,4 +191,16 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
                 schedule.AssignedStaffId == staffId,
             cancellationToken);
     }
+
+    public Task<bool> HasConfirmedDeliveryScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProjectScheduleSet.AnyAsync(
+            schedule =>
+                schedule.ProjectId == projectId &&
+                schedule.ScheduleType == ProjectScheduleType.DELIVERY &&
+                schedule.Status == ProjectScheduleStatus.CONFIRMED,
+            cancellationToken);
+    }
 }

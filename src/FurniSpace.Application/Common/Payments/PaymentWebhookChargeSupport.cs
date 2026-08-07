@@ -1,6 +1,7 @@
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Logging;
@@ -31,6 +32,8 @@ internal static class PaymentWebhookChargeSupport
             }
 
             payments.UpdatePayment(payment);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+
             await paymentBusinessEffects.ApplyAsync(payment, cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             await unitOfWork.CommitTransactionAsync(cancellationToken);
@@ -47,10 +50,10 @@ internal static class PaymentWebhookChargeSupport
         ILogger? logger,
         Payment payment,
         PaymentTransaction transaction,
-        decimal appliedAmount,
         DateTime occurredAt,
         CancellationToken cancellationToken)
     {
+        var isPaid = payment.Status == PaymentStatus.PAID;
         var payload = new PaymentUpdatedRealtimeDto
         {
             PaymentId = payment.PaymentId,
@@ -58,11 +61,11 @@ internal static class PaymentWebhookChargeSupport
             PaymentCode = payment.PaymentCode,
             Status = payment.Status,
             Amount = payment.Amount,
-            PaidAmount = payment.PaidAmount,
-            RemainingAmount = payment.RemainingAmount,
+            PaidAmount = isPaid ? payment.Amount : 0m,
+            RemainingAmount = isPaid ? 0m : payment.Amount,
             PaymentTransactionId = transaction.PaymentTransactionId,
             TransactionAmount = transaction.Amount,
-            AppliedAmount = appliedAmount,
+            AppliedAmount = transaction.Amount,
             PaidAt = payment.PaidAt,
             OccurredAt = occurredAt
         };

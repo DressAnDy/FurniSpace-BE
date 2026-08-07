@@ -34,4 +34,11 @@ public interface IProjectScheduleRepository : IGenericRepository<ProjectSchedule
         Guid projectId,
         Guid staffId,
         CancellationToken cancellationToken = default);
+
+    Task<bool> HasConfirmedDeliveryScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
 }

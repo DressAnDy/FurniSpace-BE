@@ -28,14 +28,53 @@ jobs:
           restore-keys: ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        run: dotnet restore FurniSpace.sln
+        run: dotnet restore tests/UnitTests/FurniSpace.UnitTests.sln
 
       - name: Build
-        run: dotnet build FurniSpace.sln --no-restore -c Release
+        run: dotnet build tests/UnitTests/FurniSpace.UnitTests.sln --no-restore -c Release
 
-      - name: Run tests
-        run: |
-          dotnet test tests/FurniSpace.Domain.Tests/FurniSpace.Domain.Tests.csproj --no-build -c Release
-          dotnet test tests/FurniSpace.Application.Tests/FurniSpace.Application.Tests.csproj --no-build -c Release
-          dotnet test tests/FurniSpace.Infrastructure.Tests/FurniSpace.Infrastructure.Tests.csproj --no-build -c Release
-          dotnet test tests/FurniSpace.API.Tests/FurniSpace.API.Tests.csproj --no-build -c Release
+      - name: Run unit tests
+        run: dotnet test tests/UnitTests/FurniSpace.UnitTests.sln --no-build -c Release
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore tests/IntegrationTests/FurniSpace.IntegrationTests.sln
+
+      - name: Build integration tests
+        run: dotnet build tests/IntegrationTests/FurniSpace.IntegrationTests.sln --no-restore -c Release
+
+      - name: Run Core integration tests
+        run: >
+          dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln
+          --no-build
+          -c Release
+          --maxcpucount:1
+          --filter "Category=Core"
+          --logger trx
+          --results-directory TestResults/integration
+
+      - name: Upload integration test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: TestResults/integration
+          if-no-files-found: warn

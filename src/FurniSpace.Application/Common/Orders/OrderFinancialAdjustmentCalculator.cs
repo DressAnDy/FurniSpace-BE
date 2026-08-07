@@ -6,7 +6,7 @@ internal static class OrderFinancialAdjustmentCalculator
         decimal originalTotalAmount,
         decimal itemAdjustmentAmount)
     {
-        return originalTotalAmount + itemAdjustmentAmount;
+        return originalTotalAmount - itemAdjustmentAmount;
     }
 
     public static decimal CalculateFinalTotalAmount(

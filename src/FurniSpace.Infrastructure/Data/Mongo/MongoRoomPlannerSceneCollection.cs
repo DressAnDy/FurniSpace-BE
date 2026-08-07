@@ -35,8 +35,17 @@ public sealed class MongoRoomPlannerSceneCollection : IRoomPlannerSceneCollectio
                 Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending(scene => scene.ProjectId),
                 "ix_room_planner_scenes_project_id"),
             CreateIndex(
-                Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending(scene => scene.ProjectAreaId),
-                "ix_room_planner_scenes_project_area_id"),
+                Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending("sceneLinks.projectAreaIds"),
+                "ix_room_planner_scenes_scene_links_project_area_ids"),
+            CreateIndex(
+                Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending("blueprintLayout.floors.projectAreaId"),
+                "ix_room_planner_scenes_blueprint_floors_project_area_id"),
+            CreateIndex(
+                Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending("objects.productVersionId"),
+                "ix_room_planner_scenes_objects_product_version_id"),
+            CreateIndex(
+                Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending("objects.proposalItemId"),
+                "ix_room_planner_scenes_objects_proposal_item_id"),
             CreateIndex(
                 Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending("metadata.updatedAt"),
                 "ix_room_planner_scenes_metadata_updated_at")

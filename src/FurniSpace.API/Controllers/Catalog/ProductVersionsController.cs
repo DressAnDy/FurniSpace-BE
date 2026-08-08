@@ -3,6 +3,7 @@
 using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.API.DTOs.Products;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.Interfaces.ProductVersions;
 using Microsoft.AspNetCore.Authorization;
@@ -37,7 +38,23 @@ public sealed class ProductVersionsController : BaseApiController
         [FromBody] CreateProductVersionRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var result = await _productVersions.CreateAsync(productId, request, cancellationToken);
+        var allowTaxConfiguration = User?.IsInRole("ADMIN") == true;
+        var result = await _productVersions.CreateAsync(
+            productId,
+            request,
+            allowTaxConfiguration,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("products/{productId:guid}/versions")]
+    public async Task<IActionResult> GetListByProduct(
+        Guid productId,
+        [FromQuery] ProductVersionListQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _productVersions.GetListByProductAsync(productId, query, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -59,6 +76,46 @@ public sealed class ProductVersionsController : BaseApiController
         CancellationToken cancellationToken = default)
     {
         var result = await _productVersions.SetDefaultAsync(productVersionId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("product-versions/{productVersionId:guid}/activate")]
+    public async Task<IActionResult> Activate(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _productVersions.ActivateAsync(productVersionId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("product-versions/{productVersionId:guid}/deactivate")]
+    public async Task<IActionResult> Deactivate(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _productVersions.DeactivateAsync(productVersionId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("product-versions/{productVersionId:guid}/archive")]
+    public async Task<IActionResult> Archive(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _productVersions.ArchiveAsync(productVersionId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("product-versions/{productVersionId:guid}/restore")]
+    public async Task<IActionResult> Restore(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _productVersions.RestoreAsync(productVersionId, cancellationToken);
         return ToActionResult(result);
     }
 

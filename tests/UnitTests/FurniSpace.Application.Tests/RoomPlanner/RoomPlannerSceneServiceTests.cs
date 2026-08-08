@@ -1390,6 +1390,11 @@ public sealed class RoomPlannerSceneServiceTests
         public Task<int> CountProjectSpecificByProjectAsync(
             Guid projectId,
             CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+        public Task<IReadOnlyDictionary<Guid, decimal?>> GetDefaultTaxRatesByIdsAsync(
+            IReadOnlyCollection<Guid> productVersionIds,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyDictionary<Guid, decimal?>>(new Dictionary<Guid, decimal?>());
     }
 
     private sealed class FakeProjectFileRepository : IProjectFileRepository

@@ -80,6 +80,58 @@ public sealed class AccountsController : BaseApiController
     }
 
     [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/designers/workload")]
+    public async Task<IActionResult> GetDesignerWorkload(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
+        [FromQuery] string? capacityState = null,
+        [FromQuery] string? sortBy = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetDesignerWorkloadAsync(
+            new DesignerWorkloadQueryDto
+            {
+                Page = page,
+                PageSize = pageSize,
+                Search = search,
+                CapacityState = capacityState,
+                SortBy = sortBy
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/designers/workload/summary")]
+    public async Task<IActionResult> GetDesignerWorkloadSummary(CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetDesignerWorkloadSummaryAsync(cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/designers/{designerId:guid}/projects")]
+    public async Task<IActionResult> GetDesignerAssignedProjects(
+        Guid designerId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? bucket = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetDesignerAssignedProjectsAsync(
+            designerId,
+            new DesignerAssignedProjectQueryDto
+            {
+                Page = page,
+                PageSize = pageSize,
+                Bucket = bucket
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
     [HttpGet("/admin/accounts/{accountId:guid}")]
     public async Task<IActionResult> GetAdminDetail(Guid accountId, CancellationToken cancellationToken = default)
     {

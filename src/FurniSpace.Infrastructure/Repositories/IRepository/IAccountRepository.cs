@@ -22,6 +22,33 @@ public interface IAccountRepository : IGenericRepository<Account>
         int maxActiveProjects,
         string? search,
         CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AvailableDesignerReadModel>> GetDesignerWorkloadAsync(
+        int page,
+        int pageSize,
+        int maxActiveProjects,
+        string? search,
+        string? capacityState,
+        string sortBy,
+        CancellationToken cancellationToken = default);
+    Task<int> CountDesignerWorkloadAsync(
+        int maxActiveProjects,
+        string? search,
+        string? capacityState,
+        CancellationToken cancellationToken = default);
+    Task<DesignerWorkloadSummaryReadModel> GetDesignerWorkloadSummaryAsync(
+        int maxActiveProjects,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<DesignerAssignedProjectReadModel>> GetDesignerAssignedProjectsAsync(
+        Guid designerId,
+        int page,
+        int pageSize,
+        string? bucket,
+        CancellationToken cancellationToken = default);
+    Task<int> CountDesignerAssignedProjectsAsync(
+        Guid designerId,
+        string? bucket,
+        CancellationToken cancellationToken = default);
+    Task<bool> IsActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Account>> GetPagedAsync(int page, int pageSize, string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default);
     Task<int> CountAsync(string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default);
 

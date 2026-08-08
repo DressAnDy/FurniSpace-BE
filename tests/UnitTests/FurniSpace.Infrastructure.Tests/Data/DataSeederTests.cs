@@ -35,7 +35,7 @@ public sealed class DataSeederTests
             },
             expectedToken);
 
-        Assert.Equal(25, rawCommands.Count);
+        Assert.Equal(26, rawCommands.Count);
         Assert.Single(interpolatedCommands);
         AssertTablesAreSeededInOrder(rawCommands);
 
@@ -60,6 +60,20 @@ public sealed class DataSeederTests
         Assert.Contains("ARRAY[3, 4, 5, 6]::integer[]", productSeed);
         Assert.Contains("ON CONFLICT (product_code) DO UPDATE", productSeed);
         Assert.Contains("COALESCE(products.business_type_ids, EXCLUDED.business_type_ids)", productSeed);
+
+        var quotationSeed = rawCommands.Single(command => ExtractTableName(command) == "quotations");
+        Assert.Contains("total_discount_amount", quotationSeed);
+        Assert.Contains("currency", quotationSeed);
+        Assert.DoesNotContain(" subtotal_amount, discount_amount,", quotationSeed);
+
+        var quotationItemSeed = rawCommands.Single(command => ExtractTableName(command) == "quotation_items");
+        Assert.Contains("customization_unit_additional_cost", quotationItemSeed);
+        Assert.DoesNotContain("customization_additional_cost", quotationItemSeed);
+
+        var orderItemSeed = rawCommands.Single(command => ExtractTableName(command) == "order_items");
+        Assert.Contains("customization_unit_additional_cost", orderItemSeed);
+        Assert.Contains("item_type", orderItemSeed);
+        Assert.DoesNotContain("customization_fee", orderItemSeed);
     }
 
     [Fact]
@@ -84,7 +98,7 @@ public sealed class DataSeederTests
 
         Assert.Equal("seed failed", exception.Message);
         Assert.Equal(
-            ["roles", "business_types", "categories", "products", "product_versions", "projects", "project_areas", "project_schedules"],
+            ["roles", "business_types", "categories", "products", "projects", "product_versions", "project_areas", "project_schedules"],
             executedTables);
     }
 
@@ -98,8 +112,8 @@ public sealed class DataSeederTests
                 "business_types",
                 "categories",
                 "products",
-                "product_versions",
                 "projects",
+                "product_versions",
                 "project_areas",
                 "project_schedules",
                 "files",
@@ -108,6 +122,7 @@ public sealed class DataSeederTests
                 "project_chat_messages",
                 "proposals",
                 "proposal_scenes",
+                "proposal_scene_areas",
                 "proposal_items",
                 "proposal_scene_variants",
                 "customization_requests",

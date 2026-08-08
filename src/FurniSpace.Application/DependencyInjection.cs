@@ -10,6 +10,7 @@ using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.BusinessTypes;
 using FurniSpace.Application.Interfaces.Categories;
+using FurniSpace.Application.Interfaces.Catalog;
 using FurniSpace.Application.Interfaces.CustomizationRequests;
 using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -32,6 +33,7 @@ using FurniSpace.Application.Services.Accounts;
 using FurniSpace.Application.Services.BusinessTypes;
 using FurniSpace.Application.Services.Search;
 using FurniSpace.Application.Services.Categories;
+using FurniSpace.Application.Services.Catalog;
 using FurniSpace.Application.Services.CustomizationRequests;
 using FurniSpace.Application.Services.Identity;
 using FurniSpace.Application.Services.Notifications;
@@ -106,6 +108,8 @@ public static class DependencyInjection
         services.AddScoped<IProductService, ProductService>();
         services.AddScoped<IProductPreviewImageService, ProductPreviewImageService>();
         services.AddScoped<IProductVersionService, ProductVersionService>();
+        services.AddScoped<IAdminCatalogService, AdminCatalogService>();
+        services.AddScoped<IProjectCatalogService, ProjectCatalogService>();
         services.AddScoped<ProductionRequestServiceDependencies>(sp =>
         {
             return new ProductionRequestServiceDependencies(

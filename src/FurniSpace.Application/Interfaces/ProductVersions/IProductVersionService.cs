@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 
@@ -9,6 +10,7 @@ public interface IProductVersionService
     Task<ServiceResult<ProductVersionDto>> CreateAsync(
         Guid productId,
         CreateProductVersionRequestDto request,
+        bool allowTaxConfiguration = false,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<ProductVersionDto>> UpdateAsync(
@@ -38,5 +40,26 @@ public interface IProductVersionService
     Task<ServiceResult<DeleteProductVersionPreviewImageResponseDto>> DeletePreviewFileAsync(
         Guid productVersionId,
         Guid fileId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductVersionListResponseDto>> GetListByProductAsync(
+        Guid productId,
+        ProductVersionListQueryDto query,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ActivateAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> DeactivateAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ArchiveAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> RestoreAsync(
+        Guid productVersionId,
         CancellationToken cancellationToken = default);
 }

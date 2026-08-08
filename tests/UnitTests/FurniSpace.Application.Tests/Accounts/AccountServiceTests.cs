@@ -458,9 +458,12 @@ public sealed class AccountServiceTests
                     Phone = "0900000002",
                     AvatarUrl = null,
                     Status = AccountStatus.ACTIVE,
+                    DesignActiveCount = 1,
+                    LifecycleAssignedCount = 2,
                     CurrentActiveProjectCount = 1,
                     MaxActiveProjects = 2,
                     AvailableSlot = 1,
+                    CapacityState = "AVAILABLE",
                     CreatedAt = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc),
                     UpdatedAt = new DateTime(2026, 6, 10, 10, 0, 0, DateTimeKind.Utc)
                 }
@@ -489,8 +492,11 @@ public sealed class AccountServiceTests
         Assert.Equal("0900000002", designer.Phone);
         Assert.Equal("ACTIVE", designer.Status);
         Assert.Equal(1, designer.CurrentActiveProjectCount);
+        Assert.Equal(1, designer.DesignActiveCount);
+        Assert.Equal(2, designer.LifecycleAssignedCount);
         Assert.Equal(2, designer.MaxActiveProjects);
         Assert.Equal(1, designer.AvailableSlot);
+        Assert.Equal("AVAILABLE", designer.CapacityState);
         Assert.Equal(1, repository.GetAvailableDesignersCallCount);
         Assert.Equal(1, repository.CountAvailableDesignersCallCount);
         Assert.Equal(1, repository.Page);
@@ -854,6 +860,74 @@ public sealed class AccountServiceTests
             CountAvailableDesignersCallCount++;
             return Task.FromResult(AvailableDesigners.Count);
         }
+
+        public Task<IReadOnlyList<AvailableDesignerReadModel>> GetDesignerWorkloadAsync(
+            int page,
+            int pageSize,
+            int maxActiveProjects,
+            string? search,
+            string? capacityState,
+            string sortBy,
+            CancellationToken cancellationToken = default)
+        {
+            MaxActiveProjects = maxActiveProjects;
+            Search = search;
+            var filtered = AvailableDesigners.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(capacityState))
+            {
+                filtered = filtered.Where(designer =>
+                    string.Equals(designer.CapacityState, capacityState, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return Task.FromResult<IReadOnlyList<AvailableDesignerReadModel>>(
+                filtered.Skip((page - 1) * pageSize).Take(pageSize).ToList());
+        }
+
+        public Task<int> CountDesignerWorkloadAsync(
+            int maxActiveProjects,
+            string? search,
+            string? capacityState,
+            CancellationToken cancellationToken = default)
+        {
+            var filtered = AvailableDesigners.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(capacityState))
+            {
+                filtered = filtered.Where(designer =>
+                    string.Equals(designer.CapacityState, capacityState, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return Task.FromResult(filtered.Count());
+        }
+
+        public Task<DesignerWorkloadSummaryReadModel> GetDesignerWorkloadSummaryAsync(
+            int maxActiveProjects,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new DesignerWorkloadSummaryReadModel
+            {
+                TotalActiveDesigners = AvailableDesigners.Count,
+                AvailableCount = AvailableDesigners.Count(designer => designer.CapacityState == "AVAILABLE"),
+                FullCount = AvailableDesigners.Count(designer => designer.CapacityState == "FULL"),
+                OverCount = AvailableDesigners.Count(designer => designer.CapacityState == "OVER"),
+                TotalDesignActiveProjects = AvailableDesigners.Sum(designer => designer.DesignActiveCount)
+            });
+        }
+
+        public Task<IReadOnlyList<DesignerAssignedProjectReadModel>> GetDesignerAssignedProjectsAsync(
+            Guid designerId,
+            int page,
+            int pageSize,
+            string? bucket,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<DesignerAssignedProjectReadModel>>([]);
+
+        public Task<int> CountDesignerAssignedProjectsAsync(
+            Guid designerId,
+            string? bucket,
+            CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+        public Task<bool> IsActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
 
         public Task<IReadOnlyList<Account>> GetPagedAsync(
             int page,

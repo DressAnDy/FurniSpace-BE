@@ -8,9 +8,30 @@ public sealed class AvailableDesignerDto
     public string? Phone { get; set; }
     public string? AvatarUrl { get; set; }
     public string? Status { get; set; }
+
+    /// <summary>
+    /// Projects in DESIGN_ACTIVE statuses (occupies capacity slot).
+    /// </summary>
+    public int DesignActiveCount { get; set; }
+
+    /// <summary>
+    /// Non-terminal projects still assigned to this designer.
+    /// </summary>
+    public int LifecycleAssignedCount { get; set; }
+
+    /// <summary>
+    /// Backward-compatible alias of <see cref="DesignActiveCount"/> (Sales assign picker).
+    /// </summary>
     public int CurrentActiveProjectCount { get; set; }
+
     public int MaxActiveProjects { get; set; }
     public int AvailableSlot { get; set; }
+
+    /// <summary>
+    /// AVAILABLE | FULL | OVER — based on DesignActiveCount vs MaxActiveProjects.
+    /// </summary>
+    public string CapacityState { get; set; } = string.Empty;
+
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

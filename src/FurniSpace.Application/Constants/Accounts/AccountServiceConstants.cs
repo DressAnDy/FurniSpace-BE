@@ -10,7 +10,12 @@ internal static class AccountServiceConstants
     internal const string AccountDetailRetrievedMessage = "Account detail retrieved successfully.";
     internal const string ProfileUpdatedMessage = "Profile updated successfully.";
     internal const string AvailableDesignersRetrievedMessage = "Available designers retrieved successfully.";
+    internal const string DesignerWorkloadRetrievedMessage = "Designer workload retrieved successfully.";
+    internal const string DesignerWorkloadSummaryRetrievedMessage = "Designer workload summary retrieved successfully.";
+    internal const string DesignerAssignedProjectsRetrievedMessage = "Designer assigned projects retrieved successfully.";
     internal const int MaxActiveDesignerProjects = 2;
+    internal const string SortDesignActiveCountDesc = "DesignActiveCountDesc";
+    internal const string SortAvailableSlotDesc = "AvailableSlotDesc";
 
     internal static readonly TimeSpan AccountItemCacheTtl = TimeSpan.FromMinutes(10);
     internal static readonly TimeSpan AccountListCacheTtl = TimeSpan.FromMinutes(5);

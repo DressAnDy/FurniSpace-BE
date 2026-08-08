@@ -80,6 +80,69 @@ public sealed class ProductVersionRepositoryTests
         Assert.Equal(2, result);
     }
 
+    [Fact]
+    public async Task GetDefaultTaxRatesByIdsAsync_ReturnsTaxRatesForVersions()
+    {
+        await using var context = CreateContext();
+        var versionId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        context.ProductSet.Add(new Product
+        {
+            ProductId = productId,
+            ProductName = "Counter",
+            Status = ProductStatus.ACTIVE
+        });
+        context.ProductVersionSet.Add(new ProductVersion
+        {
+            ProductVersionId = versionId,
+            ProductId = productId,
+            VersionCode = "PV-001",
+            VersionName = "Standard",
+            DefaultTaxRate = 8.5m,
+            Status = ProductStatus.ACTIVE
+        });
+        await context.SaveChangesAsync();
+        var repository = new ProductVersionRepository(context);
+
+        var result = await repository.GetDefaultTaxRatesByIdsAsync([versionId]);
+
+        Assert.True(result.TryGetValue(versionId, out var taxRate));
+        Assert.Equal(8.5m, taxRate);
+    }
+
+    [Fact]
+    public async Task GetDefaultTaxRatesByIdsAsync_WithNoIds_ReturnsEmptyDictionary()
+    {
+        await using var context = CreateContext();
+        var repository = new ProductVersionRepository(context);
+
+        var result = await repository.GetDefaultTaxRatesByIdsAsync([]);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetValidDetailsAsync_ExcludesInactiveProducts()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+        context.ProductSet.Add(new Product
+        {
+            ProductId = productId,
+            ProductName = "Inactive Product",
+            Status = ProductStatus.INACTIVE
+        });
+        context.ProductVersionSet.Add(CreateVersion(versionId, productId, isPublic: true, status: ProductStatus.ACTIVE));
+        await context.SaveChangesAsync();
+        var repository = new ProductVersionRepository(context);
+
+        var result = await repository.GetValidDetailsAsync([versionId], projectId);
+
+        Assert.Empty(result);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

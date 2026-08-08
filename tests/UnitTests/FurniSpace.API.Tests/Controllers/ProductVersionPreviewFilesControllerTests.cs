@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Catalog;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
@@ -123,6 +124,7 @@ public sealed class ProductVersionPreviewFilesControllerTests
         public Task<ServiceResult<ProductVersionDto>> CreateAsync(
             Guid productId,
             CreateProductVersionRequestDto request,
+            bool allowTaxConfiguration = false,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
@@ -168,5 +170,31 @@ public sealed class ProductVersionPreviewFilesControllerTests
             FileId = fileId;
             return Task.FromResult(DeleteResult);
         }
+
+        public Task<ServiceResult<ProductVersionListResponseDto>> GetListByProductAsync(
+            Guid productId,
+            ProductVersionListQueryDto query,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ActivateAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> DeactivateAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ArchiveAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> RestoreAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

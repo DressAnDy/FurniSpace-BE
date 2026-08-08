@@ -28,8 +28,8 @@ public static class DataSeeder
         await SeedBusinessTypesAsync(executeRawAsync, cancellationToken);
         await SeedCategoriesAsync(executeRawAsync, cancellationToken);
         await SeedProductsAsync(executeRawAsync, cancellationToken);
-        await SeedProductVersionsAsync(executeRawAsync, cancellationToken);
         await SeedProjectsAsync(executeRawAsync, cancellationToken);
+        await SeedProductVersionsAsync(executeRawAsync, cancellationToken);
         await SeedProjectAreasAsync(executeRawAsync, cancellationToken);
         await SeedProjectSchedulesAsync(executeRawAsync, cancellationToken);
         await SeedFilesAsync(executeRawAsync, cancellationToken);
@@ -432,16 +432,16 @@ public static class DataSeeder
             """
             INSERT INTO quotations (
                 quotation_id, project_id, proposal_id, quotation_code, version_no,
-                subtotal_amount, discount_amount, taxable_amount, tax_amount, total_amount, status,
+                subtotal_amount, total_discount_amount, taxable_amount, tax_amount, total_amount, currency, status,
                 valid_until, customer_note, sales_note, revision_reason, reject_reason,
                 created_by, sent_at, accepted_at, rejected_at, created_at, updated_at
             )
             VALUES
-                ('60000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000004', 'QTN-SEED-0001', 1, 620000000.00, 0.00, 620000000.00, 0.00, 620000000.00, 'DRAFT'::quotation_status, DATE '2026-12-31', null, 'Draft quotation for selected cafe proposal.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', null, null, null, now() - INTERVAL '2 days', now() - INTERVAL '2 days'),
-                ('60000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000002', 'QTN-SEED-0002', 1, 420000000.00, 5000000.00, 415000000.00, 0.00, 415000000.00, 'SENT'::quotation_status, DATE '2026-12-20', 'Please review the office quotation.', 'Sent to customer for office project.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - INTERVAL '1 day', null, null, now() - INTERVAL '2 days', now() - INTERVAL '1 day'),
-                ('60000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000005', 'QTN-SEED-0003', 1, 760000000.00, 0.00, 760000000.00, 0.00, 760000000.00, 'ACCEPTED'::quotation_status, DATE '2026-12-15', null, 'Accepted restaurant quotation.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - INTERVAL '8 days', now() - INTERVAL '7 days', null, now() - INTERVAL '9 days', now() - INTERVAL '7 days'),
-                ('60000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000006', 'QTN-SEED-0004', 1, 1080000000.00, 30000000.00, 1050000000.00, 0.00, 1050000000.00, 'ACCEPTED'::quotation_status, DATE '2026-12-18', null, 'Accepted showroom quotation.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - INTERVAL '18 days', now() - INTERVAL '17 days', null, now() - INTERVAL '19 days', now() - INTERVAL '17 days'),
-                ('60000000-0000-0000-0000-000000000005', '40000000-0000-0000-0000-000000000007', '50000000-0000-0000-0000-000000000007', 'QTN-SEED-0005', 1, 290000000.00, 0.00, 290000000.00, 0.00, 290000000.00, 'ACCEPTED'::quotation_status, DATE '2026-10-30', null, 'Accepted completed office quotation.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - INTERVAL '28 days', now() - INTERVAL '27 days', null, now() - INTERVAL '29 days', now() - INTERVAL '27 days')
+                ('60000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000004', 'QTN-SEED-0001', 1, 620000000.00, 0.00, 620000000.00, 0.00, 620000000.00, 'VND', 'DRAFT'::quotation_status, DATE '2026-12-31', null, 'Draft quotation for selected cafe proposal.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', null, null, null, now() - INTERVAL '2 days', now() - INTERVAL '2 days'),
+                ('60000000-0000-0000-0000-000000000002', '40000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000002', 'QTN-SEED-0002', 1, 420000000.00, 5000000.00, 415000000.00, 0.00, 415000000.00, 'VND', 'SENT'::quotation_status, DATE '2026-12-20', 'Please review the office quotation.', 'Sent to customer for office project.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - INTERVAL '1 day', null, null, now() - INTERVAL '2 days', now() - INTERVAL '1 day'),
+                ('60000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000005', 'QTN-SEED-0003', 1, 760000000.00, 0.00, 760000000.00, 0.00, 760000000.00, 'VND', 'ACCEPTED'::quotation_status, DATE '2026-12-15', null, 'Accepted restaurant quotation.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - INTERVAL '8 days', now() - INTERVAL '7 days', null, now() - INTERVAL '9 days', now() - INTERVAL '7 days'),
+                ('60000000-0000-0000-0000-000000000004', '40000000-0000-0000-0000-000000000006', '50000000-0000-0000-0000-000000000006', 'QTN-SEED-0004', 1, 1080000000.00, 30000000.00, 1050000000.00, 0.00, 1050000000.00, 'VND', 'ACCEPTED'::quotation_status, DATE '2026-12-18', null, 'Accepted showroom quotation.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - INTERVAL '18 days', now() - INTERVAL '17 days', null, now() - INTERVAL '19 days', now() - INTERVAL '17 days'),
+                ('60000000-0000-0000-0000-000000000005', '40000000-0000-0000-0000-000000000007', '50000000-0000-0000-0000-000000000007', 'QTN-SEED-0005', 1, 290000000.00, 0.00, 290000000.00, 0.00, 290000000.00, 'VND', 'ACCEPTED'::quotation_status, DATE '2026-10-30', null, 'Accepted completed office quotation.', null, null, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', now() - INTERVAL '28 days', now() - INTERVAL '27 days', null, now() - INTERVAL '29 days', now() - INTERVAL '27 days')
             ON CONFLICT (quotation_code) DO NOTHING;
             """,
             cancellationToken);
@@ -454,7 +454,7 @@ public static class DataSeeder
             INSERT INTO quotation_items (
                 quotation_item_id, quotation_id, item_type, proposal_item_id, product_version_id,
                 product_name_snapshot, product_version_name_snapshot, product_version_code_snapshot,
-                item_name, description, quantity, unit_price, customization_additional_cost,
+                item_name, description, quantity, unit_price, customization_unit_additional_cost,
                 gross_amount, discount_amount, taxable_amount, tax_rate, tax_amount, total_amount,
                 subtotal_amount, is_customized, customization_note, note
             )
@@ -497,16 +497,17 @@ public static class DataSeeder
         return executeRawAsync(
             """
             INSERT INTO order_items (
-                order_item_id, order_id, quotation_item_id, product_version_id, product_name_snapshot,
+                order_item_id, order_id, quotation_item_id, item_type, product_version_id, product_name_snapshot,
                 product_version_name_snapshot, product_version_code_snapshot, quantity, delivered_quantity,
-                status, unit_price, customization_fee, discount_amount, subtotal_amount, adjustment_amount,
+                status, unit_price, customization_unit_additional_cost, gross_amount, discount_amount,
+                taxable_amount, tax_rate, tax_amount, total_amount, subtotal_amount, adjustment_amount,
                 unavailable_reason, production_note, delivery_note, last_delivered_at, last_delivered_by,
                 customer_confirmed_at
             )
             VALUES
-                ('71000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001', '61000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000002', 'Sliding Door Wardrobe', 'Sliding Door Wardrobe - White Oak', 'WARD-STD-001-A', 3, 0, 'PENDING'::order_item_status, 22500000.00, 0.00, 0.00, 67500000.00, 0.00, null, 'Pending production start.', null, null, null, null),
-                ('71000000-0000-0000-0000-000000000002', '70000000-0000-0000-0000-000000000002', '61000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000006', 'Luxe Modular Sofa', 'Showroom Modular Sofa - Premium Fabric', 'SOFA-LUX-001-CUSTOM-001', 2, 0, 'IN_PRODUCTION'::order_item_status, 18500000.00, 6000000.00, 0.00, 43000000.00, 0.00, null, 'Premium fabric in cutting stage.', null, null, null, null),
-                ('71000000-0000-0000-0000-000000000003', '70000000-0000-0000-0000-000000000003', '61000000-0000-0000-0000-000000000008', '30000000-0000-0000-0000-000000000004', 'Oak Work Desk', 'Oak Work Desk - Natural', 'DESK-OAK-001-A', 8, 8, 'DELIVERED'::order_item_status, 8900000.00, 0.00, 0.00, 71200000.00, 0.00, null, 'Completed.', 'Delivered and installed.', now() - INTERVAL '2 days', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - INTERVAL '1 day')
+                ('71000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001', '61000000-0000-0000-0000-000000000004', 'PRODUCT_ITEM'::quotation_item_type, '30000000-0000-0000-0000-000000000002', 'Sliding Door Wardrobe', 'Sliding Door Wardrobe - White Oak', 'WARD-STD-001-A', 3, 0, 'PENDING'::order_item_status, 22500000.00, 0.00, 67500000.00, 0.00, 67500000.00, 0.00, 0.00, 67500000.00, 67500000.00, 0.00, null, 'Pending production start.', null, null, null, null),
+                ('71000000-0000-0000-0000-000000000002', '70000000-0000-0000-0000-000000000002', '61000000-0000-0000-0000-000000000006', 'PRODUCT_ITEM'::quotation_item_type, '30000000-0000-0000-0000-000000000006', 'Luxe Modular Sofa', 'Showroom Modular Sofa - Premium Fabric', 'SOFA-LUX-001-CUSTOM-001', 2, 0, 'IN_PRODUCTION'::order_item_status, 18500000.00, 6000000.00, 49000000.00, 0.00, 49000000.00, 10.0000, 4900000.00, 53900000.00, 49000000.00, 0.00, null, 'Premium fabric in cutting stage.', null, null, null, null),
+                ('71000000-0000-0000-0000-000000000003', '70000000-0000-0000-0000-000000000003', '61000000-0000-0000-0000-000000000008', 'PRODUCT_ITEM'::quotation_item_type, '30000000-0000-0000-0000-000000000004', 'Oak Work Desk', 'Oak Work Desk - Natural', 'DESK-OAK-001-A', 8, 8, 'DELIVERED'::order_item_status, 8900000.00, 0.00, 71200000.00, 0.00, 71200000.00, 0.00, 0.00, 71200000.00, 71200000.00, 0.00, null, 'Completed.', 'Delivered and installed.', now() - INTERVAL '2 days', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - INTERVAL '1 day')
             ON CONFLICT (order_item_id) DO NOTHING;
             """,
             cancellationToken);

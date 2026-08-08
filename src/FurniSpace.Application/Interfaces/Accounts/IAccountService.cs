@@ -10,6 +10,12 @@ public interface IAccountService
     Task<ServiceResult<AccountDetailDto>> GetAdminDetailAsync(Guid accountId, CancellationToken cancellationToken = default);
     Task<ServiceResult<MyProfileDto>> UpdateMyProfileAsync(Guid currentUserId, UpdateMyProfileRequestDto request, CancellationToken cancellationToken = default);
     Task<ServiceResult<PagedResult<AvailableDesignerDto>>> GetAvailableDesignersAsync(AvailableDesignerQueryDto query, CancellationToken cancellationToken = default);
+    Task<ServiceResult<PagedResult<AvailableDesignerDto>>> GetDesignerWorkloadAsync(DesignerWorkloadQueryDto query, CancellationToken cancellationToken = default);
+    Task<ServiceResult<DesignerWorkloadSummaryDto>> GetDesignerWorkloadSummaryAsync(CancellationToken cancellationToken = default);
+    Task<ServiceResult<PagedResult<DesignerAssignedProjectDto>>> GetDesignerAssignedProjectsAsync(
+        Guid designerId,
+        DesignerAssignedProjectQueryDto query,
+        CancellationToken cancellationToken = default);
     Task<ServiceResult<PagedResult<AccountDto>>> GetPagedAsync(int page, int pageSize, string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default);
     Task<ServiceResult<AccountSearchStatsDto>> GetSearchStatsAsync(bool includeDeleted, CancellationToken cancellationToken = default);
     Task<ServiceResult<AccountSuggestResponseDto>> SuggestAsync(string query, int limit, CancellationToken cancellationToken = default);

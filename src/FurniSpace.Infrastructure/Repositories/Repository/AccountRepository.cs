@@ -1,5 +1,6 @@
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Accounts;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Repositories.Base;
@@ -11,23 +12,8 @@ namespace FurniSpace.Infrastructure.Repositories.Repository;
 public sealed class AccountRepository : GenericRepository<Account>, IAccountRepository
 {
     private const string DesignerRoleName = "DESIGNER";
-
-    private static readonly ProjectStatus[] ActiveDesignerProjectStatuses =
-    [
-        ProjectStatus.IN_CONSULTATION,
-        ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT,
-        ProjectStatus.MEASUREMENT_REQUIRED,
-        ProjectStatus.SPACE_VERIFIED,
-        ProjectStatus.PROPOSAL_CONSULTING,
-        ProjectStatus.PROPOSAL_SELECTED,
-        ProjectStatus.QUOTATION_SENT,
-        ProjectStatus.ORDER_CONFIRMED,
-        ProjectStatus.IN_PRODUCTION,
-        ProjectStatus.PRODUCTION_BLOCKED,
-        ProjectStatus.READY_FOR_DELIVERY,
-        ProjectStatus.DELIVERING,
-        ProjectStatus.DELIVERED
-    ];
+    private const string SortDesignActiveCountDesc = "DesignActiveCountDesc";
+    private const string SortAvailableSlotDesc = "AvailableSlotDesc";
 
     public AccountRepository(AppDbContext dbContext) : base(dbContext)
     {
@@ -101,8 +87,8 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         string? search,
         CancellationToken cancellationToken = default)
     {
-        return await BuildAvailableDesignerQuery(maxActiveProjects, search)
-            .OrderBy(designer => designer.CurrentActiveProjectCount)
+        return await BuildDesignerWorkloadQuery(maxActiveProjects, search, capacityState: null)
+            .OrderBy(designer => designer.DesignActiveCount)
             .ThenBy(designer => designer.FullName)
             .ThenBy(designer => designer.Email)
             .Skip((page - 1) * pageSize)
@@ -115,7 +101,93 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         string? search,
         CancellationToken cancellationToken = default)
     {
-        return BuildAvailableDesignerQuery(maxActiveProjects, search).CountAsync(cancellationToken);
+        return BuildDesignerWorkloadQuery(maxActiveProjects, search, capacityState: null)
+            .CountAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<AvailableDesignerReadModel>> GetDesignerWorkloadAsync(
+        int page,
+        int pageSize,
+        int maxActiveProjects,
+        string? search,
+        string? capacityState,
+        string sortBy,
+        CancellationToken cancellationToken = default)
+    {
+        var query = BuildDesignerWorkloadQuery(maxActiveProjects, search, capacityState);
+        query = ApplyWorkloadSort(query, sortBy);
+
+        return await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountDesignerWorkloadAsync(
+        int maxActiveProjects,
+        string? search,
+        string? capacityState,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildDesignerWorkloadQuery(maxActiveProjects, search, capacityState)
+            .CountAsync(cancellationToken);
+    }
+
+    public async Task<DesignerWorkloadSummaryReadModel> GetDesignerWorkloadSummaryAsync(
+        int maxActiveProjects,
+        CancellationToken cancellationToken = default)
+    {
+        var designers = BuildDesignerWorkloadQuery(maxActiveProjects, search: null, capacityState: null);
+
+        var summary = await designers
+            .GroupBy(_ => 1)
+            .Select(group => new DesignerWorkloadSummaryReadModel
+            {
+                TotalActiveDesigners = group.Count(),
+                AvailableCount = group.Count(designer => designer.CapacityState == DesignerWorkloadStatusSets.CapacityAvailable),
+                FullCount = group.Count(designer => designer.CapacityState == DesignerWorkloadStatusSets.CapacityFull),
+                OverCount = group.Count(designer => designer.CapacityState == DesignerWorkloadStatusSets.CapacityOver),
+                TotalDesignActiveProjects = group.Sum(designer => designer.DesignActiveCount)
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return summary ?? new DesignerWorkloadSummaryReadModel();
+    }
+
+    public async Task<IReadOnlyList<DesignerAssignedProjectReadModel>> GetDesignerAssignedProjectsAsync(
+        Guid designerId,
+        int page,
+        int pageSize,
+        string? bucket,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildDesignerAssignedProjectsQuery(designerId, bucket)
+            .OrderByDescending(project => project.DesignerAssignedAt)
+            .ThenByDescending(project => project.ProjectCode)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountDesignerAssignedProjectsAsync(
+        Guid designerId,
+        string? bucket,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildDesignerAssignedProjectsQuery(designerId, bucket).CountAsync(cancellationToken);
+    }
+
+    public Task<bool> IsActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default)
+    {
+        return (
+            from account in Query()
+            join role in DbContext.RoleSet on account.RoleId equals role.RoleId
+            where account.AccountId == designerId &&
+                role.RoleName == DesignerRoleName &&
+                account.Status == AccountStatus.ACTIVE &&
+                account.DeletedAt == null
+            select account.AccountId)
+            .AnyAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<Account>> GetPagedAsync(
@@ -194,23 +266,28 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         return query;
     }
 
-    private IQueryable<AvailableDesignerReadModel> BuildAvailableDesignerQuery(
+    private IQueryable<AvailableDesignerReadModel> BuildDesignerWorkloadQuery(
         int maxActiveProjects,
-        string? search)
+        string? search,
+        string? capacityState)
     {
+        var designActiveStatuses = DesignerWorkloadStatusSets.DesignActive;
+        var lifecycleStatuses = DesignerWorkloadStatusSets.LifecycleAssigned;
+
         var query =
             from account in Query()
             join role in DbContext.RoleSet on account.RoleId equals role.RoleId
             where role.RoleName == DesignerRoleName &&
                 account.Status == AccountStatus.ACTIVE &&
                 account.DeletedAt == null
-            let activeProjectCount = DbContext.ProjectSet.Count(project =>
+            let designActiveCount = DbContext.ProjectSet.Count(project =>
                 project.AssignedDesignerId == account.AccountId &&
                 project.Status.HasValue &&
-                ActiveDesignerProjectStatuses.Contains(project.Status.Value))
-            // Capacity filtering is temporarily disabled so Sales/Admin can still see
-            // designers who already have two or more active projects.
-            // where activeProjectCount < maxActiveProjects
+                designActiveStatuses.Contains(project.Status.Value))
+            let lifecycleAssignedCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedDesignerId == account.AccountId &&
+                project.Status.HasValue &&
+                lifecycleStatuses.Contains(project.Status.Value))
             select new AvailableDesignerReadModel
             {
                 AccountId = account.AccountId,
@@ -219,23 +296,105 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 Phone = account.Phone,
                 AvatarUrl = account.AvatarUrl,
                 Status = account.Status,
-                CurrentActiveProjectCount = activeProjectCount,
+                DesignActiveCount = designActiveCount,
+                LifecycleAssignedCount = lifecycleAssignedCount,
+                CurrentActiveProjectCount = designActiveCount,
                 MaxActiveProjects = maxActiveProjects,
-                AvailableSlot = maxActiveProjects - activeProjectCount,
+                AvailableSlot = maxActiveProjects - designActiveCount,
+                CapacityState = designActiveCount < maxActiveProjects
+                    ? DesignerWorkloadStatusSets.CapacityAvailable
+                    : designActiveCount == maxActiveProjects
+                        ? DesignerWorkloadStatusSets.CapacityFull
+                        : DesignerWorkloadStatusSets.CapacityOver,
                 CreatedAt = account.CreatedAt,
                 UpdatedAt = account.UpdatedAt
             };
 
-        if (string.IsNullOrWhiteSpace(search))
+        if (!string.IsNullOrWhiteSpace(search))
         {
-            return query;
+            var pattern = BuildSearchPattern(search);
+            query = query.Where(designer =>
+                EF.Functions.ILike(designer.Email, pattern) ||
+                EF.Functions.ILike(designer.FullName, pattern) ||
+                (designer.Phone != null && EF.Functions.ILike(designer.Phone, pattern)));
         }
 
-        var pattern = BuildSearchPattern(search);
-        return query.Where(designer =>
-            EF.Functions.ILike(designer.Email, pattern) ||
-            EF.Functions.ILike(designer.FullName, pattern) ||
-            (designer.Phone != null && EF.Functions.ILike(designer.Phone, pattern)));
+        if (!string.IsNullOrWhiteSpace(capacityState))
+        {
+            var normalized = capacityState.Trim().ToUpperInvariant();
+            query = query.Where(designer => designer.CapacityState == normalized);
+        }
+
+        return query;
+    }
+
+    private static IQueryable<AvailableDesignerReadModel> ApplyWorkloadSort(
+        IQueryable<AvailableDesignerReadModel> query,
+        string sortBy)
+    {
+        if (string.Equals(sortBy, SortAvailableSlotDesc, StringComparison.OrdinalIgnoreCase))
+        {
+            return query
+                .OrderByDescending(designer => designer.AvailableSlot)
+                .ThenBy(designer => designer.FullName)
+                .ThenBy(designer => designer.Email);
+        }
+
+        return query
+            .OrderByDescending(designer => designer.DesignActiveCount)
+            .ThenBy(designer => designer.FullName)
+            .ThenBy(designer => designer.Email);
+    }
+
+    private IQueryable<DesignerAssignedProjectReadModel> BuildDesignerAssignedProjectsQuery(
+        Guid designerId,
+        string? bucket)
+    {
+        var projects =
+            from project in DbContext.ProjectSet
+            where project.AssignedDesignerId == designerId
+            join customer in DbContext.AccountSet on project.CustomerId equals customer.AccountId
+            join sales in DbContext.AccountSet on project.AssignedSalesId equals sales.AccountId into salesJoin
+            from sales in salesJoin.DefaultIfEmpty()
+            select new DesignerAssignedProjectReadModel
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                Status = project.Status,
+                DesignerAssignedAt = project.DesignerAssignedAt,
+                CustomerId = project.CustomerId,
+                CustomerName = customer.FullName,
+                AssignedSalesId = project.AssignedSalesId,
+                SalesName = sales != null ? sales.FullName : null
+            };
+
+        if (string.IsNullOrWhiteSpace(bucket))
+        {
+            return projects;
+        }
+
+        var normalized = bucket.Trim().ToUpperInvariant();
+        return normalized switch
+        {
+            DesignerWorkloadStatusSets.BucketDesignActive => projects.Where(project =>
+                project.Status.HasValue &&
+                DesignerWorkloadStatusSets.DesignActive.Contains(project.Status.Value)),
+            DesignerWorkloadStatusSets.BucketPostDesign => projects.Where(project =>
+                project.Status.HasValue &&
+                DesignerWorkloadStatusSets.PostDesign.Contains(project.Status.Value)),
+            DesignerWorkloadStatusSets.BucketTerminal => projects.Where(project =>
+                project.Status.HasValue &&
+                DesignerWorkloadStatusSets.Terminal.Contains(project.Status.Value)),
+            DesignerWorkloadStatusSets.BucketOther => projects.Where(project =>
+                !project.Status.HasValue ||
+                (
+                    !DesignerWorkloadStatusSets.DesignActive.Contains(project.Status.Value) &&
+                    !DesignerWorkloadStatusSets.PostDesign.Contains(project.Status.Value) &&
+                    !DesignerWorkloadStatusSets.Terminal.Contains(project.Status.Value)
+                )),
+            _ => projects.Where(_ => false)
+        };
     }
 
     private static string BuildSearchPattern(string search)

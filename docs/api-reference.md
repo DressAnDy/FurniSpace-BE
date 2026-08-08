@@ -319,7 +319,10 @@ Controller: `AccountsController`
 | GET | `/admin/accounts/suggest` | ADMIN | Suggest accounts |
 | GET | `/admin/accounts/search-stats` | ADMIN | Facet stats |
 | GET | `/admin/accounts/{accountId}` | ADMIN | Admin detail |
-| GET | `/accounts/designers/available` | SALES, ADMIN | Designers with capacity |
+| GET | `/accounts/designers/available` | SALES, ADMIN | Designers with capacity counters |
+| GET | `/admin/designers/workload` | ADMIN | Designer workload board (filter/sort) |
+| GET | `/admin/designers/workload/summary` | ADMIN | Workload summary cards |
+| GET | `/admin/designers/{designerId}/projects` | ADMIN | Designer assigned projects drill-down |
 | PATCH | `/accounts/me` | JWT | Update my profile |
 
 ### Query — `GET /api/Accounts`
@@ -367,9 +370,45 @@ Controller: `AccountsController`
 
 ### `GET /accounts/designers/available`
 
+**Auth:** SALES, ADMIN  
 **Query:** `page`, `pageSize`, `search?`
 
-**Response item** (`AvailableDesignerDto`): `accountId`, `email`, `fullName`, `phone?`, `avatarUrl?`, `status?`, `currentActiveProjectCount`, `maxActiveProjects`, `availableSlot`, `createdAt?`, `updatedAt?`
+Used by Sales/Admin assign picker. Soft capacity only (does not hide FULL/OVER designers).
+
+**Response item** (`AvailableDesignerDto`):
+
+| Field | Notes |
+| --- | --- |
+| `accountId`, `email`, `fullName`, `phone?`, `avatarUrl?`, `status?` | Identity |
+| `designActiveCount` | Projects in `MEASUREMENT_REQUIRED`, `SPACE_VERIFIED`, `PROPOSAL_CONSULTING` |
+| `lifecycleAssignedCount` | Non-terminal projects still assigned |
+| `currentActiveProjectCount` | Alias of `designActiveCount` (backward compatible) |
+| `maxActiveProjects` | Soft limit (default **2**) |
+| `availableSlot` | `maxActiveProjects - designActiveCount` (may be negative) |
+| `capacityState` | `AVAILABLE` \| `FULL` \| `OVER` |
+| `createdAt?`, `updatedAt?` | |
+
+### `GET /admin/designers/workload`
+
+**Auth:** ADMIN  
+**Query:** `page`, `pageSize`, `search?`, `capacityState?` (`AVAILABLE`\|`FULL`\|`OVER`), `sortBy?` (`DesignActiveCountDesc` default \| `AvailableSlotDesc`)
+
+Same item shape as available designers. Default sort: overload first (`DesignActiveCountDesc`).
+
+### `GET /admin/designers/workload/summary`
+
+**Auth:** ADMIN  
+
+**Response** (`DesignerWorkloadSummaryDto`): `totalActiveDesigners`, `availableCount`, `fullCount`, `overCount`, `totalDesignActiveProjects`, `maxActiveProjects`
+
+### `GET /admin/designers/{designerId}/projects`
+
+**Auth:** ADMIN  
+**Query:** `page`, `pageSize`, `bucket?` (`DESIGN_ACTIVE`\|`POST_DESIGN`\|`TERMINAL`\|`OTHER`)
+
+Drill-down for Admin Designer Workload board.
+
+**Response item** (`DesignerAssignedProjectDto`): `projectId`, `projectCode?`, `projectName`, `status?`, `designerAssignedAt?`, `customerId`, `customerName?`, `assignedSalesId?`, `salesName?`, `bucket`
 
 ### `PATCH /accounts/me`
 

@@ -192,6 +192,143 @@ public sealed class AccountService : IAccountService
         return ServiceResult<PagedResult<AvailableDesignerDto>>.Success(data, AvailableDesignersRetrievedMessage);
     }
 
+    public async Task<ServiceResult<PagedResult<AvailableDesignerDto>>> GetDesignerWorkloadAsync(
+        DesignerWorkloadQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest("Page must be greater than zero.");
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest("Page size must be between 1 and 100.");
+        }
+
+        var capacityStateError = ValidateCapacityState(query.CapacityState);
+        if (capacityStateError is not null)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(capacityStateError);
+        }
+
+        var sortBy = NormalizeSortBy(query.SortBy);
+        var normalizedSearch = NormalizeOptional(query.Search);
+        var normalizedCapacityState = NormalizeOptional(query.CapacityState)?.ToUpperInvariant();
+
+        var designers = await _accounts.GetDesignerWorkloadAsync(
+            query.Page,
+            query.PageSize,
+            MaxActiveDesignerProjects,
+            normalizedSearch,
+            normalizedCapacityState,
+            sortBy,
+            cancellationToken);
+        var totalItems = await _accounts.CountDesignerWorkloadAsync(
+            MaxActiveDesignerProjects,
+            normalizedSearch,
+            normalizedCapacityState,
+            cancellationToken);
+        var data = PagedResult<AvailableDesignerDto>.Create(
+            designers.Adapt<List<AvailableDesignerDto>>(),
+            query.Page,
+            query.PageSize,
+            totalItems);
+
+        return ServiceResult<PagedResult<AvailableDesignerDto>>.Success(data, DesignerWorkloadRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<DesignerWorkloadSummaryDto>> GetDesignerWorkloadSummaryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var summary = await _accounts.GetDesignerWorkloadSummaryAsync(
+            MaxActiveDesignerProjects,
+            cancellationToken);
+
+        return ServiceResult<DesignerWorkloadSummaryDto>.Success(
+            new DesignerWorkloadSummaryDto
+            {
+                TotalActiveDesigners = summary.TotalActiveDesigners,
+                AvailableCount = summary.AvailableCount,
+                FullCount = summary.FullCount,
+                OverCount = summary.OverCount,
+                TotalDesignActiveProjects = summary.TotalDesignActiveProjects,
+                MaxActiveProjects = MaxActiveDesignerProjects
+            },
+            DesignerWorkloadSummaryRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<DesignerAssignedProjectDto>>> GetDesignerAssignedProjectsAsync(
+        Guid designerId,
+        DesignerAssignedProjectQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (designerId == Guid.Empty)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest("Designer id is required.");
+        }
+
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest("Page must be greater than zero.");
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest("Page size must be between 1 and 100.");
+        }
+
+        var bucketError = ValidateBucket(query.Bucket);
+        if (bucketError is not null)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest(bucketError);
+        }
+
+        var isDesigner = await _accounts.IsActiveDesignerAsync(designerId, cancellationToken);
+        if (!isDesigner)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.NotFound("Active designer account not found.");
+        }
+
+        var normalizedBucket = NormalizeOptional(query.Bucket)?.ToUpperInvariant();
+        var projects = await _accounts.GetDesignerAssignedProjectsAsync(
+            designerId,
+            query.Page,
+            query.PageSize,
+            normalizedBucket,
+            cancellationToken);
+        var totalItems = await _accounts.CountDesignerAssignedProjectsAsync(
+            designerId,
+            normalizedBucket,
+            cancellationToken);
+
+        var items = projects
+            .Select(project => new DesignerAssignedProjectDto
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                Status = project.Status?.ToString(),
+                DesignerAssignedAt = project.DesignerAssignedAt,
+                CustomerId = project.CustomerId,
+                CustomerName = project.CustomerName,
+                AssignedSalesId = project.AssignedSalesId,
+                SalesName = project.SalesName,
+                Bucket = FurniSpace.Infrastructure.Common.Accounts.DesignerWorkloadStatusSets.ResolveBucket(project.Status)
+            })
+            .ToList();
+
+        var data = PagedResult<DesignerAssignedProjectDto>.Create(
+            items,
+            query.Page,
+            query.PageSize,
+            totalItems);
+
+        return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.Success(
+            data,
+            DesignerAssignedProjectsRetrievedMessage);
+    }
+
     public async Task<ServiceResult<PagedResult<AccountDto>>> GetPagedAsync(
         int page,
         int pageSize,
@@ -696,6 +833,52 @@ public sealed class AccountService : IAccountService
 
         normalizedStatus = accountStatus.ToString();
         return true;
+    }
+
+    private static string? ValidateCapacityState(string? capacityState)
+    {
+        var normalized = NormalizeOptional(capacityState);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "AVAILABLE" or "FULL" or "OVER" => null,
+            _ => "Capacity state must be AVAILABLE, FULL, or OVER."
+        };
+    }
+
+    private static string? ValidateBucket(string? bucket)
+    {
+        var normalized = NormalizeOptional(bucket);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "DESIGN_ACTIVE" or "POST_DESIGN" or "TERMINAL" or "OTHER" => null,
+            _ => "Bucket must be DESIGN_ACTIVE, POST_DESIGN, TERMINAL, or OTHER."
+        };
+    }
+
+    private static string NormalizeSortBy(string? sortBy)
+    {
+        var normalized = NormalizeOptional(sortBy);
+        if (normalized is null)
+        {
+            return SortDesignActiveCountDesc;
+        }
+
+        if (string.Equals(normalized, SortAvailableSlotDesc, StringComparison.OrdinalIgnoreCase))
+        {
+            return SortAvailableSlotDesc;
+        }
+
+        return SortDesignActiveCountDesc;
     }
 
     private static string? NormalizeOptional(string? value)

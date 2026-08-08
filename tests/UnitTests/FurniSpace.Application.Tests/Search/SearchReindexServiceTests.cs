@@ -216,6 +216,12 @@ public sealed class SearchReindexServiceTests
         public Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<IReadOnlyList<AvailableDesignerReadModel>> GetAvailableDesignersAsync(int page, int pageSize, int maxActiveProjects, string? search, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<AvailableDesignerReadModel>>([]);
         public Task<int> CountAvailableDesignersAsync(int maxActiveProjects, string? search, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<IReadOnlyList<AvailableDesignerReadModel>> GetDesignerWorkloadAsync(int page, int pageSize, int maxActiveProjects, string? search, string? capacityState, string sortBy, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<AvailableDesignerReadModel>>([]);
+        public Task<int> CountDesignerWorkloadAsync(int maxActiveProjects, string? search, string? capacityState, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<DesignerWorkloadSummaryReadModel> GetDesignerWorkloadSummaryAsync(int maxActiveProjects, CancellationToken cancellationToken = default) => Task.FromResult(new DesignerWorkloadSummaryReadModel());
+        public Task<IReadOnlyList<DesignerAssignedProjectReadModel>> GetDesignerAssignedProjectsAsync(Guid designerId, int page, int pageSize, string? bucket, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DesignerAssignedProjectReadModel>>([]);
+        public Task<int> CountDesignerAssignedProjectsAsync(Guid designerId, string? bucket, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<bool> IsActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<int> CountAsync(string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByStatusAsync(bool includeDeleted, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<AccountFacetCountReadModel>>([]);
         public Task<IReadOnlyList<AccountFacetCountReadModel>> CountGroupedByRoleIdAsync(bool includeDeleted, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<AccountFacetCountReadModel>>([]);

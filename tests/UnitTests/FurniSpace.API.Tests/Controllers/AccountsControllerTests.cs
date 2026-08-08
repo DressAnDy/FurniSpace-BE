@@ -218,6 +218,57 @@ public sealed class AccountsControllerTests
     }
 
     [Fact]
+    public void GetDesignerWorkload_RequiresAdminRole()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(AccountsController.GetDesignerWorkload));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public void GetDesignerWorkload_UsesAdminWorkloadRoute()
+    {
+        var method = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetDesignerWorkload));
+
+        var route = method.GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+
+        Assert.Equal("/admin/designers/workload", route.Template);
+    }
+
+    [Fact]
+    public void GetDesignerWorkloadSummary_UsesSummaryRoute()
+    {
+        var method = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetDesignerWorkloadSummary));
+
+        var route = method.GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+
+        Assert.Equal("/admin/designers/workload/summary", route.Template);
+    }
+
+    [Fact]
+    public void GetDesignerAssignedProjects_UsesDesignerProjectsRoute()
+    {
+        var method = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetDesignerAssignedProjects));
+
+        var route = method.GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+
+        Assert.Equal("/admin/designers/{designerId:guid}/projects", route.Template);
+    }
+
+    [Fact]
     public async Task GetAvailableDesigners_ReturnsServiceResultThroughBaseController()
     {
         var response = PagedResult<AvailableDesignerDto>.Create(
@@ -496,6 +547,23 @@ public sealed class AccountsControllerTests
             AvailableDesignerQuery = query;
             return Task.FromResult(_availableDesignersResult);
         }
+
+        public Task<ServiceResult<PagedResult<AvailableDesignerDto>>> GetDesignerWorkloadAsync(
+            DesignerWorkloadQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<PagedResult<AvailableDesignerDto>>.Success(
+                PagedResult<AvailableDesignerDto>.Create([], 1, 20, 0)));
+
+        public Task<ServiceResult<DesignerWorkloadSummaryDto>> GetDesignerWorkloadSummaryAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<DesignerWorkloadSummaryDto>.Success(new DesignerWorkloadSummaryDto()));
+
+        public Task<ServiceResult<PagedResult<DesignerAssignedProjectDto>>> GetDesignerAssignedProjectsAsync(
+            Guid designerId,
+            DesignerAssignedProjectQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<PagedResult<DesignerAssignedProjectDto>>.Success(
+                PagedResult<DesignerAssignedProjectDto>.Create([], 1, 20, 0)));
 
         public Task<ServiceResult<AccountDto>> CreateAsync(CreateAccountRequestDto request, CancellationToken cancellationToken = default)
         {

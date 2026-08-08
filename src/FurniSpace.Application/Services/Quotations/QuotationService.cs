@@ -26,6 +26,7 @@ public sealed class QuotationService : IQuotationService
     private readonly IProjectRepository _projects;
     private readonly IOrderRepository _orders;
     private readonly ICustomizationRequestRepository _customizationRequests;
+    private readonly IProductVersionRepository _productVersions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly OrderWorkflowSettings _orderWorkflowSettings;
     //private readonly QuotationRecalculationService _recalculationService;
@@ -37,12 +38,14 @@ public sealed class QuotationService : IQuotationService
         IProjectRepository projects,
         IOrderRepository orders,
         ICustomizationRequestRepository customizationRequests,
+        IProductVersionRepository productVersions,
         QuotationServiceDependencies dependencies)
     {
         _quotations = quotations;
         _projects = projects;
         _orders = orders;
         _customizationRequests = customizationRequests;
+        _productVersions = productVersions;
         _unitOfWork = dependencies.UnitOfWork;
         _orderWorkflowSettings = dependencies.OrderWorkflowSettings;
         //_recalculationService = dependencies.RecalculationService;
@@ -177,9 +180,16 @@ public sealed class QuotationService : IQuotationService
         }
 
         var proposalItems = await _quotations.GetProposalItemsAsync(selected.ProposalId, cancellationToken);
+        var taxRates = await _productVersions.GetDefaultTaxRatesByIdsAsync(
+            proposalItems
+                .Where(item => item.ProductVersionId.HasValue)
+                .Select(item => item.ProductVersionId!.Value)
+                .Distinct()
+                .ToList(),
+            cancellationToken);
         var quotation = CreateDraftQuotation(selected, currentUserId);
         var quotationItems = proposalItems
-            .Select(item => ToQuotationItem(quotation.QuotationId, item))
+            .Select(item => ToQuotationItem(quotation.QuotationId, item, taxRates))
             .ToList();
 
         QuotationRecalculationService.Recalculate(quotation, quotationItems);
@@ -952,8 +962,19 @@ public sealed class QuotationService : IQuotationService
         };
     }
 
-    private static QuotationItem ToQuotationItem(Guid quotationId, ProposalItem item)
+    private static QuotationItem ToQuotationItem(
+        Guid quotationId,
+        ProposalItem item,
+        IReadOnlyDictionary<Guid, decimal?> taxRates)
     {
+        var taxRate = 0m;
+        if (item.ProductVersionId.HasValue &&
+            taxRates.TryGetValue(item.ProductVersionId.Value, out var configuredTaxRate) &&
+            configuredTaxRate.HasValue)
+        {
+            taxRate = configuredTaxRate.Value;
+        }
+
         return new QuotationItem
         {
             QuotationItemId = Guid.NewGuid(),
@@ -969,7 +990,7 @@ public sealed class QuotationService : IQuotationService
             UnitPrice = item.UnitPriceSnapshot,
             CustomizationAdditionalCost = 0m,
             DiscountAmount = 0m,
-            TaxRate = 0m,
+            TaxRate = taxRate,
             IsCustomized = item.IsCustomized,
             CustomizationNote = item.Note,
             Note = item.Note

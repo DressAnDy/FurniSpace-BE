@@ -1,5 +1,7 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Products;
 using FurniSpace.Application.Common.Storage;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Application.Interfaces.Search;
@@ -32,6 +34,7 @@ public sealed class ProductService : IProductService
     ];
 
     private readonly IProductRepository _products;
+    private readonly ICatalogRepository _catalog;
     private readonly IBusinessTypeRepository _businessTypes;
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
@@ -45,12 +48,14 @@ public sealed class ProductService : IProductService
 
     public ProductService(
         IProductRepository products,
+        ICatalogRepository catalog,
         IBusinessTypeRepository businessTypes,
         IProjectFileRepository files,
         ProductServiceDependencies dependencies,
         IUnitOfWork unitOfWork)
     {
         _products = products;
+        _catalog = catalog;
         _businessTypes = businessTypes;
         _files = files;
         _unitOfWork = unitOfWork;
@@ -1071,5 +1076,111 @@ public sealed class ProductService : IProductService
         return files
             .GroupBy(file => file.ReferenceId)
             .ToDictionary(group => group.Key, group => group.ToList());
+    }
+
+    public Task<ServiceResult<ProductLifecycleStatusResponseDto>> ActivateAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+    {
+        return ChangeLifecycleStatusAsync(
+            productId,
+            ProductStatus.ACTIVE,
+            ProductLifecycleTransitionValidator.CanActivate,
+            CatalogErrorCodes.ProductAlreadyActive,
+            "Product is already active.",
+            cancellationToken);
+    }
+
+    public Task<ServiceResult<ProductLifecycleStatusResponseDto>> DeactivateAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+    {
+        return ChangeLifecycleStatusAsync(
+            productId,
+            ProductStatus.INACTIVE,
+            ProductLifecycleTransitionValidator.CanDeactivate,
+            CatalogErrorCodes.ProductAlreadyInactive,
+            "Product is already inactive.",
+            cancellationToken);
+    }
+
+    public Task<ServiceResult<ProductLifecycleStatusResponseDto>> ArchiveAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+    {
+        return ChangeLifecycleStatusAsync(
+            productId,
+            ProductStatus.ARCHIVED,
+            ProductLifecycleTransitionValidator.CanArchive,
+            CatalogErrorCodes.ProductAlreadyArchived,
+            "Product is already archived.",
+            cancellationToken);
+    }
+
+    public Task<ServiceResult<ProductLifecycleStatusResponseDto>> RestoreAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+    {
+        return ChangeLifecycleStatusAsync(
+            productId,
+            ProductStatus.ACTIVE,
+            ProductLifecycleTransitionValidator.CanRestore,
+            CatalogErrorCodes.ProductRestoreNotAllowed,
+            "Product cannot be restored from its current status.",
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<ProductLifecycleStatusResponseDto>> ChangeLifecycleStatusAsync(
+        Guid productId,
+        ProductStatus targetStatus,
+        Func<ProductStatus?, bool> canTransition,
+        string alreadyInStateCode,
+        string alreadyInStateMessage,
+        CancellationToken cancellationToken)
+    {
+        if (productId == Guid.Empty)
+        {
+            return ServiceResult<ProductLifecycleStatusResponseDto>.BadRequest("Product id is required.");
+        }
+
+        var product = await _products.GetByIdAsync(productId, cancellationToken);
+        if (product is null)
+        {
+            return ServiceResult<ProductLifecycleStatusResponseDto>.Failure(
+                Error.NotFound(CatalogErrorCodes.ProductNotFound, "Product not found."));
+        }
+
+        var currentStatus = product.Status ?? ProductStatus.ACTIVE;
+        if (currentStatus == targetStatus)
+        {
+            return ServiceResult<ProductLifecycleStatusResponseDto>.Failure(
+                Error.Conflict(alreadyInStateCode, alreadyInStateMessage));
+        }
+
+        if (!canTransition(currentStatus))
+        {
+            return ServiceResult<ProductLifecycleStatusResponseDto>.Failure(
+                Error.BadRequest(
+                    CatalogErrorCodes.ProductInvalidStatusTransition,
+                    "Product status transition is not allowed."));
+        }
+
+        var previousStatus = currentStatus;
+        product.Status = targetStatus;
+        product.UpdatedAt = DateTime.UtcNow;
+        _products.Update(product);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var activeVersionCount = await _catalog.CountActiveVersionsByProductAsync(productId, cancellationToken);
+        return ServiceResult<ProductLifecycleStatusResponseDto>.Success(
+            new ProductLifecycleStatusResponseDto
+            {
+                ProductId = product.ProductId,
+                PreviousStatus = previousStatus,
+                Status = product.Status,
+                UpdatedAt = product.UpdatedAt,
+                ActiveVersionCount = activeVersionCount
+            },
+            "Product lifecycle updated successfully.");
     }
 }

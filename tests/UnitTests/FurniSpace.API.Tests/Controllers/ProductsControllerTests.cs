@@ -419,6 +419,24 @@ public sealed class ProductsControllerTests
         Assert.Equal(1, previewService.UploadRequest.DisplayOrder);
     }
 
+    [Theory]
+    [InlineData(nameof(ProductsController.Activate))]
+    [InlineData(nameof(ProductsController.Deactivate))]
+    [InlineData(nameof(ProductsController.Archive))]
+    [InlineData(nameof(ProductsController.Restore))]
+    public async Task LifecycleActions_ReturnServiceResultThroughBaseController(string actionName)
+    {
+        var productId = Guid.NewGuid();
+        var service = CreateDefaultProductService();
+        var controller = CreateController(service, Guid.NewGuid());
+        var method = typeof(ProductsController).GetMethod(actionName)!;
+
+        var actionResult = await (Task<IActionResult>)method.Invoke(controller, [productId, CancellationToken.None])!;
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
     private static FakeProductService CreateDefaultProductService()
     {
         return new FakeProductService(ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty));

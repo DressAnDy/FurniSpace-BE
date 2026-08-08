@@ -1388,6 +1388,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("estimated_price");
 
+                    b.Property<decimal?>("DefaultTaxRate")
+                        .HasColumnType("numeric(7,4)")
+                        .HasColumnName("default_tax_rate");
+
                     b.Property<decimal?>("Height")
                         .HasColumnType("numeric(10,2)")
                         .HasColumnName("height");
@@ -1464,6 +1468,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.ToTable("product_versions", null, t =>
                         {
                             t.HasCheckConstraint("ck_product_versions_project_specific", "(version_type = 'PROJECT_SPECIFIC'::product_version_type AND project_id IS NOT NULL AND is_project_specific = TRUE AND is_public = FALSE AND is_default = FALSE) OR version_type <> 'PROJECT_SPECIFIC'::product_version_type");
+                            t.HasCheckConstraint("ck_product_versions_default_tax_rate_range", "default_tax_rate IS NULL OR (default_tax_rate >= 0 AND default_tax_rate <= 100)");
                         });
                 });
 

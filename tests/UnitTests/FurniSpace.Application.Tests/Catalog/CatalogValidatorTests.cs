@@ -19,6 +19,35 @@ public sealed class CatalogValidatorTests
         Assert.False(ProductVersionLifecycleTransitionValidator.IsActive(ProductStatus.INACTIVE));
     }
 
+    [Fact]
+    public void ProductVersionLifecycleTransitionValidator_CanActivate_OnlyFromInactive()
+    {
+        Assert.True(ProductVersionLifecycleTransitionValidator.CanActivate(ProductStatus.INACTIVE));
+        Assert.False(ProductVersionLifecycleTransitionValidator.CanActivate(ProductStatus.ACTIVE));
+    }
+
+    [Fact]
+    public void ProductVersionLifecycleTransitionValidator_CanDeactivate_OnlyFromActive()
+    {
+        Assert.True(ProductVersionLifecycleTransitionValidator.CanDeactivate(ProductStatus.ACTIVE));
+        Assert.False(ProductVersionLifecycleTransitionValidator.CanDeactivate(ProductStatus.INACTIVE));
+    }
+
+    [Fact]
+    public void ProductVersionLifecycleTransitionValidator_CanArchive_FromActiveOrInactive()
+    {
+        Assert.True(ProductVersionLifecycleTransitionValidator.CanArchive(ProductStatus.ACTIVE));
+        Assert.True(ProductVersionLifecycleTransitionValidator.CanArchive(ProductStatus.INACTIVE));
+        Assert.False(ProductVersionLifecycleTransitionValidator.CanArchive(ProductStatus.ARCHIVED));
+    }
+
+    [Fact]
+    public void ProductVersionLifecycleTransitionValidator_CanRestore_OnlyFromArchived()
+    {
+        Assert.True(ProductVersionLifecycleTransitionValidator.CanRestore(ProductStatus.ARCHIVED));
+        Assert.False(ProductVersionLifecycleTransitionValidator.CanRestore(ProductStatus.ACTIVE));
+    }
+
     [Theory]
     [InlineData(ProductStatus.INACTIVE, true)]
     [InlineData(ProductStatus.ACTIVE, false)]

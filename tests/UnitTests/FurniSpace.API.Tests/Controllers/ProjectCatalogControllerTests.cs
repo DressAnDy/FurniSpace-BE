@@ -53,6 +53,49 @@ public sealed class ProjectCatalogControllerTests
         Assert.Equal(userId, service.LastUserId);
     }
 
+    [Fact]
+    public async Task GetProductById_WithoutUserContext_ReturnsUnauthorized()
+    {
+        var controller = CreateController(new FakeProjectCatalogService());
+
+        var actionResult = await controller.GetProductById(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
+    public async Task GetProductById_WithDesignerContext_ReturnsServiceResult()
+    {
+        var projectId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakeProjectCatalogService();
+        var controller = CreateController(service, userId, "DESIGNER");
+
+        var actionResult = await controller.GetProductById(projectId, productId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(projectId, service.LastProjectId);
+        Assert.Equal(productId, service.LastProductId);
+    }
+
+    [Fact]
+    public async Task GetProductVersionById_WithDesignerContext_ReturnsServiceResult()
+    {
+        var projectId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var service = new FakeProjectCatalogService();
+        var controller = CreateController(service, userId, "DESIGNER");
+
+        var actionResult = await controller.GetProductVersionById(projectId, versionId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(versionId, service.LastProductVersionId);
+    }
+
     private static ProjectCatalogController CreateController(
         IProjectCatalogService service,
         Guid? userId = null,
@@ -94,6 +137,8 @@ public sealed class ProjectCatalogControllerTests
 
         public Guid LastProjectId { get; private set; }
         public Guid LastUserId { get; private set; }
+        public Guid LastProductId { get; private set; }
+        public Guid LastProductVersionId { get; private set; }
 
         public Task<ServiceResult<ProjectCatalogListResponseDto>> GetProductsAsync(
             Guid projectId,
@@ -113,9 +158,14 @@ public sealed class ProjectCatalogControllerTests
             Guid currentUserId,
             string? role,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<ProjectCatalogProductDetailDto>.Success(
+        {
+            LastProjectId = projectId;
+            LastUserId = currentUserId;
+            LastProductId = productId;
+            return Task.FromResult(ServiceResult<ProjectCatalogProductDetailDto>.Success(
                 new ProjectCatalogProductDetailDto(),
                 string.Empty));
+        }
 
         public Task<ServiceResult<ProjectCatalogProductVersionDetailDto>> GetProductVersionByIdAsync(
             Guid projectId,
@@ -123,8 +173,13 @@ public sealed class ProjectCatalogControllerTests
             Guid currentUserId,
             string? role,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<ProjectCatalogProductVersionDetailDto>.Success(
+        {
+            LastProjectId = projectId;
+            LastUserId = currentUserId;
+            LastProductVersionId = productVersionId;
+            return Task.FromResult(ServiceResult<ProjectCatalogProductVersionDetailDto>.Success(
                 new ProjectCatalogProductVersionDetailDto(),
                 string.Empty));
+        }
     }
 }

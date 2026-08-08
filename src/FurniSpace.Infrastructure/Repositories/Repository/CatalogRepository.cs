@@ -159,11 +159,6 @@ public sealed class CatalogRepository : GenericRepository<Product>, ICatalogRepo
             join category in DbContext.CategorySet
                 on product.CategoryId equals category.CategoryId into categories
             from category in categories.DefaultIfEmpty()
-            let versions = DbContext.ProductVersionSet.Where(version => version.ProductId == product.ProductId)
-            let defaultVersion = versions
-                .Where(version => version.IsDefault == true)
-                .OrderBy(version => version.CreatedAt)
-                .FirstOrDefault()
             select new AdminCatalogProductListItemReadModel
             {
                 ProductId = product.ProductId,
@@ -173,16 +168,46 @@ public sealed class CatalogRepository : GenericRepository<Product>, ICatalogRepo
                 CategoryName = category == null ? null : category.CategoryName,
                 BusinessTypeIds = product.BusinessTypeIds,
                 Status = product.Status,
-                TotalVersionCount = versions.Count(),
-                ActiveVersionCount = versions.Count(version => version.Status == ProductStatus.ACTIVE),
-                InactiveVersionCount = versions.Count(version => version.Status == ProductStatus.INACTIVE),
-                ArchivedVersionCount = versions.Count(version => version.Status == ProductStatus.ARCHIVED),
-                DefaultVersionId = defaultVersion == null ? null : defaultVersion.ProductVersionId,
-                DefaultVersionCode = defaultVersion == null ? null : defaultVersion.VersionCode,
-                DefaultVersionName = defaultVersion == null ? null : defaultVersion.VersionName,
-                DefaultVersionStatus = defaultVersion == null ? null : defaultVersion.Status,
-                DefaultVersionEstimatedPrice = defaultVersion == null ? null : defaultVersion.EstimatedPrice,
-                DefaultVersionDefaultTaxRate = defaultVersion == null ? null : defaultVersion.DefaultTaxRate,
+                TotalVersionCount = DbContext.ProductVersionSet.Count(version => version.ProductId == product.ProductId),
+                ActiveVersionCount = DbContext.ProductVersionSet.Count(version =>
+                    version.ProductId == product.ProductId &&
+                    version.Status == ProductStatus.ACTIVE),
+                InactiveVersionCount = DbContext.ProductVersionSet.Count(version =>
+                    version.ProductId == product.ProductId &&
+                    version.Status == ProductStatus.INACTIVE),
+                ArchivedVersionCount = DbContext.ProductVersionSet.Count(version =>
+                    version.ProductId == product.ProductId &&
+                    version.Status == ProductStatus.ARCHIVED),
+                DefaultVersionId = DbContext.ProductVersionSet
+                    .Where(version => version.ProductId == product.ProductId && version.IsDefault == true)
+                    .OrderBy(version => version.CreatedAt)
+                    .Select(version => (Guid?)version.ProductVersionId)
+                    .FirstOrDefault(),
+                DefaultVersionCode = DbContext.ProductVersionSet
+                    .Where(version => version.ProductId == product.ProductId && version.IsDefault == true)
+                    .OrderBy(version => version.CreatedAt)
+                    .Select(version => version.VersionCode)
+                    .FirstOrDefault(),
+                DefaultVersionName = DbContext.ProductVersionSet
+                    .Where(version => version.ProductId == product.ProductId && version.IsDefault == true)
+                    .OrderBy(version => version.CreatedAt)
+                    .Select(version => version.VersionName)
+                    .FirstOrDefault(),
+                DefaultVersionStatus = DbContext.ProductVersionSet
+                    .Where(version => version.ProductId == product.ProductId && version.IsDefault == true)
+                    .OrderBy(version => version.CreatedAt)
+                    .Select(version => version.Status)
+                    .FirstOrDefault(),
+                DefaultVersionEstimatedPrice = DbContext.ProductVersionSet
+                    .Where(version => version.ProductId == product.ProductId && version.IsDefault == true)
+                    .OrderBy(version => version.CreatedAt)
+                    .Select(version => version.EstimatedPrice)
+                    .FirstOrDefault(),
+                DefaultVersionDefaultTaxRate = DbContext.ProductVersionSet
+                    .Where(version => version.ProductId == product.ProductId && version.IsDefault == true)
+                    .OrderBy(version => version.CreatedAt)
+                    .Select(version => version.DefaultTaxRate)
+                    .FirstOrDefault(),
                 CreatedAt = product.CreatedAt,
                 UpdatedAt = product.UpdatedAt
             };

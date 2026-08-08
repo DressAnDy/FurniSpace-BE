@@ -11,5 +11,6 @@ public sealed class CatalogKeywordMatcherTests
         Assert.True(CatalogKeywordMatcher.Matches("Coffee Counter", "PM-001", "coffee"));
         Assert.True(CatalogKeywordMatcher.Matches("Coffee Counter", "PM-001", "pm-001"));
         Assert.False(CatalogKeywordMatcher.Matches("Coffee Counter", "PM-001", "stool"));
+        Assert.False(CatalogKeywordMatcher.Matches(null, null, "coffee"));
     }
 }

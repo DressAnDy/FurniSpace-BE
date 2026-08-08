@@ -1088,6 +1088,120 @@ public sealed class ProductVersionServiceTests
         Assert.False(version.IsDefault);
     }
 
+    [Fact]
+    public async Task ActivateAsync_FromInactive_UpdatesStatus()
+    {
+        var productVersionId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var version = new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = productId,
+            VersionCode = "PV-001",
+            VersionName = "Standard",
+            Status = ProductStatus.INACTIVE
+        };
+        var repository = new FakeProductVersionRepository(versions: [version], productIds: [productId]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.ActivateAsync(productVersionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductStatus.ACTIVE, version.Status);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_FromActive_UpdatesStatusAndClearsDefault()
+    {
+        var productVersionId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var version = new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = productId,
+            VersionCode = "PV-001",
+            VersionName = "Standard",
+            Status = ProductStatus.ACTIVE,
+            IsDefault = true
+        };
+        var repository = new FakeProductVersionRepository(versions: [version], productIds: [productId]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.ArchiveAsync(productVersionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductStatus.ARCHIVED, version.Status);
+        Assert.False(version.IsDefault);
+    }
+
+    [Fact]
+    public async Task SetDefaultAsync_WithInactiveVersion_ReturnsBadRequest()
+    {
+        var productVersionId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var version = new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = productId,
+            VersionCode = "PV-001",
+            VersionName = "Standard",
+            Status = ProductStatus.INACTIVE
+        };
+        var repository = new FakeProductVersionRepository(versions: [version], productIds: [productId]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.SetDefaultAsync(productVersionId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductVersionDefaultInactive, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetListByProductAsync_WithInvalidPagination_ReturnsBadRequest()
+    {
+        var repository = new FakeProductVersionRepository(productIds: [Guid.NewGuid()]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.GetListByProductAsync(Guid.NewGuid(), new ProductVersionListQueryDto
+        {
+            Page = 0,
+            PageSize = 20
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CatalogErrorCodes.CatalogFilterInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithTaxProvidedWithoutAdminRole_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new FakeProductVersionRepository(productIds: [productId]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.CreateAsync(productId, new CreateProductVersionRequestDto
+        {
+            VersionCode = "PV-001",
+            VersionName = "Standard",
+            DefaultTaxRate = 10m
+        },
+        allowTaxConfiguration: false);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Validation failed", result.Message);
+        Assert.Contains("Default tax rate can only be configured by admin.", result.Errors!);
+    }
+
     private static ProductVersionService CreateVersionUploadService(
         Guid productVersionId,
         VersionUploadFileRepository repository)

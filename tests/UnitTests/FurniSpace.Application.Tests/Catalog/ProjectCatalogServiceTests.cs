@@ -210,6 +210,58 @@ public sealed class ProjectCatalogServiceTests
         Assert.Equal(CatalogErrorCodes.CatalogVersionNotEligible, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task GetProductsAsync_WithEmptyUserId_ReturnsUnauthorized()
+    {
+        var service = CreateService(new FakeCatalogRepository(), project: CreateProject(Guid.NewGuid(), Guid.NewGuid()));
+
+        var result = await service.GetProductsAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            "DESIGNER",
+            new ProjectCatalogQueryDto { Page = 1, PageSize = 20 });
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProductsAsync_WithInvalidPagination_ReturnsBadRequest()
+    {
+        var projectId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var service = CreateService(
+            new FakeCatalogRepository(),
+            project: CreateProject(projectId, designerId));
+
+        var result = await service.GetProductsAsync(
+            projectId,
+            designerId,
+            "DESIGNER",
+            new ProjectCatalogQueryDto { Page = 0, PageSize = 20 });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CatalogErrorCodes.CatalogFilterInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetProductByIdAsync_WithMissingProduct_ReturnsNotFound()
+    {
+        var projectId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var service = CreateService(
+            new FakeCatalogRepository(),
+            project: CreateProject(projectId, designerId));
+
+        var result = await service.GetProductByIdAsync(
+            projectId,
+            Guid.NewGuid(),
+            designerId,
+            "DESIGNER");
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CatalogErrorCodes.CatalogProductNotEligible, result.ErrorCode);
+    }
+
     private static ProjectCatalogService CreateService(
         ICatalogRepository catalog,
         ProjectDetailReadModel? project = null,

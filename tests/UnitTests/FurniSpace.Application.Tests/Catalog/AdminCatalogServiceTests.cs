@@ -129,6 +129,22 @@ public sealed class AdminCatalogServiceTests
         Assert.Equal(CatalogErrorCodes.BusinessTypeNotFound, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task GetProductsAsync_WithInvalidSortDirection_ReturnsBadRequest()
+    {
+        var service = CreateService(new FakeCatalogRepository());
+
+        var result = await service.GetProductsAsync(new AdminCatalogQueryDto
+        {
+            Page = 1,
+            PageSize = 20,
+            SortDirection = "invalid"
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(CatalogErrorCodes.CatalogSortInvalid, result.ErrorCode);
+    }
+
     private static AdminCatalogService CreateService(
         ICatalogRepository catalog,
         IReadOnlyList<ProductCategoryReadModel>? categories = null,

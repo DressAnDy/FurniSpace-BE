@@ -1513,6 +1513,50 @@ public sealed class ProductServiceTests
         Assert.Equal(ProductStatus.ACTIVE, entity.Status);
     }
 
+    [Fact]
+    public async Task DeactivateAsync_WhenAlreadyInactive_ReturnsConflict()
+    {
+        var productId = Guid.NewGuid();
+        var entity = new Product
+        {
+            ProductId = productId,
+            ProductCode = "PM-001",
+            ProductName = "Counter",
+            Status = ProductStatus.INACTIVE
+        };
+        var repository = new FakeProductRepository([], entities: [entity]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.DeactivateAsync(productId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductAlreadyInactive, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_WhenAlreadyActive_ReturnsConflict()
+    {
+        var productId = Guid.NewGuid();
+        var entity = new Product
+        {
+            ProductId = productId,
+            ProductCode = "PM-001",
+            ProductName = "Counter",
+            Status = ProductStatus.ACTIVE
+        };
+        var repository = new FakeProductRepository([], entities: [entity]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.RestoreAsync(productId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductRestoreNotAllowed, result.ErrorCode);
+    }
+
     private static CatalogFileReadModel CreateCatalogFile(
         Guid referenceId,
         string referenceType,

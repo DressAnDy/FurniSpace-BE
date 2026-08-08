@@ -123,6 +123,44 @@ public sealed class ProductVersionsControllerTests
     }
 
     [Fact]
+    public async Task GetListByProduct_ReturnsServiceResultThroughBaseController()
+    {
+        var productId = Guid.NewGuid();
+        var response = new ProductVersionListResponseDto { Page = 1, PageSize = 20, TotalCount = 0 };
+        var service = new FakeProductVersionService(
+            getListResult: ServiceResult<ProductVersionListResponseDto>.Success(response, string.Empty));
+        var controller = new ProductVersionsController(service);
+
+        var actionResult = await controller.GetListByProduct(productId, new ProductVersionListQueryDto
+        {
+            Page = 1,
+            PageSize = 20
+        });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(productId, service.ProductId);
+    }
+
+    [Theory]
+    [InlineData(nameof(ProductVersionsController.Activate))]
+    [InlineData(nameof(ProductVersionsController.Deactivate))]
+    [InlineData(nameof(ProductVersionsController.Archive))]
+    [InlineData(nameof(ProductVersionsController.Restore))]
+    public async Task LifecycleActions_ReturnServiceResultThroughBaseController(string actionName)
+    {
+        var productVersionId = Guid.NewGuid();
+        var service = new FakeProductVersionService();
+        var controller = new ProductVersionsController(service);
+        var method = typeof(ProductVersionsController).GetMethod(actionName)!;
+
+        var actionResult = await (Task<IActionResult>)method.Invoke(controller, [productVersionId, CancellationToken.None])!;
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
+    [Fact]
     public async Task SetDefault_ReturnsServiceResultThroughBaseController()
     {
         var productVersionId = Guid.NewGuid();
@@ -262,6 +300,7 @@ public sealed class ProductVersionsControllerTests
         private readonly ServiceResult<CatalogFileUploadResponseDto> _uploadFileResult;
         private readonly ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>> _reorderPreviewResult;
         private readonly ServiceResult<DeleteProductVersionPreviewImageResponseDto> _deletePreviewResult;
+        private readonly ServiceResult<ProductVersionListResponseDto>? _getListResult;
 
         public FakeProductVersionService(
             ServiceResult<ProductVersionDto>? createResult = null,
@@ -270,7 +309,8 @@ public sealed class ProductVersionsControllerTests
             ServiceResult<ProductVersionDetailDto>? getByIdResult = null,
             ServiceResult<CatalogFileUploadResponseDto>? uploadFileResult = null,
             ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>>? reorderPreviewResult = null,
-            ServiceResult<DeleteProductVersionPreviewImageResponseDto>? deletePreviewResult = null)
+            ServiceResult<DeleteProductVersionPreviewImageResponseDto>? deletePreviewResult = null,
+            ServiceResult<ProductVersionListResponseDto>? getListResult = null)
         {
             _createResult = createResult ?? ServiceResult<ProductVersionDto>.Created(
                 new ProductVersionDto(),
@@ -293,6 +333,7 @@ public sealed class ProductVersionsControllerTests
             _deletePreviewResult = deletePreviewResult ?? ServiceResult<DeleteProductVersionPreviewImageResponseDto>.Success(
                 new DeleteProductVersionPreviewImageResponseDto(),
                 "Product version preview image deleted successfully.");
+            _getListResult = getListResult;
         }
 
         public Guid ProductId { get; private set; }
@@ -379,9 +420,12 @@ public sealed class ProductVersionsControllerTests
             Guid productId,
             ProductVersionListQueryDto query,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<ProductVersionListResponseDto>.Success(
+        {
+            ProductId = productId;
+            return Task.FromResult(_getListResult ?? ServiceResult<ProductVersionListResponseDto>.Success(
                 new ProductVersionListResponseDto(),
                 string.Empty));
+        }
 
         public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ActivateAsync(
             Guid productVersionId,

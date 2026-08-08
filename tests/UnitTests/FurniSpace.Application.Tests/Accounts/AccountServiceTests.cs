@@ -929,6 +929,36 @@ public sealed class AccountServiceTests
         public Task<bool> IsActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) =>
             Task.FromResult(true);
 
+        public Task<IReadOnlyList<SalesWorkloadItemReadModel>> GetSalesWorkloadAsync(
+            int page, int pageSize, int maxActiveProjects, string? search, string? capacityState,
+            string? futurePressureState, string sortBy, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<SalesWorkloadItemReadModel>>([]);
+
+        public Task<int> CountSalesWorkloadAsync(
+            int maxActiveProjects, string? search, string? capacityState, string? futurePressureState,
+            CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+        public Task<SalesWorkloadSummaryReadModel> GetSalesWorkloadSummaryAsync(
+            int maxActiveProjects, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new SalesWorkloadSummaryReadModel());
+
+        public Task<IReadOnlyList<SalesAssignedProjectReadModel>> GetSalesAssignedProjectsAsync(
+            Guid salesId, int page, int pageSize, string? bucket, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<SalesAssignedProjectReadModel>>([]);
+
+        public Task<int> CountSalesAssignedProjectsAsync(
+            Guid salesId, string? bucket, CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+        public Task<IReadOnlyList<UnassignedIntakeProjectReadModel>> GetUnassignedIntakeProjectsAsync(
+            int page, int pageSize, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<UnassignedIntakeProjectReadModel>>([]);
+
+        public Task<int> CountUnassignedIntakeProjectsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
+
+        public Task<bool> IsActiveSalesAsync(Guid salesId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
         public Task<IReadOnlyList<Account>> GetPagedAsync(
             int page,
             int pageSize,

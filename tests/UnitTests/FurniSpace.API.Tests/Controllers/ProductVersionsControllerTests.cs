@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Catalog;
 using FurniSpace.API.DTOs.Products;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
@@ -69,7 +70,7 @@ public sealed class ProductVersionsControllerTests
         };
         var service = new FakeProductVersionService(
             createResult: ServiceResult<ProductVersionDto>.Created(response, "Product version created successfully."));
-        var controller = new ProductVersionsController(service);
+        var controller = CreateController(service, Guid.NewGuid(), "ADMIN");
         var request = new CreateProductVersionRequestDto
         {
             VersionCode = "PV",
@@ -86,6 +87,7 @@ public sealed class ProductVersionsControllerTests
         Assert.Same(response, result.Data);
         Assert.Equal(productId, service.ProductId);
         Assert.Same(request, service.CreateRequest);
+        Assert.True(service.AllowTaxConfiguration);
     }
 
     [Fact]
@@ -118,6 +120,44 @@ public sealed class ProductVersionsControllerTests
         Assert.Same(response, result.Data);
         Assert.Equal(productVersionId, service.ProductVersionId);
         Assert.Same(request, service.UpdateRequest);
+    }
+
+    [Fact]
+    public async Task GetListByProduct_ReturnsServiceResultThroughBaseController()
+    {
+        var productId = Guid.NewGuid();
+        var response = new ProductVersionListResponseDto { Page = 1, PageSize = 20, TotalCount = 0 };
+        var service = new FakeProductVersionService(
+            getListResult: ServiceResult<ProductVersionListResponseDto>.Success(response, string.Empty));
+        var controller = new ProductVersionsController(service);
+
+        var actionResult = await controller.GetListByProduct(productId, new ProductVersionListQueryDto
+        {
+            Page = 1,
+            PageSize = 20
+        });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(productId, service.ProductId);
+    }
+
+    [Theory]
+    [InlineData(nameof(ProductVersionsController.Activate))]
+    [InlineData(nameof(ProductVersionsController.Deactivate))]
+    [InlineData(nameof(ProductVersionsController.Archive))]
+    [InlineData(nameof(ProductVersionsController.Restore))]
+    public async Task LifecycleActions_ReturnServiceResultThroughBaseController(string actionName)
+    {
+        var productVersionId = Guid.NewGuid();
+        var service = new FakeProductVersionService();
+        var controller = new ProductVersionsController(service);
+        var method = typeof(ProductVersionsController).GetMethod(actionName)!;
+
+        var actionResult = await (Task<IActionResult>)method.Invoke(controller, [productVersionId, CancellationToken.None])!;
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
     }
 
     [Fact]
@@ -260,6 +300,7 @@ public sealed class ProductVersionsControllerTests
         private readonly ServiceResult<CatalogFileUploadResponseDto> _uploadFileResult;
         private readonly ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>> _reorderPreviewResult;
         private readonly ServiceResult<DeleteProductVersionPreviewImageResponseDto> _deletePreviewResult;
+        private readonly ServiceResult<ProductVersionListResponseDto>? _getListResult;
 
         public FakeProductVersionService(
             ServiceResult<ProductVersionDto>? createResult = null,
@@ -268,7 +309,8 @@ public sealed class ProductVersionsControllerTests
             ServiceResult<ProductVersionDetailDto>? getByIdResult = null,
             ServiceResult<CatalogFileUploadResponseDto>? uploadFileResult = null,
             ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>>? reorderPreviewResult = null,
-            ServiceResult<DeleteProductVersionPreviewImageResponseDto>? deletePreviewResult = null)
+            ServiceResult<DeleteProductVersionPreviewImageResponseDto>? deletePreviewResult = null,
+            ServiceResult<ProductVersionListResponseDto>? getListResult = null)
         {
             _createResult = createResult ?? ServiceResult<ProductVersionDto>.Created(
                 new ProductVersionDto(),
@@ -291,6 +333,7 @@ public sealed class ProductVersionsControllerTests
             _deletePreviewResult = deletePreviewResult ?? ServiceResult<DeleteProductVersionPreviewImageResponseDto>.Success(
                 new DeleteProductVersionPreviewImageResponseDto(),
                 "Product version preview image deleted successfully.");
+            _getListResult = getListResult;
         }
 
         public Guid ProductId { get; private set; }
@@ -298,6 +341,7 @@ public sealed class ProductVersionsControllerTests
         public Guid CurrentUserId { get; private set; }
         public Guid FileId { get; private set; }
         public CreateProductVersionRequestDto? CreateRequest { get; private set; }
+        public bool AllowTaxConfiguration { get; private set; }
         public UpdateProductVersionRequestDto? UpdateRequest { get; private set; }
         public UploadCatalogFileRequestDto? UploadFileRequest { get; private set; }
         public ReorderProductVersionPreviewFilesRequestDto? ReorderPreviewRequest { get; private set; }
@@ -305,10 +349,12 @@ public sealed class ProductVersionsControllerTests
         public Task<ServiceResult<ProductVersionDto>> CreateAsync(
             Guid productId,
             CreateProductVersionRequestDto request,
+            bool allowTaxConfiguration = false,
             CancellationToken cancellationToken = default)
         {
             ProductId = productId;
             CreateRequest = request;
+            AllowTaxConfiguration = allowTaxConfiguration;
             return Task.FromResult(_createResult);
         }
 
@@ -369,20 +415,68 @@ public sealed class ProductVersionsControllerTests
             FileId = fileId;
             return Task.FromResult(_deletePreviewResult);
         }
+
+        public Task<ServiceResult<ProductVersionListResponseDto>> GetListByProductAsync(
+            Guid productId,
+            ProductVersionListQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            ProductId = productId;
+            return Task.FromResult(_getListResult ?? ServiceResult<ProductVersionListResponseDto>.Success(
+                new ProductVersionListResponseDto(),
+                string.Empty));
+        }
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ActivateAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
+                new ProductVersionLifecycleStatusResponseDto(),
+                "Product version lifecycle updated successfully."));
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> DeactivateAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
+                new ProductVersionLifecycleStatusResponseDto(),
+                "Product version lifecycle updated successfully."));
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ArchiveAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
+                new ProductVersionLifecycleStatusResponseDto(),
+                "Product version lifecycle updated successfully."));
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> RestoreAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
+                new ProductVersionLifecycleStatusResponseDto(),
+                "Product version lifecycle updated successfully."));
     }
 
-    private static ProductVersionsController CreateController(FakeProductVersionService service, Guid currentUserId)
+    private static ProductVersionsController CreateController(
+        FakeProductVersionService service,
+        Guid currentUserId,
+        string? role = null)
     {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, currentUserId.ToString())
+        };
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
+
         return new ProductVersionsController(service)
         {
             ControllerContext = new ControllerContext
             {
                 HttpContext = new DefaultHttpContext
                 {
-                    User = new ClaimsPrincipal(new ClaimsIdentity(
-                    [
-                        new Claim(ClaimTypes.NameIdentifier, currentUserId.ToString())
-                    ], "Test"))
+                    User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"))
                 }
             }
         };

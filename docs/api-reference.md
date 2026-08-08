@@ -20,6 +20,8 @@ Complete HTTP + SignalR API reference for FurniSpace backend.
 6. [Catalog — Categories](#6-catalog--categories)
 7. [Catalog — Products](#7-catalog--products)
 8. [Catalog — Product Versions](#8-catalog--product-versions)
+8a. [Catalog — Admin management list](#8a-catalog--admin-management-list)
+8b. [Catalog — Designer project catalog](#8b-catalog--designer-project-catalog)
 9. [Projects](#9-projects)
 10. [Proposals & scenes](#10-proposals--scenes)
 11. [Room planner](#11-room-planner)
@@ -535,6 +537,10 @@ Route: `products` (+ preview files controller)
 | GET | `/products/{productId}/preview-files` | Public | Preview images |
 | POST | `/products` | ADMIN | Create |
 | PATCH | `/products/{productId}` | ADMIN | Update |
+| PATCH | `/products/{productId}/activate` | ADMIN | Lifecycle → ACTIVE (from INACTIVE) |
+| PATCH | `/products/{productId}/deactivate` | ADMIN | Lifecycle → INACTIVE (from ACTIVE) |
+| PATCH | `/products/{productId}/archive` | ADMIN | Lifecycle → ARCHIVED (from ACTIVE/INACTIVE) |
+| PATCH | `/products/{productId}/restore` | ADMIN | Lifecycle → ACTIVE (from ARCHIVED) |
 | POST | `/products/{productId}/files` | ADMIN | Multipart catalog file |
 | POST | `/products/{productId}/preview-files` | ADMIN | Multipart preview image |
 | PATCH | `/products/{productId}/preview-files/reorder` | ADMIN | Reorder |
@@ -634,6 +640,23 @@ Route: `products` (+ preview files controller)
 
 **Upload catalog file response**: `fileId`, `fileLinkId`, `referenceType`, `referenceId`, `originalFileName`, `fileType`, `fileUrl`, `mimeType`, `fileSizeBytes`, `visibility`, `uploadedBy`, `uploadedAt`, …
 
+### Product lifecycle (ADMIN)
+
+Mutations are **independent** from Product Version lifecycle (no cascade).
+
+| Transition | Endpoint |
+| --- | --- |
+| INACTIVE → ACTIVE | `PATCH .../activate` |
+| ACTIVE → INACTIVE | `PATCH .../deactivate` |
+| ACTIVE / INACTIVE → ARCHIVED | `PATCH .../archive` |
+| ARCHIVED → ACTIVE | `PATCH .../restore` |
+
+**Response** (`ProductLifecycleStatusResponseDto`): `productId`, `previousStatus`, `status`, `updatedAt`, `activeVersionCount?`
+
+**Error codes**: `PRODUCT_NOT_FOUND`, `PRODUCT_INVALID_STATUS_TRANSITION`, `PRODUCT_ALREADY_ACTIVE`, `PRODUCT_ALREADY_INACTIVE`, `PRODUCT_ALREADY_ARCHIVED`, `PRODUCT_RESTORE_NOT_ALLOWED`
+
+Public list/search endpoints are unchanged; use [§8a Admin catalog list](#8a-catalog--admin-management-list) for management views across all product statuses.
+
 ---
 
 ## 8. Catalog — Product Versions
@@ -645,11 +668,34 @@ Preview reorder/delete controller uses `[Route("ProductVersions")]` (no `/api` p
 | --- | --- | --- |
 | GET | `/api/ProductVersions/product-versions/{id}` | Public |
 | POST | `/api/ProductVersions/products/{productId}/versions` | DESIGNER, ADMIN |
+| GET | `/api/ProductVersions/products/{productId}/versions` | ADMIN |
 | PATCH | `/api/ProductVersions/product-versions/{id}` | ADMIN |
 | PATCH | `/api/ProductVersions/product-versions/{id}/set-default` | ADMIN |
+| PATCH | `/api/ProductVersions/product-versions/{id}/activate` | ADMIN |
+| PATCH | `/api/ProductVersions/product-versions/{id}/deactivate` | ADMIN |
+| PATCH | `/api/ProductVersions/product-versions/{id}/archive` | ADMIN |
+| PATCH | `/api/ProductVersions/product-versions/{id}/restore` | ADMIN |
 | POST | `/api/ProductVersions/product-versions/{id}/files` | ADMIN · multipart |
 | PATCH | `/ProductVersions/product-versions/{id}/preview-files/reorder` | ADMIN |
 | DELETE | `/ProductVersions/product-versions/{id}/preview-files/{fileId}` | ADMIN |
+
+**Tax on create/update**: field `defaultTaxRate` is accepted on create/update bodies but **only persisted when caller is ADMIN** (Designer create ignores/overrides tax). Update route is ADMIN-only.
+
+### Admin version list — query
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `status` | `ProductStatus?` | ACTIVE / INACTIVE / ARCHIVED |
+| `versionType` | `ProductVersionType?` | |
+| `isDefault` | bool? | |
+| `isPublic` | bool? | |
+| `isProjectSpecific` | bool? | |
+| `projectId` | guid? | PROJECT_SPECIFIC filter |
+| `page` / `pageSize` | int | default 1 / 20; max pageSize 100 |
+
+**List response**: `{ items: ProductVersionManagementDto[], page, pageSize, totalCount }`
+
+`ProductVersionManagementDto` adds `projectId?`, `dimensionUnit?`, `defaultTaxRate?`, `createdAt?`, `updatedAt?` to version fields.
 
 ### Create body
 
@@ -664,6 +710,7 @@ Preview reorder/delete controller uses `[Route("ProductVersions")]` (no `/api` p
   "height": 75,
   "depth": 60,
   "estimatedPrice": 4500000,
+  "defaultTaxRate": 10,
   "isDefault": true,
   "isPublic": true,
   "isProjectSpecific": false
@@ -672,11 +719,99 @@ Preview reorder/delete controller uses `[Route("ProductVersions")]` (no `/api` p
 
 ### Update body
 
-Same fields except `versionCode` is not updated; `versionName` required-by-type.
+Same fields except `versionCode` is not updated; `versionName` required-by-type. `defaultTaxRate` nullable: omit unchanged; `null` clears configured rate; `0` = explicit 0%.
+
+### `defaultTaxRate` semantics
+
+| Value | Meaning |
+| --- | --- |
+| omitted on create (Designer) | stored as `null` |
+| `null` | not configured |
+| `0` | explicitly 0% |
+| `1`–`100` | valid percentage |
+
+Invalid: &lt; 0 or &gt; 100 → `400 PRODUCT_VERSION_TAX_RATE_INVALID`
+
+### Version lifecycle (ADMIN)
+
+Does **not** change parent Product status. Deactivate/archive on a default version clears `isDefault` in the same transaction (no auto-replacement default). Restore sets ACTIVE with `isDefault: false`. `set-default` requires version status ACTIVE.
+
+**Response** (`ProductVersionLifecycleStatusResponseDto`): `productVersionId`, `productId`, `previousStatus`, `status`, `isDefault?`, `updatedAt?`
 
 ### Response — `ProductVersionDto` / detail
 
-Includes: `productVersionId`, `productId`, `versionCode`, `versionName`, `versionType?`, `material?`, `color?`, dimensions, `estimatedPrice?`, flags, `status?`, `thumbnail?`, `files[]`. Detail may add `productName?`.
+Includes: `productVersionId`, `productId`, `versionCode`, `versionName`, `versionType?`, `material?`, `color?`, dimensions, `dimensionUnit?`, `estimatedPrice?`, `defaultTaxRate?`, flags, `status?`, `thumbnail?`, `files[]`. Detail may add `productName?`.
+
+**Quotation snapshot**: on draft quotation create, each PRODUCT_ITEM copies `defaultTaxRate` from Product Version at creation time (`null` → item `taxRate: 0`). Later version tax edits do not mutate existing quotation/order items.
+
+---
+
+## 8a. Catalog — Admin management list
+
+Dedicated admin catalog read API (not public `/products`). Shows products in **all** lifecycle states with version health metadata.
+
+| Method | Path | Auth |
+| --- | --- | --- |
+| GET | `/admin/catalog/products` | ADMIN |
+
+### Query
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `keyword` | string? | product name / code |
+| `categoryId` | guid? | |
+| `businessTypeId` | int? | ANY on product `businessTypeIds` |
+| `productStatus` | `ProductStatus?` | |
+| `versionStatus` | `ProductStatus?` | products having ≥1 version in status |
+| `versionType` | `ProductVersionType?` | |
+| `hasActiveVersion` | bool? | |
+| `has3DModel` | bool? | product or version has `MODEL_3D` file link |
+| `createdFrom` / `createdTo` | datetime? | |
+| `page` / `pageSize` | int | default 1 / 20; max pageSize 100 |
+| `sortBy` | string? | `createdAt`, `updatedAt`, `productName`, `productCode` |
+| `sortDirection` | string? | `asc` / `desc` |
+
+### Response row (`AdminCatalogProductItemDto`)
+
+`productId`, `productCode`, `productName`, `categoryId?`, `categoryName?`, `businessTypeIds?`, `status?`, `totalVersionCount`, `activeVersionCount`, `inactiveVersionCount`, `archivedVersionCount`, `defaultVersionSummary?`, `createdAt?`, `updatedAt?`
+
+**`defaultVersionSummary`**: `productVersionId`, `versionCode`, `versionName`, `status?`, `estimatedPrice?`, `defaultTaxRate?`
+
+**Error codes**: `CATALOG_ADMIN_ACCESS_DENIED`, `CATALOG_FILTER_INVALID`, `CATALOG_SORT_INVALID`, `CATEGORY_NOT_FOUND`, `BUSINESS_TYPE_NOT_FOUND`
+
+---
+
+## 8b. Catalog — Designer project catalog
+
+Project-scoped catalog for assigned Designer (ADMIN allowed). Eligibility: parent Product **ACTIVE**, version **ACTIVE**, and (public **or** PROJECT_SPECIFIC with matching `projectId`). **Does not expose** `defaultTaxRate` or commercial totals.
+
+Route prefix: `/projects/{projectId}/catalog`
+
+| Method | Path | Roles |
+| --- | --- | --- |
+| GET | `/projects/{projectId}/catalog/products` | DESIGNER, ADMIN |
+| GET | `/projects/{projectId}/catalog/products/{productId}` | DESIGNER, ADMIN |
+| GET | `/projects/{projectId}/catalog/product-versions/{productVersionId}` | DESIGNER, ADMIN |
+
+### List query
+
+| Param | Type |
+| --- | --- |
+| `keyword` | string? |
+| `categoryId` | guid? |
+| `businessTypeId` | int? |
+| `versionType` | `ProductVersionType?` |
+| `page` / `pageSize` | int |
+
+**List item**: `productId`, `productCode`, `productName`, `categoryId?`, `categoryName?`, `businessTypeIds?`, `thumbnail?`, `eligibleVersionCount`, `eligibleVersions[]`
+
+**Version summary** (list + detail): `productVersionId`, `versionCode`, `versionName`, `versionType?`, `material?`, `color?`, dimensions, `dimensionUnit?`, `estimatedPrice?`, `isProjectSpecific?` — no tax fields.
+
+**Product detail** adds `description?`, `files[]`, `eligibleVersions[]`. **Version detail** adds `projectId?`, `files[]` (preview / 3D per file visibility rules).
+
+**Authorization**: Designer must be `assignedDesignerId` on project; otherwise `403 DESIGNER_NOT_ASSIGNED`.
+
+**Error codes**: `PROJECT_NOT_FOUND`, `DESIGNER_NOT_ASSIGNED`, `CATALOG_PRODUCT_NOT_ELIGIBLE`, `CATALOG_VERSION_NOT_ELIGIBLE`
 
 ---
 
@@ -697,6 +832,9 @@ Route: `projects`
 | PATCH | `/projects/{projectId}/status` | SALES, DESIGNER, ADMIN | Status transition |
 | PATCH | `/projects/{projectId}/rejection` | SALES, ADMIN | Reject project |
 | PATCH | `/projects/{projectId}/designer-assignment` | SALES, ADMIN | Assign designer |
+| GET | `/projects/{projectId}/catalog/products` | DESIGNER, ADMIN | Project-eligible catalog list — see [§8b](#8b-catalog--designer-project-catalog) |
+| GET | `/projects/{projectId}/catalog/products/{productId}` | DESIGNER, ADMIN | Eligible product detail |
+| GET | `/projects/{projectId}/catalog/product-versions/{productVersionId}` | DESIGNER, ADMIN | Eligible version detail |
 | GET | `/projects/{projectId}/chat-messages/search` | SALES, ADMIN, CUSTOMER, DESIGNER | Search chat messages |
 
 ### Create / basic-information body

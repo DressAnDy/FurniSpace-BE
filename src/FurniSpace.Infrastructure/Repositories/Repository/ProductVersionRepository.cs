@@ -54,6 +54,8 @@ public sealed class ProductVersionRepository : GenericRepository<ProductVersion>
                 Height = version.Height,
                 Depth = version.Depth,
                 EstimatedPrice = version.EstimatedPrice,
+                DefaultTaxRate = version.DefaultTaxRate,
+                DimensionUnit = version.DimensionUnit,
                 IsDefault = version.IsDefault,
                 IsPublic = version.IsPublic,
                 IsProjectSpecific = version.IsProjectSpecific,
@@ -76,6 +78,7 @@ public sealed class ProductVersionRepository : GenericRepository<ProductVersion>
             from version in DbContext.ProductVersionSet
             join product in DbContext.ProductSet on version.ProductId equals product.ProductId
             where productVersionIds.Contains(version.ProductVersionId) &&
+                  product.Status == ProductStatus.ACTIVE &&
                   version.Status == ProductStatus.ACTIVE &&
                   (version.IsPublic == true ||
                    version.IsProjectSpecific == true && version.ProjectId == projectId)
@@ -93,6 +96,8 @@ public sealed class ProductVersionRepository : GenericRepository<ProductVersion>
                 Height = version.Height,
                 Depth = version.Depth,
                 EstimatedPrice = version.EstimatedPrice,
+                DefaultTaxRate = version.DefaultTaxRate,
+                DimensionUnit = version.DimensionUnit,
                 IsDefault = version.IsDefault,
                 IsPublic = version.IsPublic,
                 IsProjectSpecific = version.IsProjectSpecific,
@@ -124,5 +129,22 @@ public sealed class ProductVersionRepository : GenericRepository<ProductVersion>
                 version.ProjectId == projectId &&
                 version.VersionType == ProductVersionType.PROJECT_SPECIFIC,
             cancellationToken);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, decimal?>> GetDefaultTaxRatesByIdsAsync(
+        IReadOnlyCollection<Guid> productVersionIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (productVersionIds.Count == 0)
+        {
+            return new Dictionary<Guid, decimal?>();
+        }
+
+        var rows = await DbContext.ProductVersionSet
+            .Where(version => productVersionIds.Contains(version.ProductVersionId))
+            .Select(version => new { version.ProductVersionId, version.DefaultTaxRate })
+            .ToListAsync(cancellationToken);
+
+        return rows.ToDictionary(row => row.ProductVersionId, row => row.DefaultTaxRate);
     }
 }

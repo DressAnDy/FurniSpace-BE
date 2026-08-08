@@ -30,4 +30,8 @@ public interface IProductVersionRepository : IGenericRepository<ProductVersion>
     Task<int> CountProjectSpecificByProjectAsync(
         Guid projectId,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyDictionary<Guid, decimal?>> GetDefaultTaxRatesByIdsAsync(
+        IReadOnlyCollection<Guid> productVersionIds,
+        CancellationToken cancellationToken = default);
 }

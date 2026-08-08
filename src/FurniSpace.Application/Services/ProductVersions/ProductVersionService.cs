@@ -1,6 +1,8 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.ProductVersions;
 using FurniSpace.Application.Common.Storage;
 using static FurniSpace.Application.Constants.ProductVersions.ProductVersionServiceConstants;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
@@ -19,6 +21,7 @@ namespace FurniSpace.Application.Services.ProductVersions;
 public sealed class ProductVersionService : IProductVersionService
 {
     private readonly IProductVersionRepository _productVersions;
+    private readonly ICatalogRepository _catalog;
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
@@ -29,12 +32,14 @@ public sealed class ProductVersionService : IProductVersionService
 
     public ProductVersionService(
         IProductVersionRepository productVersions,
+        ICatalogRepository catalog,
         IProjectFileRepository files,
         ProductVersionFileUploadDependencies fileUpload,
         IProductSearchIndexer productSearchIndexer,
         IUnitOfWork unitOfWork)
     {
         _productVersions = productVersions;
+        _catalog = catalog;
         _files = files;
         _unitOfWork = unitOfWork;
         _storage = fileUpload.Storage;
@@ -47,6 +52,7 @@ public sealed class ProductVersionService : IProductVersionService
     public async Task<ServiceResult<ProductVersionDto>> CreateAsync(
         Guid productId,
         CreateProductVersionRequestDto request,
+        bool allowTaxConfiguration = false,
         CancellationToken cancellationToken = default)
     {
         if (productId == Guid.Empty)
@@ -54,7 +60,7 @@ public sealed class ProductVersionService : IProductVersionService
             return ServiceResult<ProductVersionDto>.BadRequest("Product id is required.");
         }
 
-        var errors = ValidateCreateRequest(request);
+        var errors = ValidateCreateRequest(request, allowTaxConfiguration);
         if (errors.Count > 0)
         {
             return ServiceResult<ProductVersionDto>.BadRequest(errors);
@@ -84,6 +90,7 @@ public sealed class ProductVersionService : IProductVersionService
             Height = request.Height,
             Depth = request.Depth,
             EstimatedPrice = request.EstimatedPrice,
+            DefaultTaxRate = allowTaxConfiguration ? request.DefaultTaxRate : null,
             IsDefault = request.IsDefault ?? false,
             IsPublic = request.IsPublic ?? true,
             IsProjectSpecific = request.IsProjectSpecific ?? false
@@ -114,7 +121,7 @@ public sealed class ProductVersionService : IProductVersionService
             return ServiceResult<ProductVersionDto>.BadRequest(ProductVersionIdRequiredMessage);
         }
 
-        var errors = ValidateUpdateRequest(request);
+        var errors = ValidateUpdateRequest(request, allowTaxConfiguration: true);
         if (errors.Count > 0)
         {
             return ServiceResult<ProductVersionDto>.BadRequest(errors);
@@ -134,6 +141,7 @@ public sealed class ProductVersionService : IProductVersionService
         productVersion.Height = request.Height;
         productVersion.Depth = request.Depth;
         productVersion.EstimatedPrice = request.EstimatedPrice;
+        productVersion.DefaultTaxRate = request.DefaultTaxRate;
         productVersion.IsPublic = request.IsPublic ?? true;
         productVersion.IsProjectSpecific = request.IsProjectSpecific ?? false;
         productVersion.Status ??= ProductStatus.ACTIVE;
@@ -168,6 +176,14 @@ public sealed class ProductVersionService : IProductVersionService
         if (productVersion is null)
         {
             return ServiceResult<SetDefaultProductVersionDto>.NotFound(ProductVersionNotFoundMessage);
+        }
+
+        if (!ProductVersionLifecycleTransitionValidator.IsActive(productVersion.Status))
+        {
+            return ServiceResult<SetDefaultProductVersionDto>.Failure(
+                Error.BadRequest(
+                    CatalogErrorCodes.ProductVersionDefaultInactive,
+                    "Only active product versions can be set as default."));
         }
 
         await _productVersions.SetDefaultAsync(productVersion, cancellationToken);
@@ -704,9 +720,12 @@ public sealed class ProductVersionService : IProductVersionService
         return dto;
     }
 
-    private static List<string> ValidateCreateRequest(CreateProductVersionRequestDto request)
+    private static List<string> ValidateCreateRequest(
+        CreateProductVersionRequestDto request,
+        bool allowTaxConfiguration)
     {
         var errors = ValidateCommonRequest(request.VersionName);
+        errors.AddRange(ValidateTaxRate(request.DefaultTaxRate, allowTaxConfiguration));
 
         if (string.IsNullOrWhiteSpace(request.VersionCode))
         {
@@ -720,9 +739,27 @@ public sealed class ProductVersionService : IProductVersionService
         return errors;
     }
 
-    private static List<string> ValidateUpdateRequest(UpdateProductVersionRequestDto request)
+    private static List<string> ValidateUpdateRequest(
+        UpdateProductVersionRequestDto request,
+        bool allowTaxConfiguration)
     {
-        return ValidateCommonRequest(request.VersionName);
+        var errors = ValidateCommonRequest(request.VersionName);
+        errors.AddRange(ValidateTaxRate(request.DefaultTaxRate, allowTaxConfiguration));
+        return errors;
+    }
+
+    private static IEnumerable<string> ValidateTaxRate(decimal? defaultTaxRate, bool allowTaxConfiguration)
+    {
+        if (!allowTaxConfiguration && defaultTaxRate.HasValue)
+        {
+            yield return "Default tax rate can only be configured by admin.";
+            yield break;
+        }
+
+        if (!ProductVersionTaxRateValidator.IsValid(defaultTaxRate))
+        {
+            yield return "Default tax rate must be between 0 and 100.";
+        }
     }
 
     private static List<string> ValidateCommonRequest(string versionName)
@@ -750,5 +787,159 @@ public sealed class ProductVersionService : IProductVersionService
         return CatalogFileOrdering
             .SortCatalogFiles(CatalogFileOrdering.FilterVisible(files, customerVisibleOnly))
             .Adapt<List<CatalogFileDto>>();
+    }
+
+    public async Task<ServiceResult<ProductVersionListResponseDto>> GetListByProductAsync(
+        Guid productId,
+        ProductVersionListQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (productId == Guid.Empty)
+        {
+            return ServiceResult<ProductVersionListResponseDto>.BadRequest("Product id is required.");
+        }
+
+        if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
+        {
+            return ServiceResult<ProductVersionListResponseDto>.Failure(
+                Error.BadRequest(CatalogErrorCodes.CatalogFilterInvalid, "Invalid pagination parameters."));
+        }
+
+        if (!await _productVersions.ProductExistsAsync(productId, cancellationToken))
+        {
+            return ServiceResult<ProductVersionListResponseDto>.Failure(
+                Error.NotFound(CatalogErrorCodes.ProductNotFound, "Product not found."));
+        }
+
+        query.ProductId = productId;
+        var items = await _catalog.GetAdminVersionListAsync(query, cancellationToken);
+        var total = await _catalog.CountAdminVersionListAsync(query, cancellationToken);
+
+        return ServiceResult<ProductVersionListResponseDto>.Success(
+            new ProductVersionListResponseDto
+            {
+                Items = items.Adapt<List<ProductVersionManagementDto>>(),
+                Page = query.Page,
+                PageSize = query.PageSize,
+                TotalCount = total
+            },
+            string.Empty);
+    }
+
+    public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ActivateAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        return ChangeLifecycleStatusAsync(
+            productVersionId,
+            ProductStatus.ACTIVE,
+            ProductVersionLifecycleTransitionValidator.CanActivate,
+            clearDefault: false,
+            CatalogErrorCodes.ProductVersionInvalidStatusTransition,
+            cancellationToken);
+    }
+
+    public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> DeactivateAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        return ChangeLifecycleStatusAsync(
+            productVersionId,
+            ProductStatus.INACTIVE,
+            ProductVersionLifecycleTransitionValidator.CanDeactivate,
+            clearDefault: true,
+            CatalogErrorCodes.ProductVersionDefaultInactive,
+            cancellationToken);
+    }
+
+    public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ArchiveAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        return ChangeLifecycleStatusAsync(
+            productVersionId,
+            ProductStatus.ARCHIVED,
+            ProductVersionLifecycleTransitionValidator.CanArchive,
+            clearDefault: true,
+            CatalogErrorCodes.ProductVersionDefaultArchived,
+            cancellationToken);
+    }
+
+    public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> RestoreAsync(
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        return ChangeLifecycleStatusAsync(
+            productVersionId,
+            ProductStatus.ACTIVE,
+            ProductVersionLifecycleTransitionValidator.CanRestore,
+            clearDefault: false,
+            CatalogErrorCodes.ProductVersionInvalidStatusTransition,
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ChangeLifecycleStatusAsync(
+        Guid productVersionId,
+        ProductStatus targetStatus,
+        Func<ProductStatus?, bool> canTransition,
+        bool clearDefault,
+        string invalidTransitionCode,
+        CancellationToken cancellationToken)
+    {
+        if (productVersionId == Guid.Empty)
+        {
+            return ServiceResult<ProductVersionLifecycleStatusResponseDto>.BadRequest(ProductVersionIdRequiredMessage);
+        }
+
+        var productVersion = await _productVersions.GetByIdAsync(productVersionId, cancellationToken);
+        if (productVersion is null)
+        {
+            return ServiceResult<ProductVersionLifecycleStatusResponseDto>.Failure(
+                Error.NotFound(CatalogErrorCodes.ProductVersionNotFound, ProductVersionNotFoundMessage));
+        }
+
+        var currentStatus = productVersion.Status ?? ProductStatus.ACTIVE;
+        if (currentStatus == targetStatus)
+        {
+            return ServiceResult<ProductVersionLifecycleStatusResponseDto>.Failure(
+                Error.Conflict(invalidTransitionCode, "Product version is already in the requested status."));
+        }
+
+        if (!canTransition(currentStatus))
+        {
+            return ServiceResult<ProductVersionLifecycleStatusResponseDto>.Failure(
+                Error.BadRequest(
+                    CatalogErrorCodes.ProductVersionInvalidStatusTransition,
+                    "Product version status transition is not allowed."));
+        }
+
+        var previousStatus = currentStatus;
+        productVersion.Status = targetStatus;
+        productVersion.UpdatedAt = DateTime.UtcNow;
+        if (clearDefault && productVersion.IsDefault == true)
+        {
+            productVersion.IsDefault = false;
+        }
+
+        if (targetStatus == ProductStatus.ACTIVE &&
+            ProductVersionLifecycleTransitionValidator.CanRestore(previousStatus))
+        {
+            productVersion.IsDefault = false;
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _productSearchIndexer.SyncProductAsync(productVersion.ProductId, cancellationToken);
+
+        return ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
+            new ProductVersionLifecycleStatusResponseDto
+            {
+                ProductVersionId = productVersion.ProductVersionId,
+                ProductId = productVersion.ProductId,
+                PreviousStatus = previousStatus,
+                Status = productVersion.Status,
+                IsDefault = productVersion.IsDefault,
+                UpdatedAt = productVersion.UpdatedAt
+            },
+            "Product version lifecycle updated successfully.");
     }
 }

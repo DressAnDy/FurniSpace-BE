@@ -38,6 +38,7 @@ public static class DataSeeder
         await SeedProjectChatMessagesAsync(executeRawAsync, cancellationToken);
         await SeedProposalsAsync(executeRawAsync, cancellationToken);
         await SeedProposalScenesAsync(executeRawAsync, cancellationToken);
+        await SeedProposalSceneAreasAsync(executeRawAsync, cancellationToken);
         await SeedProposalItemsAsync(executeRawAsync, cancellationToken);
         await SeedProposalSceneVariantsAsync(executeRawAsync, cancellationToken);
         await SeedCustomizationRequestsAsync(executeRawAsync, cancellationToken);
@@ -155,15 +156,17 @@ public static class DataSeeder
         return executeRawAsync(
             """
             INSERT INTO product_versions (
-                product_version_id, product_id, version_code, version_name, version_type,
-                material, color, width, height, depth, estimated_price,
+                product_version_id, product_id, project_id, version_code, version_name, version_type,
+                material, color, width, height, depth, dimension_unit, estimated_price, default_tax_rate,
                 is_default, is_public, is_project_specific, status, created_at, updated_at
             )
             VALUES
-                ('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', 'SOFA-LUX-001-A', 'Luxe Modular Sofa - Linen', 'STANDARD'::product_version_type, 'Solid wood frame, linen upholstery', 'Warm Gray', 280.00, 82.00, 95.00, 18500000.00, true, true, false, 'ACTIVE'::product_status, now(), now()),
-                ('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', 'WARD-STD-001-A', 'Sliding Door Wardrobe - White Oak', 'STANDARD'::product_version_type, 'MDF, laminate', 'White Oak', 240.00, 260.00, 60.00, 22500000.00, true, true, false, 'ACTIVE'::product_status, now(), now()),
-                ('30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', 'KITCH-CAB-001-A', 'Modern Kitchen Cabinet - Gloss White', 'STANDARD'::product_version_type, 'Plywood, acrylic surface', 'Gloss White', 360.00, 220.00, 65.00, 42000000.00, true, true, false, 'ACTIVE'::product_status, now(), now()),
-                ('30000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000004', 'DESK-OAK-001-A', 'Oak Work Desk - Natural', 'STANDARD'::product_version_type, 'Oak veneer, powder-coated steel', 'Natural Oak', 160.00, 75.00, 70.00, 8900000.00, true, true, false, 'ACTIVE'::product_status, now(), now())
+                ('30000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000001', null, 'SOFA-LUX-001-A', 'Luxe Modular Sofa - Linen', 'STANDARD'::product_version_type, 'Solid wood frame, linen upholstery', 'Warm Gray', 280.00, 82.00, 95.00, 'cm', 18500000.00, 10.0000, true, true, false, 'ACTIVE'::product_status, now(), now()),
+                ('30000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000002', null, 'WARD-STD-001-A', 'Sliding Door Wardrobe - White Oak', 'STANDARD'::product_version_type, 'MDF, laminate', 'White Oak', 240.00, 260.00, 60.00, 'cm', 22500000.00, 10.0000, true, true, false, 'ACTIVE'::product_status, now(), now()),
+                ('30000000-0000-0000-0000-000000000003', '20000000-0000-0000-0000-000000000003', null, 'KITCH-CAB-001-A', 'Modern Kitchen Cabinet - Gloss White', 'STANDARD'::product_version_type, 'Plywood, acrylic surface', 'Gloss White', 360.00, 220.00, 65.00, 'cm', 42000000.00, 10.0000, true, true, false, 'ACTIVE'::product_status, now(), now()),
+                ('30000000-0000-0000-0000-000000000004', '20000000-0000-0000-0000-000000000004', null, 'DESK-OAK-001-A', 'Oak Work Desk - Natural', 'STANDARD'::product_version_type, 'Oak veneer, powder-coated steel', 'Natural Oak', 160.00, 75.00, 70.00, 'cm', 8900000.00, 10.0000, true, true, false, 'ACTIVE'::product_status, now(), now()),
+                ('30000000-0000-0000-0000-000000000005', '20000000-0000-0000-0000-000000000003', '40000000-0000-0000-0000-000000000004', 'KITCH-CAB-001-CUSTOM-001', 'Premium Service Counter - Dark Walnut', 'PROJECT_SPECIFIC'::product_version_type, 'Plywood with walnut veneer', 'Dark Walnut', 380.00, 220.00, 70.00, 'cm', 52000000.00, 10.0000, false, false, true, 'ACTIVE'::product_status, now(), now()),
+                ('30000000-0000-0000-0000-000000000006', '20000000-0000-0000-0000-000000000001', '40000000-0000-0000-0000-000000000006', 'SOFA-LUX-001-CUSTOM-001', 'Showroom Modular Sofa - Premium Fabric', 'PROJECT_SPECIFIC'::product_version_type, 'Stain-resistant linen', 'Warm Gray', 280.00, 82.00, 95.00, 'cm', 24500000.00, 10.0000, false, false, true, 'ACTIVE'::product_status, now(), now())
             ON CONFLICT (version_code) DO NOTHING;
             """,
             cancellationToken);
@@ -322,14 +325,30 @@ public static class DataSeeder
         return executeRawAsync(
             """
             INSERT INTO proposal_scenes (
-                scene_id, proposal_id, project_area_id, scene_name, scene_type, mongo_scene_id,
+                scene_id, proposal_id, scene_name, scene_type, mongo_scene_id,
                 preview_file_id, version_no, is_active, created_by, created_at, updated_at
             )
             VALUES
-                ('51000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002', '41000000-0000-0000-0000-000000000001', 'Standard Office 3D Scene', 'THREE_D'::proposal_scene_type, 'mongo-seed-office-standard', null, 1, true, 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - INTERVAL '4 days', now() - INTERVAL '4 days'),
-                ('51000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000004', '41000000-0000-0000-0000-000000000002', 'Premium Cafe 3D Scene', 'THREE_D'::proposal_scene_type, 'mongo-seed-cafe-premium', '91000000-0000-0000-0000-000000000002', 1, true, 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - INTERVAL '5 days', now() - INTERVAL '3 days'),
-                ('51000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000006', '41000000-0000-0000-0000-000000000003', 'Showroom Main Hall Scene', 'THREE_D'::proposal_scene_type, 'mongo-seed-showroom-main', null, 1, true, 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - INTERVAL '19 days', now() - INTERVAL '18 days')
+                ('51000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002', 'Standard Office 3D Scene', 'THREE_D'::proposal_scene_type, 'mongo-seed-office-standard', null, 1, true, 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - INTERVAL '4 days', now() - INTERVAL '4 days'),
+                ('51000000-0000-0000-0000-000000000002', '50000000-0000-0000-0000-000000000004', 'Premium Cafe 3D Scene', 'THREE_D'::proposal_scene_type, 'mongo-seed-cafe-premium', '91000000-0000-0000-0000-000000000002', 1, true, 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - INTERVAL '5 days', now() - INTERVAL '3 days'),
+                ('51000000-0000-0000-0000-000000000003', '50000000-0000-0000-0000-000000000006', 'Showroom Main Hall Scene', 'THREE_D'::proposal_scene_type, 'mongo-seed-showroom-main', null, 1, true, 'cccccccc-cccc-cccc-cccc-cccccccccccc', now() - INTERVAL '19 days', now() - INTERVAL '18 days')
             ON CONFLICT (scene_id) DO NOTHING;
+            """,
+            cancellationToken);
+    }
+
+    private static Task<int> SeedProposalSceneAreasAsync(RawSeedExecutor executeRawAsync, CancellationToken cancellationToken)
+    {
+        return executeRawAsync(
+            """
+            INSERT INTO proposal_scene_areas (
+                proposal_scene_area_id, scene_id, project_area_id, sort_order, created_at, updated_at
+            )
+            VALUES
+                ('51500000-0000-0000-0000-000000000001', '51000000-0000-0000-0000-000000000001', '41000000-0000-0000-0000-000000000001', 0, now() - INTERVAL '4 days', now() - INTERVAL '4 days'),
+                ('51500000-0000-0000-0000-000000000002', '51000000-0000-0000-0000-000000000002', '41000000-0000-0000-0000-000000000002', 0, now() - INTERVAL '5 days', now() - INTERVAL '3 days'),
+                ('51500000-0000-0000-0000-000000000003', '51000000-0000-0000-0000-000000000003', '41000000-0000-0000-0000-000000000003', 0, now() - INTERVAL '19 days', now() - INTERVAL '18 days')
+            ON CONFLICT (scene_id, project_area_id) DO NOTHING;
             """,
             cancellationToken);
     }
@@ -396,8 +415,8 @@ public static class DataSeeder
                 production_reviewed_at, accepted_at, created_at, updated_at
             )
             VALUES
-                ('55000000-0000-0000-0000-000000000001', '54000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000003', 1, 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Dark walnut counter finish', 'Designer approved revised finish.', 'REVIEWING'::customization_version_status, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'FEASIBLE'::production_feasibility_status, 'Feasible with available veneer.', 7, 10000000.00, 'Additional veneer and finishing labor.', true, 'Low risk.', now() - INTERVAL '2 days', now() - INTERVAL '1 day', null, now() - INTERVAL '3 days', now() - INTERVAL '1 day'),
-                ('55000000-0000-0000-0000-000000000002', '54000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001', 1, 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Premium sofa fabric upgrade', 'Approved fabric upgrade.', 'ACCEPTED'::customization_version_status, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'FEASIBLE'::production_feasibility_status, 'Feasible but needs supplier confirmation.', 10, 6000000.00, 'Premium fabric surcharge.', true, 'Supplier lead time may vary.', now() - INTERVAL '12 days', now() - INTERVAL '11 days', now() - INTERVAL '10 days', now() - INTERVAL '12 days', now() - INTERVAL '10 days')
+                ('55000000-0000-0000-0000-000000000001', '54000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000005', 1, 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Dark walnut counter finish', 'Designer approved revised finish.', 'REVIEWING'::customization_version_status, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'FEASIBLE'::production_feasibility_status, 'Feasible with available veneer.', 7, 10000000.00, 'Additional veneer and finishing labor.', true, 'Low risk.', now() - INTERVAL '2 days', now() - INTERVAL '1 day', null, now() - INTERVAL '3 days', now() - INTERVAL '1 day'),
+                ('55000000-0000-0000-0000-000000000002', '54000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000006', 1, 'cccccccc-cccc-cccc-cccc-cccccccccccc', 'Premium sofa fabric upgrade', 'Approved fabric upgrade.', 'ACCEPTED'::customization_version_status, 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'FEASIBLE'::production_feasibility_status, 'Feasible but needs supplier confirmation.', 10, 6000000.00, 'Premium fabric surcharge.', true, 'Supplier lead time may vary.', now() - INTERVAL '12 days', now() - INTERVAL '11 days', now() - INTERVAL '10 days', now() - INTERVAL '12 days', now() - INTERVAL '10 days')
             ON CONFLICT (customization_request_version_id) DO NOTHING;
 
             UPDATE customization_requests
@@ -440,12 +459,12 @@ public static class DataSeeder
                 subtotal_amount, is_customized, customization_note, note
             )
             VALUES
-                ('61000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 'PRODUCT_ITEM'::quotation_item_type, '52000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000003', 'Modern Kitchen Cabinet', 'Modern Kitchen Cabinet - Gloss White', 'KITCH-CAB-001-A', 'Premium Service Counter', 'Cafe counter product item.', 1, 42000000.00, 10000000.00, 52000000.00, 0.00, 52000000.00, 0.00, 0.00, 52000000.00, 52000000.00, true, 'Dark walnut customization included.', null),
+                ('61000000-0000-0000-0000-000000000001', '60000000-0000-0000-0000-000000000001', 'PRODUCT_ITEM'::quotation_item_type, '52000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000005', 'Modern Kitchen Cabinet', 'Premium Service Counter - Dark Walnut', 'KITCH-CAB-001-CUSTOM-001', 'Premium Service Counter', 'Cafe counter product item.', 1, 42000000.00, 10000000.00, 52000000.00, 0.00, 52000000.00, 10.0000, 5200000.00, 57200000.00, 52000000.00, true, 'Dark walnut customization included.', null),
                 ('61000000-0000-0000-0000-000000000002', '60000000-0000-0000-0000-000000000001', 'MANUAL_ITEM'::quotation_item_type, null, null, null, null, null, 'Decorative lighting package', 'Manual lighting and installation charge.', 1, 88000000.00, 0.00, 88000000.00, 0.00, 88000000.00, 0.00, 0.00, 88000000.00, 88000000.00, false, null, 'Manual item for cafe ambience.'),
                 ('61000000-0000-0000-0000-000000000003', '60000000-0000-0000-0000-000000000002', 'PRODUCT_ITEM'::quotation_item_type, '52000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000004', 'Oak Work Desk', 'Oak Work Desk - Natural', 'DESK-OAK-001-A', 'Oak Work Desk Package', 'Office desks quotation item.', 12, 8900000.00, 0.00, 106800000.00, 5000000.00, 101800000.00, 0.00, 0.00, 101800000.00, 106800000.00, false, null, null),
                 ('61000000-0000-0000-0000-000000000004', '60000000-0000-0000-0000-000000000003', 'PRODUCT_ITEM'::quotation_item_type, '52000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000002', 'Sliding Door Wardrobe', 'Sliding Door Wardrobe - White Oak', 'WARD-STD-001-A', 'Restaurant Storage Wardrobe', 'Storage furniture for restaurant.', 3, 22500000.00, 0.00, 67500000.00, 0.00, 67500000.00, 0.00, 0.00, 67500000.00, 67500000.00, false, null, null),
                 ('61000000-0000-0000-0000-000000000005', '60000000-0000-0000-0000-000000000003', 'MANUAL_ITEM'::quotation_item_type, null, null, null, null, null, 'Restaurant installation labor', 'Installation and site finishing.', 1, 692500000.00, 0.00, 692500000.00, 0.00, 692500000.00, 0.00, 0.00, 692500000.00, 692500000.00, false, null, 'Manual labor and finishing package.'),
-                ('61000000-0000-0000-0000-000000000006', '60000000-0000-0000-0000-000000000004', 'PRODUCT_ITEM'::quotation_item_type, '52000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001', 'Luxe Modular Sofa', 'Luxe Modular Sofa - Linen', 'SOFA-LUX-001-A', 'Showroom Modular Sofa', 'Showroom reception sofa set.', 2, 18500000.00, 6000000.00, 49000000.00, 0.00, 49000000.00, 0.00, 0.00, 49000000.00, 49000000.00, true, 'Premium fabric upgrade.', null),
+                ('61000000-0000-0000-0000-000000000006', '60000000-0000-0000-0000-000000000004', 'PRODUCT_ITEM'::quotation_item_type, '52000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000006', 'Luxe Modular Sofa', 'Showroom Modular Sofa - Premium Fabric', 'SOFA-LUX-001-CUSTOM-001', 'Showroom Modular Sofa', 'Showroom reception sofa set.', 2, 18500000.00, 6000000.00, 49000000.00, 0.00, 49000000.00, 10.0000, 4900000.00, 53900000.00, 49000000.00, true, 'Premium fabric upgrade.', null),
                 ('61000000-0000-0000-0000-000000000007', '60000000-0000-0000-0000-000000000004', 'MANUAL_ITEM'::quotation_item_type, null, null, null, null, null, 'Showroom display island package', 'Custom display islands and installation.', 1, 1007000000.00, 0.00, 1007000000.00, 30000000.00, 977000000.00, 0.00, 0.00, 977000000.00, 1007000000.00, false, null, null),
                 ('61000000-0000-0000-0000-000000000008', '60000000-0000-0000-0000-000000000005', 'PRODUCT_ITEM'::quotation_item_type, '52000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000004', 'Oak Work Desk', 'Oak Work Desk - Natural', 'DESK-OAK-001-A', 'Delivered Office Desk Set', 'Completed office desk package.', 8, 8900000.00, 0.00, 71200000.00, 0.00, 71200000.00, 0.00, 0.00, 71200000.00, 71200000.00, false, null, null)
             ON CONFLICT (quotation_item_id) DO NOTHING;
@@ -486,7 +505,7 @@ public static class DataSeeder
             )
             VALUES
                 ('71000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001', '61000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000002', 'Sliding Door Wardrobe', 'Sliding Door Wardrobe - White Oak', 'WARD-STD-001-A', 3, 0, 'PENDING'::order_item_status, 22500000.00, 0.00, 0.00, 67500000.00, 0.00, null, 'Pending production start.', null, null, null, null),
-                ('71000000-0000-0000-0000-000000000002', '70000000-0000-0000-0000-000000000002', '61000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000001', 'Luxe Modular Sofa', 'Luxe Modular Sofa - Linen', 'SOFA-LUX-001-A', 2, 0, 'IN_PRODUCTION'::order_item_status, 18500000.00, 6000000.00, 0.00, 43000000.00, 0.00, null, 'Premium fabric in cutting stage.', null, null, null, null),
+                ('71000000-0000-0000-0000-000000000002', '70000000-0000-0000-0000-000000000002', '61000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000006', 'Luxe Modular Sofa', 'Showroom Modular Sofa - Premium Fabric', 'SOFA-LUX-001-CUSTOM-001', 2, 0, 'IN_PRODUCTION'::order_item_status, 18500000.00, 6000000.00, 0.00, 43000000.00, 0.00, null, 'Premium fabric in cutting stage.', null, null, null, null),
                 ('71000000-0000-0000-0000-000000000003', '70000000-0000-0000-0000-000000000003', '61000000-0000-0000-0000-000000000008', '30000000-0000-0000-0000-000000000004', 'Oak Work Desk', 'Oak Work Desk - Natural', 'DESK-OAK-001-A', 8, 8, 'DELIVERED'::order_item_status, 8900000.00, 0.00, 0.00, 71200000.00, 0.00, null, 'Completed.', 'Delivered and installed.', now() - INTERVAL '2 days', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - INTERVAL '1 day')
             ON CONFLICT (order_item_id) DO NOTHING;
             """,
@@ -522,7 +541,7 @@ public static class DataSeeder
             )
             VALUES
                 ('83000000-0000-0000-0000-000000000001', '82000000-0000-0000-0000-000000000001', '71000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000002', 'Sliding Door Wardrobe', 'Sliding Door Wardrobe - White Oak', 3, 'PENDING'::production_item_status, 'Confirm laminate batch.', 'Waiting for production approval.', DATE '2026-08-25', null),
-                ('83000000-0000-0000-0000-000000000002', '82000000-0000-0000-0000-000000000002', '71000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', 'Luxe Modular Sofa', 'Luxe Modular Sofa - Linen', 2, 'IN_PRODUCTION'::production_item_status, 'Use stain-resistant linen.', 'Frame assembly completed.', DATE '2026-08-20', null),
+                ('83000000-0000-0000-0000-000000000002', '82000000-0000-0000-0000-000000000002', '71000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000006', 'Luxe Modular Sofa', 'Showroom Modular Sofa - Premium Fabric', 2, 'IN_PRODUCTION'::production_item_status, 'Use stain-resistant linen.', 'Frame assembly completed.', DATE '2026-08-20', null),
                 ('83000000-0000-0000-0000-000000000003', '82000000-0000-0000-0000-000000000003', '71000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000004', 'Oak Work Desk', 'Oak Work Desk - Natural', 8, 'COMPLETED'::production_item_status, 'Natural oak finish.', 'Delivered to site.', DATE '2026-06-25', now() - INTERVAL '3 days')
             ON CONFLICT (production_item_id) DO NOTHING;
             """,

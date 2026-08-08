@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FurniSpace.API.Controllers.Admin;
 
+[Route("admin/catalog")]
 public sealed class AdminCatalogController : BaseApiController
 {
     private readonly IAdminCatalogService _adminCatalog;
@@ -18,7 +19,7 @@ public sealed class AdminCatalogController : BaseApiController
     }
 
     [Authorize(Roles = "ADMIN")]
-    [HttpGet("/admin/catalog/products")]
+    [HttpGet("products")]
     public async Task<IActionResult> GetProducts(
         [FromQuery] AdminCatalogQueryDto query,
         CancellationToken cancellationToken = default)

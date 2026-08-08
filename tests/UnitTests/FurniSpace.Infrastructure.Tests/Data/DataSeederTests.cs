@@ -35,7 +35,7 @@ public sealed class DataSeederTests
             },
             expectedToken);
 
-        Assert.Equal(25, rawCommands.Count);
+        Assert.Equal(26, rawCommands.Count);
         Assert.Single(interpolatedCommands);
         AssertTablesAreSeededInOrder(rawCommands);
 
@@ -108,6 +108,7 @@ public sealed class DataSeederTests
                 "project_chat_messages",
                 "proposals",
                 "proposal_scenes",
+                "proposal_scene_areas",
                 "proposal_items",
                 "proposal_scene_variants",
                 "customization_requests",

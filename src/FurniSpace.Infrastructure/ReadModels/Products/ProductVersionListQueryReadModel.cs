@@ -2,7 +2,7 @@ using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Infrastructure.ReadModels.Products;
 
-public sealed class ProductVersionListQueryReadModel
+public class ProductVersionListQueryReadModel
 {
     public Guid ProductId { get; set; }
     public ProductStatus? Status { get; set; }

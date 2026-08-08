@@ -3,7 +3,6 @@ using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.Interfaces.Catalog;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.Repositories.IRepository;
-using Mapster;
 
 namespace FurniSpace.Application.Services.Catalog;
 
@@ -55,9 +54,8 @@ public sealed class AdminCatalogService : IAdminCatalogService
                 Error.NotFound(CatalogErrorCodes.BusinessTypeNotFound, "Business type not found."));
         }
 
-        var readQuery = query.Adapt<AdminCatalogQueryReadModel>();
-        var items = await _catalog.GetAdminCatalogAsync(readQuery, cancellationToken);
-        var total = await _catalog.CountAdminCatalogAsync(readQuery, cancellationToken);
+        var items = await _catalog.GetAdminCatalogAsync(query, cancellationToken);
+        var total = await _catalog.CountAdminCatalogAsync(query, cancellationToken);
 
         return ServiceResult<AdminCatalogListResponseDto>.Success(
             new AdminCatalogListResponseDto

@@ -811,10 +811,9 @@ public sealed class ProductVersionService : IProductVersionService
                 Error.NotFound(CatalogErrorCodes.ProductNotFound, "Product not found."));
         }
 
-        var readQuery = query.Adapt<ProductVersionListQueryReadModel>();
-        readQuery.ProductId = productId;
-        var items = await _catalog.GetAdminVersionListAsync(readQuery, cancellationToken);
-        var total = await _catalog.CountAdminVersionListAsync(readQuery, cancellationToken);
+        query.ProductId = productId;
+        var items = await _catalog.GetAdminVersionListAsync(query, cancellationToken);
+        var total = await _catalog.CountAdminVersionListAsync(query, cancellationToken);
 
         return ServiceResult<ProductVersionListResponseDto>.Success(
             new ProductVersionListResponseDto

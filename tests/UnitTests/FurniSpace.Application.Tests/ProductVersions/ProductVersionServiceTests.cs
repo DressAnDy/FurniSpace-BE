@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -973,6 +974,118 @@ public sealed class ProductVersionServiceTests
         Assert.Equal(0, result.Data!.RemainingCount);
         Assert.False(result.Data.Reindexed);
         Assert.Empty(repository.FileLinks);
+    }
+
+    [Fact]
+    public async Task GetListByProductAsync_WithValidQuery_ReturnsVersions()
+    {
+        var productId = Guid.NewGuid();
+        var catalog = new FakeCatalogRepository
+        {
+            AdminVersionItems =
+            [
+                new ProductVersionManagementReadModel
+                {
+                    ProductVersionId = Guid.NewGuid(),
+                    ProductId = productId,
+                    VersionCode = "PV-001",
+                    VersionName = "Standard",
+                    Status = ProductStatus.ACTIVE,
+                    IsDefault = true
+                }
+            ],
+            AdminVersionTotal = 1
+        };
+        var repository = new FakeProductVersionRepository(productIds: [productId]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            catalog: catalog);
+
+        var result = await service.GetListByProductAsync(productId, new ProductVersionListQueryDto
+        {
+            Page = 1,
+            PageSize = 20
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Single(result.Data.Items);
+        Assert.Equal("PV-001", result.Data.Items[0].VersionCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithInvalidTaxRate_ReturnsBadRequest()
+    {
+        var productId = Guid.NewGuid();
+        var repository = new FakeProductVersionRepository(productIds: [productId]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.CreateAsync(
+            productId,
+            new CreateProductVersionRequestDto
+            {
+                VersionCode = "PV-001",
+                VersionName = "Standard",
+                DefaultTaxRate = 150m
+            },
+            allowTaxConfiguration: true);
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task DeactivateAsync_ClearsDefaultFlag()
+    {
+        var productVersionId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var version = new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = productId,
+            VersionCode = "PV-001",
+            VersionName = "Standard",
+            Status = ProductStatus.ACTIVE,
+            IsDefault = true
+        };
+        var repository = new FakeProductVersionRepository(versions: [version], productIds: [productId]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.DeactivateAsync(productVersionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.False(version.IsDefault);
+        Assert.Equal(ProductStatus.INACTIVE, version.Status);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_FromArchived_SetsActiveAndClearsDefault()
+    {
+        var productVersionId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var version = new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = productId,
+            VersionCode = "PV-001",
+            VersionName = "Standard",
+            Status = ProductStatus.ARCHIVED,
+            IsDefault = true
+        };
+        var repository = new FakeProductVersionRepository(versions: [version], productIds: [productId]);
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.RestoreAsync(productVersionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductStatus.ACTIVE, version.Status);
+        Assert.False(version.IsDefault);
     }
 
     private static ProductVersionService CreateVersionUploadService(

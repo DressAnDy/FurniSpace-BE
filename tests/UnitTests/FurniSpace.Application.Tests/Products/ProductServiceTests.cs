@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Products;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Tests.TestDoubles;
@@ -1416,6 +1417,100 @@ public sealed class ProductServiceTests
         Assert.Equal(2, result.Data!.Files.Count);
         Assert.Equal(newerFileId, result.Data.Files[0].FileId);
         Assert.Equal(olderFileId, result.Data.Files[1].FileId);
+    }
+
+    [Fact]
+    public async Task DeactivateAsync_FromActive_UpdatesStatusAndReturnsActiveVersionCount()
+    {
+        var productId = Guid.NewGuid();
+        var entity = new Product
+        {
+            ProductId = productId,
+            ProductCode = "PM-001",
+            ProductName = "Counter",
+            Status = ProductStatus.ACTIVE
+        };
+        var catalog = new FakeCatalogRepository { ActiveVersionCount = 3 };
+        var repository = new FakeProductRepository([], entities: [entity]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository(),
+            catalog: catalog);
+
+        var result = await service.DeactivateAsync(productId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProductStatus.INACTIVE, result.Data.Status);
+        Assert.Equal(ProductStatus.ACTIVE, result.Data.PreviousStatus);
+        Assert.Equal(3, result.Data.ActiveVersionCount);
+        Assert.Equal(ProductStatus.INACTIVE, entity.Status);
+    }
+
+    [Fact]
+    public async Task ActivateAsync_WhenAlreadyActive_ReturnsConflict()
+    {
+        var productId = Guid.NewGuid();
+        var entity = new Product
+        {
+            ProductId = productId,
+            ProductCode = "PM-001",
+            ProductName = "Counter",
+            Status = ProductStatus.ACTIVE
+        };
+        var repository = new FakeProductRepository([], entities: [entity]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.ActivateAsync(productId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductAlreadyActive, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ArchiveAsync_FromInactive_UpdatesStatus()
+    {
+        var productId = Guid.NewGuid();
+        var entity = new Product
+        {
+            ProductId = productId,
+            ProductCode = "PM-001",
+            ProductName = "Counter",
+            Status = ProductStatus.INACTIVE
+        };
+        var repository = new FakeProductRepository([], entities: [entity]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.ArchiveAsync(productId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductStatus.ARCHIVED, entity.Status);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_FromArchived_UpdatesStatus()
+    {
+        var productId = Guid.NewGuid();
+        var entity = new Product
+        {
+            ProductId = productId,
+            ProductCode = "PM-001",
+            ProductName = "Counter",
+            Status = ProductStatus.ARCHIVED
+        };
+        var repository = new FakeProductRepository([], entities: [entity]);
+        var service = CatalogServiceTestHelper.CreateProductService(
+            repository,
+            new FakeCatalogProjectFileRepository());
+
+        var result = await service.RestoreAsync(productId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductStatus.ACTIVE, entity.Status);
     }
 
     private static CatalogFileReadModel CreateCatalogFile(

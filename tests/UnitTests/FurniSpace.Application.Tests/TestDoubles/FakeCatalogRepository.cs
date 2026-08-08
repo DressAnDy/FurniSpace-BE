@@ -12,49 +12,57 @@ namespace FurniSpace.Application.Tests.TestDoubles;
 
 public sealed class FakeCatalogRepository : ICatalogRepository
 {
+    public IReadOnlyList<AdminCatalogProductListItemReadModel> AdminCatalogItems { get; set; } = [];
+    public int AdminCatalogTotal { get; set; }
+    public IReadOnlyList<ProductVersionManagementReadModel> AdminVersionItems { get; set; } = [];
+    public int AdminVersionTotal { get; set; }
+    public IReadOnlyList<ProjectCatalogProductListItemReadModel> ProjectCatalogItems { get; set; } = [];
+    public int ProjectCatalogTotal { get; set; }
+    public ProjectCatalogProductListItemReadModel? ProjectCatalogProductDetail { get; set; }
+    public ProjectCatalogEligibleVersionReadModel? ProjectEligibleVersionDetail { get; set; }
+    public int ActiveVersionCount { get; set; }
+
     public Task<IReadOnlyList<AdminCatalogProductListItemReadModel>> GetAdminCatalogAsync(
         AdminCatalogQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<AdminCatalogProductListItemReadModel>>([]);
+        => Task.FromResult(AdminCatalogItems);
 
     public Task<int> CountAdminCatalogAsync(
         AdminCatalogQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(0);
+        => Task.FromResult(AdminCatalogTotal == 0 ? AdminCatalogItems.Count : AdminCatalogTotal);
 
     public Task<IReadOnlyList<ProductVersionManagementReadModel>> GetAdminVersionListAsync(
         ProductVersionListQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<ProductVersionManagementReadModel>>([]);
+        => Task.FromResult(AdminVersionItems);
 
     public Task<int> CountAdminVersionListAsync(
         ProductVersionListQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(0);
+        => Task.FromResult(AdminVersionTotal == 0 ? AdminVersionItems.Count : AdminVersionTotal);
 
     public Task<IReadOnlyList<ProjectCatalogProductListItemReadModel>> GetProjectCatalogAsync(
         ProjectCatalogQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<ProjectCatalogProductListItemReadModel>>([]);
+        => Task.FromResult(ProjectCatalogItems);
 
     public Task<int> CountProjectCatalogAsync(
         ProjectCatalogQueryReadModel query,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(0);
+        => Task.FromResult(ProjectCatalogTotal == 0 ? ProjectCatalogItems.Count : ProjectCatalogTotal);
 
     public Task<ProjectCatalogProductListItemReadModel?> GetProjectCatalogProductDetailAsync(
         Guid projectId,
         Guid productId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<ProjectCatalogProductListItemReadModel?>(null);
+        => Task.FromResult(ProjectCatalogProductDetail);
 
     public Task<ProjectCatalogEligibleVersionReadModel?> GetProjectEligibleVersionDetailAsync(
         Guid projectId,
         Guid productVersionId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<ProjectCatalogEligibleVersionReadModel?>(null);
-
-    public int ActiveVersionCount { get; set; }
+        => Task.FromResult(ProjectEligibleVersionDetail);
 
     public Task<int> CountActiveVersionsByProductAsync(
         Guid productId,

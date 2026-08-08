@@ -44,10 +44,9 @@ public sealed class ProjectCatalogService : IProjectCatalogService
                 Error.BadRequest(CatalogErrorCodes.CatalogFilterInvalid, "Invalid pagination parameters."));
         }
 
-        var readQuery = query.Adapt<ProjectCatalogQueryReadModel>();
-        readQuery.ProjectId = projectId;
-        var items = await _catalog.GetProjectCatalogAsync(readQuery, cancellationToken);
-        var total = await _catalog.CountProjectCatalogAsync(readQuery, cancellationToken);
+        query.ProjectId = projectId;
+        var items = await _catalog.GetProjectCatalogAsync(query, cancellationToken);
+        var total = await _catalog.CountProjectCatalogAsync(query, cancellationToken);
         var productIds = items.Select(item => item.ProductId).ToList();
         var thumbnails = await LoadProductThumbnailsAsync(productIds, cancellationToken);
 
@@ -139,26 +138,9 @@ public sealed class ProjectCatalogService : IProjectCatalogService
             customerVisibleOnly: true,
             cancellationToken);
 
-        return ServiceResult<ProjectCatalogProductVersionDetailDto>.Success(
-            new ProjectCatalogProductVersionDetailDto
-            {
-                ProductVersionId = version.ProductVersionId,
-                ProductId = version.ProductId,
-                ProjectId = version.ProjectId,
-                VersionCode = version.VersionCode,
-                VersionName = version.VersionName,
-                VersionType = version.VersionType,
-                Material = version.Material,
-                Color = version.Color,
-                Width = version.Width,
-                Height = version.Height,
-                Depth = version.Depth,
-                DimensionUnit = version.DimensionUnit,
-                EstimatedPrice = version.EstimatedPrice,
-                IsProjectSpecific = version.IsProjectSpecific,
-                Files = ToCatalogFileList(files)
-            },
-            string.Empty);
+        var detail = version.Adapt<ProjectCatalogProductVersionDetailDto>();
+        detail.Files = ToCatalogFileList(files);
+        return ServiceResult<ProjectCatalogProductVersionDetailDto>.Success(detail, string.Empty);
     }
 
     private async Task<Error?> ValidateDesignerAccessAsync(
@@ -189,7 +171,7 @@ public sealed class ProjectCatalogService : IProjectCatalogService
     }
 
     private async Task<Dictionary<Guid, CatalogFileDto>> LoadProductThumbnailsAsync(
-        IReadOnlyCollection<Guid> productIds,
+        List<Guid> productIds,
         CancellationToken cancellationToken)
     {
         if (productIds.Count == 0)
@@ -199,7 +181,7 @@ public sealed class ProjectCatalogService : IProjectCatalogService
 
         var files = await _files.GetCatalogFilesByReferencesAsync(
             CatalogFileReferenceTypes.Product,
-            productIds.ToList(),
+            productIds,
             customerVisibleOnly: true,
             cancellationToken);
 
@@ -208,7 +190,11 @@ public sealed class ProjectCatalogService : IProjectCatalogService
             .GroupBy(file => file.ReferenceId)
             .ToDictionary(
                 group => group.Key,
-                group => group.Adapt<List<CatalogFileDto>>().First());
+                group =>
+                {
+                    var mapped = group.Adapt<List<CatalogFileDto>>();
+                    return mapped[0];
+                });
     }
 
     private static ProjectCatalogProductItemDto ToListItem(

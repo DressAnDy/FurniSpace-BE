@@ -2,7 +2,7 @@ using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Infrastructure.ReadModels.Products;
 
-public sealed class ProjectCatalogQueryReadModel
+public class ProjectCatalogQueryReadModel
 {
     public Guid ProjectId { get; set; }
     public string? Keyword { get; set; }

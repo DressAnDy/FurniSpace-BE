@@ -194,10 +194,11 @@ public sealed class CatalogRepository : GenericRepository<Product>, ICatalogRepo
     {
         if (!string.IsNullOrWhiteSpace(filter.Keyword))
         {
-            var keyword = filter.Keyword.Trim().ToLowerInvariant();
+            var keyword = filter.Keyword.Trim();
             query = query.Where(product =>
-                product.ProductName.ToLower().Contains(keyword) ||
-                (product.ProductCode != null && product.ProductCode.ToLower().Contains(keyword)));
+                product.ProductName.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                (product.ProductCode != null &&
+                 product.ProductCode.Contains(keyword, StringComparison.OrdinalIgnoreCase)));
         }
 
         if (filter.CategoryId.HasValue)
@@ -476,11 +477,9 @@ public sealed class CatalogRepository : GenericRepository<Product>, ICatalogRepo
 
         if (!string.IsNullOrWhiteSpace(query.Keyword))
         {
-            var keyword = query.Keyword.Trim().ToLowerInvariant();
+            var keyword = query.Keyword.Trim();
             grouped = grouped
-                .Where(item =>
-                    item.ProductName.ToLower().Contains(keyword) ||
-                    (item.ProductCode != null && item.ProductCode.ToLower().Contains(keyword)))
+                .Where(item => CatalogKeywordMatcher.Matches(item.ProductName, item.ProductCode, keyword))
                 .ToList();
         }
 

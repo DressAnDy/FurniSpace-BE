@@ -8,6 +8,8 @@ using FurniSpace.Application.Interfaces.Identity;
 using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Accounts;
+using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Persistence;
 using Mapster;
@@ -327,6 +329,177 @@ public sealed class AccountService : IAccountService
         return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.Success(
             data,
             DesignerAssignedProjectsRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<SalesWorkloadItemDto>>> GetSalesWorkloadAsync(
+        SalesWorkloadQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest("Page must be greater than zero.");
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest("Page size must be between 1 and 100.");
+        }
+
+        var capacityStateError = ValidateSalesCapacityState(query.CapacityState);
+        if (capacityStateError is not null)
+        {
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest(capacityStateError);
+        }
+
+        var pressureStateError = ValidateFuturePressureState(query.FuturePressureState);
+        if (pressureStateError is not null)
+        {
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest(pressureStateError);
+        }
+
+        var sortBy = NormalizeSalesSortBy(query.SortBy);
+        var normalizedSearch = NormalizeOptional(query.Search);
+        var normalizedCapacityState = NormalizeOptional(query.CapacityState)?.ToUpperInvariant();
+        var normalizedPressureState = NormalizeOptional(query.FuturePressureState)?.ToUpperInvariant();
+
+        var sales = await _accounts.GetSalesWorkloadAsync(
+            query.Page,
+            query.PageSize,
+            MaxActiveSalesProjects,
+            normalizedSearch,
+            normalizedCapacityState,
+            normalizedPressureState,
+            sortBy,
+            cancellationToken);
+        var totalItems = await _accounts.CountSalesWorkloadAsync(
+            MaxActiveSalesProjects,
+            normalizedSearch,
+            normalizedCapacityState,
+            normalizedPressureState,
+            cancellationToken);
+
+        var items = sales.Select(MapSalesWorkloadItem).ToList();
+        var data = PagedResult<SalesWorkloadItemDto>.Create(items, query.Page, query.PageSize, totalItems);
+        return ServiceResult<PagedResult<SalesWorkloadItemDto>>.Success(data, SalesWorkloadRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<SalesWorkloadSummaryDto>> GetSalesWorkloadSummaryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var summary = await _accounts.GetSalesWorkloadSummaryAsync(MaxActiveSalesProjects, cancellationToken);
+        return ServiceResult<SalesWorkloadSummaryDto>.Success(
+            new SalesWorkloadSummaryDto
+            {
+                TotalActiveSales = summary.TotalActiveSales,
+                AvailableNowCount = summary.AvailableNowCount,
+                FullNowCount = summary.FullNowCount,
+                OverNowCount = summary.OverNowCount,
+                HighFuturePressureCount = summary.HighFuturePressureCount,
+                TotalSalesActiveProjects = summary.TotalSalesActiveProjects,
+                UnassignedIntakeCount = summary.UnassignedIntakeCount,
+                MaxActiveProjects = MaxActiveSalesProjects
+            },
+            SalesWorkloadSummaryRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<SalesAssignedProjectDto>>> GetSalesAssignedProjectsAsync(
+        Guid salesId,
+        SalesAssignedProjectQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (salesId == Guid.Empty)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest("Sales id is required.");
+        }
+
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest("Page must be greater than zero.");
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest("Page size must be between 1 and 100.");
+        }
+
+        var bucketError = ValidateSalesBucket(query.Bucket);
+        if (bucketError is not null)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest(bucketError);
+        }
+
+        var isSales = await _accounts.IsActiveSalesAsync(salesId, cancellationToken);
+        if (!isSales)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.NotFound("Active sales account not found.");
+        }
+
+        var normalizedBucket = NormalizeOptional(query.Bucket)?.ToUpperInvariant();
+        var projects = await _accounts.GetSalesAssignedProjectsAsync(
+            salesId,
+            query.Page,
+            query.PageSize,
+            normalizedBucket,
+            cancellationToken);
+        var totalItems = await _accounts.CountSalesAssignedProjectsAsync(
+            salesId,
+            normalizedBucket,
+            cancellationToken);
+
+        var items = projects
+            .Select(project => new SalesAssignedProjectDto
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                Status = project.Status?.ToString(),
+                SalesAssignedAt = project.SalesAssignedAt,
+                CustomerId = project.CustomerId,
+                CustomerName = project.CustomerName,
+                AssignedDesignerId = project.AssignedDesignerId,
+                DesignerName = project.DesignerName,
+                Bucket = SalesWorkloadPressurePolicy.ResolveBucket(project.Status),
+                PressureWeight = SalesWorkloadPressurePolicy.ResolvePressureWeight(project.Status)
+            })
+            .ToList();
+
+        var data = PagedResult<SalesAssignedProjectDto>.Create(items, query.Page, query.PageSize, totalItems);
+        return ServiceResult<PagedResult<SalesAssignedProjectDto>>.Success(data, SalesAssignedProjectsRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<UnassignedIntakeProjectDto>>> GetUnassignedIntakeProjectsAsync(
+        UnassignedIntakeProjectQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.BadRequest("Page must be greater than zero.");
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.BadRequest("Page size must be between 1 and 100.");
+        }
+
+        var projects = await _accounts.GetUnassignedIntakeProjectsAsync(query.Page, query.PageSize, cancellationToken);
+        var totalItems = await _accounts.CountUnassignedIntakeProjectsAsync(cancellationToken);
+        var items = projects
+            .Select(project => new UnassignedIntakeProjectDto
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                BusinessType = project.BusinessType,
+                SubmittedAt = project.SubmittedAt,
+                CustomerId = project.CustomerId,
+                CustomerName = project.CustomerName
+            })
+            .ToList();
+
+        var data = PagedResult<UnassignedIntakeProjectDto>.Create(items, query.Page, query.PageSize, totalItems);
+        return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.Success(
+            data,
+            UnassignedIntakeProjectsRetrievedMessage);
     }
 
     public async Task<ServiceResult<PagedResult<AccountDto>>> GetPagedAsync(
@@ -879,6 +1052,114 @@ public sealed class AccountService : IAccountService
         }
 
         return SortDesignActiveCountDesc;
+    }
+
+    private static SalesWorkloadItemDto MapSalesWorkloadItem(SalesWorkloadItemReadModel sales)
+    {
+        return new SalesWorkloadItemDto
+        {
+            AccountId = sales.AccountId,
+            Email = sales.Email,
+            FullName = sales.FullName,
+            Phone = sales.Phone,
+            AvatarUrl = sales.AvatarUrl,
+            Status = sales.Status?.ToString(),
+            IntakeCount = sales.IntakeCount,
+            CommercialCount = sales.CommercialCount,
+            DesignMonitorCount = sales.DesignMonitorCount,
+            FulfillmentCount = sales.FulfillmentCount,
+            SalesActiveCount = sales.SalesActiveCount,
+            LifecycleAssignedCount = sales.LifecycleAssignedCount,
+            MaxActiveProjects = sales.MaxActiveProjects,
+            AvailableSlot = sales.AvailableSlot,
+            CapacityState = sales.CapacityState,
+            FuturePressureScore = sales.FuturePressureScore,
+            FuturePressureState = sales.FuturePressureState,
+            ApproachingCommercialCount = sales.ProposalConsultingCount,
+            ProductionAttentionCount = sales.ProductionBlockedCount,
+            DeliveryAttentionCount =
+                sales.ReadyForDeliveryCount + sales.DeliveringCount + sales.DeliveredCount,
+            FuturePressureBreakdown = new SalesFuturePressureBreakdownDto
+            {
+                MeasurementRequiredCount = sales.MeasurementRequiredCount,
+                SpaceVerifiedCount = sales.SpaceVerifiedCount,
+                ProposalConsultingCount = sales.ProposalConsultingCount,
+                InProductionCount = sales.InProductionCount,
+                ProductionBlockedCount = sales.ProductionBlockedCount,
+                ReadyForDeliveryCount = sales.ReadyForDeliveryCount,
+                DeliveringCount = sales.DeliveringCount,
+                DeliveredCount = sales.DeliveredCount
+            },
+            CreatedAt = sales.CreatedAt,
+            UpdatedAt = sales.UpdatedAt
+        };
+    }
+
+    private static string? ValidateSalesCapacityState(string? capacityState)
+    {
+        var normalized = NormalizeOptional(capacityState);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "AVAILABLE_NOW" or "FULL_NOW" or "OVER_NOW" => null,
+            _ => "Capacity state must be AVAILABLE_NOW, FULL_NOW, or OVER_NOW."
+        };
+    }
+
+    private static string? ValidateFuturePressureState(string? futurePressureState)
+    {
+        var normalized = NormalizeOptional(futurePressureState);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "LOW" or "MEDIUM" or "HIGH" => null,
+            _ => "Future pressure state must be LOW, MEDIUM, or HIGH."
+        };
+    }
+
+    private static string? ValidateSalesBucket(string? bucket)
+    {
+        var normalized = NormalizeOptional(bucket);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "CURRENT_ACTIVE" or "INTAKE" or "COMMERCIAL" or "DESIGN_MONITOR" or "FULFILLMENT"
+                or "TERMINAL" or "OTHER" or "HIGH_PRESSURE_SOURCE" => null,
+            _ => "Bucket must be CURRENT_ACTIVE, INTAKE, COMMERCIAL, DESIGN_MONITOR, FULFILLMENT, TERMINAL, OTHER, or HIGH_PRESSURE_SOURCE."
+        };
+    }
+
+    private static string NormalizeSalesSortBy(string? sortBy)
+    {
+        var normalized = NormalizeOptional(sortBy);
+        if (normalized is null)
+        {
+            return SortFuturePressureScoreDesc;
+        }
+
+        if (string.Equals(normalized, SortSalesActiveCountDesc, StringComparison.OrdinalIgnoreCase))
+        {
+            return SortSalesActiveCountDesc;
+        }
+
+        if (string.Equals(normalized, SortAvailableSlotAsc, StringComparison.OrdinalIgnoreCase))
+        {
+            return SortAvailableSlotAsc;
+        }
+
+        return SortFuturePressureScoreDesc;
     }
 
     private static string? NormalizeOptional(string? value)

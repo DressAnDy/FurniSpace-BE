@@ -565,6 +565,29 @@ public sealed class AccountsControllerTests
             Task.FromResult(ServiceResult<PagedResult<DesignerAssignedProjectDto>>.Success(
                 PagedResult<DesignerAssignedProjectDto>.Create([], 1, 20, 0)));
 
+        public Task<ServiceResult<PagedResult<SalesWorkloadItemDto>>> GetSalesWorkloadAsync(
+            SalesWorkloadQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<PagedResult<SalesWorkloadItemDto>>.Success(
+                PagedResult<SalesWorkloadItemDto>.Create([], 1, 20, 0)));
+
+        public Task<ServiceResult<SalesWorkloadSummaryDto>> GetSalesWorkloadSummaryAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<SalesWorkloadSummaryDto>.Success(new SalesWorkloadSummaryDto()));
+
+        public Task<ServiceResult<PagedResult<SalesAssignedProjectDto>>> GetSalesAssignedProjectsAsync(
+            Guid salesId,
+            SalesAssignedProjectQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<PagedResult<SalesAssignedProjectDto>>.Success(
+                PagedResult<SalesAssignedProjectDto>.Create([], 1, 20, 0)));
+
+        public Task<ServiceResult<PagedResult<UnassignedIntakeProjectDto>>> GetUnassignedIntakeProjectsAsync(
+            UnassignedIntakeProjectQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.Success(
+                PagedResult<UnassignedIntakeProjectDto>.Create([], 1, 20, 0)));
+
         public Task<ServiceResult<AccountDto>> CreateAsync(CreateAccountRequestDto request, CancellationToken cancellationToken = default)
         {
             CreateRequest = request;

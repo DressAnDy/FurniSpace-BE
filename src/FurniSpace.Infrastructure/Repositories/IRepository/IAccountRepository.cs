@@ -49,6 +49,40 @@ public interface IAccountRepository : IGenericRepository<Account>
         string? bucket,
         CancellationToken cancellationToken = default);
     Task<bool> IsActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SalesWorkloadItemReadModel>> GetSalesWorkloadAsync(
+        int page,
+        int pageSize,
+        int maxActiveProjects,
+        string? search,
+        string? capacityState,
+        string? futurePressureState,
+        string sortBy,
+        CancellationToken cancellationToken = default);
+    Task<int> CountSalesWorkloadAsync(
+        int maxActiveProjects,
+        string? search,
+        string? capacityState,
+        string? futurePressureState,
+        CancellationToken cancellationToken = default);
+    Task<SalesWorkloadSummaryReadModel> GetSalesWorkloadSummaryAsync(
+        int maxActiveProjects,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<SalesAssignedProjectReadModel>> GetSalesAssignedProjectsAsync(
+        Guid salesId,
+        int page,
+        int pageSize,
+        string? bucket,
+        CancellationToken cancellationToken = default);
+    Task<int> CountSalesAssignedProjectsAsync(
+        Guid salesId,
+        string? bucket,
+        CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<UnassignedIntakeProjectReadModel>> GetUnassignedIntakeProjectsAsync(
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default);
+    Task<int> CountUnassignedIntakeProjectsAsync(CancellationToken cancellationToken = default);
+    Task<bool> IsActiveSalesAsync(Guid salesId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Account>> GetPagedAsync(int page, int pageSize, string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default);
     Task<int> CountAsync(string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default);
 

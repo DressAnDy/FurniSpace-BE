@@ -325,6 +325,10 @@ Controller: `AccountsController`
 | GET | `/admin/designers/workload` | ADMIN | Designer workload board (filter/sort) |
 | GET | `/admin/designers/workload/summary` | ADMIN | Workload summary cards |
 | GET | `/admin/designers/{designerId}/projects` | ADMIN | Designer assigned projects drill-down |
+| GET | `/admin/sales/workload` | ADMIN | Sales workload + future pressure board |
+| GET | `/admin/sales/workload/summary` | ADMIN | Sales workload summary cards |
+| GET | `/admin/sales/{salesId}/projects` | ADMIN | Sales assigned projects drill-down |
+| GET | `/admin/sales/unassigned-intake` | ADMIN | SUBMITTED projects with no sales |
 | PATCH | `/accounts/me` | JWT | Update my profile |
 
 ### Query — `GET /api/Accounts`
@@ -411,6 +415,37 @@ Same item shape as available designers. Default sort: overload first (`DesignAct
 Drill-down for Admin Designer Workload board.
 
 **Response item** (`DesignerAssignedProjectDto`): `projectId`, `projectCode?`, `projectName`, `status?`, `designerAssignedAt?`, `customerId`, `customerName?`, `assignedSalesId?`, `salesName?`, `bucket`
+
+### `GET /admin/sales/workload`
+
+**Auth:** ADMIN  
+**Query:** `page`, `pageSize`, `search?`, `capacityState?` (`AVAILABLE_NOW`\|`FULL_NOW`\|`OVER_NOW`), `futurePressureState?` (`LOW`\|`MEDIUM`\|`HIGH`), `sortBy?` (`FuturePressureScoreDesc` default \| `SalesActiveCountDesc` \| `AvailableSlotAsc`)
+
+Soft capacity max = **5**. Current slot = `intakeCount + commercialCount` only.
+
+**Response item** (`SalesWorkloadItemDto`): identity + `intakeCount`, `commercialCount`, `designMonitorCount`, `fulfillmentCount`, `salesActiveCount`, `lifecycleAssignedCount`, `maxActiveProjects`, `availableSlot`, `capacityState`, `futurePressureScore`, `futurePressureState`, `approachingCommercialCount`, `productionAttentionCount`, `deliveryAttentionCount`, `futurePressureBreakdown{...}`
+
+### `GET /admin/sales/workload/summary`
+
+**Auth:** ADMIN  
+
+**Response** (`SalesWorkloadSummaryDto`): `totalActiveSales`, `availableNowCount`, `fullNowCount`, `overNowCount`, `highFuturePressureCount`, `totalSalesActiveProjects`, `unassignedIntakeCount`, `maxActiveProjects`
+
+### `GET /admin/sales/{salesId}/projects`
+
+**Auth:** ADMIN  
+**Query:** `page`, `pageSize`, `bucket?` (`CURRENT_ACTIVE`\|`INTAKE`\|`COMMERCIAL`\|`DESIGN_MONITOR`\|`FULFILLMENT`\|`TERMINAL`\|`OTHER`\|`HIGH_PRESSURE_SOURCE`)
+
+**Response item** (`SalesAssignedProjectDto`): `projectId`, `projectCode?`, `projectName`, `status?`, `salesAssignedAt?`, `customerId`, `customerName?`, `assignedDesignerId?`, `designerName?`, `bucket`, `pressureWeight`
+
+### `GET /admin/sales/unassigned-intake`
+
+**Auth:** ADMIN  
+**Query:** `page`, `pageSize`
+
+Only `status = SUBMITTED` AND `assigned_sales_id IS NULL`.
+
+**Response item** (`UnassignedIntakeProjectDto`): `projectId`, `projectCode?`, `projectName`, `businessType?`, `submittedAt?`, `customerId`, `customerName?`
 
 ### `PATCH /accounts/me`
 

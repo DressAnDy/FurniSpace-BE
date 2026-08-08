@@ -1369,6 +1369,16 @@ public sealed class ProductVersionServiceTests
                 version.ProjectId == projectId &&
                 version.VersionType == ProductVersionType.PROJECT_SPECIFIC));
 
+        public Task<IReadOnlyDictionary<Guid, decimal?>> GetDefaultTaxRatesByIdsAsync(
+            IReadOnlyCollection<Guid> productVersionIds,
+            CancellationToken cancellationToken = default)
+        {
+            var result = _versions
+                .Where(version => productVersionIds.Contains(version.ProductVersionId))
+                .ToDictionary(version => version.ProductVersionId, version => version.DefaultTaxRate);
+            return Task.FromResult<IReadOnlyDictionary<Guid, decimal?>>(result);
+        }
+
         public IQueryable<ProductVersion> Query() => _versions.AsQueryable();
 
         public Task<ProductVersion?> GetByIdAsync(

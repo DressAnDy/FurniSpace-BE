@@ -41,6 +41,7 @@ internal static class CustomizationAcceptedProductVersionFactory
             Height = Coalesce(request.Height, customizationRequest.RequestedHeight, sourceVersion.Height),
             Depth = Coalesce(request.Depth, customizationRequest.RequestedDepth, sourceVersion.Depth),
             EstimatedPrice = request.EstimatedPrice ?? originalUnitPrice,
+            DefaultTaxRate = sourceVersion.DefaultTaxRate,
             IsDefault = false,
             IsPublic = false,
             IsProjectSpecific = true,

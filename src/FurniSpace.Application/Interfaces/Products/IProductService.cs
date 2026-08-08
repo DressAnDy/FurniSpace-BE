@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.Products;
 
 namespace FurniSpace.Application.Interfaces.Products;
@@ -49,5 +50,21 @@ public interface IProductService
         Guid productId,
         Guid currentUserId,
         UploadCatalogFileRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductLifecycleStatusResponseDto>> ActivateAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductLifecycleStatusResponseDto>> DeactivateAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductLifecycleStatusResponseDto>> ArchiveAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductLifecycleStatusResponseDto>> RestoreAsync(
+        Guid productId,
         CancellationToken cancellationToken = default);
 }

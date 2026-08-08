@@ -113,6 +113,38 @@ public sealed class ProductsController : BaseApiController
     }
 
     [Authorize(Roles = "ADMIN")]
+    [HttpPatch("{productId:guid}/activate")]
+    public async Task<IActionResult> Activate(Guid productId, CancellationToken cancellationToken = default)
+    {
+        var result = await _products.ActivateAsync(productId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("{productId:guid}/deactivate")]
+    public async Task<IActionResult> Deactivate(Guid productId, CancellationToken cancellationToken = default)
+    {
+        var result = await _products.DeactivateAsync(productId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("{productId:guid}/archive")]
+    public async Task<IActionResult> Archive(Guid productId, CancellationToken cancellationToken = default)
+    {
+        var result = await _products.ArchiveAsync(productId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("{productId:guid}/restore")]
+    public async Task<IActionResult> Restore(Guid productId, CancellationToken cancellationToken = default)
+    {
+        var result = await _products.RestoreAsync(productId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
     [HttpPost("{productId:guid}/files")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(MultipartRequestLimitBytes)]

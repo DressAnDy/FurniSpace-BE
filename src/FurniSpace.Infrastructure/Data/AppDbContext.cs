@@ -328,6 +328,9 @@ public class AppDbContext : DbContext
                 table.HasCheckConstraint(
                     "ck_product_versions_project_specific",
                     "(version_type = 'PROJECT_SPECIFIC'::product_version_type AND project_id IS NOT NULL AND is_project_specific = TRUE AND is_public = FALSE AND is_default = FALSE) OR version_type <> 'PROJECT_SPECIFIC'::product_version_type");
+                table.HasCheckConstraint(
+                    "ck_product_versions_default_tax_rate_range",
+                    "default_tax_rate IS NULL OR (default_tax_rate >= 0 AND default_tax_rate <= 100)");
             });
             entity.HasKey(e => e.ProductVersionId);
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
@@ -343,6 +346,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Height).HasColumnName(HeightColumnName).HasColumnType(Decimal10ColumnType);
             entity.Property(e => e.Depth).HasColumnName("depth").HasColumnType(Decimal10ColumnType);
             entity.Property(e => e.EstimatedPrice).HasColumnName("estimated_price").HasColumnType(Decimal12ColumnType);
+            entity.Property(e => e.DefaultTaxRate).HasColumnName("default_tax_rate").HasColumnType(TaxRateColumnType);
             entity.Property(e => e.IsDefault).HasColumnName("is_default").HasColumnType(BooleanColumnType).HasDefaultValue(false);
             entity.Property(e => e.IsPublic).HasColumnName("is_public").HasColumnType(BooleanColumnType).HasDefaultValue(true);
             entity.Property(e => e.IsProjectSpecific).HasColumnName("is_project_specific").HasColumnType(BooleanColumnType).HasDefaultValue(false);

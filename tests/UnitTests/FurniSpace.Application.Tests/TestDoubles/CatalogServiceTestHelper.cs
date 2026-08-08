@@ -32,10 +32,12 @@ public static class CatalogServiceTestHelper
         ProductPreviewImageSettings? previewSettings = null,
         ISearchIndexService? search = null,
         IProductSearchIndexer? productSearchIndexer = null,
-        IBusinessTypeRepository? businessTypes = null)
+        IBusinessTypeRepository? businessTypes = null,
+        ICatalogRepository? catalog = null)
     {
         return new ProductService(
             products,
+            catalog ?? new FakeCatalogRepository(),
             businessTypes ?? new AllowingBusinessTypeRepository(),
             files,
             new ProductServiceDependencies(
@@ -69,10 +71,12 @@ public static class CatalogServiceTestHelper
         IProjectFileRepository files,
         IFileStorageService? storage = null,
         ProductPreviewImageSettings? previewSettings = null,
-        IProductSearchIndexer? productSearchIndexer = null)
+        IProductSearchIndexer? productSearchIndexer = null,
+        ICatalogRepository? catalog = null)
     {
         return new ProductVersionService(
             productVersions,
+            catalog ?? new FakeCatalogRepository(),
             files,
             new ProductVersionFileUploadDependencies(
                 storage ?? new NoOpFileStorageService(),

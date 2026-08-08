@@ -301,6 +301,63 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task CreateDraftAsync_WhenProductVersionHasDefaultTaxRate_SnapshotsTaxOnItem()
+    {
+        var productVersionId = Guid.NewGuid();
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Coffee Counter",
+            Quantity = 1,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 100m
+        });
+        var service = BuildService(new()
+        {
+            Quotations = quotations,
+            Role = "SALES",
+            TaxRatesByVersionId = new Dictionary<Guid, decimal?> { [productVersionId] = 10m }
+        });
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(10m, quotations.AddedItems[0].TaxRate);
+        Assert.Equal(10m, quotations.AddedQuotations[0].TaxAmount);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenProductVersionTaxIsNull_UsesZeroTaxRate()
+    {
+        var productVersionId = Guid.NewGuid();
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Coffee Counter",
+            Quantity = 1,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 100m
+        });
+        var service = BuildService(new()
+        {
+            Quotations = quotations,
+            Role = "SALES",
+            TaxRatesByVersionId = new Dictionary<Guid, decimal?> { [productVersionId] = null }
+        });
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(0m, quotations.AddedItems[0].TaxRate);
+    }
+
+    [Fact]
     public async Task CreateDraftAsync_WhenProjectStatusInvalid_ReturnsProjectNotReady()
     {
         var project = MakeProject();
@@ -1598,6 +1655,9 @@ public sealed class QuotationServiceTests
         public FurniSpace.Infrastructure.Persistence.IUnitOfWork? UnitOfWork { get; init; }
 
         public INotificationDispatcher? Notifications { get; init; }
+
+        public IReadOnlyDictionary<Guid, decimal?> TaxRatesByVersionId { get; init; }
+            = new Dictionary<Guid, decimal?>();
     }
 
     private QuotationService BuildService(QuotationServiceTestOptions? options = null)
@@ -1616,6 +1676,7 @@ public sealed class QuotationServiceTests
             projectRepository,
             orderRepository,
             new FakeCustomizationRequestRepository(options.HasPendingCustomization),
+            new FakeProductVersionRepositoryForQuotation(options.TaxRatesByVersionId),
             new QuotationServiceDependencies(
                 options.UnitOfWork ?? TestUnitOfWork.Instance,
                 new OrderWorkflowSettings { DepositPercent = 30 },
@@ -2031,6 +2092,55 @@ public sealed class QuotationServiceTests
             Guid proposalId,
             Guid productVersionId,
             CancellationToken cancellationToken = default) => Task.FromResult(false);
+    }
+
+    private sealed class FakeProductVersionRepositoryForQuotation : IProductVersionRepository
+    {
+        private readonly IReadOnlyDictionary<Guid, decimal?> _taxRatesByVersionId;
+
+        public FakeProductVersionRepositoryForQuotation(IReadOnlyDictionary<Guid, decimal?> taxRatesByVersionId)
+        {
+            _taxRatesByVersionId = taxRatesByVersionId;
+        }
+
+        public Task<IReadOnlyDictionary<Guid, decimal?>> GetDefaultTaxRatesByIdsAsync(
+            IReadOnlyCollection<Guid> productVersionIds,
+            CancellationToken cancellationToken = default)
+        {
+            var result = productVersionIds
+                .Where(id => _taxRatesByVersionId.ContainsKey(id))
+                .ToDictionary(id => id, id => _taxRatesByVersionId[id]);
+            return Task.FromResult<IReadOnlyDictionary<Guid, decimal?>>(result);
+        }
+
+        public Task<bool> VersionCodeExistsAsync(string versionCode, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+        public Task<bool> ProductExistsAsync(Guid productId, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+        public Task<FurniSpace.Infrastructure.ReadModels.Products.ProductVersionDetailReadModel?> GetPublicDetailAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<FurniSpace.Infrastructure.ReadModels.Products.ProductVersionDetailReadModel?>(null);
+        public Task<IReadOnlyList<FurniSpace.Infrastructure.ReadModels.Products.ProductVersionDetailReadModel>> GetValidDetailsAsync(
+            IReadOnlyCollection<Guid> productVersionIds,
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<FurniSpace.Infrastructure.ReadModels.Products.ProductVersionDetailReadModel>>([]);
+        public Task SetDefaultAsync(ProductVersion productVersion, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+        public Task<int> CountProjectSpecificByProjectAsync(Guid projectId, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+        public IQueryable<ProductVersion> Query() => Enumerable.Empty<ProductVersion>().AsQueryable();
+        public Task<ProductVersion?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductVersion?>(null);
+        public Task<IReadOnlyList<ProductVersion>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProductVersion>>([]);
+        public Task AddAsync(ProductVersion entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddRangeAsync(IEnumerable<ProductVersion> entities, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+        public void Update(ProductVersion entity) { }
+        public void Remove(ProductVersion entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
 
     private sealed class FakeNotificationDispatcher : INotificationDispatcher

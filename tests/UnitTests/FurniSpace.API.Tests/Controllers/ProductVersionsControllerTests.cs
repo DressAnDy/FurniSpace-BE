@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Catalog;
 using FurniSpace.API.DTOs.Products;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
@@ -69,7 +70,7 @@ public sealed class ProductVersionsControllerTests
         };
         var service = new FakeProductVersionService(
             createResult: ServiceResult<ProductVersionDto>.Created(response, "Product version created successfully."));
-        var controller = new ProductVersionsController(service);
+        var controller = CreateController(service, Guid.NewGuid(), "ADMIN");
         var request = new CreateProductVersionRequestDto
         {
             VersionCode = "PV",
@@ -86,6 +87,7 @@ public sealed class ProductVersionsControllerTests
         Assert.Same(response, result.Data);
         Assert.Equal(productId, service.ProductId);
         Assert.Same(request, service.CreateRequest);
+        Assert.True(service.AllowTaxConfiguration);
     }
 
     [Fact]
@@ -298,6 +300,7 @@ public sealed class ProductVersionsControllerTests
         public Guid CurrentUserId { get; private set; }
         public Guid FileId { get; private set; }
         public CreateProductVersionRequestDto? CreateRequest { get; private set; }
+        public bool AllowTaxConfiguration { get; private set; }
         public UpdateProductVersionRequestDto? UpdateRequest { get; private set; }
         public UploadCatalogFileRequestDto? UploadFileRequest { get; private set; }
         public ReorderProductVersionPreviewFilesRequestDto? ReorderPreviewRequest { get; private set; }
@@ -305,10 +308,12 @@ public sealed class ProductVersionsControllerTests
         public Task<ServiceResult<ProductVersionDto>> CreateAsync(
             Guid productId,
             CreateProductVersionRequestDto request,
+            bool allowTaxConfiguration = false,
             CancellationToken cancellationToken = default)
         {
             ProductId = productId;
             CreateRequest = request;
+            AllowTaxConfiguration = allowTaxConfiguration;
             return Task.FromResult(_createResult);
         }
 
@@ -369,20 +374,65 @@ public sealed class ProductVersionsControllerTests
             FileId = fileId;
             return Task.FromResult(_deletePreviewResult);
         }
+
+        public Task<ServiceResult<ProductVersionListResponseDto>> GetListByProductAsync(
+            Guid productId,
+            ProductVersionListQueryDto query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductVersionListResponseDto>.Success(
+                new ProductVersionListResponseDto(),
+                string.Empty));
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ActivateAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
+                new ProductVersionLifecycleStatusResponseDto(),
+                "Product version lifecycle updated successfully."));
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> DeactivateAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
+                new ProductVersionLifecycleStatusResponseDto(),
+                "Product version lifecycle updated successfully."));
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> ArchiveAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
+                new ProductVersionLifecycleStatusResponseDto(),
+                "Product version lifecycle updated successfully."));
+
+        public Task<ServiceResult<ProductVersionLifecycleStatusResponseDto>> RestoreAsync(
+            Guid productVersionId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
+                new ProductVersionLifecycleStatusResponseDto(),
+                "Product version lifecycle updated successfully."));
     }
 
-    private static ProductVersionsController CreateController(FakeProductVersionService service, Guid currentUserId)
+    private static ProductVersionsController CreateController(
+        FakeProductVersionService service,
+        Guid currentUserId,
+        string? role = null)
     {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, currentUserId.ToString())
+        };
+        if (!string.IsNullOrWhiteSpace(role))
+        {
+            claims.Add(new Claim(ClaimTypes.Role, role));
+        }
+
         return new ProductVersionsController(service)
         {
             ControllerContext = new ControllerContext
             {
                 HttpContext = new DefaultHttpContext
                 {
-                    User = new ClaimsPrincipal(new ClaimsIdentity(
-                    [
-                        new Claim(ClaimTypes.NameIdentifier, currentUserId.ToString())
-                    ], "Test"))
+                    User = new ClaimsPrincipal(new ClaimsIdentity(claims, "Test"))
                 }
             }
         };

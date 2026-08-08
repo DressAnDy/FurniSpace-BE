@@ -4,6 +4,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 
@@ -145,4 +146,32 @@ internal sealed class FakeProductService : IProductService
         UploadFileRequest = request;
         return Task.FromResult(_uploadFileResult);
     }
+
+    public Task<ServiceResult<ProductLifecycleStatusResponseDto>> ActivateAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(ServiceResult<ProductLifecycleStatusResponseDto>.Success(
+            new ProductLifecycleStatusResponseDto(),
+            "Product lifecycle updated successfully."));
+
+    public Task<ServiceResult<ProductLifecycleStatusResponseDto>> DeactivateAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(ServiceResult<ProductLifecycleStatusResponseDto>.Success(
+            new ProductLifecycleStatusResponseDto(),
+            "Product lifecycle updated successfully."));
+
+    public Task<ServiceResult<ProductLifecycleStatusResponseDto>> ArchiveAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(ServiceResult<ProductLifecycleStatusResponseDto>.Success(
+            new ProductLifecycleStatusResponseDto(),
+            "Product lifecycle updated successfully."));
+
+    public Task<ServiceResult<ProductLifecycleStatusResponseDto>> RestoreAsync(
+        Guid productId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(ServiceResult<ProductLifecycleStatusResponseDto>.Success(
+            new ProductLifecycleStatusResponseDto(),
+            "Product lifecycle updated successfully."));
 }

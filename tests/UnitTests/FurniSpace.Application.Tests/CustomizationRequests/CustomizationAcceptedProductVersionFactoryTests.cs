@@ -115,6 +115,50 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
     }
 
     [Fact]
+    public void CreateFromDesignerRequest_InheritsDefaultTaxRateFromSource()
+    {
+        var sourceVersion = new ProductVersion
+        {
+            ProductId = Guid.NewGuid(),
+            DefaultTaxRate = 10m,
+            EstimatedPrice = 1000000m
+        };
+
+        var version = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
+            new CreateCustomizationRequestVersionDto { VersionName = "Custom" },
+            new CustomizationRequest { ProjectId = Guid.NewGuid() },
+            sourceVersion,
+            "PRJ-000001",
+            1,
+            "Custom",
+            null);
+
+        Assert.Equal(10m, version.DefaultTaxRate);
+    }
+
+    [Fact]
+    public void CreateFromDesignerRequest_WhenSourceTaxIsNull_KeepsNullDefaultTaxRate()
+    {
+        var sourceVersion = new ProductVersion
+        {
+            ProductId = Guid.NewGuid(),
+            DefaultTaxRate = null,
+            EstimatedPrice = 1000000m
+        };
+
+        var version = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
+            new CreateCustomizationRequestVersionDto { VersionName = "Custom" },
+            new CustomizationRequest { ProjectId = Guid.NewGuid() },
+            sourceVersion,
+            "PRJ-000001",
+            1,
+            "Custom",
+            null);
+
+        Assert.Null(version.DefaultTaxRate);
+    }
+
+    [Fact]
     public void ToCreateVersionResponse_MapsVersionAndProductVersion()
     {
         var requestId = Guid.NewGuid();

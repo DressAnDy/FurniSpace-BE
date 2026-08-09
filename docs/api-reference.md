@@ -34,6 +34,7 @@ Complete HTTP + SignalR API reference for FurniSpace backend.
 18. [Chat](#18-chat)
 19. [Notifications](#19-notifications)
 20. [Payments](#20-payments)
+20a. [Admin Financial Dashboard](#20a-admin-financial-dashboard)
 21. [Production](#21-production)
 22. [SignalR hubs](#22-signalr-hubs)
 23. [Enums](#23-enums)
@@ -2012,6 +2013,97 @@ See §13: `POST /orders/{id}/payments/deposit` and `.../remaining`.
 | `PaymentTransactionStatus` | `PENDING`, `SUCCESS`, `FAILED`, `CANCELLED` |
 
 Realtime: `/hubs/payments` (§22).
+
+---
+
+## 20a. Admin Financial Dashboard
+
+Admin financial APIs are read-only operational dashboard endpoints. They do not mutate Payment, Order, Project, Quotation, or PaymentTransaction state.
+
+### `GET /admin/financial/summary`
+
+**Roles:** ADMIN
+
+Returns collected cash and core financial obligation metrics for the requested reporting period.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `period` | `THIS_MONTH` / `THIS_YEAR` / `CUSTOM` | `THIS_MONTH` | Case-insensitive |
+| `from` | DateTimeOffset? | null | Required when `period=CUSTOM` |
+| `to` | DateTimeOffset? | null | Required when `period=CUSTOM`; date-only midnight is treated as the full local day |
+| `currency` | string? | `VND` | P0 supports `VND`; unsupported values return `FINANCIAL_CURRENCY_INVALID` |
+
+Reporting timezone is always `Asia/Ho_Chi_Minh`. Backend resolves local business boundaries and queries UTC timestamps using a half-open interval internally.
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Admin financial summary retrieved successfully.",
+  "data": {
+    "period": {
+      "type": "CUSTOM",
+      "from": "2026-07-01T00:00:00+07:00",
+      "to": "2026-09-30T23:59:59.9999999+07:00",
+      "timezone": "Asia/Ho_Chi_Minh"
+    },
+    "currency": "VND",
+    "collectedAmount": 0,
+    "outstandingPaymentAmount": 0,
+    "contractedReceivableAmount": 0,
+    "orderCommercialValue": 0,
+    "failedTransactionCount": 0,
+    "activePaymentCount": 0
+  }
+}
+```
+
+#### Metric Semantics
+
+| Field | Meaning |
+| --- | --- |
+| `collectedAmount` | Sum of actual successful canonical Payments in the period |
+| `outstandingPaymentAmount` | Sum of currently active collectible Payment obligations |
+| `contractedReceivableAmount` | Sum of active Order `remainingAmount`; separate from outstanding payment |
+| `orderCommercialValue` | Sum of confirmed Order `finalTotalAmount` in the period; not accounting revenue |
+| `failedTransactionCount` | Count of failed PaymentTransaction rows in the period |
+| `activePaymentCount` | Count of currently active collectible Payment obligations |
+
+Collected cash includes only:
+
+- `PROJECT_START_FEE`
+- `DEPOSIT`
+- `REMAINING_PAYMENT`
+
+Collected cash excludes:
+
+- `FULL_PAYMENT`
+- `REFUND`
+- `OTHER`
+- standalone `PaymentTransaction.SUCCESS` amounts
+- `Payment.status = PAID` rows without `paidAt`
+
+Period fields:
+
+| Metric | Date field |
+| --- | --- |
+| Collected cash | `payments.paid_at` |
+| Order commercial value | `orders.confirmed_at` |
+| Failed transactions | `payment_transactions.created_at` |
+| Outstanding payment | current-state; not period-filtered |
+| Contracted receivable | current-state; not period-filtered |
+
+#### Error Codes
+
+| HTTP | `errorCode` | Trigger |
+| --- | --- | --- |
+| 400 | `FINANCIAL_PERIOD_INVALID` | Unsupported `period` |
+| 400 | `FINANCIAL_DATE_RANGE_INVALID` | Missing custom range or `from > to` |
+| 400 | `FINANCIAL_CURRENCY_INVALID` | Unsupported currency |
+| 401/403 | auth result | Non-admin or unauthenticated request |
 
 ---
 

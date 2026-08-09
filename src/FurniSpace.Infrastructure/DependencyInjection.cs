@@ -66,6 +66,7 @@ public static class DependencyInjection
         services.AddElasticsearch(configuration);
         services.AddMongoRoomPlanner();
         services.AddScoped<IAccountRepository, AccountRepository>();
+        services.AddScoped<IAdminReportRepository, AdminReportRepository>();
         services.AddScoped<IBusinessTypeRepository, BusinessTypeRepository>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IProductRepository, ProductRepository>();

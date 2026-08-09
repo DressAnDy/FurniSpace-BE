@@ -166,12 +166,12 @@ public sealed class AccountService : IAccountService
     {
         if (query.Page < 1)
         {
-            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest("Page must be greater than zero.");
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(PageMustBeGreaterThanZero);
         }
 
         if (query.PageSize is < 1 or > 100)
         {
-            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest("Page size must be between 1 and 100.");
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(PageSizeMustBeBetween1And100);
         }
 
         var normalizedSearch = NormalizeOptional(query.Search);
@@ -200,12 +200,12 @@ public sealed class AccountService : IAccountService
     {
         if (query.Page < 1)
         {
-            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest("Page must be greater than zero.");
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(PageMustBeGreaterThanZero);
         }
 
         if (query.PageSize is < 1 or > 100)
         {
-            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest("Page size must be between 1 and 100.");
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(PageSizeMustBeBetween1And100);
         }
 
         var capacityStateError = ValidateCapacityState(query.CapacityState);
@@ -272,12 +272,12 @@ public sealed class AccountService : IAccountService
 
         if (query.Page < 1)
         {
-            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest("Page must be greater than zero.");
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest(PageMustBeGreaterThanZero);
         }
 
         if (query.PageSize is < 1 or > 100)
         {
-            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest("Page size must be between 1 and 100.");
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest(PageSizeMustBeBetween1And100);
         }
 
         var bucketError = ValidateBucket(query.Bucket);
@@ -337,12 +337,12 @@ public sealed class AccountService : IAccountService
     {
         if (query.Page < 1)
         {
-            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest("Page must be greater than zero.");
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest(PageMustBeGreaterThanZero);
         }
 
         if (query.PageSize is < 1 or > 100)
         {
-            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest("Page size must be between 1 and 100.");
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest(PageSizeMustBeBetween1And100);
         }
 
         var capacityStateError = ValidateSalesCapacityState(query.CapacityState);
@@ -363,13 +363,16 @@ public sealed class AccountService : IAccountService
         var normalizedPressureState = NormalizeOptional(query.FuturePressureState)?.ToUpperInvariant();
 
         var sales = await _accounts.GetSalesWorkloadAsync(
-            query.Page,
-            query.PageSize,
-            MaxActiveSalesProjects,
-            normalizedSearch,
-            normalizedCapacityState,
-            normalizedPressureState,
-            sortBy,
+            new SalesWorkloadListQuery
+            {
+                Page = query.Page,
+                PageSize = query.PageSize,
+                MaxActiveProjects = MaxActiveSalesProjects,
+                Search = normalizedSearch,
+                CapacityState = normalizedCapacityState,
+                FuturePressureState = normalizedPressureState,
+                SortBy = sortBy
+            },
             cancellationToken);
         var totalItems = await _accounts.CountSalesWorkloadAsync(
             MaxActiveSalesProjects,
@@ -414,12 +417,12 @@ public sealed class AccountService : IAccountService
 
         if (query.Page < 1)
         {
-            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest("Page must be greater than zero.");
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest(PageMustBeGreaterThanZero);
         }
 
         if (query.PageSize is < 1 or > 100)
         {
-            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest("Page size must be between 1 and 100.");
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest(PageSizeMustBeBetween1And100);
         }
 
         var bucketError = ValidateSalesBucket(query.Bucket);
@@ -473,12 +476,12 @@ public sealed class AccountService : IAccountService
     {
         if (query.Page < 1)
         {
-            return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.BadRequest("Page must be greater than zero.");
+            return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.BadRequest(PageMustBeGreaterThanZero);
         }
 
         if (query.PageSize is < 1 or > 100)
         {
-            return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.BadRequest("Page size must be between 1 and 100.");
+            return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.BadRequest(PageSizeMustBeBetween1And100);
         }
 
         var projects = await _accounts.GetUnassignedIntakeProjectsAsync(query.Page, query.PageSize, cancellationToken);
@@ -512,12 +515,12 @@ public sealed class AccountService : IAccountService
     {
         if (page < 1)
         {
-            return ServiceResult<PagedResult<AccountDto>>.BadRequest("Page must be greater than zero.");
+            return ServiceResult<PagedResult<AccountDto>>.BadRequest(PageMustBeGreaterThanZero);
         }
 
         if (pageSize is < 1 or > 100)
         {
-            return ServiceResult<PagedResult<AccountDto>>.BadRequest("Page size must be between 1 and 100.");
+            return ServiceResult<PagedResult<AccountDto>>.BadRequest(PageSizeMustBeBetween1And100);
         }
 
         if (!TryNormalizeStatus(status, out var normalizedStatus))

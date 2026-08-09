@@ -50,13 +50,7 @@ public interface IAccountRepository : IGenericRepository<Account>
         CancellationToken cancellationToken = default);
     Task<bool> IsActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<SalesWorkloadItemReadModel>> GetSalesWorkloadAsync(
-        int page,
-        int pageSize,
-        int maxActiveProjects,
-        string? search,
-        string? capacityState,
-        string? futurePressureState,
-        string sortBy,
+        SalesWorkloadListQuery query,
         CancellationToken cancellationToken = default);
     Task<int> CountSalesWorkloadAsync(
         int maxActiveProjects,

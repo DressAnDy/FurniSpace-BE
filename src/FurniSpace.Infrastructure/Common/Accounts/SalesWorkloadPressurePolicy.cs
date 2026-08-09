@@ -146,25 +146,17 @@ public static class SalesWorkloadPressurePolicy
         };
     }
 
-    public static decimal ComputeFuturePressureScore(
-        int measurementRequiredCount,
-        int spaceVerifiedCount,
-        int proposalConsultingCount,
-        int inProductionCount,
-        int productionBlockedCount,
-        int readyForDeliveryCount,
-        int deliveringCount,
-        int deliveredCount)
+    public static decimal ComputeFuturePressureScore(SalesFuturePressureCounts counts)
     {
         return
-            measurementRequiredCount * WeightMeasurementRequired +
-            spaceVerifiedCount * WeightSpaceVerified +
-            proposalConsultingCount * WeightProposalConsulting +
-            inProductionCount * WeightInProduction +
-            productionBlockedCount * WeightProductionBlocked +
-            readyForDeliveryCount * WeightReadyForDelivery +
-            deliveringCount * WeightDelivering +
-            deliveredCount * WeightDelivered;
+            counts.MeasurementRequiredCount * WeightMeasurementRequired +
+            counts.SpaceVerifiedCount * WeightSpaceVerified +
+            counts.ProposalConsultingCount * WeightProposalConsulting +
+            counts.InProductionCount * WeightInProduction +
+            counts.ProductionBlockedCount * WeightProductionBlocked +
+            counts.ReadyForDeliveryCount * WeightReadyForDelivery +
+            counts.DeliveringCount * WeightDelivering +
+            counts.DeliveredCount * WeightDelivered;
     }
 
     public static string ResolveBucket(ProjectStatus? status)

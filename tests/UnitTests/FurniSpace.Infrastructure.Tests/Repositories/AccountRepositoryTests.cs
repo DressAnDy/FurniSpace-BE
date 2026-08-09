@@ -181,6 +181,50 @@ public sealed class AccountRepositoryTests
     }
 
     [Fact]
+    public async Task GetDesignerWorkloadAsync_SortsByAvailableSlotDesc()
+    {
+        await using var context = CreateContext();
+        await SeedAsync(context);
+        var repository = new AccountRepository(context);
+
+        var items = await repository.GetDesignerWorkloadAsync(
+            page: 1,
+            pageSize: 20,
+            maxActiveProjects: 2,
+            search: null,
+            capacityState: null,
+            sortBy: "AvailableSlotDesc");
+
+        Assert.True(items.Count >= 2);
+        Assert.True(items[0].AvailableSlot >= items[^1].AvailableSlot);
+    }
+
+    [Fact]
+    public async Task GetDesignerAssignedProjectsAsync_FiltersPostDesignAndTerminalBuckets()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new AccountRepository(context);
+
+        var postDesign = await repository.GetDesignerAssignedProjectsAsync(
+            data.DesignerPostDesignOnlyId,
+            page: 1,
+            pageSize: 10,
+            bucket: DesignerWorkloadStatusSets.BucketPostDesign);
+        Assert.NotEmpty(postDesign);
+        Assert.All(postDesign, project =>
+            Assert.Contains(project.Status!.Value, DesignerWorkloadStatusSets.PostDesign));
+
+        var terminalCount = await repository.CountDesignerAssignedProjectsAsync(
+            data.DesignerOverCapacityId,
+            bucket: DesignerWorkloadStatusSets.BucketTerminal);
+        Assert.Equal(0, terminalCount);
+
+        Assert.True(await repository.IsActiveDesignerAsync(data.DesignerOverCapacityId));
+        Assert.False(await repository.IsActiveDesignerAsync(Guid.NewGuid()));
+    }
+
+    [Fact]
     public void BuildSearchPattern_TrimsInputAndWrapsWithWildcards()
     {
         var method = typeof(AccountRepository).GetMethod(

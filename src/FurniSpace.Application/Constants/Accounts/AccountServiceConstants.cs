@@ -19,6 +19,8 @@ internal static class AccountServiceConstants
     internal const string UnassignedIntakeProjectsRetrievedMessage = "Unassigned intake projects retrieved successfully.";
     internal const int MaxActiveDesignerProjects = 2;
     internal const int MaxActiveSalesProjects = 5;
+    internal const string PageMustBeGreaterThanZero = "Page must be greater than zero.";
+    internal const string PageSizeMustBeBetween1And100 = "Page size must be between 1 and 100.";
     internal const string SortDesignActiveCountDesc = "DesignActiveCountDesc";
     internal const string SortAvailableSlotDesc = "AvailableSlotDesc";
     internal const string SortFuturePressureScoreDesc = "FuturePressureScoreDesc";

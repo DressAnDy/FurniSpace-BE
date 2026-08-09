@@ -930,8 +930,8 @@ public sealed class AccountServiceTests
             Task.FromResult(true);
 
         public Task<IReadOnlyList<SalesWorkloadItemReadModel>> GetSalesWorkloadAsync(
-            int page, int pageSize, int maxActiveProjects, string? search, string? capacityState,
-            string? futurePressureState, string sortBy, CancellationToken cancellationToken = default) =>
+            SalesWorkloadListQuery query,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<SalesWorkloadItemReadModel>>([]);
 
         public Task<int> CountSalesWorkloadAsync(

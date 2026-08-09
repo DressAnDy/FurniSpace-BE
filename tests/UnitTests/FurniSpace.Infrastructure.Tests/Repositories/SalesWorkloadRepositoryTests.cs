@@ -5,6 +5,7 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Accounts;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -20,14 +21,13 @@ public sealed class SalesWorkloadRepositoryTests
         var data = await SeedAsync(context);
         var repository = new AccountRepository(context);
 
-        var items = await repository.GetSalesWorkloadAsync(
-            page: 1,
-            pageSize: 10,
-            maxActiveProjects: 5,
-            search: null,
-            capacityState: null,
-            futurePressureState: null,
-            sortBy: "FuturePressureScoreDesc");
+        var items = await repository.GetSalesWorkloadAsync(new SalesWorkloadListQuery
+        {
+            Page = 1,
+            PageSize = 10,
+            MaxActiveProjects = 5,
+            SortBy = "FuturePressureScoreDesc"
+        });
 
         var highPressure = Assert.Single(items, item => item.AccountId == data.SalesHighPressureId);
         Assert.Equal(0, highPressure.SalesActiveCount);
@@ -87,6 +87,114 @@ public sealed class SalesWorkloadRepositoryTests
         Assert.Equal(
             SalesWorkloadPressurePolicy.BucketDesignMonitor,
             SalesWorkloadPressurePolicy.ResolveBucket(ProjectStatus.PROPOSAL_CONSULTING));
+    }
+
+    [Fact]
+    public async Task GetSalesWorkloadAsync_FiltersByCapacityAndPressureState()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new AccountRepository(context);
+
+        var high = await repository.GetSalesWorkloadAsync(new SalesWorkloadListQuery
+        {
+            Page = 1,
+            PageSize = 10,
+            MaxActiveProjects = 5,
+            CapacityState = SalesWorkloadPressurePolicy.CapacityAvailableNow,
+            FuturePressureState = SalesWorkloadPressurePolicy.PressureHigh,
+            SortBy = "FuturePressureScoreDesc"
+        });
+
+        var item = Assert.Single(high);
+        Assert.Equal(data.SalesHighPressureId, item.AccountId);
+    }
+
+    [Fact]
+    public async Task GetSalesWorkloadAsync_SortsBySalesActiveCountDesc()
+    {
+        await using var context = CreateContext();
+        await SeedAsync(context);
+        var repository = new AccountRepository(context);
+
+        var items = await repository.GetSalesWorkloadAsync(new SalesWorkloadListQuery
+        {
+            Page = 1,
+            PageSize = 10,
+            MaxActiveProjects = 5,
+            SortBy = "SalesActiveCountDesc"
+        });
+
+        Assert.Equal(2, items.Count);
+        Assert.True(items[0].SalesActiveCount >= items[1].SalesActiveCount);
+    }
+
+    [Fact]
+    public async Task GetSalesWorkloadAsync_SortsByAvailableSlotAsc()
+    {
+        await using var context = CreateContext();
+        await SeedAsync(context);
+        var repository = new AccountRepository(context);
+
+        var items = await repository.GetSalesWorkloadAsync(new SalesWorkloadListQuery
+        {
+            Page = 1,
+            PageSize = 10,
+            MaxActiveProjects = 5,
+            SortBy = "AvailableSlotAsc"
+        });
+
+        Assert.Equal(2, items.Count);
+        Assert.True(items[0].AvailableSlot <= items[1].AvailableSlot);
+    }
+
+    [Fact]
+    public async Task GetSalesAssignedProjectsAsync_FiltersBuckets()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new AccountRepository(context);
+
+        var intake = await repository.GetSalesAssignedProjectsAsync(
+            data.SalesBusyId, page: 1, pageSize: 20, bucket: SalesWorkloadPressurePolicy.BucketIntake);
+        Assert.Equal(2, intake.Count);
+        Assert.All(intake, project =>
+            Assert.Contains(project.Status!.Value, SalesWorkloadPressurePolicy.IntakeActive));
+
+        var commercial = await repository.GetSalesAssignedProjectsAsync(
+            data.SalesBusyId, page: 1, pageSize: 20, bucket: SalesWorkloadPressurePolicy.BucketCommercial);
+        Assert.Single(commercial);
+
+        var designMonitor = await repository.GetSalesAssignedProjectsAsync(
+            data.SalesBusyId, page: 1, pageSize: 20, bucket: SalesWorkloadPressurePolicy.BucketDesignMonitor);
+        Assert.Single(designMonitor);
+
+        var currentActive = await repository.GetSalesAssignedProjectsAsync(
+            data.SalesBusyId, page: 1, pageSize: 20, bucket: SalesWorkloadPressurePolicy.BucketCurrentActive);
+        Assert.Equal(3, currentActive.Count);
+
+        var highPressure = await repository.GetSalesAssignedProjectsAsync(
+            data.SalesHighPressureId, page: 1, pageSize: 20, bucket: "HIGH_PRESSURE_SOURCE");
+        Assert.Equal(3, highPressure.Count);
+
+        var terminal = await repository.GetSalesAssignedProjectsAsync(
+            data.SalesBusyId, page: 1, pageSize: 20, bucket: SalesWorkloadPressurePolicy.BucketTerminal);
+        Assert.Single(terminal);
+
+        var count = await repository.CountSalesAssignedProjectsAsync(
+            data.SalesBusyId, bucket: SalesWorkloadPressurePolicy.BucketIntake);
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public async Task IsActiveSalesAsync_ReturnsTrueOnlyForActiveSales()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new AccountRepository(context);
+
+        Assert.True(await repository.IsActiveSalesAsync(data.SalesBusyId));
+        Assert.False(await repository.IsActiveSalesAsync(Guid.NewGuid()));
     }
 
     private static AppDbContext CreateContext()

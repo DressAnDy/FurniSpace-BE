@@ -13,9 +13,7 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
 {
     private const string DesignerRoleName = "DESIGNER";
     private const string SalesRoleName = "SALES";
-    private const string SortDesignActiveCountDesc = "DesignActiveCountDesc";
     private const string SortAvailableSlotDesc = "AvailableSlotDesc";
-    private const string SortFuturePressureScoreDesc = "FuturePressureScoreDesc";
     private const string SortSalesActiveCountDesc = "SalesActiveCountDesc";
     private const string SortAvailableSlotAsc = "AvailableSlotAsc";
 
@@ -195,21 +193,19 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
     }
 
     public async Task<IReadOnlyList<SalesWorkloadItemReadModel>> GetSalesWorkloadAsync(
-        int page,
-        int pageSize,
-        int maxActiveProjects,
-        string? search,
-        string? capacityState,
-        string? futurePressureState,
-        string sortBy,
+        SalesWorkloadListQuery query,
         CancellationToken cancellationToken = default)
     {
-        var query = BuildSalesWorkloadQuery(maxActiveProjects, search, capacityState, futurePressureState);
-        query = ApplySalesWorkloadSort(query, sortBy);
+        var workload = BuildSalesWorkloadQuery(
+            query.MaxActiveProjects,
+            query.Search,
+            query.CapacityState,
+            query.FuturePressureState);
+        workload = ApplySalesWorkloadSort(workload, query.SortBy);
 
-        return await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+        return await workload
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
             .ToListAsync(cancellationToken);
     }
 
@@ -514,13 +510,19 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         string? capacityState,
         string? futurePressureState)
     {
+        var query = ProjectActiveSalesWorkload(maxActiveProjects);
+        return ApplySalesWorkloadFilters(query, search, capacityState, futurePressureState);
+    }
+
+    private IQueryable<SalesWorkloadItemReadModel> ProjectActiveSalesWorkload(int maxActiveProjects)
+    {
         var intakeStatuses = SalesWorkloadPressurePolicy.IntakeActive;
         var commercialStatuses = SalesWorkloadPressurePolicy.CommercialActive;
         var designMonitorStatuses = SalesWorkloadPressurePolicy.DesignMonitor;
         var fulfillmentStatuses = SalesWorkloadPressurePolicy.Fulfillment;
         var lifecycleStatuses = SalesWorkloadPressurePolicy.LifecycleAssigned;
 
-        var query =
+        return
             from account in Query()
             join role in DbContext.RoleSet on account.RoleId equals role.RoleId
             where role.RoleName == SalesRoleName &&
@@ -618,7 +620,14 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 CreatedAt = account.CreatedAt,
                 UpdatedAt = account.UpdatedAt
             };
+    }
 
+    private static IQueryable<SalesWorkloadItemReadModel> ApplySalesWorkloadFilters(
+        IQueryable<SalesWorkloadItemReadModel> query,
+        string? search,
+        string? capacityState,
+        string? futurePressureState)
+    {
         if (!string.IsNullOrWhiteSpace(search))
         {
             var pattern = BuildSearchPattern(search);

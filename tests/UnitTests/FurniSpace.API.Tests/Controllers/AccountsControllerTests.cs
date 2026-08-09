@@ -218,6 +218,272 @@ public sealed class AccountsControllerTests
     }
 
     [Fact]
+    public void GetDesignerWorkload_RequiresAdminRole()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(AccountsController.GetDesignerWorkload));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public void GetDesignerWorkload_UsesAdminWorkloadRoute()
+    {
+        var method = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetDesignerWorkload));
+
+        var route = method.GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+
+        Assert.Equal("/admin/designers/workload", route.Template);
+    }
+
+    [Fact]
+    public void GetDesignerWorkloadSummary_UsesSummaryRoute()
+    {
+        var method = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetDesignerWorkloadSummary));
+
+        var route = method.GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+
+        Assert.Equal("/admin/designers/workload/summary", route.Template);
+    }
+
+    [Fact]
+    public void GetDesignerAssignedProjects_UsesDesignerProjectsRoute()
+    {
+        var method = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetDesignerAssignedProjects));
+
+        var route = method.GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+
+        Assert.Equal("/admin/designers/{designerId:guid}/projects", route.Template);
+    }
+
+    [Fact]
+    public void GetSalesWorkload_RequiresAdminRoleAndUsesRoute()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(AccountsController.GetSalesWorkload));
+        Assert.NotNull(authorize);
+        Assert.Equal("ADMIN", authorize.Roles);
+
+        var route = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetSalesWorkload))
+            .GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+        Assert.Equal("/admin/sales/workload", route.Template);
+    }
+
+    [Fact]
+    public void GetSalesWorkloadSummary_UsesSummaryRoute()
+    {
+        var route = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetSalesWorkloadSummary))
+            .GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+        Assert.Equal("/admin/sales/workload/summary", route.Template);
+    }
+
+    [Fact]
+    public void GetSalesAssignedProjects_UsesSalesProjectsRoute()
+    {
+        var route = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetSalesAssignedProjects))
+            .GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+        Assert.Equal("/admin/sales/{salesId:guid}/projects", route.Template);
+    }
+
+    [Fact]
+    public void GetUnassignedIntakeProjects_UsesUnassignedIntakeRoute()
+    {
+        var route = typeof(AccountsController)
+            .GetMethods()
+            .Single(methodInfo => methodInfo.Name == nameof(AccountsController.GetUnassignedIntakeProjects))
+            .GetCustomAttributes(typeof(HttpGetAttribute), inherit: false)
+            .Cast<HttpGetAttribute>()
+            .Single();
+        Assert.Equal("/admin/sales/unassigned-intake", route.Template);
+    }
+
+    [Fact]
+    public async Task GetDesignerWorkload_ReturnsServiceResultThroughBaseController()
+    {
+        var response = PagedResult<AvailableDesignerDto>.Create(
+            [new AvailableDesignerDto { AccountId = Guid.NewGuid(), FullName = "Designer" }],
+            page: 1,
+            pageSize: 20,
+            totalItems: 1);
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            designerWorkloadResult: ServiceResult<PagedResult<AvailableDesignerDto>>.Success(response));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetDesignerWorkload(
+            page: 1,
+            pageSize: 20,
+            search: "Des",
+            capacityState: "AVAILABLE",
+            sortBy: "AvailableSlotDesc");
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.NotNull(service.DesignerWorkloadQuery);
+        Assert.Equal("AVAILABLE", service.DesignerWorkloadQuery.CapacityState);
+        Assert.Equal("AvailableSlotDesc", service.DesignerWorkloadQuery.SortBy);
+    }
+
+    [Fact]
+    public async Task GetDesignerWorkloadSummary_ReturnsServiceResultThroughBaseController()
+    {
+        var summary = new DesignerWorkloadSummaryDto { TotalActiveDesigners = 4, AvailableCount = 2 };
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            designerWorkloadSummaryResult: ServiceResult<DesignerWorkloadSummaryDto>.Success(summary));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetDesignerWorkloadSummary();
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        var result = Assert.IsType<ServiceResult<DesignerWorkloadSummaryDto>>(objectResult.Value);
+        Assert.Same(summary, result.Data);
+    }
+
+    [Fact]
+    public async Task GetDesignerAssignedProjects_ReturnsServiceResultThroughBaseController()
+    {
+        var designerId = Guid.NewGuid();
+        var response = PagedResult<DesignerAssignedProjectDto>.Create(
+            [new DesignerAssignedProjectDto { ProjectCode = "PRJ-1", Bucket = "DESIGN_ACTIVE" }],
+            page: 1,
+            pageSize: 10,
+            totalItems: 1);
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            designerAssignedProjectsResult: ServiceResult<PagedResult<DesignerAssignedProjectDto>>.Success(response));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetDesignerAssignedProjects(
+            designerId,
+            page: 1,
+            pageSize: 10,
+            bucket: "DESIGN_ACTIVE");
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(designerId, service.DesignerId);
+        Assert.NotNull(service.DesignerAssignedProjectQuery);
+        Assert.Equal("DESIGN_ACTIVE", service.DesignerAssignedProjectQuery.Bucket);
+    }
+
+    [Fact]
+    public async Task GetSalesWorkload_ReturnsServiceResultThroughBaseController()
+    {
+        var response = PagedResult<SalesWorkloadItemDto>.Create(
+            [new SalesWorkloadItemDto { FullName = "Sales", CapacityState = "AVAILABLE_NOW" }],
+            page: 1,
+            pageSize: 20,
+            totalItems: 1);
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            salesWorkloadResult: ServiceResult<PagedResult<SalesWorkloadItemDto>>.Success(response));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetSalesWorkload(
+            page: 1,
+            pageSize: 20,
+            search: "Sales",
+            capacityState: "AVAILABLE_NOW",
+            futurePressureState: "HIGH",
+            sortBy: "FuturePressureScoreDesc");
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.NotNull(service.SalesWorkloadQuery);
+        Assert.Equal("HIGH", service.SalesWorkloadQuery.FuturePressureState);
+        Assert.Equal("AVAILABLE_NOW", service.SalesWorkloadQuery.CapacityState);
+    }
+
+    [Fact]
+    public async Task GetSalesWorkloadSummary_ReturnsServiceResultThroughBaseController()
+    {
+        var summary = new SalesWorkloadSummaryDto { TotalActiveSales = 3, UnassignedIntakeCount = 2 };
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            salesWorkloadSummaryResult: ServiceResult<SalesWorkloadSummaryDto>.Success(summary));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetSalesWorkloadSummary();
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        var result = Assert.IsType<ServiceResult<SalesWorkloadSummaryDto>>(objectResult.Value);
+        Assert.Same(summary, result.Data);
+    }
+
+    [Fact]
+    public async Task GetSalesAssignedProjects_ReturnsServiceResultThroughBaseController()
+    {
+        var salesId = Guid.NewGuid();
+        var response = PagedResult<SalesAssignedProjectDto>.Create(
+            [new SalesAssignedProjectDto { ProjectCode = "PRJ-S", Bucket = "INTAKE" }],
+            page: 1,
+            pageSize: 20,
+            totalItems: 1);
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            salesAssignedProjectsResult: ServiceResult<PagedResult<SalesAssignedProjectDto>>.Success(response));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetSalesAssignedProjects(
+            salesId,
+            page: 1,
+            pageSize: 20,
+            bucket: "HIGH_PRESSURE_SOURCE");
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(salesId, service.SalesId);
+        Assert.NotNull(service.SalesAssignedProjectQuery);
+        Assert.Equal("HIGH_PRESSURE_SOURCE", service.SalesAssignedProjectQuery.Bucket);
+    }
+
+    [Fact]
+    public async Task GetUnassignedIntakeProjects_ReturnsServiceResultThroughBaseController()
+    {
+        var response = PagedResult<UnassignedIntakeProjectDto>.Create(
+            [new UnassignedIntakeProjectDto { ProjectCode = "PRJ-U", BusinessType = "Cafe" }],
+            page: 1,
+            pageSize: 20,
+            totalItems: 1);
+        var service = new FakeAccountService(
+            ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
+            unassignedIntakeResult: ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.Success(response));
+        var controller = new AccountsController(service);
+
+        var actionResult = await controller.GetUnassignedIntakeProjects(page: 1, pageSize: 20);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.NotNull(service.UnassignedIntakeQuery);
+        Assert.Equal(1, service.UnassignedIntakeQuery.Page);
+        Assert.Equal(20, service.UnassignedIntakeQuery.PageSize);
+    }
+
+    [Fact]
     public async Task GetAvailableDesigners_ReturnsServiceResultThroughBaseController()
     {
         var response = PagedResult<AvailableDesignerDto>.Create(
@@ -416,6 +682,13 @@ public sealed class AccountsControllerTests
         private readonly ServiceResult<AccountDetailDto> _adminDetailResult;
         private readonly ServiceResult<MyProfileDto> _updateProfileResult;
         private readonly ServiceResult<PagedResult<AvailableDesignerDto>> _availableDesignersResult;
+        private readonly ServiceResult<PagedResult<AvailableDesignerDto>> _designerWorkloadResult;
+        private readonly ServiceResult<DesignerWorkloadSummaryDto> _designerWorkloadSummaryResult;
+        private readonly ServiceResult<PagedResult<DesignerAssignedProjectDto>> _designerAssignedProjectsResult;
+        private readonly ServiceResult<PagedResult<SalesWorkloadItemDto>> _salesWorkloadResult;
+        private readonly ServiceResult<SalesWorkloadSummaryDto> _salesWorkloadSummaryResult;
+        private readonly ServiceResult<PagedResult<SalesAssignedProjectDto>> _salesAssignedProjectsResult;
+        private readonly ServiceResult<PagedResult<UnassignedIntakeProjectDto>> _unassignedIntakeResult;
         private readonly ServiceResult<AccountDto> _createResult;
         private readonly ServiceResult<AccountDto> _getByIdResult;
         private readonly ServiceResult<PagedResult<AccountDto>> _pagedResult;
@@ -428,6 +701,13 @@ public sealed class AccountsControllerTests
             ServiceResult<AccountDetailDto> adminDetailResult,
             ServiceResult<MyProfileDto>? updateProfileResult = null,
             ServiceResult<PagedResult<AvailableDesignerDto>>? availableDesignersResult = null,
+            ServiceResult<PagedResult<AvailableDesignerDto>>? designerWorkloadResult = null,
+            ServiceResult<DesignerWorkloadSummaryDto>? designerWorkloadSummaryResult = null,
+            ServiceResult<PagedResult<DesignerAssignedProjectDto>>? designerAssignedProjectsResult = null,
+            ServiceResult<PagedResult<SalesWorkloadItemDto>>? salesWorkloadResult = null,
+            ServiceResult<SalesWorkloadSummaryDto>? salesWorkloadSummaryResult = null,
+            ServiceResult<PagedResult<SalesAssignedProjectDto>>? salesAssignedProjectsResult = null,
+            ServiceResult<PagedResult<UnassignedIntakeProjectDto>>? unassignedIntakeResult = null,
             ServiceResult<AccountDto>? createResult = null,
             ServiceResult<AccountDto>? getByIdResult = null,
             ServiceResult<PagedResult<AccountDto>>? pagedResult = null,
@@ -441,6 +721,25 @@ public sealed class AccountsControllerTests
             _availableDesignersResult = availableDesignersResult ??
                 ServiceResult<PagedResult<AvailableDesignerDto>>.Success(
                     PagedResult<AvailableDesignerDto>.Create([], page: 1, pageSize: 10, totalItems: 0));
+            _designerWorkloadResult = designerWorkloadResult ??
+                ServiceResult<PagedResult<AvailableDesignerDto>>.Success(
+                    PagedResult<AvailableDesignerDto>.Create([], 1, 20, 0));
+            _designerWorkloadSummaryResult = designerWorkloadSummaryResult ??
+                ServiceResult<DesignerWorkloadSummaryDto>.Success(new DesignerWorkloadSummaryDto());
+            _designerAssignedProjectsResult = designerAssignedProjectsResult ??
+                ServiceResult<PagedResult<DesignerAssignedProjectDto>>.Success(
+                    PagedResult<DesignerAssignedProjectDto>.Create([], 1, 20, 0));
+            _salesWorkloadResult = salesWorkloadResult ??
+                ServiceResult<PagedResult<SalesWorkloadItemDto>>.Success(
+                    PagedResult<SalesWorkloadItemDto>.Create([], 1, 20, 0));
+            _salesWorkloadSummaryResult = salesWorkloadSummaryResult ??
+                ServiceResult<SalesWorkloadSummaryDto>.Success(new SalesWorkloadSummaryDto());
+            _salesAssignedProjectsResult = salesAssignedProjectsResult ??
+                ServiceResult<PagedResult<SalesAssignedProjectDto>>.Success(
+                    PagedResult<SalesAssignedProjectDto>.Create([], 1, 20, 0));
+            _unassignedIntakeResult = unassignedIntakeResult ??
+                ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.Success(
+                    PagedResult<UnassignedIntakeProjectDto>.Create([], 1, 20, 0));
             _createResult = createResult ?? ServiceResult<AccountDto>.Created(new AccountDto());
             _getByIdResult = getByIdResult ?? ServiceResult<AccountDto>.Success(new AccountDto());
             _pagedResult = pagedResult ?? ServiceResult<PagedResult<AccountDto>>.Success(
@@ -457,6 +756,8 @@ public sealed class AccountsControllerTests
 
         public Guid AdminDetailAccountId { get; private set; }
         public Guid AccountId { get; private set; }
+        public Guid DesignerId { get; private set; }
+        public Guid SalesId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public int Page { get; private set; }
         public int PageSize { get; private set; }
@@ -470,6 +771,11 @@ public sealed class AccountsControllerTests
         public UpdateAccountRequestDto? UpdateRequest { get; private set; }
         public UpdateMyProfileRequestDto? UpdateProfileRequest { get; private set; }
         public AvailableDesignerQueryDto? AvailableDesignerQuery { get; private set; }
+        public DesignerWorkloadQueryDto? DesignerWorkloadQuery { get; private set; }
+        public DesignerAssignedProjectQueryDto? DesignerAssignedProjectQuery { get; private set; }
+        public SalesWorkloadQueryDto? SalesWorkloadQuery { get; private set; }
+        public SalesAssignedProjectQueryDto? SalesAssignedProjectQuery { get; private set; }
+        public UnassignedIntakeProjectQueryDto? UnassignedIntakeQuery { get; private set; }
 
         public Task<ServiceResult<AccountDetailDto>> GetAdminDetailAsync(
             Guid accountId,
@@ -495,6 +801,58 @@ public sealed class AccountsControllerTests
         {
             AvailableDesignerQuery = query;
             return Task.FromResult(_availableDesignersResult);
+        }
+
+        public Task<ServiceResult<PagedResult<AvailableDesignerDto>>> GetDesignerWorkloadAsync(
+            DesignerWorkloadQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            DesignerWorkloadQuery = query;
+            return Task.FromResult(_designerWorkloadResult);
+        }
+
+        public Task<ServiceResult<DesignerWorkloadSummaryDto>> GetDesignerWorkloadSummaryAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(_designerWorkloadSummaryResult);
+
+        public Task<ServiceResult<PagedResult<DesignerAssignedProjectDto>>> GetDesignerAssignedProjectsAsync(
+            Guid designerId,
+            DesignerAssignedProjectQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            DesignerId = designerId;
+            DesignerAssignedProjectQuery = query;
+            return Task.FromResult(_designerAssignedProjectsResult);
+        }
+
+        public Task<ServiceResult<PagedResult<SalesWorkloadItemDto>>> GetSalesWorkloadAsync(
+            SalesWorkloadQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            SalesWorkloadQuery = query;
+            return Task.FromResult(_salesWorkloadResult);
+        }
+
+        public Task<ServiceResult<SalesWorkloadSummaryDto>> GetSalesWorkloadSummaryAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(_salesWorkloadSummaryResult);
+
+        public Task<ServiceResult<PagedResult<SalesAssignedProjectDto>>> GetSalesAssignedProjectsAsync(
+            Guid salesId,
+            SalesAssignedProjectQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            SalesId = salesId;
+            SalesAssignedProjectQuery = query;
+            return Task.FromResult(_salesAssignedProjectsResult);
+        }
+
+        public Task<ServiceResult<PagedResult<UnassignedIntakeProjectDto>>> GetUnassignedIntakeProjectsAsync(
+            UnassignedIntakeProjectQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            UnassignedIntakeQuery = query;
+            return Task.FromResult(_unassignedIntakeResult);
         }
 
         public Task<ServiceResult<AccountDto>> CreateAsync(CreateAccountRequestDto request, CancellationToken cancellationToken = default)

@@ -80,6 +80,129 @@ public sealed class AccountsController : BaseApiController
     }
 
     [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/designers/workload")]
+    public async Task<IActionResult> GetDesignerWorkload(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
+        [FromQuery] string? capacityState = null,
+        [FromQuery] string? sortBy = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetDesignerWorkloadAsync(
+            new DesignerWorkloadQueryDto
+            {
+                Page = page,
+                PageSize = pageSize,
+                Search = search,
+                CapacityState = capacityState,
+                SortBy = sortBy
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/designers/workload/summary")]
+    public async Task<IActionResult> GetDesignerWorkloadSummary(CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetDesignerWorkloadSummaryAsync(cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/designers/{designerId:guid}/projects")]
+    public async Task<IActionResult> GetDesignerAssignedProjects(
+        Guid designerId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? bucket = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetDesignerAssignedProjectsAsync(
+            designerId,
+            new DesignerAssignedProjectQueryDto
+            {
+                Page = page,
+                PageSize = pageSize,
+                Bucket = bucket
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/sales/workload")]
+    public async Task<IActionResult> GetSalesWorkload(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
+        [FromQuery] string? capacityState = null,
+        [FromQuery] string? futurePressureState = null,
+        [FromQuery] string? sortBy = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetSalesWorkloadAsync(
+            new SalesWorkloadQueryDto
+            {
+                Page = page,
+                PageSize = pageSize,
+                Search = search,
+                CapacityState = capacityState,
+                FuturePressureState = futurePressureState,
+                SortBy = sortBy
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/sales/workload/summary")]
+    public async Task<IActionResult> GetSalesWorkloadSummary(CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetSalesWorkloadSummaryAsync(cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/sales/{salesId:guid}/projects")]
+    public async Task<IActionResult> GetSalesAssignedProjects(
+        Guid salesId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? bucket = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetSalesAssignedProjectsAsync(
+            salesId,
+            new SalesAssignedProjectQueryDto
+            {
+                Page = page,
+                PageSize = pageSize,
+                Bucket = bucket
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("/admin/sales/unassigned-intake")]
+    public async Task<IActionResult> GetUnassignedIntakeProjects(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _accounts.GetUnassignedIntakeProjectsAsync(
+            new UnassignedIntakeProjectQueryDto
+            {
+                Page = page,
+                PageSize = pageSize
+            },
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
     [HttpGet("/admin/accounts/{accountId:guid}")]
     public async Task<IActionResult> GetAdminDetail(Guid accountId, CancellationToken cancellationToken = default)
     {

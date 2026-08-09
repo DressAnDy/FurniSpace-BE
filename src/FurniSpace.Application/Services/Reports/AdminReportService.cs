@@ -13,6 +13,12 @@ namespace FurniSpace.Application.Services.Reports;
 
 public sealed class AdminReportService : IAdminReportService
 {
+    private static readonly JsonSerializerOptions ExportJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = false
+    };
+
     private static readonly HashSet<string> AllowedAgingBuckets = new(StringComparer.OrdinalIgnoreCase)
     {
         "INTAKE",
@@ -534,11 +540,7 @@ public sealed class AdminReportService : IAdminReportService
 
     private static string BuildJsonFlattenCsv(string domain, object payload)
     {
-        var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            WriteIndented = false
-        });
+        var json = JsonSerializer.Serialize(payload, ExportJsonOptions);
 
         var builder = new StringBuilder();
         builder.AppendLine("domain,exportedAtUtc,payloadJson");

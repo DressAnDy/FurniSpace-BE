@@ -9,6 +9,15 @@ namespace FurniSpace.Infrastructure.Repositories.Repository;
 
 public sealed class AdminReportRepository : IAdminReportRepository
 {
+    private const string UnknownFacetKey = "UNKNOWN";
+    private const string AgingReasonUnassignedIntake = "UNASSIGNED_INTAKE";
+    private const string AgingReasonWaitingDesigner = "WAITING_DESIGNER";
+    private const string AgingReasonStuck = "STUCK";
+    private const string AgingReasonOther = "OTHER";
+    private const string CapacityAvailable = "AVAILABLE";
+    private const string CapacityFull = "FULL";
+    private const string CapacityOver = "OVER";
+
     private static readonly OrderStatus[] OpenOrderStatuses =
     [
         OrderStatus.CREATED,
@@ -54,7 +63,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
             .ToListAsync(cancellationToken);
 
         return rows
-            .Select(row => (row.Key?.ToString() ?? "UNKNOWN", row.Count))
+            .Select(row => (row.Key?.ToString() ?? UnknownFacetKey, row.Count))
             .ToList();
     }
 
@@ -85,7 +94,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
         var now = DateTime.UtcNow;
 
         var byStatus = projects
-            .GroupBy(project => project.Status?.ToString() ?? "UNKNOWN")
+            .GroupBy(project => project.Status?.ToString() ?? UnknownFacetKey)
             .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
             .OrderBy(item => item.Key)
             .ToList();
@@ -172,7 +181,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
             Quotations = new CommercialQuotationsDto
             {
                 ByStatus = quotations
-                    .GroupBy(item => item.Status?.ToString() ?? "UNKNOWN")
+                    .GroupBy(item => item.Status?.ToString() ?? UnknownFacetKey)
                     .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                     .OrderBy(item => item.Key)
                     .ToList(),
@@ -184,7 +193,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
             Orders = new CommercialOrdersDto
             {
                 ByStatus = orders
-                    .GroupBy(item => item.Status?.ToString() ?? "UNKNOWN")
+                    .GroupBy(item => item.Status?.ToString() ?? UnknownFacetKey)
                     .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                     .OrderBy(item => item.Key)
                     .ToList(),
@@ -199,12 +208,12 @@ public sealed class AdminReportRepository : IAdminReportRepository
             Payments = new CommercialPaymentsDto
             {
                 ByStatus = payments
-                    .GroupBy(item => item.Status?.ToString() ?? "UNKNOWN")
+                    .GroupBy(item => item.Status?.ToString() ?? UnknownFacetKey)
                     .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                     .OrderBy(item => item.Key)
                     .ToList(),
                 ByType = payments
-                    .GroupBy(item => item.PaymentType?.ToString() ?? "UNKNOWN")
+                    .GroupBy(item => item.PaymentType?.ToString() ?? UnknownFacetKey)
                     .Select(group => new PaymentTypeAmountDto
                     {
                         Type = group.Key,
@@ -283,12 +292,12 @@ public sealed class AdminReportRepository : IAdminReportRepository
         return new ProductionReportDto
         {
             RequestsByStatus = requests
-                .GroupBy(item => item.Status?.ToString() ?? "UNKNOWN")
+                .GroupBy(item => item.Status?.ToString() ?? UnknownFacetKey)
                 .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                 .OrderBy(item => item.Key)
                 .ToList(),
             ItemsByStatus = items
-                .GroupBy(item => item.Status?.ToString() ?? "UNKNOWN")
+                .GroupBy(item => item.Status?.ToString() ?? UnknownFacetKey)
                 .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                 .OrderBy(item => item.Key)
                 .ToList(),
@@ -338,7 +347,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
             Orders = new DeliveryOrdersDto
             {
                 DeliveryRelatedByStatus = deliveryOrders
-                    .GroupBy(order => order.Status?.ToString() ?? "UNKNOWN")
+                    .GroupBy(order => order.Status?.ToString() ?? UnknownFacetKey)
                     .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                     .OrderBy(item => item.Key)
                     .ToList(),
@@ -427,12 +436,12 @@ public sealed class AdminReportRepository : IAdminReportRepository
         return new CatalogReportDto
         {
             ProductsByStatus = products
-                .GroupBy(item => item.Status?.ToString() ?? "UNKNOWN")
+                .GroupBy(item => item.Status?.ToString() ?? UnknownFacetKey)
                 .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                 .OrderBy(item => item.Key)
                 .ToList(),
             CategoriesByStatus = categories
-                .GroupBy(item => item.Status?.ToString() ?? "UNKNOWN")
+                .GroupBy(item => item.Status?.ToString() ?? UnknownFacetKey)
                 .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                 .OrderBy(item => item.Key)
                 .ToList(),
@@ -442,7 +451,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
                 new ReportFacetCountDto { Key = "INACTIVE", Count = businessTypes.Count(item => !item.Status) }
             ],
             VersionsByStatus = versions
-                .GroupBy(item => item.Status?.ToString() ?? "UNKNOWN")
+                .GroupBy(item => item.Status?.ToString() ?? UnknownFacetKey)
                 .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                 .OrderBy(item => item.Key)
                 .ToList(),
@@ -464,90 +473,136 @@ public sealed class AdminReportRepository : IAdminReportRepository
     {
         var now = DateTime.UtcNow;
         var projects = await _db.ProjectSet.AsNoTracking().ToListAsync(cancellationToken);
-        var customerIds = projects.Select(project => project.CustomerId).Distinct().ToList();
-        var salesIds = projects.Where(project => project.AssignedSalesId.HasValue)
-            .Select(project => project.AssignedSalesId!.Value).Distinct().ToList();
-        var designerIds = projects.Where(project => project.AssignedDesignerId.HasValue)
-            .Select(project => project.AssignedDesignerId!.Value).Distinct().ToList();
-
-        var accountIds = customerIds.Concat(salesIds).Concat(designerIds).Distinct().ToList();
-        var accounts = await _db.AccountSet.AsNoTracking()
-            .Where(account => accountIds.Contains(account.AccountId))
-            .ToDictionaryAsync(account => account.AccountId, cancellationToken);
+        var accounts = await LoadAgingAccountLookupAsync(projects, cancellationToken);
 
         var items = projects
-            .Where(project =>
-                project.Status != ProjectStatus.COMPLETED &&
-                project.Status != ProjectStatus.REJECTED)
-            .Select(project =>
-            {
-                var baseAt = project.SubmittedAt ?? project.CreatedAt ?? now;
-                var ageDays = Math.Max(0, (int)(now.Date - baseAt.Date).TotalDays);
-                var resolvedBucket = SalesWorkloadPressurePolicy.ResolveBucket(project.Status);
-                var resolvedReason =
-                    project.Status == ProjectStatus.SUBMITTED && project.AssignedSalesId == null
-                        ? "UNASSIGNED_INTAKE"
-                        : project.Status == ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT
-                            ? "WAITING_DESIGNER"
-                            : ageDays >= thresholdDays
-                                ? "STUCK"
-                                : "OTHER";
+            .Where(IsNonTerminalProject)
+            .Select(project => MapProjectAgingItem(project, accounts, now, thresholdDays));
 
-                accounts.TryGetValue(project.CustomerId, out var customer);
-                Domain.Entities.Account? sales = null;
-                Domain.Entities.Account? designer = null;
-                if (project.AssignedSalesId.HasValue)
-                {
-                    accounts.TryGetValue(project.AssignedSalesId.Value, out sales);
-                }
+        items = FilterAgingItems(items, thresholdDays, bucket, reason);
+        items = SortAgingItems(items, sortBy);
 
-                if (project.AssignedDesignerId.HasValue)
-                {
-                    accounts.TryGetValue(project.AssignedDesignerId.Value, out designer);
-                }
+        var list = items.ToList();
+        var pageItems = list.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return (pageItems, list.Count);
+    }
 
-                return new ProjectAgingItemDto
-                {
-                    ProjectId = project.ProjectId,
-                    ProjectCode = project.ProjectCode,
-                    ProjectName = project.ProjectName,
-                    Status = project.Status?.ToString(),
-                    Bucket = resolvedBucket,
-                    Reason = resolvedReason,
-                    SubmittedAt = project.SubmittedAt ?? project.CreatedAt,
-                    AgeDays = ageDays,
-                    CustomerId = project.CustomerId,
-                    CustomerName = customer?.FullName,
-                    AssignedSalesId = project.AssignedSalesId,
-                    SalesName = sales?.FullName,
-                    AssignedDesignerId = project.AssignedDesignerId,
-                    DesignerName = designer?.FullName
-                };
-            })
-            .Where(item => item.AgeDays >= thresholdDays ||
-                           item.Reason is "UNASSIGNED_INTAKE" or "WAITING_DESIGNER")
-            .AsEnumerable();
+    private async Task<Dictionary<Guid, Domain.Entities.Account>> LoadAgingAccountLookupAsync(
+        IReadOnlyList<Domain.Entities.Project> projects,
+        CancellationToken cancellationToken)
+    {
+        var customerIds = projects.Select(project => project.CustomerId);
+        var salesIds = projects
+            .Where(project => project.AssignedSalesId.HasValue)
+            .Select(project => project.AssignedSalesId!.Value);
+        var designerIds = projects
+            .Where(project => project.AssignedDesignerId.HasValue)
+            .Select(project => project.AssignedDesignerId!.Value);
+
+        var accountIds = customerIds.Concat(salesIds).Concat(designerIds).Distinct().ToList();
+        return await _db.AccountSet.AsNoTracking()
+            .Where(account => accountIds.Contains(account.AccountId))
+            .ToDictionaryAsync(account => account.AccountId, cancellationToken);
+    }
+
+    private static bool IsNonTerminalProject(Domain.Entities.Project project) =>
+        project.Status != ProjectStatus.COMPLETED &&
+        project.Status != ProjectStatus.REJECTED;
+
+    private static ProjectAgingItemDto MapProjectAgingItem(
+        Domain.Entities.Project project,
+        IReadOnlyDictionary<Guid, Domain.Entities.Account> accounts,
+        DateTime now,
+        int thresholdDays)
+    {
+        var baseAt = project.SubmittedAt ?? project.CreatedAt ?? now;
+        var ageDays = Math.Max(0, (int)(now.Date - baseAt.Date).TotalDays);
+        accounts.TryGetValue(project.CustomerId, out var customer);
+        var sales = TryGetAccount(accounts, project.AssignedSalesId);
+        var designer = TryGetAccount(accounts, project.AssignedDesignerId);
+
+        return new ProjectAgingItemDto
+        {
+            ProjectId = project.ProjectId,
+            ProjectCode = project.ProjectCode,
+            ProjectName = project.ProjectName,
+            Status = project.Status?.ToString(),
+            Bucket = SalesWorkloadPressurePolicy.ResolveBucket(project.Status),
+            Reason = ResolveAgingReason(project, ageDays, thresholdDays),
+            SubmittedAt = project.SubmittedAt ?? project.CreatedAt,
+            AgeDays = ageDays,
+            CustomerId = project.CustomerId,
+            CustomerName = customer?.FullName,
+            AssignedSalesId = project.AssignedSalesId,
+            SalesName = sales?.FullName,
+            AssignedDesignerId = project.AssignedDesignerId,
+            DesignerName = designer?.FullName
+        };
+    }
+
+    private static Domain.Entities.Account? TryGetAccount(
+        IReadOnlyDictionary<Guid, Domain.Entities.Account> accounts,
+        Guid? accountId)
+    {
+        if (!accountId.HasValue)
+        {
+            return null;
+        }
+
+        accounts.TryGetValue(accountId.Value, out var account);
+        return account;
+    }
+
+    private static string ResolveAgingReason(
+        Domain.Entities.Project project,
+        int ageDays,
+        int thresholdDays)
+    {
+        if (project.Status == ProjectStatus.SUBMITTED && project.AssignedSalesId == null)
+        {
+            return AgingReasonUnassignedIntake;
+        }
+
+        if (project.Status == ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT)
+        {
+            return AgingReasonWaitingDesigner;
+        }
+
+        return ageDays >= thresholdDays ? AgingReasonStuck : AgingReasonOther;
+    }
+
+    private static IEnumerable<ProjectAgingItemDto> FilterAgingItems(
+        IEnumerable<ProjectAgingItemDto> items,
+        int thresholdDays,
+        string? bucket,
+        string? reason)
+    {
+        var filtered = items.Where(item =>
+            item.AgeDays >= thresholdDays ||
+            item.Reason is AgingReasonUnassignedIntake or AgingReasonWaitingDesigner);
 
         if (!string.IsNullOrWhiteSpace(bucket))
         {
-            items = items.Where(item =>
+            filtered = filtered.Where(item =>
                 string.Equals(item.Bucket, bucket, StringComparison.OrdinalIgnoreCase));
         }
 
         if (!string.IsNullOrWhiteSpace(reason))
         {
-            items = items.Where(item =>
+            filtered = filtered.Where(item =>
                 string.Equals(item.Reason, reason, StringComparison.OrdinalIgnoreCase));
         }
 
-        items = string.Equals(sortBy, "SubmittedAtAsc", StringComparison.OrdinalIgnoreCase)
+        return filtered;
+    }
+
+    private static IEnumerable<ProjectAgingItemDto> SortAgingItems(
+        IEnumerable<ProjectAgingItemDto> items,
+        string sortBy)
+    {
+        return string.Equals(sortBy, "SubmittedAtAsc", StringComparison.OrdinalIgnoreCase)
             ? items.OrderBy(item => item.SubmittedAt).ThenBy(item => item.ProjectCode)
             : items.OrderByDescending(item => item.AgeDays).ThenBy(item => item.ProjectCode);
-
-        var list = items.ToList();
-        var total = list.Count;
-        var pageItems = list.Skip((page - 1) * pageSize).Take(pageSize).ToList();
-        return (pageItems, total);
     }
 
     public async Task<CommercialTrendDto> GetCommercialTrendAsync(
@@ -801,11 +856,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
             var blockedCount = assigned.Count(request => request.Status == ProductionRequestStatus.BLOCKED);
             var overdueCount = assigned.Count(IsOverdue);
             var availableSlot = maxActiveRequests - openCount;
-            var state = openCount < maxActiveRequests
-                ? "AVAILABLE"
-                : openCount == maxActiveRequests
-                    ? "FULL"
-                    : "OVER";
+            var state = ResolveCapacityState(openCount, maxActiveRequests);
 
             return new ProductionWorkloadItemDto
             {
@@ -824,9 +875,9 @@ public sealed class AdminReportRepository : IAdminReportRepository
         var summary = new ProductionWorkloadSummaryDto
         {
             TotalActiveStaff = items.Count,
-            AvailableCount = items.Count(item => item.CapacityState == "AVAILABLE"),
-            FullCount = items.Count(item => item.CapacityState == "FULL"),
-            OverCount = items.Count(item => item.CapacityState == "OVER"),
+            AvailableCount = items.Count(item => item.CapacityState == CapacityAvailable),
+            FullCount = items.Count(item => item.CapacityState == CapacityFull),
+            OverCount = items.Count(item => item.CapacityState == CapacityOver),
             TotalOpenRequests = items.Sum(item => item.OpenRequestCount),
             BlockedCount = items.Sum(item => item.BlockedCount),
             OverdueCount = items.Sum(item => item.OverdueCount),
@@ -856,6 +907,21 @@ public sealed class AdminReportRepository : IAdminReportRepository
         var list = filtered.ToList();
         var pageItems = list.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return (pageItems, list.Count, summary);
+    }
+
+    private static string ResolveCapacityState(int openCount, int maxActiveRequests)
+    {
+        if (openCount < maxActiveRequests)
+        {
+            return CapacityAvailable;
+        }
+
+        if (openCount == maxActiveRequests)
+        {
+            return CapacityFull;
+        }
+
+        return CapacityOver;
     }
 
     private static bool InRange(DateTime? value, DateTime? from, DateTime? to)

@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace FurniSpace.API.Controllers.Admin;
 
 [Authorize(Roles = "ADMIN")]
+[Route("admin/production")]
 public sealed class AdminProductionWorkloadController : BaseApiController
 {
     private readonly IAdminReportService _reports;
@@ -18,7 +19,7 @@ public sealed class AdminProductionWorkloadController : BaseApiController
         _reports = reports;
     }
 
-    [HttpGet("/admin/production/workload")]
+    [HttpGet("workload")]
     public async Task<IActionResult> GetWorkload(
         [FromQuery] ProductionWorkloadQueryDto query,
         CancellationToken cancellationToken = default)
@@ -27,7 +28,7 @@ public sealed class AdminProductionWorkloadController : BaseApiController
         return ToActionResult(result);
     }
 
-    [HttpGet("/admin/production/workload/summary")]
+    [HttpGet("workload/summary")]
     public async Task<IActionResult> GetWorkloadSummary(CancellationToken cancellationToken = default)
     {
         var result = await _reports.GetProductionWorkloadSummaryAsync(cancellationToken);

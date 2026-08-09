@@ -5,6 +5,7 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Accounts;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.ReadModels.Accounts;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -20,14 +21,13 @@ public sealed class SalesWorkloadRepositoryTests
         var data = await SeedAsync(context);
         var repository = new AccountRepository(context);
 
-        var items = await repository.GetSalesWorkloadAsync(
-            page: 1,
-            pageSize: 10,
-            maxActiveProjects: 5,
-            search: null,
-            capacityState: null,
-            futurePressureState: null,
-            sortBy: "FuturePressureScoreDesc");
+        var items = await repository.GetSalesWorkloadAsync(new SalesWorkloadListQuery
+        {
+            Page = 1,
+            PageSize = 10,
+            MaxActiveProjects = 5,
+            SortBy = "FuturePressureScoreDesc"
+        });
 
         var highPressure = Assert.Single(items, item => item.AccountId == data.SalesHighPressureId);
         Assert.Equal(0, highPressure.SalesActiveCount);
@@ -96,14 +96,15 @@ public sealed class SalesWorkloadRepositoryTests
         var data = await SeedAsync(context);
         var repository = new AccountRepository(context);
 
-        var high = await repository.GetSalesWorkloadAsync(
-            page: 1,
-            pageSize: 10,
-            maxActiveProjects: 5,
-            search: null,
-            capacityState: SalesWorkloadPressurePolicy.CapacityAvailableNow,
-            futurePressureState: SalesWorkloadPressurePolicy.PressureHigh,
-            sortBy: "FuturePressureScoreDesc");
+        var high = await repository.GetSalesWorkloadAsync(new SalesWorkloadListQuery
+        {
+            Page = 1,
+            PageSize = 10,
+            MaxActiveProjects = 5,
+            CapacityState = SalesWorkloadPressurePolicy.CapacityAvailableNow,
+            FuturePressureState = SalesWorkloadPressurePolicy.PressureHigh,
+            SortBy = "FuturePressureScoreDesc"
+        });
 
         var item = Assert.Single(high);
         Assert.Equal(data.SalesHighPressureId, item.AccountId);
@@ -116,14 +117,13 @@ public sealed class SalesWorkloadRepositoryTests
         await SeedAsync(context);
         var repository = new AccountRepository(context);
 
-        var items = await repository.GetSalesWorkloadAsync(
-            page: 1,
-            pageSize: 10,
-            maxActiveProjects: 5,
-            search: null,
-            capacityState: null,
-            futurePressureState: null,
-            sortBy: "SalesActiveCountDesc");
+        var items = await repository.GetSalesWorkloadAsync(new SalesWorkloadListQuery
+        {
+            Page = 1,
+            PageSize = 10,
+            MaxActiveProjects = 5,
+            SortBy = "SalesActiveCountDesc"
+        });
 
         Assert.Equal(2, items.Count);
         Assert.True(items[0].SalesActiveCount >= items[1].SalesActiveCount);
@@ -136,14 +136,13 @@ public sealed class SalesWorkloadRepositoryTests
         await SeedAsync(context);
         var repository = new AccountRepository(context);
 
-        var items = await repository.GetSalesWorkloadAsync(
-            page: 1,
-            pageSize: 10,
-            maxActiveProjects: 5,
-            search: null,
-            capacityState: null,
-            futurePressureState: null,
-            sortBy: "AvailableSlotAsc");
+        var items = await repository.GetSalesWorkloadAsync(new SalesWorkloadListQuery
+        {
+            Page = 1,
+            PageSize = 10,
+            MaxActiveProjects = 5,
+            SortBy = "AvailableSlotAsc"
+        });
 
         Assert.Equal(2, items.Count);
         Assert.True(items[0].AvailableSlot <= items[1].AvailableSlot);

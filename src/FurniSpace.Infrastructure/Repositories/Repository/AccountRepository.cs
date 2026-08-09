@@ -528,19 +528,50 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
             where role.RoleName == SalesRoleName &&
                 account.Status == AccountStatus.ACTIVE &&
                 account.DeletedAt == null
-            let intakeCount = CountSalesProjectsByStatuses(account.AccountId, intakeStatuses)
-            let commercialCount = CountSalesProjectsByStatuses(account.AccountId, commercialStatuses)
-            let designMonitorCount = CountSalesProjectsByStatuses(account.AccountId, designMonitorStatuses)
-            let fulfillmentCount = CountSalesProjectsByStatuses(account.AccountId, fulfillmentStatuses)
-            let lifecycleAssignedCount = CountSalesProjectsByStatuses(account.AccountId, lifecycleStatuses)
-            let measurementRequiredCount = CountSalesProjectsByStatus(account.AccountId, ProjectStatus.MEASUREMENT_REQUIRED)
-            let spaceVerifiedCount = CountSalesProjectsByStatus(account.AccountId, ProjectStatus.SPACE_VERIFIED)
-            let proposalConsultingCount = CountSalesProjectsByStatus(account.AccountId, ProjectStatus.PROPOSAL_CONSULTING)
-            let inProductionCount = CountSalesProjectsByStatus(account.AccountId, ProjectStatus.IN_PRODUCTION)
-            let productionBlockedCount = CountSalesProjectsByStatus(account.AccountId, ProjectStatus.PRODUCTION_BLOCKED)
-            let readyForDeliveryCount = CountSalesProjectsByStatus(account.AccountId, ProjectStatus.READY_FOR_DELIVERY)
-            let deliveringCount = CountSalesProjectsByStatus(account.AccountId, ProjectStatus.DELIVERING)
-            let deliveredCount = CountSalesProjectsByStatus(account.AccountId, ProjectStatus.DELIVERED)
+            let intakeCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status.HasValue &&
+                intakeStatuses.Contains(project.Status.Value))
+            let commercialCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status.HasValue &&
+                commercialStatuses.Contains(project.Status.Value))
+            let designMonitorCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status.HasValue &&
+                designMonitorStatuses.Contains(project.Status.Value))
+            let fulfillmentCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status.HasValue &&
+                fulfillmentStatuses.Contains(project.Status.Value))
+            let lifecycleAssignedCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status.HasValue &&
+                lifecycleStatuses.Contains(project.Status.Value))
+            let measurementRequiredCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status == ProjectStatus.MEASUREMENT_REQUIRED)
+            let spaceVerifiedCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status == ProjectStatus.SPACE_VERIFIED)
+            let proposalConsultingCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status == ProjectStatus.PROPOSAL_CONSULTING)
+            let inProductionCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status == ProjectStatus.IN_PRODUCTION)
+            let productionBlockedCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status == ProjectStatus.PRODUCTION_BLOCKED)
+            let readyForDeliveryCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status == ProjectStatus.READY_FOR_DELIVERY)
+            let deliveringCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status == ProjectStatus.DELIVERING)
+            let deliveredCount = DbContext.ProjectSet.Count(project =>
+                project.AssignedSalesId == account.AccountId &&
+                project.Status == ProjectStatus.DELIVERED)
             let salesActiveCount = intakeCount + commercialCount
             let futurePressureScore =
                 measurementRequiredCount * SalesWorkloadPressurePolicy.WeightMeasurementRequired +
@@ -567,7 +598,11 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 LifecycleAssignedCount = lifecycleAssignedCount,
                 MaxActiveProjects = maxActiveProjects,
                 AvailableSlot = maxActiveProjects - salesActiveCount,
-                CapacityState = ResolveSalesCapacityState(salesActiveCount, maxActiveProjects),
+                CapacityState = salesActiveCount < maxActiveProjects
+                    ? SalesWorkloadPressurePolicy.CapacityAvailableNow
+                    : salesActiveCount == maxActiveProjects
+                        ? SalesWorkloadPressurePolicy.CapacityFullNow
+                        : SalesWorkloadPressurePolicy.CapacityOverNow,
                 MeasurementRequiredCount = measurementRequiredCount,
                 SpaceVerifiedCount = spaceVerifiedCount,
                 ProposalConsultingCount = proposalConsultingCount,
@@ -577,55 +612,14 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 DeliveringCount = deliveringCount,
                 DeliveredCount = deliveredCount,
                 FuturePressureScore = futurePressureScore,
-                FuturePressureState = ResolveSalesFuturePressureState(futurePressureScore),
+                FuturePressureState = futurePressureScore < SalesWorkloadPressurePolicy.PressureLowMaxExclusive
+                    ? SalesWorkloadPressurePolicy.PressureLow
+                    : futurePressureScore < SalesWorkloadPressurePolicy.PressureMediumMaxExclusive
+                        ? SalesWorkloadPressurePolicy.PressureMedium
+                        : SalesWorkloadPressurePolicy.PressureHigh,
                 CreatedAt = account.CreatedAt,
                 UpdatedAt = account.UpdatedAt
             };
-    }
-
-    private int CountSalesProjectsByStatuses(Guid salesId, ProjectStatus[] statuses)
-    {
-        return DbContext.ProjectSet.Count(project =>
-            project.AssignedSalesId == salesId &&
-            project.Status.HasValue &&
-            statuses.Contains(project.Status.Value));
-    }
-
-    private int CountSalesProjectsByStatus(Guid salesId, ProjectStatus status)
-    {
-        return DbContext.ProjectSet.Count(project =>
-            project.AssignedSalesId == salesId &&
-            project.Status == status);
-    }
-
-    private static string ResolveSalesCapacityState(int salesActiveCount, int maxActiveProjects)
-    {
-        if (salesActiveCount < maxActiveProjects)
-        {
-            return SalesWorkloadPressurePolicy.CapacityAvailableNow;
-        }
-
-        if (salesActiveCount == maxActiveProjects)
-        {
-            return SalesWorkloadPressurePolicy.CapacityFullNow;
-        }
-
-        return SalesWorkloadPressurePolicy.CapacityOverNow;
-    }
-
-    private static string ResolveSalesFuturePressureState(decimal futurePressureScore)
-    {
-        if (futurePressureScore < SalesWorkloadPressurePolicy.PressureLowMaxExclusive)
-        {
-            return SalesWorkloadPressurePolicy.PressureLow;
-        }
-
-        if (futurePressureScore < SalesWorkloadPressurePolicy.PressureMediumMaxExclusive)
-        {
-            return SalesWorkloadPressurePolicy.PressureMedium;
-        }
-
-        return SalesWorkloadPressurePolicy.PressureHigh;
     }
 
     private static IQueryable<SalesWorkloadItemReadModel> ApplySalesWorkloadFilters(

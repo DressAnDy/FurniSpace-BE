@@ -495,7 +495,9 @@ public sealed class WorkloadAccountServiceTests
             Task.FromResult(DesignerAssignedProjects.Count);
         public Task<bool> IsActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) =>
             Task.FromResult(IsActiveDesignerResult);
-        public Task<IReadOnlyList<SalesWorkloadItemReadModel>> GetSalesWorkloadAsync(int page, int pageSize, int maxActiveProjects, string? search, string? capacityState, string? futurePressureState, string sortBy, CancellationToken cancellationToken = default) =>
+        public Task<IReadOnlyList<SalesWorkloadItemReadModel>> GetSalesWorkloadAsync(
+            SalesWorkloadListQuery query,
+            CancellationToken cancellationToken = default) =>
             Task.FromResult(SalesWorkloadItems);
         public Task<int> CountSalesWorkloadAsync(int maxActiveProjects, string? search, string? capacityState, string? futurePressureState, CancellationToken cancellationToken = default) =>
             Task.FromResult(SalesWorkloadItems.Count);

@@ -57,14 +57,17 @@ public sealed class WorkloadPolicyTests
     public void Sales_ComputeFuturePressureScore_SumsWeightedCounts()
     {
         var score = SalesWorkloadPressurePolicy.ComputeFuturePressureScore(
-            measurementRequiredCount: 1,
-            spaceVerifiedCount: 1,
-            proposalConsultingCount: 1,
-            inProductionCount: 1,
-            productionBlockedCount: 1,
-            readyForDeliveryCount: 1,
-            deliveringCount: 1,
-            deliveredCount: 1);
+            new SalesFuturePressureCounts
+            {
+                MeasurementRequiredCount = 1,
+                SpaceVerifiedCount = 1,
+                ProposalConsultingCount = 1,
+                InProductionCount = 1,
+                ProductionBlockedCount = 1,
+                ReadyForDeliveryCount = 1,
+                DeliveringCount = 1,
+                DeliveredCount = 1
+            });
 
         Assert.Equal(
             0.25m + 0.50m + 1.00m + 0.20m + 0.75m + 0.30m + 0.40m + 0.50m,

@@ -27,4 +27,64 @@ public sealed class AdminFinancialController : BaseApiController
         var result = await _financial.GetSummaryAsync(query, cancellationToken);
         return ToActionResult(result);
     }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("receivables")]
+    public async Task<IActionResult> GetReceivables(
+        [FromQuery] AdminFinancialReceivablesQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetReceivablesAsync(query, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("receivables/items")]
+    public async Task<IActionResult> GetReceivableItems(
+        [FromQuery] AdminFinancialReceivablesQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetReceivablesAsync(query, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("payment-breakdown")]
+    public async Task<IActionResult> GetPaymentBreakdown(
+        [FromQuery] AdminFinancialPaymentBreakdownQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetPaymentBreakdownAsync(query, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("collection-trend")]
+    public async Task<IActionResult> GetCollectionTrend(
+        [FromQuery] AdminFinancialCollectionTrendQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetCollectionTrendAsync(query, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("projects")]
+    public async Task<IActionResult> GetProjects(
+        [FromQuery] AdminFinancialProjectsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetProjectsAsync(query, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("projects/{projectId:guid}")]
+    public async Task<IActionResult> GetProject(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetProjectAsync(projectId, cancellationToken);
+        return ToActionResult(result);
+    }
 }

@@ -59,4 +59,22 @@ public interface IFinancialReadRepository
         DateTime utcNow,
         IReadOnlyCollection<PaymentType> canonicalPaymentTypes,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<AdminFinancialPaymentRowReadModel>> GetOperationalPaymentsAsync(
+        AdminFinancialPaymentsQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountOperationalPaymentsAsync(
+        AdminFinancialPaymentsQueryReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<AdminFinancialExceptionRowReadModel>> GetFinancialExceptionsAsync(
+        AdminFinancialExceptionsQueryReadModel query,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountFinancialExceptionsAsync(
+        AdminFinancialExceptionsQueryReadModel query,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default);
 }

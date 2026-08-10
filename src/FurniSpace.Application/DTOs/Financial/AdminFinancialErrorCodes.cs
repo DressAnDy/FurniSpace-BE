@@ -9,4 +9,6 @@ public static class AdminFinancialErrorCodes
     public const string GranularityInvalid = "FINANCIAL_GRANULARITY_INVALID";
     public const string ProjectFilterInvalid = "FINANCIAL_PROJECT_FILTER_INVALID";
     public const string ProjectNotFound = "PROJECT_NOT_FOUND";
+    public const string PaymentFilterInvalid = "FINANCIAL_PAYMENT_FILTER_INVALID";
+    public const string ExceptionTypeInvalid = "FINANCIAL_EXCEPTION_TYPE_INVALID";
 }

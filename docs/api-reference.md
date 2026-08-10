@@ -2397,6 +2397,142 @@ Returns the same financial overview shape for one project. Nullable order/paymen
 | 404 | `PROJECT_NOT_FOUND` | Project detail does not exist |
 | 401/403 | auth result | Non-admin or unauthenticated request |
 
+### `GET /admin/financial/payments`
+
+**Roles:** ADMIN
+
+Returns a paged payment operations list with provider attempt diagnostics. This endpoint is read-only and never exposes raw provider payloads, signatures, webhook bodies, checkout secrets, or QR payload internals.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `projectId` | guid? | null | Filter one project |
+| `orderId` | guid? | null | Filter one order-linked payment |
+| `customerId` | guid? | null | Filter by project customer |
+| `paymentType` | `PaymentType?` | null | Example: `DEPOSIT`, `REMAINING_PAYMENT` |
+| `paymentStatus` | `PaymentStatus?` | null | Payment has no fake `FAILED` status; failures are on attempts |
+| `provider` | `PaymentProvider?` | null | Filters attempt provider, example `PAYOS` |
+| `createdFrom` / `createdTo` | DateTimeOffset? | null | Optional range for `payments.created_at`; midnight `to` means full local day |
+| `paidFrom` / `paidTo` | DateTimeOffset? | null | Optional range for `payments.paid_at` |
+| `expiredFrom` / `expiredTo` | DateTimeOffset? | null | Optional range for `payments.expired_at` |
+| `hasFailedAttempt` | bool? | null | `true` = at least one failed transaction attempt; `false` = none |
+| `minFailedAttemptCount` | int? | null | Must be `>= 0`; repeated failure screens usually use `2` |
+| `page` | int | `1` | Must be `> 0` |
+| `pageSize` | int | `20` | `1..100` |
+| `sortBy` | string? | `createdAt` | `createdAt`, `paidAt`, `expiredAt`, `amount`, `paymentCode`, `status` |
+| `sortDirection` | string? | `desc` | `asc` or `desc` |
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Financial payments retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "paymentId": "...",
+        "paymentCode": "PAY-2026-0001",
+        "projectId": "...",
+        "projectCode": "PRJ-2026-0001",
+        "orderId": "...",
+        "orderCode": "ORD-2026-0001",
+        "customerId": "...",
+        "customerName": "Customer Alpha",
+        "paymentType": "DEPOSIT",
+        "amount": 30000000,
+        "currency": "VND",
+        "status": "PENDING",
+        "createdAt": "2026-07-25T03:00:00Z",
+        "expiredAt": "2026-07-30T03:00:00Z",
+        "paidAt": null,
+        "lastProvider": "PAYOS",
+        "attemptCount": 2,
+        "failedAttemptCount": 2,
+        "lastTransactionStatus": "FAILED",
+        "lastFailureReason": "Insufficient funds",
+        "lastAttemptAt": "2026-07-26T03:00:00Z"
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 1,
+    "totalPages": 1
+  }
+}
+```
+
+`lastFailureReason` is the latest failed attempt reason, not necessarily the latest transaction reason. A paid payment can still show historical failed attempts, but it is not treated as an active failure exception.
+
+### `GET /admin/financial/exceptions`
+
+**Roles:** ADMIN
+
+Returns read-only operational financial exceptions for Admin attention. The endpoint does not create notification records, does not mutate Payment/Order state, and does not introduce a Payment `FAILED` lifecycle status.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `exceptionType` | string? | null | One of the exception types below; case-insensitive input |
+| `severity` | string? | null | Example: `HIGH`, `MEDIUM` |
+| `projectId` | guid? | null | Filter one project |
+| `paymentType` | `PaymentType?` | null | Applies to payment-backed exceptions |
+| `from` / `to` | DateTimeOffset? | null | Optional range for exception occurrence time |
+| `page` | int | `1` | Must be `> 0` |
+| `pageSize` | int | `20` | `1..100` |
+
+#### Exception Types
+
+| Type | Meaning |
+| --- | --- |
+| `PAYMENT_EXPIRED` | Payment status is `EXPIRED` |
+| `PAYMENT_REPEATED_FAILURE` | Non-paid payment has at least 2 failed transaction attempts |
+| `FINAL_PAYMENT_NOT_CREATED` | Order is `FINAL_PAYMENT_PENDING`, has receivable, but no active `REMAINING_PAYMENT` |
+| `DELIVERED_WITH_RECEIVABLE` | Delivered order still has `remainingAmount > 0` |
+| `PAYMENT_PENDING_TOO_LONG` | Active collectible payment has stayed pending/processing beyond the operational threshold |
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Financial exceptions retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "exceptionType": "PAYMENT_REPEATED_FAILURE",
+        "severity": "HIGH",
+        "projectId": "...",
+        "orderId": "...",
+        "paymentId": "...",
+        "title": "Payment has repeated failed attempts",
+        "reason": "Payment has two or more failed transaction attempts.",
+        "amount": 30000000,
+        "age": 1,
+        "occurredAt": "2026-07-26T03:00:00Z",
+        "recommendedAction": "Open payment attempts and support the customer with a new checkout if needed.",
+        "targetResourceType": "PAYMENT",
+        "targetResourceId": "..."
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 1,
+    "totalPages": 1
+  }
+}
+```
+
+#### Error Codes
+
+| HTTP | `errorCode` | Trigger |
+| --- | --- | --- |
+| 400 | `FINANCIAL_PAYMENT_FILTER_INVALID` | Invalid paging, sort, failed-attempt, or date filter |
+| 400 | `FINANCIAL_EXCEPTION_TYPE_INVALID` | Unsupported `exceptionType` |
+| 401/403 | auth result | Non-admin or unauthenticated request |
+
 ---
 
 ## 21. Production

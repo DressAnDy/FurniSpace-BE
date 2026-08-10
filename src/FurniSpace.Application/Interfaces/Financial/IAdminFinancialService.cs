@@ -28,4 +28,12 @@ public interface IAdminFinancialService
     Task<ServiceResult<AdminFinancialProjectRowDto>> GetProjectAsync(
         Guid projectId,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<AdminFinancialPaymentsDto>> GetPaymentsAsync(
+        AdminFinancialPaymentsQueryDto query,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<AdminFinancialExceptionsDto>> GetExceptionsAsync(
+        AdminFinancialExceptionsQueryDto query,
+        CancellationToken cancellationToken = default);
 }

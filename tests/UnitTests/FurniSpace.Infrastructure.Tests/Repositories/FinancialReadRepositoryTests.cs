@@ -373,6 +373,173 @@ public sealed class FinancialReadRepositoryTests
         Assert.Null(missing);
     }
 
+    [Fact]
+    public async Task GetOperationalPaymentsAsync_ReturnsDiagnosticsAndAppliesFilters()
+    {
+        await using var context = CreateContext();
+        var now = new DateTime(2026, 7, 25, 0, 0, 0, DateTimeKind.Utc);
+        var customerId = Guid.NewGuid();
+        var project = CreateProject(customerId, null, createdAt: now.AddDays(-5), projectName: "Payment Ops");
+        var order = CreateOrder(OrderStatus.DEPOSIT_PENDING, 70m, 100m, now.AddDays(-4), project.ProjectId, customerId, null);
+        var payment = CreatePayment(
+            PaymentType.DEPOSIT,
+            PaymentStatus.PENDING,
+            30m,
+            orderId: order.OrderId,
+            projectId: project.ProjectId,
+            createdAt: now.AddDays(-3),
+            expiredAt: now.AddDays(1));
+        context.AccountSet.Add(CreateAccount(customerId, "Customer Ops"));
+        context.ProjectSet.Add(project);
+        context.OrderSet.Add(order);
+        context.PaymentSet.AddRange(
+            payment,
+            CreatePayment(PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID, 999m, paidAt: now, projectId: project.ProjectId));
+        context.PaymentTransactionSet.AddRange(
+            CreateTransaction(PaymentTransactionStatus.FAILED, now.AddDays(-2), paymentId: payment.PaymentId, provider: PaymentProvider.PAYOS, failureReason: "Declined"),
+            CreateTransaction(PaymentTransactionStatus.FAILED, now.AddDays(-1), paymentId: payment.PaymentId, provider: PaymentProvider.PAYOS, failureReason: "Insufficient funds"));
+        await context.SaveChangesAsync();
+        var repository = new FinancialReadRepository(context);
+        var query = new AdminFinancialPaymentsQueryReadModel
+        {
+            CustomerId = customerId,
+            PaymentType = PaymentType.DEPOSIT,
+            PaymentStatus = PaymentStatus.PENDING,
+            Provider = PaymentProvider.PAYOS,
+            CreatedFromUtc = now.AddDays(-4),
+            CreatedToUtcExclusive = now.AddDays(-2),
+            HasFailedAttempt = true,
+            MinFailedAttemptCount = 2,
+            Page = 1,
+            PageSize = 10,
+            SortBy = "amount",
+            SortDirection = "desc"
+        };
+
+        var total = await repository.CountOperationalPaymentsAsync(query);
+        var rows = await repository.GetOperationalPaymentsAsync(query);
+
+        Assert.Equal(1, total);
+        var row = Assert.Single(rows);
+        Assert.Equal(payment.PaymentId, row.PaymentId);
+        Assert.Equal("Customer Ops", row.CustomerName);
+        Assert.Equal(order.OrderCode, row.OrderCode);
+        Assert.Equal(2, row.AttemptCount);
+        Assert.Equal(2, row.FailedAttemptCount);
+        Assert.Equal(PaymentProvider.PAYOS, row.LastProvider);
+        Assert.Equal(PaymentTransactionStatus.FAILED, row.LastTransactionStatus);
+        Assert.Equal("Insufficient funds", row.LastFailureReason);
+    }
+
+    [Fact]
+    public async Task GetFinancialExceptionsAsync_ReturnsPaymentAndOrderExceptionRows()
+    {
+        await using var context = CreateContext();
+        var now = new DateTime(2026, 7, 25, 0, 0, 0, DateTimeKind.Utc);
+        var customerId = Guid.NewGuid();
+        var project = CreateProject(customerId, null, createdAt: now.AddDays(-20));
+        var expiredPayment = CreatePayment(
+            PaymentType.DEPOSIT,
+            PaymentStatus.EXPIRED,
+            40m,
+            expiredAt: now.AddDays(-3),
+            projectId: project.ProjectId,
+            createdAt: now.AddDays(-4));
+        var repeatedFailurePayment = CreatePayment(
+            PaymentType.DEPOSIT,
+            PaymentStatus.PENDING,
+            50m,
+            projectId: project.ProjectId,
+            createdAt: now.AddDays(-2));
+        var stalePayment = CreatePayment(
+            PaymentType.PROJECT_START_FEE,
+            PaymentStatus.PENDING,
+            10m,
+            projectId: project.ProjectId,
+            createdAt: now.AddDays(-10),
+            expiredAt: now.AddDays(1));
+        var finalPaymentOrder = CreateOrder(
+            OrderStatus.FINAL_PAYMENT_PENDING,
+            70m,
+            100m,
+            now.AddDays(-8),
+            project.ProjectId,
+            customerId,
+            null);
+        var deliveredOrder = CreateOrder(
+            OrderStatus.DELIVERED,
+            80m,
+            100m,
+            now.AddDays(-6),
+            project.ProjectId,
+            customerId,
+            null);
+        deliveredOrder.CustomerConfirmedDeliveryAt = now.AddDays(-5);
+        context.ProjectSet.Add(project);
+        context.PaymentSet.AddRange(expiredPayment, repeatedFailurePayment, stalePayment);
+        context.OrderSet.AddRange(finalPaymentOrder, deliveredOrder);
+        context.PaymentTransactionSet.AddRange(
+            CreateTransaction(PaymentTransactionStatus.FAILED, now.AddDays(-2), paymentId: repeatedFailurePayment.PaymentId),
+            CreateTransaction(PaymentTransactionStatus.FAILED, now.AddDays(-1), paymentId: repeatedFailurePayment.PaymentId),
+            CreateTransaction(PaymentTransactionStatus.FAILED, now.AddDays(-1), paymentId: stalePayment.PaymentId));
+        await context.SaveChangesAsync();
+        var repository = new FinancialReadRepository(context);
+        var query = new AdminFinancialExceptionsQueryReadModel
+        {
+            ProjectId = project.ProjectId,
+            Page = 1,
+            PageSize = 20
+        };
+
+        var total = await repository.CountFinancialExceptionsAsync(query, now);
+        var rows = await repository.GetFinancialExceptionsAsync(query, now);
+
+        Assert.Equal(5, total);
+        Assert.Contains(rows, row => row.ExceptionType == "PAYMENT_EXPIRED" && row.PaymentId == expiredPayment.PaymentId);
+        Assert.Contains(rows, row => row.ExceptionType == "PAYMENT_REPEATED_FAILURE" && row.PaymentId == repeatedFailurePayment.PaymentId);
+        Assert.Contains(rows, row => row.ExceptionType == "PAYMENT_PENDING_TOO_LONG" && row.PaymentId == stalePayment.PaymentId);
+        Assert.Contains(rows, row => row.ExceptionType == "FINAL_PAYMENT_NOT_CREATED" && row.OrderId == finalPaymentOrder.OrderId);
+        Assert.Contains(rows, row => row.ExceptionType == "DELIVERED_WITH_RECEIVABLE" && row.OrderId == deliveredOrder.OrderId);
+        Assert.DoesNotContain(rows, row => row.Reason.Contains("payload", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task GetFinancialExceptionsAsync_FiltersByTypeSeverityAndPaymentType()
+    {
+        await using var context = CreateContext();
+        var now = new DateTime(2026, 7, 25, 0, 0, 0, DateTimeKind.Utc);
+        var project = CreateProject(Guid.NewGuid(), null);
+        var payment = CreatePayment(
+            PaymentType.DEPOSIT,
+            PaymentStatus.PENDING,
+            50m,
+            projectId: project.ProjectId,
+            createdAt: now.AddDays(-2));
+        context.ProjectSet.Add(project);
+        context.PaymentSet.Add(payment);
+        context.PaymentTransactionSet.AddRange(
+            CreateTransaction(PaymentTransactionStatus.FAILED, now.AddDays(-2), paymentId: payment.PaymentId),
+            CreateTransaction(PaymentTransactionStatus.FAILED, now.AddDays(-1), paymentId: payment.PaymentId));
+        await context.SaveChangesAsync();
+        var repository = new FinancialReadRepository(context);
+        var query = new AdminFinancialExceptionsQueryReadModel
+        {
+            ExceptionType = "PAYMENT_REPEATED_FAILURE",
+            Severity = "HIGH",
+            PaymentType = PaymentType.DEPOSIT,
+            FromUtc = now.AddDays(-3),
+            ToUtcExclusive = now.AddDays(1),
+            Page = 1,
+            PageSize = 10
+        };
+
+        var rows = await repository.GetFinancialExceptionsAsync(query, now);
+
+        var row = Assert.Single(rows);
+        Assert.Equal(payment.PaymentId, row.PaymentId);
+        Assert.Equal(1, row.Age);
+    }
+
     private static void SeedPayments(
         AppDbContext context,
         DateTime periodStart,
@@ -517,7 +684,9 @@ public sealed class FinancialReadRepositoryTests
         PaymentTransactionStatus status,
         DateTime createdAt,
         string currency = "VND",
-        Guid? paymentId = null)
+        Guid? paymentId = null,
+        PaymentProvider? provider = null,
+        string? failureReason = null)
     {
         return new PaymentTransaction
         {
@@ -527,7 +696,9 @@ public sealed class FinancialReadRepositoryTests
             TransactionType = PaymentTransactionType.CHARGE,
             Amount = 10m,
             Currency = currency,
+            PaymentProvider = provider,
             Status = status,
+            FailureReason = failureReason,
             CreatedAt = createdAt
         };
     }

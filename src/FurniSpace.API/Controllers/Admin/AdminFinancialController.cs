@@ -87,4 +87,24 @@ public sealed class AdminFinancialController : BaseApiController
         var result = await _financial.GetProjectAsync(projectId, cancellationToken);
         return ToActionResult(result);
     }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("payments")]
+    public async Task<IActionResult> GetPayments(
+        [FromQuery] AdminFinancialPaymentsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetPaymentsAsync(query, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("exceptions")]
+    public async Task<IActionResult> GetExceptions(
+        [FromQuery] AdminFinancialExceptionsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetExceptionsAsync(query, cancellationToken);
+        return ToActionResult(result);
+    }
 }

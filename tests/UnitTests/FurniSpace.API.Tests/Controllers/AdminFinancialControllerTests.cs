@@ -159,6 +159,42 @@ public sealed class AdminFinancialControllerTests
         Assert.Equal(projectId, service.ProjectId);
     }
 
+    [Fact]
+    public async Task GetPayments_ReturnsServiceResultThroughBaseController()
+    {
+        var service = new FakeAdminFinancialService(
+            ServiceResult<AdminFinancialSummaryDto>.Success(new AdminFinancialSummaryDto()),
+            paymentsResult: ServiceResult<AdminFinancialPaymentsDto>.Success(
+                new AdminFinancialPaymentsDto { TotalItems = 1 },
+                "Financial payments retrieved successfully."));
+        var controller = new AdminFinancialController(service);
+        var query = new AdminFinancialPaymentsQueryDto { Page = 2 };
+
+        var actionResult = await controller.GetPayments(query);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Same(query, service.PaymentsQuery);
+    }
+
+    [Fact]
+    public async Task GetExceptions_ReturnsServiceResultThroughBaseController()
+    {
+        var service = new FakeAdminFinancialService(
+            ServiceResult<AdminFinancialSummaryDto>.Success(new AdminFinancialSummaryDto()),
+            exceptionsResult: ServiceResult<AdminFinancialExceptionsDto>.Success(
+                new AdminFinancialExceptionsDto { TotalItems = 1 },
+                "Financial exceptions retrieved successfully."));
+        var controller = new AdminFinancialController(service);
+        var query = new AdminFinancialExceptionsQueryDto { ExceptionType = "PAYMENT_EXPIRED" };
+
+        var actionResult = await controller.GetExceptions(query);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Same(query, service.ExceptionsQuery);
+    }
+
     private sealed class FakeAdminFinancialService : IAdminFinancialService
     {
         private readonly ServiceResult<AdminFinancialSummaryDto> _result;
@@ -167,6 +203,8 @@ public sealed class AdminFinancialControllerTests
         private readonly ServiceResult<AdminFinancialCollectionTrendDto> _collectionTrendResult;
         private readonly ServiceResult<AdminFinancialProjectsDto> _projectsResult;
         private readonly ServiceResult<AdminFinancialProjectRowDto> _projectResult;
+        private readonly ServiceResult<AdminFinancialPaymentsDto> _paymentsResult;
+        private readonly ServiceResult<AdminFinancialExceptionsDto> _exceptionsResult;
 
         public FakeAdminFinancialService(
             ServiceResult<AdminFinancialSummaryDto> result,
@@ -174,7 +212,9 @@ public sealed class AdminFinancialControllerTests
             ServiceResult<AdminFinancialPaymentBreakdownDto>? paymentBreakdownResult = null,
             ServiceResult<AdminFinancialCollectionTrendDto>? collectionTrendResult = null,
             ServiceResult<AdminFinancialProjectsDto>? projectsResult = null,
-            ServiceResult<AdminFinancialProjectRowDto>? projectResult = null)
+            ServiceResult<AdminFinancialProjectRowDto>? projectResult = null,
+            ServiceResult<AdminFinancialPaymentsDto>? paymentsResult = null,
+            ServiceResult<AdminFinancialExceptionsDto>? exceptionsResult = null)
         {
             _result = result;
             _receivablesResult = receivablesResult ??
@@ -187,6 +227,10 @@ public sealed class AdminFinancialControllerTests
                 ServiceResult<AdminFinancialProjectsDto>.Success(new AdminFinancialProjectsDto());
             _projectResult = projectResult ??
                 ServiceResult<AdminFinancialProjectRowDto>.Success(new AdminFinancialProjectRowDto());
+            _paymentsResult = paymentsResult ??
+                ServiceResult<AdminFinancialPaymentsDto>.Success(new AdminFinancialPaymentsDto());
+            _exceptionsResult = exceptionsResult ??
+                ServiceResult<AdminFinancialExceptionsDto>.Success(new AdminFinancialExceptionsDto());
         }
 
         public AdminFinancialSummaryQueryDto? Query { get; private set; }
@@ -194,6 +238,8 @@ public sealed class AdminFinancialControllerTests
         public AdminFinancialPaymentBreakdownQueryDto? PaymentBreakdownQuery { get; private set; }
         public AdminFinancialCollectionTrendQueryDto? CollectionTrendQuery { get; private set; }
         public AdminFinancialProjectsQueryDto? ProjectsQuery { get; private set; }
+        public AdminFinancialPaymentsQueryDto? PaymentsQuery { get; private set; }
+        public AdminFinancialExceptionsQueryDto? ExceptionsQuery { get; private set; }
         public System.Guid? ProjectId { get; private set; }
 
         public Task<ServiceResult<AdminFinancialSummaryDto>> GetSummaryAsync(
@@ -242,6 +288,22 @@ public sealed class AdminFinancialControllerTests
         {
             ProjectId = projectId;
             return Task.FromResult(_projectResult);
+        }
+
+        public Task<ServiceResult<AdminFinancialPaymentsDto>> GetPaymentsAsync(
+            AdminFinancialPaymentsQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            PaymentsQuery = query;
+            return Task.FromResult(_paymentsResult);
+        }
+
+        public Task<ServiceResult<AdminFinancialExceptionsDto>> GetExceptionsAsync(
+            AdminFinancialExceptionsQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            ExceptionsQuery = query;
+            return Task.FromResult(_exceptionsResult);
         }
     }
 }

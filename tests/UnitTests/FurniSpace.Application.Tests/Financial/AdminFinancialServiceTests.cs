@@ -523,6 +523,153 @@ public sealed class AdminFinancialServiceTests
         Assert.Equal(AdminFinancialErrorCodes.ProjectNotFound, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task GetPaymentsAsync_WithValidQuery_ReturnsMappedDiagnostics()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new FakeFinancialReadRepository
+        {
+            PaymentRows =
+            [
+                new AdminFinancialPaymentRowReadModel
+                {
+                    PaymentId = paymentId,
+                    PaymentCode = "PAY-001",
+                    ProjectId = Guid.NewGuid(),
+                    CustomerId = Guid.NewGuid(),
+                    PaymentType = PaymentType.DEPOSIT,
+                    Amount = 100m,
+                    Currency = "VND",
+                    Status = PaymentStatus.PENDING,
+                    LastProvider = PaymentProvider.PAYOS,
+                    AttemptCount = 3,
+                    FailedAttemptCount = 2,
+                    LastTransactionStatus = PaymentTransactionStatus.FAILED,
+                    LastFailureReason = "Declined"
+                }
+            ],
+            PaymentTotalItems = 12
+        };
+        var service = new AdminFinancialService(repository);
+        var createdFrom = new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.FromHours(7));
+        var createdTo = new DateTimeOffset(2026, 7, 31, 0, 0, 0, TimeSpan.FromHours(7));
+
+        var result = await service.GetPaymentsAsync(new AdminFinancialPaymentsQueryDto
+        {
+            PaymentType = PaymentType.DEPOSIT,
+            PaymentStatus = PaymentStatus.PENDING,
+            Provider = PaymentProvider.PAYOS,
+            CreatedFrom = createdFrom,
+            CreatedTo = createdTo,
+            HasFailedAttempt = true,
+            MinFailedAttemptCount = 2,
+            Page = 2,
+            PageSize = 5,
+            SortBy = "amount",
+            SortDirection = "ASC"
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(12, result.Data!.TotalItems);
+        Assert.Equal(3, result.Data.TotalPages);
+        Assert.Equal(paymentId, result.Data.Items[0].PaymentId);
+        Assert.Equal(2, result.Data.Items[0].FailedAttemptCount);
+        Assert.Equal("Declined", result.Data.Items[0].LastFailureReason);
+        Assert.Equal("amount", repository.PaymentsQuery!.SortBy);
+        Assert.Equal("asc", repository.PaymentsQuery.SortDirection);
+        Assert.Equal(createdFrom.UtcDateTime, repository.PaymentsQuery.CreatedFromUtc);
+    }
+
+    [Theory]
+    [InlineData(0, 20, null, null, null)]
+    [InlineData(1, 101, null, null, null)]
+    [InlineData(1, 20, "bad", null, null)]
+    [InlineData(1, 20, null, "sideways", null)]
+    [InlineData(1, 20, null, null, -1)]
+    public async Task GetPaymentsAsync_WithInvalidFilter_ReturnsBadRequest(
+        int page,
+        int pageSize,
+        string? sortBy,
+        string? sortDirection,
+        int? minFailedAttemptCount)
+    {
+        var service = new AdminFinancialService(new FakeFinancialReadRepository());
+
+        var result = await service.GetPaymentsAsync(new AdminFinancialPaymentsQueryDto
+        {
+            Page = page,
+            PageSize = pageSize,
+            SortBy = sortBy,
+            SortDirection = sortDirection,
+            MinFailedAttemptCount = minFailedAttemptCount
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(AdminFinancialErrorCodes.PaymentFilterInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetExceptionsAsync_WithValidQuery_ReturnsMappedRows()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new FakeFinancialReadRepository
+        {
+            ExceptionRows =
+            [
+                new AdminFinancialExceptionRowReadModel
+                {
+                    ExceptionType = "PAYMENT_REPEATED_FAILURE",
+                    Severity = "HIGH",
+                    ProjectId = Guid.NewGuid(),
+                    PaymentId = paymentId,
+                    Title = "Payment has repeated failed attempts",
+                    Reason = "Two failures",
+                    RecommendedAction = "Review",
+                    TargetResourceType = "PAYMENT",
+                    TargetResourceId = paymentId
+                }
+            ],
+            ExceptionTotalItems = 1
+        };
+        var service = new AdminFinancialService(repository);
+
+        var result = await service.GetExceptionsAsync(new AdminFinancialExceptionsQueryDto
+        {
+            ExceptionType = "payment_repeated_failure",
+            Severity = "high",
+            Page = 1,
+            PageSize = 10
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal("PAYMENT_REPEATED_FAILURE", repository.ExceptionsQuery!.ExceptionType);
+        Assert.Equal("HIGH", repository.ExceptionsQuery.Severity);
+    }
+
+    [Theory]
+    [InlineData("UNKNOWN", 1, 20, AdminFinancialErrorCodes.ExceptionTypeInvalid)]
+    [InlineData(null, 0, 20, AdminFinancialErrorCodes.PaymentFilterInvalid)]
+    [InlineData(null, 1, 101, AdminFinancialErrorCodes.PaymentFilterInvalid)]
+    public async Task GetExceptionsAsync_WithInvalidFilter_ReturnsBadRequest(
+        string? exceptionType,
+        int page,
+        int pageSize,
+        string expectedErrorCode)
+    {
+        var service = new AdminFinancialService(new FakeFinancialReadRepository());
+
+        var result = await service.GetExceptionsAsync(new AdminFinancialExceptionsQueryDto
+        {
+            ExceptionType = exceptionType,
+            Page = page,
+            PageSize = pageSize
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedErrorCode, result.ErrorCode);
+    }
+
     private static DateTimeOffset? Parse(string? value)
     {
         return value is null
@@ -540,12 +687,18 @@ public sealed class AdminFinancialServiceTests
         public IReadOnlyList<AdminFinancialProjectRowReadModel> ProjectRows { get; init; } = [];
         public AdminFinancialProjectRowReadModel? ProjectDetail { get; init; }
         public int ProjectTotalItems { get; init; }
+        public IReadOnlyList<AdminFinancialPaymentRowReadModel> PaymentRows { get; init; } = [];
+        public int PaymentTotalItems { get; init; }
+        public IReadOnlyList<AdminFinancialExceptionRowReadModel> ExceptionRows { get; init; } = [];
+        public int ExceptionTotalItems { get; init; }
         public Dictionary<DateTime, IReadOnlyList<AdminFinancialPaymentTypeAmountReadModel>> TrendRowsByFromUtc { get; } = [];
         public IReadOnlyCollection<PaymentType>? CanonicalPaymentTypes { get; private set; }
         public IReadOnlyCollection<PaymentType>? PaymentBreakdownCanonicalTypes { get; private set; }
         public DateTime ToUtcExclusive { get; private set; }
         public AdminFinancialReceivablesQueryReadModel? ReceivablesQuery { get; private set; }
         public AdminFinancialProjectsQueryReadModel? ProjectsQuery { get; private set; }
+        public AdminFinancialPaymentsQueryReadModel? PaymentsQuery { get; private set; }
+        public AdminFinancialExceptionsQueryReadModel? ExceptionsQuery { get; private set; }
         public Guid? ProjectDetailId { get; private set; }
 
         public Task<AdminFinancialSummaryReadModel> GetAdminSummaryAsync(
@@ -642,6 +795,40 @@ public sealed class AdminFinancialServiceTests
             ProjectDetailId = projectId;
             CanonicalPaymentTypes = canonicalPaymentTypes;
             return Task.FromResult(ProjectDetail);
+        }
+
+        public Task<IReadOnlyList<AdminFinancialPaymentRowReadModel>> GetOperationalPaymentsAsync(
+            AdminFinancialPaymentsQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            PaymentsQuery = query;
+            return Task.FromResult(PaymentRows);
+        }
+
+        public Task<int> CountOperationalPaymentsAsync(
+            AdminFinancialPaymentsQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            PaymentsQuery = query;
+            return Task.FromResult(PaymentTotalItems);
+        }
+
+        public Task<IReadOnlyList<AdminFinancialExceptionRowReadModel>> GetFinancialExceptionsAsync(
+            AdminFinancialExceptionsQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+        {
+            ExceptionsQuery = query;
+            return Task.FromResult(ExceptionRows);
+        }
+
+        public Task<int> CountFinancialExceptionsAsync(
+            AdminFinancialExceptionsQueryReadModel query,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default)
+        {
+            ExceptionsQuery = query;
+            return Task.FromResult(ExceptionTotalItems);
         }
     }
 }

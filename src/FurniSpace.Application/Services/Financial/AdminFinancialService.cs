@@ -14,6 +14,11 @@ public sealed class AdminFinancialService : IAdminFinancialService
     private const string GranularityMonth = "MONTH";
     private const string SortAscending = "asc";
     private const string SortDescending = "desc";
+    private const string ExceptionPaymentExpired = "PAYMENT_EXPIRED";
+    private const string ExceptionPaymentRepeatedFailure = "PAYMENT_REPEATED_FAILURE";
+    private const string ExceptionFinalPaymentNotCreated = "FINAL_PAYMENT_NOT_CREATED";
+    private const string ExceptionDeliveredWithReceivable = "DELIVERED_WITH_RECEIVABLE";
+    private const string ExceptionPaymentPendingTooLong = "PAYMENT_PENDING_TOO_LONG";
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
     private static readonly HashSet<string> ReceivableSortFields =
     [
@@ -35,6 +40,23 @@ public sealed class AdminFinancialService : IAdminFinancialService
         "orderRemainingAmount",
         "totalProjectCashCollected",
         "lastPaidAt"
+    ];
+    private static readonly HashSet<string> PaymentSortFields =
+    [
+        "createdAt",
+        "paidAt",
+        "expiredAt",
+        "amount",
+        "paymentCode",
+        "status"
+    ];
+    private static readonly HashSet<string> ExceptionTypes =
+    [
+        ExceptionPaymentExpired,
+        ExceptionPaymentRepeatedFailure,
+        ExceptionFinalPaymentNotCreated,
+        ExceptionDeliveredWithReceivable,
+        ExceptionPaymentPendingTooLong
     ];
 
     private readonly IFinancialReadRepository _financial;
@@ -257,6 +279,57 @@ public sealed class AdminFinancialService : IAdminFinancialService
                 "Project financial detail retrieved successfully.");
     }
 
+    public async Task<ServiceResult<AdminFinancialPaymentsDto>> GetPaymentsAsync(
+        AdminFinancialPaymentsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        query ??= new AdminFinancialPaymentsQueryDto();
+        if (!TryCreatePaymentsReadQuery(query, out var readQuery, out var errorMessage))
+        {
+            return ServiceResult<AdminFinancialPaymentsDto>.Failure(
+                Error.BadRequest(AdminFinancialErrorCodes.PaymentFilterInvalid, errorMessage));
+        }
+
+        var totalItems = await _financial.CountOperationalPaymentsAsync(readQuery, cancellationToken);
+        var rows = await _financial.GetOperationalPaymentsAsync(readQuery, cancellationToken);
+        return ServiceResult<AdminFinancialPaymentsDto>.Success(
+            new AdminFinancialPaymentsDto
+            {
+                Items = rows.Select(ToPaymentRowDto).ToList(),
+                Page = readQuery.Page,
+                PageSize = readQuery.PageSize,
+                TotalItems = totalItems,
+                TotalPages = CalculateTotalPages(totalItems, readQuery.PageSize)
+            },
+            "Financial payments retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<AdminFinancialExceptionsDto>> GetExceptionsAsync(
+        AdminFinancialExceptionsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        query ??= new AdminFinancialExceptionsQueryDto();
+        if (!TryCreateExceptionsReadQuery(query, out var readQuery, out var errorCode, out var errorMessage))
+        {
+            return ServiceResult<AdminFinancialExceptionsDto>.Failure(
+                Error.BadRequest(errorCode, errorMessage));
+        }
+
+        var utcNow = DateTime.UtcNow;
+        var totalItems = await _financial.CountFinancialExceptionsAsync(readQuery, utcNow, cancellationToken);
+        var rows = await _financial.GetFinancialExceptionsAsync(readQuery, utcNow, cancellationToken);
+        return ServiceResult<AdminFinancialExceptionsDto>.Success(
+            new AdminFinancialExceptionsDto
+            {
+                Items = rows.Select(ToExceptionRowDto).ToList(),
+                Page = readQuery.Page,
+                PageSize = readQuery.PageSize,
+                TotalItems = totalItems,
+                TotalPages = CalculateTotalPages(totalItems, readQuery.PageSize)
+            },
+            "Financial exceptions retrieved successfully.");
+    }
+
     private async Task<List<AdminFinancialCollectionTrendBucketDto>> BuildMonthlyTrendSeriesAsync(
         DateTimeOffset fromLocal,
         DateTimeOffset toLocal,
@@ -337,6 +410,54 @@ public sealed class AdminFinancialService : IAdminFinancialService
             ActivePaymentStatus = item.ActivePaymentStatus,
             TotalProjectCashCollected = item.TotalProjectCashCollected,
             LastPaidAt = item.LastPaidAt
+        };
+    }
+
+    private static AdminFinancialPaymentRowDto ToPaymentRowDto(AdminFinancialPaymentRowReadModel item)
+    {
+        return new AdminFinancialPaymentRowDto
+        {
+            PaymentId = item.PaymentId,
+            PaymentCode = item.PaymentCode,
+            ProjectId = item.ProjectId,
+            ProjectCode = item.ProjectCode,
+            OrderId = item.OrderId,
+            OrderCode = item.OrderCode,
+            CustomerId = item.CustomerId,
+            CustomerName = item.CustomerName,
+            PaymentType = item.PaymentType,
+            Amount = item.Amount,
+            Currency = item.Currency,
+            Status = item.Status,
+            CreatedAt = item.CreatedAt,
+            ExpiredAt = item.ExpiredAt,
+            PaidAt = item.PaidAt,
+            LastProvider = item.LastProvider,
+            AttemptCount = item.AttemptCount,
+            FailedAttemptCount = item.FailedAttemptCount,
+            LastTransactionStatus = item.LastTransactionStatus,
+            LastFailureReason = item.LastFailureReason,
+            LastAttemptAt = item.LastAttemptAt
+        };
+    }
+
+    private static AdminFinancialExceptionRowDto ToExceptionRowDto(AdminFinancialExceptionRowReadModel item)
+    {
+        return new AdminFinancialExceptionRowDto
+        {
+            ExceptionType = item.ExceptionType,
+            Severity = item.Severity,
+            ProjectId = item.ProjectId,
+            OrderId = item.OrderId,
+            PaymentId = item.PaymentId,
+            Title = item.Title,
+            Reason = item.Reason,
+            Amount = item.Amount,
+            Age = item.Age,
+            OccurredAt = item.OccurredAt,
+            RecommendedAction = item.RecommendedAction,
+            TargetResourceType = item.TargetResourceType,
+            TargetResourceId = item.TargetResourceId
         };
     }
 
@@ -476,6 +597,110 @@ public sealed class AdminFinancialService : IAdminFinancialService
         return true;
     }
 
+    private static bool TryCreatePaymentsReadQuery(
+        AdminFinancialPaymentsQueryDto query,
+        out AdminFinancialPaymentsQueryReadModel readQuery,
+        out string errorMessage)
+    {
+        readQuery = new AdminFinancialPaymentsQueryReadModel();
+        if (!IsValidPage(query.Page, query.PageSize))
+        {
+            errorMessage = "Financial payment pagination is invalid.";
+            return false;
+        }
+
+        if (query.MinFailedAttemptCount is < 0)
+        {
+            errorMessage = "Financial payment failed attempt filter is invalid.";
+            return false;
+        }
+
+        var sortBy = NormalizePaymentSortBy(query.SortBy);
+        if (!PaymentSortFields.Contains(sortBy))
+        {
+            errorMessage = "Financial payment sort field is invalid.";
+            return false;
+        }
+
+        var sortDirection = NormalizeSortDirection(query.SortDirection);
+        if (sortDirection is not SortAscending and not SortDescending)
+        {
+            errorMessage = "Financial payment sort direction is invalid.";
+            return false;
+        }
+
+        if (!TryResolveOptionalDateRange(query.CreatedFrom, query.CreatedTo, out var createdFromUtc, out var createdToUtc) ||
+            !TryResolveOptionalDateRange(query.PaidFrom, query.PaidTo, out var paidFromUtc, out var paidToUtc) ||
+            !TryResolveOptionalDateRange(query.ExpiredFrom, query.ExpiredTo, out var expiredFromUtc, out var expiredToUtc))
+        {
+            errorMessage = "Financial payment date range is invalid.";
+            return false;
+        }
+
+        readQuery = new AdminFinancialPaymentsQueryReadModel
+        {
+            ProjectId = query.ProjectId,
+            OrderId = query.OrderId,
+            CustomerId = query.CustomerId,
+            PaymentType = query.PaymentType,
+            PaymentStatus = query.PaymentStatus,
+            Provider = query.Provider,
+            CreatedFromUtc = createdFromUtc,
+            CreatedToUtcExclusive = createdToUtc,
+            PaidFromUtc = paidFromUtc,
+            PaidToUtcExclusive = paidToUtc,
+            ExpiredFromUtc = expiredFromUtc,
+            ExpiredToUtcExclusive = expiredToUtc,
+            HasFailedAttempt = query.HasFailedAttempt,
+            MinFailedAttemptCount = query.MinFailedAttemptCount,
+            Page = query.Page,
+            PageSize = query.PageSize,
+            SortBy = sortBy,
+            SortDirection = sortDirection
+        };
+        errorMessage = string.Empty;
+        return true;
+    }
+
+    private static bool TryCreateExceptionsReadQuery(
+        AdminFinancialExceptionsQueryDto query,
+        out AdminFinancialExceptionsQueryReadModel readQuery,
+        out string errorCode,
+        out string errorMessage)
+    {
+        readQuery = new AdminFinancialExceptionsQueryReadModel();
+        if (!IsValidPage(query.Page, query.PageSize) ||
+            !TryResolveOptionalDateRange(query.From, query.To, out var fromUtc, out var toUtcExclusive))
+        {
+            errorCode = AdminFinancialErrorCodes.PaymentFilterInvalid;
+            errorMessage = "Financial exception filter is invalid.";
+            return false;
+        }
+
+        var exceptionType = NormalizeOptionalUpper(query.ExceptionType);
+        if (!string.IsNullOrWhiteSpace(exceptionType) && !ExceptionTypes.Contains(exceptionType))
+        {
+            errorCode = AdminFinancialErrorCodes.ExceptionTypeInvalid;
+            errorMessage = "Financial exception type is invalid.";
+            return false;
+        }
+
+        readQuery = new AdminFinancialExceptionsQueryReadModel
+        {
+            ExceptionType = exceptionType,
+            Severity = NormalizeOptionalUpper(query.Severity),
+            ProjectId = query.ProjectId,
+            PaymentType = query.PaymentType,
+            FromUtc = fromUtc,
+            ToUtcExclusive = toUtcExclusive,
+            Page = query.Page,
+            PageSize = query.PageSize
+        };
+        errorCode = string.Empty;
+        errorMessage = string.Empty;
+        return true;
+    }
+
     private static bool TryResolveOptionalDateRange(
         DateTimeOffset? from,
         DateTimeOffset? to,
@@ -558,6 +783,20 @@ public sealed class AdminFinancialService : IAdminFinancialService
             : sortBy.Trim();
     }
 
+    private static string NormalizePaymentSortBy(string? sortBy)
+    {
+        return string.IsNullOrWhiteSpace(sortBy)
+            ? "createdAt"
+            : sortBy.Trim();
+    }
+
+    private static string? NormalizeOptionalUpper(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim().ToUpperInvariant();
+    }
+
     private static string NormalizeSortDirection(string? sortDirection)
     {
         return string.IsNullOrWhiteSpace(sortDirection)
@@ -568,6 +807,11 @@ public sealed class AdminFinancialService : IAdminFinancialService
     private static int CalculateTotalPages(int totalItems, int pageSize)
     {
         return totalItems == 0 ? 0 : (int)Math.Ceiling(totalItems / (double)pageSize);
+    }
+
+    private static bool IsValidPage(int page, int pageSize)
+    {
+        return page > 0 && pageSize > 0 && pageSize <= MaxPageSize;
     }
 
     private static bool IsStartOfDay(DateTimeOffset value)

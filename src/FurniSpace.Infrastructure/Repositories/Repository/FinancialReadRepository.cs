@@ -346,7 +346,16 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
     private IQueryable<Domain.Entities.Payment> BuildOperationalPaymentBaseQuery(
         AdminFinancialPaymentsQueryReadModel query)
     {
-        var payments = _dbContext.PaymentSet.AsQueryable();
+        var payments = ApplyOperationalPaymentScopeFilters(_dbContext.PaymentSet.AsQueryable(), query);
+        payments = ApplyOperationalPaymentStateFilters(payments, query);
+        payments = ApplyPaymentDateFilters(payments, query);
+        return ApplyOperationalPaymentAttemptFilters(payments, query);
+    }
+
+    private IQueryable<Domain.Entities.Payment> ApplyOperationalPaymentScopeFilters(
+        IQueryable<Domain.Entities.Payment> payments,
+        AdminFinancialPaymentsQueryReadModel query)
+    {
         if (query.ProjectId.HasValue)
         {
             payments = payments.Where(payment => payment.ProjectId == query.ProjectId.Value);
@@ -364,6 +373,13 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
                 project.CustomerId == query.CustomerId.Value));
         }
 
+        return payments;
+    }
+
+    private static IQueryable<Domain.Entities.Payment> ApplyOperationalPaymentStateFilters(
+        IQueryable<Domain.Entities.Payment> payments,
+        AdminFinancialPaymentsQueryReadModel query)
+    {
         if (query.PaymentType.HasValue)
         {
             payments = payments.Where(payment => payment.PaymentType == query.PaymentType.Value);
@@ -374,6 +390,18 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
             payments = payments.Where(payment => payment.Status == query.PaymentStatus.Value);
         }
 
+        if (!string.IsNullOrWhiteSpace(query.Currency))
+        {
+            payments = payments.Where(payment => payment.Currency == query.Currency);
+        }
+
+        return payments;
+    }
+
+    private IQueryable<Domain.Entities.Payment> ApplyOperationalPaymentAttemptFilters(
+        IQueryable<Domain.Entities.Payment> payments,
+        AdminFinancialPaymentsQueryReadModel query)
+    {
         if (query.Provider.HasValue)
         {
             payments = payments.Where(payment => _dbContext.PaymentTransactionSet.Any(transaction =>
@@ -381,12 +409,6 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
                 transaction.PaymentProvider == query.Provider.Value));
         }
 
-        if (!string.IsNullOrWhiteSpace(query.Currency))
-        {
-            payments = payments.Where(payment => payment.Currency == query.Currency);
-        }
-
-        payments = ApplyPaymentDateFilters(payments, query);
         if (query.HasFailedAttempt.HasValue)
         {
             payments = query.HasFailedAttempt.Value
@@ -467,10 +489,10 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
         AdminFinancialExceptionsQueryReadModel query,
         DateTime utcNow)
     {
-        var rows = BuildPaymentExpiredExceptions(utcNow)
-            .Concat(BuildPaymentRepeatedFailureExceptions(utcNow))
+        var rows = BuildPaymentExpiredExceptions()
+            .Concat(BuildPaymentRepeatedFailureExceptions())
             .Concat(BuildFinalPaymentNotCreatedExceptions(utcNow))
-            .Concat(BuildDeliveredWithReceivableExceptions(utcNow))
+            .Concat(BuildDeliveredWithReceivableExceptions())
             .Concat(BuildPaymentPendingTooLongExceptions(utcNow));
 
         if (!string.IsNullOrWhiteSpace(query.ExceptionType))
@@ -510,7 +532,7 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
         return rows;
     }
 
-    private IQueryable<AdminFinancialExceptionRowReadModel> BuildPaymentExpiredExceptions(DateTime utcNow)
+    private IQueryable<AdminFinancialExceptionRowReadModel> BuildPaymentExpiredExceptions()
     {
         return _dbContext.PaymentSet
             .Where(payment => payment.Status == PaymentStatus.EXPIRED)
@@ -532,7 +554,7 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
             });
     }
 
-    private IQueryable<AdminFinancialExceptionRowReadModel> BuildPaymentRepeatedFailureExceptions(DateTime utcNow)
+    private IQueryable<AdminFinancialExceptionRowReadModel> BuildPaymentRepeatedFailureExceptions()
     {
         return _dbContext.PaymentSet
             .Where(payment =>
@@ -593,7 +615,7 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
             });
     }
 
-    private IQueryable<AdminFinancialExceptionRowReadModel> BuildDeliveredWithReceivableExceptions(DateTime utcNow)
+    private IQueryable<AdminFinancialExceptionRowReadModel> BuildDeliveredWithReceivableExceptions()
     {
         return _dbContext.OrderSet
             .Where(order =>
@@ -692,7 +714,16 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
         AdminFinancialProjectsQueryReadModel query,
         DateTime utcNow)
     {
-        var projects = _dbContext.ProjectSet.AsQueryable();
+        var projects = ApplyProjectFinancialIdentityFilters(_dbContext.ProjectSet.AsQueryable(), query);
+        projects = ApplyProjectFinancialDateFilters(projects, query);
+        projects = ApplyProjectFinancialOrderFilters(projects, query);
+        return ApplyProjectFinancialPaymentFilters(projects, query, utcNow);
+    }
+
+    private IQueryable<Domain.Entities.Project> ApplyProjectFinancialIdentityFilters(
+        IQueryable<Domain.Entities.Project> projects,
+        AdminFinancialProjectsQueryReadModel query)
+    {
         if (query.ProjectId.HasValue)
         {
             projects = projects.Where(project => project.ProjectId == query.ProjectId.Value);
@@ -724,6 +755,13 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
             projects = projects.Where(project => project.AssignedSalesId == query.SalesId.Value);
         }
 
+        return projects;
+    }
+
+    private static IQueryable<Domain.Entities.Project> ApplyProjectFinancialDateFilters(
+        IQueryable<Domain.Entities.Project> projects,
+        AdminFinancialProjectsQueryReadModel query)
+    {
         if (query.FromUtc.HasValue)
         {
             projects = projects.Where(project => project.CreatedAt.HasValue && project.CreatedAt.Value >= query.FromUtc.Value);
@@ -734,6 +772,13 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
             projects = projects.Where(project => project.CreatedAt.HasValue && project.CreatedAt.Value < query.ToUtcExclusive.Value);
         }
 
+        return projects;
+    }
+
+    private IQueryable<Domain.Entities.Project> ApplyProjectFinancialOrderFilters(
+        IQueryable<Domain.Entities.Project> projects,
+        AdminFinancialProjectsQueryReadModel query)
+    {
         if (query.HasOrder.HasValue)
         {
             projects = query.HasOrder.Value
@@ -758,6 +803,14 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
                     order.RemainingAmount.Value > 0m));
         }
 
+        return projects;
+    }
+
+    private IQueryable<Domain.Entities.Project> ApplyProjectFinancialPaymentFilters(
+        IQueryable<Domain.Entities.Project> projects,
+        AdminFinancialProjectsQueryReadModel query,
+        DateTime utcNow)
+    {
         if (query.HasOutstandingPayment.HasValue)
         {
             var activePayments = BuildActivePaymentQuery(utcNow, DefaultCurrency);
@@ -822,22 +875,22 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
                     .Where(account => account.AccountId == project.AssignedSalesId)
                     .Select(account => account.FullName)
                     .FirstOrDefault(),
-                ProjectStartFeeAmount = startFee == null ? null : startFee.Amount,
-                ProjectStartFeeStatus = startFee == null ? null : startFee.Status,
-                ProjectStartFeePaidAt = startFee == null ? null : startFee.PaidAt,
-                OrderId = latestOrder == null ? null : latestOrder.OrderId,
-                OrderCode = latestOrder == null ? null : latestOrder.OrderCode,
-                OrderStatus = latestOrder == null ? null : latestOrder.Status,
-                OrderOriginalTotal = latestOrder == null ? null : latestOrder.OriginalTotalAmount,
-                OrderAdjustmentAmount = latestOrder == null ? null : latestOrder.ItemAdjustmentAmount,
-                OrderAdditionalDiscount = latestOrder == null ? null : latestOrder.AdditionalDiscountAmount,
-                OrderFinalTotal = latestOrder == null ? null : latestOrder.FinalTotalAmount,
-                OrderPaidAmount = latestOrder == null ? null : latestOrder.PaidAmount,
-                OrderRemainingAmount = latestOrder == null ? null : latestOrder.RemainingAmount,
-                ActivePaymentId = activePayment == null ? null : activePayment.PaymentId,
-                ActivePaymentType = activePayment == null ? null : activePayment.PaymentType,
-                ActivePaymentAmount = activePayment == null ? null : activePayment.Amount,
-                ActivePaymentStatus = activePayment == null ? null : activePayment.Status,
+                ProjectStartFeeAmount = (decimal?)startFee.Amount,
+                ProjectStartFeeStatus = startFee.Status,
+                ProjectStartFeePaidAt = startFee.PaidAt,
+                OrderId = (Guid?)latestOrder.OrderId,
+                OrderCode = latestOrder.OrderCode,
+                OrderStatus = latestOrder.Status,
+                OrderOriginalTotal = (decimal?)latestOrder.OriginalTotalAmount,
+                OrderAdjustmentAmount = latestOrder.ItemAdjustmentAmount,
+                OrderAdditionalDiscount = latestOrder.AdditionalDiscountAmount,
+                OrderFinalTotal = (decimal?)latestOrder.FinalTotalAmount,
+                OrderPaidAmount = latestOrder.PaidAmount,
+                OrderRemainingAmount = latestOrder.RemainingAmount,
+                ActivePaymentId = (Guid?)activePayment.PaymentId,
+                ActivePaymentType = activePayment.PaymentType,
+                ActivePaymentAmount = (decimal?)activePayment.Amount,
+                ActivePaymentStatus = activePayment.Status,
                 TotalProjectCashCollected = _dbContext.PaymentSet
                     .Where(payment =>
                         payment.ProjectId == project.ProjectId &&
@@ -1028,32 +1081,42 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
         AdminFinancialProjectsQueryReadModel query)
     {
         var descending = string.Equals(query.SortDirection, "desc", StringComparison.OrdinalIgnoreCase);
-        return query.SortBy switch
+        return descending
+            ? ApplyProjectFinancialDescendingSorting(rows, query.SortBy)
+            : ApplyProjectFinancialAscendingSorting(rows, query.SortBy);
+    }
+
+    private static IQueryable<AdminFinancialProjectRowReadModel> ApplyProjectFinancialAscendingSorting(
+        IQueryable<AdminFinancialProjectRowReadModel> rows,
+        string? sortBy)
+    {
+        return sortBy switch
         {
-            "projectCode" => descending
-                ? rows.OrderByDescending(row => row.ProjectCode).ThenByDescending(row => row.ProjectId)
-                : rows.OrderBy(row => row.ProjectCode).ThenBy(row => row.ProjectId),
-            "projectName" => descending
-                ? rows.OrderByDescending(row => row.ProjectName).ThenByDescending(row => row.ProjectId)
-                : rows.OrderBy(row => row.ProjectName).ThenBy(row => row.ProjectId),
-            "projectStatus" => descending
-                ? rows.OrderByDescending(row => row.ProjectStatus).ThenByDescending(row => row.ProjectId)
-                : rows.OrderBy(row => row.ProjectStatus).ThenBy(row => row.ProjectId),
-            "orderFinalTotal" => descending
-                ? rows.OrderByDescending(row => row.OrderFinalTotal).ThenByDescending(row => row.ProjectId)
-                : rows.OrderBy(row => row.OrderFinalTotal).ThenBy(row => row.ProjectId),
-            "orderRemainingAmount" => descending
-                ? rows.OrderByDescending(row => row.OrderRemainingAmount).ThenByDescending(row => row.ProjectId)
-                : rows.OrderBy(row => row.OrderRemainingAmount).ThenBy(row => row.ProjectId),
-            "totalProjectCashCollected" => descending
-                ? rows.OrderByDescending(row => row.TotalProjectCashCollected).ThenByDescending(row => row.ProjectId)
-                : rows.OrderBy(row => row.TotalProjectCashCollected).ThenBy(row => row.ProjectId),
-            "lastPaidAt" => descending
-                ? rows.OrderByDescending(row => row.LastPaidAt).ThenByDescending(row => row.ProjectId)
-                : rows.OrderBy(row => row.LastPaidAt).ThenBy(row => row.ProjectId),
-            _ => descending
-                ? rows.OrderByDescending(row => row.ProjectCreatedAt).ThenByDescending(row => row.ProjectId)
-                : rows.OrderBy(row => row.ProjectCreatedAt).ThenBy(row => row.ProjectId)
+            "projectCode" => rows.OrderBy(row => row.ProjectCode).ThenBy(row => row.ProjectId),
+            "projectName" => rows.OrderBy(row => row.ProjectName).ThenBy(row => row.ProjectId),
+            "projectStatus" => rows.OrderBy(row => row.ProjectStatus).ThenBy(row => row.ProjectId),
+            "orderFinalTotal" => rows.OrderBy(row => row.OrderFinalTotal).ThenBy(row => row.ProjectId),
+            "orderRemainingAmount" => rows.OrderBy(row => row.OrderRemainingAmount).ThenBy(row => row.ProjectId),
+            "totalProjectCashCollected" => rows.OrderBy(row => row.TotalProjectCashCollected).ThenBy(row => row.ProjectId),
+            "lastPaidAt" => rows.OrderBy(row => row.LastPaidAt).ThenBy(row => row.ProjectId),
+            _ => rows.OrderBy(row => row.ProjectCreatedAt).ThenBy(row => row.ProjectId)
+        };
+    }
+
+    private static IQueryable<AdminFinancialProjectRowReadModel> ApplyProjectFinancialDescendingSorting(
+        IQueryable<AdminFinancialProjectRowReadModel> rows,
+        string? sortBy)
+    {
+        return sortBy switch
+        {
+            "projectCode" => rows.OrderByDescending(row => row.ProjectCode).ThenByDescending(row => row.ProjectId),
+            "projectName" => rows.OrderByDescending(row => row.ProjectName).ThenByDescending(row => row.ProjectId),
+            "projectStatus" => rows.OrderByDescending(row => row.ProjectStatus).ThenByDescending(row => row.ProjectId),
+            "orderFinalTotal" => rows.OrderByDescending(row => row.OrderFinalTotal).ThenByDescending(row => row.ProjectId),
+            "orderRemainingAmount" => rows.OrderByDescending(row => row.OrderRemainingAmount).ThenByDescending(row => row.ProjectId),
+            "totalProjectCashCollected" => rows.OrderByDescending(row => row.TotalProjectCashCollected).ThenByDescending(row => row.ProjectId),
+            "lastPaidAt" => rows.OrderByDescending(row => row.LastPaidAt).ThenByDescending(row => row.ProjectId),
+            _ => rows.OrderByDescending(row => row.ProjectCreatedAt).ThenByDescending(row => row.ProjectId)
         };
     }
 

@@ -14,6 +14,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
     private const string GranularityMonth = "MONTH";
     private const string SortAscending = "asc";
     private const string SortDescending = "desc";
+    private const string CreatedAtSortField = "createdAt";
     private const string ExceptionPaymentExpired = "PAYMENT_EXPIRED";
     private const string ExceptionPaymentRepeatedFailure = "PAYMENT_REPEATED_FAILURE";
     private const string ExceptionFinalPaymentNotCreated = "FINAL_PAYMENT_NOT_CREATED";
@@ -32,7 +33,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
     ];
     private static readonly HashSet<string> ProjectSortFields =
     [
-        "createdAt",
+        CreatedAtSortField,
         "projectCode",
         "projectName",
         "projectStatus",
@@ -43,7 +44,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
     ];
     private static readonly HashSet<string> PaymentSortFields =
     [
-        "createdAt",
+        CreatedAtSortField,
         "paidAt",
         "expiredAt",
         "amount",
@@ -787,14 +788,14 @@ public sealed class AdminFinancialService : IAdminFinancialService
     private static string NormalizeProjectSortBy(string? sortBy)
     {
         return string.IsNullOrWhiteSpace(sortBy)
-            ? "createdAt"
+            ? CreatedAtSortField
             : sortBy.Trim();
     }
 
     private static string NormalizePaymentSortBy(string? sortBy)
     {
         return string.IsNullOrWhiteSpace(sortBy)
-            ? "createdAt"
+            ? CreatedAtSortField
             : sortBy.Trim();
     }
 

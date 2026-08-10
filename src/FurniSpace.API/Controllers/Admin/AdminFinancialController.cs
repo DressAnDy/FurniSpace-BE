@@ -44,8 +44,7 @@ public sealed class AdminFinancialController : BaseApiController
         [FromQuery] AdminFinancialReceivablesQueryDto query,
         CancellationToken cancellationToken = default)
     {
-        var result = await _financial.GetReceivablesAsync(query, cancellationToken);
-        return ToActionResult(result);
+        return await GetReceivables(query, cancellationToken);
     }
 
     [Authorize(Roles = "ADMIN")]

@@ -561,6 +561,7 @@ public sealed class AdminFinancialServiceTests
             Provider = PaymentProvider.PAYOS,
             CreatedFrom = createdFrom,
             CreatedTo = createdTo,
+            Currency = "vnd",
             HasFailedAttempt = true,
             MinFailedAttemptCount = 2,
             Page = 2,
@@ -577,21 +578,24 @@ public sealed class AdminFinancialServiceTests
         Assert.Equal("Declined", result.Data.Items[0].LastFailureReason);
         Assert.Equal("amount", repository.PaymentsQuery!.SortBy);
         Assert.Equal("asc", repository.PaymentsQuery.SortDirection);
+        Assert.Equal("VND", repository.PaymentsQuery.Currency);
         Assert.Equal(createdFrom.UtcDateTime, repository.PaymentsQuery.CreatedFromUtc);
     }
 
     [Theory]
-    [InlineData(0, 20, null, null, null)]
-    [InlineData(1, 101, null, null, null)]
-    [InlineData(1, 20, "bad", null, null)]
-    [InlineData(1, 20, null, "sideways", null)]
-    [InlineData(1, 20, null, null, -1)]
+    [InlineData(0, 20, null, null, null, null)]
+    [InlineData(1, 101, null, null, null, null)]
+    [InlineData(1, 20, "bad", null, null, null)]
+    [InlineData(1, 20, null, "sideways", null, null)]
+    [InlineData(1, 20, null, null, -1, null)]
+    [InlineData(1, 20, null, null, null, "USD")]
     public async Task GetPaymentsAsync_WithInvalidFilter_ReturnsBadRequest(
         int page,
         int pageSize,
         string? sortBy,
         string? sortDirection,
-        int? minFailedAttemptCount)
+        int? minFailedAttemptCount,
+        string? currency)
     {
         var service = new AdminFinancialService(new FakeFinancialReadRepository());
 
@@ -601,7 +605,8 @@ public sealed class AdminFinancialServiceTests
             PageSize = pageSize,
             SortBy = sortBy,
             SortDirection = sortDirection,
-            MinFailedAttemptCount = minFailedAttemptCount
+            MinFailedAttemptCount = minFailedAttemptCount,
+            Currency = currency
         });
 
         Assert.Equal(400, result.Status);

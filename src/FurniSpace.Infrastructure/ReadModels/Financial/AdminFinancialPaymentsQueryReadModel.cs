@@ -10,6 +10,7 @@ public sealed class AdminFinancialPaymentsQueryReadModel
     public PaymentType? PaymentType { get; set; }
     public PaymentStatus? PaymentStatus { get; set; }
     public PaymentProvider? Provider { get; set; }
+    public string? Currency { get; set; }
     public DateTime? CreatedFromUtc { get; set; }
     public DateTime? CreatedToUtcExclusive { get; set; }
     public DateTime? PaidFromUtc { get; set; }

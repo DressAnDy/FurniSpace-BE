@@ -381,6 +381,11 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
                 transaction.PaymentProvider == query.Provider.Value));
         }
 
+        if (!string.IsNullOrWhiteSpace(query.Currency))
+        {
+            payments = payments.Where(payment => payment.Currency == query.Currency);
+        }
+
         payments = ApplyPaymentDateFilters(payments, query);
         if (query.HasFailedAttempt.HasValue)
         {

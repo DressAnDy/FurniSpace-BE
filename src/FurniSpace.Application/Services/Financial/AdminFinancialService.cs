@@ -615,6 +615,13 @@ public sealed class AdminFinancialService : IAdminFinancialService
             return false;
         }
 
+        var currency = FinancialReportingPeriodResolver.NormalizeCurrency(query.Currency);
+        if (query.Currency is not null && currency != FinancialReportingConstants.DefaultCurrency)
+        {
+            errorMessage = "Financial payment currency is invalid.";
+            return false;
+        }
+
         var sortBy = NormalizePaymentSortBy(query.SortBy);
         if (!PaymentSortFields.Contains(sortBy))
         {
@@ -645,6 +652,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
             PaymentType = query.PaymentType,
             PaymentStatus = query.PaymentStatus,
             Provider = query.Provider,
+            Currency = string.IsNullOrWhiteSpace(query.Currency) ? null : currency,
             CreatedFromUtc = createdFromUtc,
             CreatedToUtcExclusive = createdToUtc,
             PaidFromUtc = paidFromUtc,

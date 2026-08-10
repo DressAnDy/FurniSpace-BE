@@ -10,6 +10,7 @@ public sealed class AdminFinancialPaymentsQueryDto
     public PaymentType? PaymentType { get; set; }
     public PaymentStatus? PaymentStatus { get; set; }
     public PaymentProvider? Provider { get; set; }
+    public string? Currency { get; set; }
     public DateTimeOffset? CreatedFrom { get; set; }
     public DateTimeOffset? CreatedTo { get; set; }
     public DateTimeOffset? PaidFrom { get; set; }

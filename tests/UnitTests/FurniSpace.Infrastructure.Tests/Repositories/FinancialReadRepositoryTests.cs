@@ -540,6 +540,65 @@ public sealed class FinancialReadRepositoryTests
         Assert.Equal(1, row.Age);
     }
 
+    [Fact]
+    public async Task GetOperationalPaymentsAsync_WithCanonicalPaidFilters_ReconcilesWithSummaryCollectedAmount()
+    {
+        await using var context = CreateContext();
+        var fromUtc = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+        var toUtc = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        var now = new DateTime(2026, 7, 20, 0, 0, 0, DateTimeKind.Utc);
+        var project = CreateProject(Guid.NewGuid(), null, createdAt: fromUtc);
+        context.ProjectSet.Add(project);
+        context.PaymentSet.AddRange(
+            CreatePayment(PaymentType.PROJECT_START_FEE, PaymentStatus.PAID, 100m, paidAt: fromUtc.AddDays(1), projectId: project.ProjectId),
+            CreatePayment(PaymentType.DEPOSIT, PaymentStatus.PAID, 200m, paidAt: fromUtc.AddDays(2), projectId: project.ProjectId),
+            CreatePayment(PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID, 300m, paidAt: fromUtc.AddDays(3), projectId: project.ProjectId),
+            CreatePayment(PaymentType.FULL_PAYMENT, PaymentStatus.PAID, 999m, paidAt: fromUtc.AddDays(4), projectId: project.ProjectId),
+            CreatePayment(PaymentType.OTHER, PaymentStatus.PAID, 999m, paidAt: fromUtc.AddDays(5), projectId: project.ProjectId),
+            CreatePayment(PaymentType.DEPOSIT, PaymentStatus.PAID, 999m, paidAt: fromUtc.AddDays(6), projectId: project.ProjectId, currency: "USD"));
+        await context.SaveChangesAsync();
+        var repository = new FinancialReadRepository(context);
+
+        var summary = await repository.GetAdminSummaryAsync(
+            fromUtc,
+            toUtc,
+            now,
+            "VND",
+            CanonicalPaymentTypes);
+        var drillDownTotal = 0m;
+        foreach (var paymentType in CanonicalPaymentTypes)
+        {
+            var rows = await repository.GetOperationalPaymentsAsync(new AdminFinancialPaymentsQueryReadModel
+            {
+                PaymentType = paymentType,
+                PaymentStatus = PaymentStatus.PAID,
+                Currency = "VND",
+                PaidFromUtc = fromUtc,
+                PaidToUtcExclusive = toUtc,
+                Page = 1,
+                PageSize = 50,
+                SortBy = "paidAt",
+                SortDirection = "asc"
+            });
+            drillDownTotal += rows.Sum(row => row.Amount);
+        }
+
+        Assert.Equal(summary.CollectedAmount, drillDownTotal);
+    }
+
+    [Fact]
+    public void AppDbContext_ModelContainsFinancialDashboardIndexes()
+    {
+        using var context = CreateContext();
+
+        Assert.True(HasIndex<Payment>(context, "idx_fin_payments_paid_reporting", "status = 'PAID' AND paid_at IS NOT NULL"));
+        Assert.True(HasIndex<Payment>(context, "idx_fin_payments_active_obligations", "status IN ('PENDING', 'PROCESSING')"));
+        Assert.True(HasIndex<PaymentTransaction>(context, "idx_fin_payment_transactions_failed_reporting", "status = 'FAILED'"));
+        Assert.True(HasIndex<PaymentTransaction>(context, "idx_fin_payment_transactions_payment_failed_time", "status = 'FAILED'"));
+        Assert.True(HasIndex<Order>(context, "idx_fin_orders_project_confirmed", null));
+        Assert.True(HasIndex<Order>(context, "idx_fin_orders_receivable_status_confirmed", "remaining_amount > 0"));
+    }
+
     private static void SeedPayments(
         AppDbContext context,
         DateTime periodStart,
@@ -709,5 +768,13 @@ public sealed class FinancialReadRepositoryTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
         return new AppDbContext(options);
+    }
+
+    private static bool HasIndex<TEntity>(AppDbContext context, string databaseName, string? filter)
+    {
+        var entityType = context.Model.FindEntityType(typeof(TEntity));
+        return entityType?.GetIndexes().Any(index =>
+            index.GetDatabaseName() == databaseName &&
+            index.GetFilter() == filter) == true;
     }
 }

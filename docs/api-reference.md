@@ -2413,6 +2413,7 @@ Returns a paged payment operations list with provider attempt diagnostics. This 
 | `paymentType` | `PaymentType?` | null | Example: `DEPOSIT`, `REMAINING_PAYMENT` |
 | `paymentStatus` | `PaymentStatus?` | null | Payment has no fake `FAILED` status; failures are on attempts |
 | `provider` | `PaymentProvider?` | null | Filters attempt provider, example `PAYOS` |
+| `currency` | string? | null | Optional drill-down filter; P0 accepts `VND` when supplied |
 | `createdFrom` / `createdTo` | DateTimeOffset? | null | Optional range for `payments.created_at`; midnight `to` means full local day |
 | `paidFrom` / `paidTo` | DateTimeOffset? | null | Optional range for `payments.paid_at` |
 | `expiredFrom` / `expiredTo` | DateTimeOffset? | null | Optional range for `payments.expired_at` |
@@ -2532,6 +2533,31 @@ Returns read-only operational financial exceptions for Admin attention. The endp
 | 400 | `FINANCIAL_PAYMENT_FILTER_INVALID` | Invalid paging, sort, failed-attempt, or date filter |
 | 400 | `FINANCIAL_EXCEPTION_TYPE_INVALID` | Unsupported `exceptionType` |
 | 401/403 | auth result | Non-admin or unauthenticated request |
+
+### FIN-ADM-06 Reporting Hardening Notes
+
+No new business endpoint was added for FIN-ADM-06. It hardens the existing Admin Financial endpoints:
+
+- Financial reporting periods use explicit `Asia/Ho_Chi_Minh` boundaries.
+- Backend resolves local business periods to UTC and queries half-open ranges: `>= fromUtc` and `< toUtc`.
+- Canonical collected payment types are centralized as:
+  - `PROJECT_START_FEE`
+  - `DEPOSIT`
+  - `REMAINING_PAYMENT`
+- `FULL_PAYMENT`, `REFUND`, and `OTHER` remain excluded from collected cash metrics.
+- `GET /admin/financial/payments` supports `currency=VND` so FE can reconcile card totals with paid payment drill-down rows.
+- Financial indexes were added by migration `20260810143000_AddAdminFinancialDashboardIndexes`.
+
+The added indexes target implemented query paths only:
+
+| Index | Purpose |
+| --- | --- |
+| `idx_fin_payments_paid_reporting` | Summary, breakdown, trend, and paid payment drill-down |
+| `idx_fin_payments_active_obligations` | Outstanding payment and stale pending payment checks |
+| `idx_fin_payment_transactions_failed_reporting` | Failed transaction count over reporting periods |
+| `idx_fin_payment_transactions_payment_failed_time` | Per-payment failed attempt diagnostics |
+| `idx_fin_orders_project_confirmed` | Project financial overview latest-order lookup |
+| `idx_fin_orders_receivable_status_confirmed` | Receivable and order exception scans |
 
 ---
 

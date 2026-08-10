@@ -941,6 +941,11 @@ public class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => e.QuotationId).IsUnique();
             entity.HasIndex(e => e.OrderCode).IsUnique();
+            entity.HasIndex(e => new { e.ProjectId, e.ConfirmedAt, e.OrderId })
+                .HasDatabaseName("idx_fin_orders_project_confirmed");
+            entity.HasIndex(e => new { e.Status, e.ConfirmedAt, e.ProjectId })
+                .HasDatabaseName("idx_fin_orders_receivable_status_confirmed")
+                .HasFilter("remaining_amount > 0");
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Proposal>().WithMany().HasForeignKey(e => e.ProposalId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Quotation>().WithMany().HasForeignKey(e => e.QuotationId).OnDelete(DeleteBehavior.Restrict);
@@ -1084,6 +1089,12 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.QuotationId).HasDatabaseName("idx_payments_quotation_id");
             entity.HasIndex(e => new { e.ProjectId, e.CreatedAt }).HasDatabaseName("idx_payments_project_time");
             entity.HasIndex(e => new { e.OrderId, e.PaymentType }).HasDatabaseName("idx_payments_order_type");
+            entity.HasIndex(e => new { e.Status, e.PaidAt, e.PaymentType, e.Currency })
+                .HasDatabaseName("idx_fin_payments_paid_reporting")
+                .HasFilter("status = 'PAID' AND paid_at IS NOT NULL");
+            entity.HasIndex(e => new { e.Status, e.ExpiredAt, e.CreatedAt, e.PaymentType, e.OrderId })
+                .HasDatabaseName("idx_fin_payments_active_obligations")
+                .HasFilter("status IN ('PENDING', 'PROCESSING')");
             entity.HasIndex(e => new { e.OrderId, e.PaymentType })
                 .IsUnique()
                 .HasDatabaseName("uq_payments_active_order_type")
@@ -1156,6 +1167,12 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.OrderId, e.CreatedAt }).HasDatabaseName("idx_payment_transactions_order_time");
             entity.HasIndex(e => e.ProviderTransactionId).HasDatabaseName("idx_payment_transactions_provider_transaction_id");
             entity.HasIndex(e => e.ProviderReferenceCode).HasDatabaseName("idx_payment_transactions_provider_reference_code");
+            entity.HasIndex(e => new { e.Status, e.CreatedAt, e.Currency })
+                .HasDatabaseName("idx_fin_payment_transactions_failed_reporting")
+                .HasFilter("status = 'FAILED'");
+            entity.HasIndex(e => new { e.PaymentId, e.Status, e.CreatedAt })
+                .HasDatabaseName("idx_fin_payment_transactions_payment_failed_time")
+                .HasFilter("status = 'FAILED'");
             entity.HasIndex(e => new { e.PaymentProvider, e.ProviderTransactionId })
                 .IsUnique()
                 .HasDatabaseName("uq_payment_transactions_provider_txn");

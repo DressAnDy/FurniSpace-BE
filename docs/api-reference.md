@@ -35,6 +35,7 @@ Complete HTTP + SignalR API reference for FurniSpace backend.
 18. [Chat](#18-chat)
 19. [Notifications](#19-notifications)
 20. [Payments](#20-payments)
+20a. [Admin Financial Dashboard](#20a-admin-financial-dashboard)
 21. [Production](#21-production)
 22. [SignalR hubs](#22-signalr-hubs)
 23. [Enums](#23-enums)
@@ -2013,6 +2014,550 @@ See §13: `POST /orders/{id}/payments/deposit` and `.../remaining`.
 | `PaymentTransactionStatus` | `PENDING`, `SUCCESS`, `FAILED`, `CANCELLED` |
 
 Realtime: `/hubs/payments` (§22).
+
+---
+
+## 20a. Admin Financial Dashboard
+
+Admin financial APIs are read-only operational dashboard endpoints. They do not mutate Payment, Order, Project, Quotation, or PaymentTransaction state.
+
+### `GET /admin/financial/summary`
+
+**Roles:** ADMIN
+
+Returns collected cash and core financial obligation metrics for the requested reporting period.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `period` | `THIS_MONTH` / `THIS_YEAR` / `CUSTOM` | `THIS_MONTH` | Case-insensitive |
+| `from` | DateTimeOffset? | null | Required when `period=CUSTOM` |
+| `to` | DateTimeOffset? | null | Required when `period=CUSTOM`; date-only midnight is treated as the full local day |
+| `currency` | string? | `VND` | P0 supports `VND`; unsupported values return `FINANCIAL_CURRENCY_INVALID` |
+
+Reporting timezone is always `Asia/Ho_Chi_Minh`. Backend resolves local business boundaries and queries UTC timestamps using a half-open interval internally.
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Admin financial summary retrieved successfully.",
+  "data": {
+    "period": {
+      "type": "CUSTOM",
+      "from": "2026-07-01T00:00:00+07:00",
+      "to": "2026-09-30T23:59:59.9999999+07:00",
+      "timezone": "Asia/Ho_Chi_Minh"
+    },
+    "currency": "VND",
+    "collectedAmount": 0,
+    "outstandingPaymentAmount": 0,
+    "contractedReceivableAmount": 0,
+    "orderCommercialValue": 0,
+    "failedTransactionCount": 0,
+    "activePaymentCount": 0
+  }
+}
+```
+
+#### Metric Semantics
+
+| Field | Meaning |
+| --- | --- |
+| `collectedAmount` | Sum of actual successful canonical Payments in the period |
+| `outstandingPaymentAmount` | Sum of currently active collectible Payment obligations |
+| `contractedReceivableAmount` | Sum of active Order `remainingAmount`; separate from outstanding payment |
+| `orderCommercialValue` | Sum of confirmed Order `finalTotalAmount` in the period; not accounting revenue |
+| `failedTransactionCount` | Count of failed PaymentTransaction rows in the period |
+| `activePaymentCount` | Count of currently active collectible Payment obligations |
+
+Collected cash includes only:
+
+- `PROJECT_START_FEE`
+- `DEPOSIT`
+- `REMAINING_PAYMENT`
+
+Collected cash excludes:
+
+- `FULL_PAYMENT`
+- `REFUND`
+- `OTHER`
+- standalone `PaymentTransaction.SUCCESS` amounts
+- `Payment.status = PAID` rows without `paidAt`
+
+Period fields:
+
+| Metric | Date field |
+| --- | --- |
+| Collected cash | `payments.paid_at` |
+| Order commercial value | `orders.confirmed_at` |
+| Failed transactions | `payment_transactions.created_at` |
+| Outstanding payment | current-state; not period-filtered |
+| Contracted receivable | current-state; not period-filtered |
+
+#### Error Codes
+
+| HTTP | `errorCode` | Trigger |
+| --- | --- | --- |
+| 400 | `FINANCIAL_PERIOD_INVALID` | Unsupported `period` |
+| 400 | `FINANCIAL_DATE_RANGE_INVALID` | Missing custom range or `from > to` |
+| 400 | `FINANCIAL_CURRENCY_INVALID` | Unsupported currency |
+| 401/403 | auth result | Non-admin or unauthenticated request |
+
+### `GET /admin/financial/receivables`
+
+**Roles:** ADMIN
+
+Returns current outstanding Payment obligations and active Order receivables separately, plus paged drill-down rows for FE tables.
+
+`GET /admin/financial/receivables/items` is also available for drill-down screens. It accepts the same query parameters and returns the same DTO shape, so FE can reuse the same table model while linking from the receivable card.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `projectId` | guid? | null | Filter one project |
+| `customerId` | guid? | null | Filter by order customer |
+| `salesId` | guid? | null | Matches `orders.sales_id` or `projects.assigned_sales_id` |
+| `paymentType` | `PaymentType?` | null | When supplied, returns only orders with a matching active collectible payment |
+| `paymentStatus` | `PaymentStatus?` | null | Usually `PENDING` or `PROCESSING`; only active collectible payments are considered |
+| `orderStatus` | `OrderStatus?` | null | Filter active receivable orders |
+| `from` | DateTimeOffset? | null | Optional range start for `orders.confirmed_at` |
+| `to` | DateTimeOffset? | null | Optional range end for `orders.confirmed_at`; midnight means full local day |
+| `page` | int | `1` | Must be `> 0` |
+| `pageSize` | int | `20` | `1..100` |
+| `sortBy` | string? | `confirmedAt` | `confirmedAt`, `projectCode`, `projectName`, `orderCode`, `orderStatus`, `finalTotalAmount`, `remainingAmount` |
+| `sortDirection` | string? | `desc` | `asc` or `desc` |
+
+Date range is intentionally tied to `orders.confirmed_at` for this receivable view. Outstanding payments are resolved only for the filtered receivable orders, so the card totals and table rows remain consistent.
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Financial receivables retrieved successfully.",
+  "data": {
+    "outstandingPaymentAmount": 70000000,
+    "outstandingPaymentCount": 1,
+    "contractedReceivableAmount": 140000000,
+    "ordersWithReceivableCount": 2,
+    "items": [
+      {
+        "projectId": "...",
+        "projectCode": "PRJ-2026-0001",
+        "projectName": "Cafe Interior",
+        "orderId": "...",
+        "orderCode": "ORD-2026-0001",
+        "orderStatus": "FINAL_PAYMENT_PENDING",
+        "finalTotalAmount": 100000000,
+        "paidAmount": 30000000,
+        "remainingAmount": 70000000,
+        "activePaymentId": "...",
+        "activePaymentType": "REMAINING_PAYMENT",
+        "activePaymentAmount": 70000000,
+        "activePaymentStatus": "PENDING",
+        "isPaymentCreated": true
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 2,
+    "totalPages": 1
+  }
+}
+```
+
+#### Metric Semantics
+
+| Field | Meaning |
+| --- | --- |
+| `outstandingPaymentAmount` / `outstandingPaymentCount` | Active collectible payment rows: `PENDING` / `PROCESSING`, not expired, no successful transaction |
+| `contractedReceivableAmount` / `ordersWithReceivableCount` | Active orders with `remainingAmount > 0`; cancelled/completed orders are excluded by current active receivable policy |
+| `isPaymentCreated` | `true` only when the order currently has an active collectible payment obligation |
+
+Do not add `outstandingPaymentAmount` and `contractedReceivableAmount` together as a single "expected money" card. They are separate views of obligations and may refer to the same order after a remaining payment has been created.
+
+#### Error Codes
+
+| HTTP | `errorCode` | Trigger |
+| --- | --- | --- |
+| 400 | `FINANCIAL_RECEIVABLE_FILTER_INVALID` | Invalid paging, sort, or date range |
+| 401/403 | auth result | Non-admin or unauthenticated request |
+
+### `GET /admin/financial/payment-breakdown`
+
+**Roles:** ADMIN
+
+Returns collected cash, active outstanding obligations, and expired count grouped by canonical payment type.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `from` | DateTimeOffset | required | Reporting range start |
+| `to` | DateTimeOffset | required | Reporting range end; midnight means full local day |
+| `currency` | string? | `VND` | P0 supports `VND`; unsupported values return `FINANCIAL_CURRENCY_INVALID` |
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Payment breakdown retrieved successfully.",
+  "data": {
+    "currency": "VND",
+    "items": [
+      {
+        "paymentType": "PROJECT_START_FEE",
+        "collectedAmount": 0,
+        "paidCount": 0,
+        "outstandingAmount": 0,
+        "outstandingCount": 0,
+        "expiredCount": 0
+      },
+      {
+        "paymentType": "DEPOSIT",
+        "collectedAmount": 0,
+        "paidCount": 0,
+        "outstandingAmount": 0,
+        "outstandingCount": 0,
+        "expiredCount": 0
+      },
+      {
+        "paymentType": "REMAINING_PAYMENT",
+        "collectedAmount": 0,
+        "paidCount": 0,
+        "outstandingAmount": 0,
+        "outstandingCount": 0,
+        "expiredCount": 0
+      }
+    ]
+  }
+}
+```
+
+Collected fields use `payments.paid_at` inside `[from, to]` after backend conversion to UTC. Outstanding fields are current active collectible payment rows. `expiredCount` counts `EXPIRED` payment rows whose `expiredAt` is inside the range.
+
+Only canonical payment types appear:
+
+- `PROJECT_START_FEE`
+- `DEPOSIT`
+- `REMAINING_PAYMENT`
+
+`FULL_PAYMENT`, `REFUND`, `OTHER`, and standalone `PaymentTransaction.SUCCESS` amounts are excluded.
+
+### `GET /admin/financial/collection-trend`
+
+**Roles:** ADMIN
+
+Returns chart-ready collected cash trend buckets. P0 supports monthly buckets only.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `from` | DateTimeOffset | required | Reporting range start |
+| `to` | DateTimeOffset | required | Reporting range end; midnight means full local day |
+| `granularity` | string? | `MONTH` | Only `MONTH` is supported |
+| `currency` | string? | `VND` | P0 supports `VND` |
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Collection trend retrieved successfully.",
+  "data": {
+    "granularity": "MONTH",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "currency": "VND",
+    "series": [
+      {
+        "period": "2026-07",
+        "projectStartFee": 2000000,
+        "deposit": 30000000,
+        "remainingPayment": 70000000,
+        "total": 102000000
+      }
+    ]
+  }
+}
+```
+
+Buckets are Vietnam calendar months. Backend clips the first/last month to the requested range and returns zero buckets for months without collected cash so FE can render stable charts.
+
+#### Story 3 Error Codes
+
+| HTTP | `errorCode` | Trigger |
+| --- | --- | --- |
+| 400 | `FINANCIAL_DATE_RANGE_INVALID` | Missing range or `from > to` |
+| 400 | `FINANCIAL_GRANULARITY_INVALID` | Unsupported granularity |
+| 400 | `FINANCIAL_CURRENCY_INVALID` | Unsupported currency |
+| 401/403 | auth result | Non-admin or unauthenticated request |
+
+### `GET /admin/financial/projects`
+
+**Roles:** ADMIN
+
+Returns a paged project financial overview. This is a read-only dashboard/drill-down endpoint and does not update Project, Order, Payment, Quotation, or PaymentTransaction data.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `keyword` | string? | null | Searches project code, project name, or customer name |
+| `projectStatus` | `ProjectStatus?` | null | Filter by current project status |
+| `customerId` | guid? | null | Filter one customer |
+| `salesId` | guid? | null | Filter assigned sales |
+| `paymentStatus` | `PaymentStatus?` | null | Filters projects that have a matching active collectible payment |
+| `paymentType` | `PaymentType?` | null | Filters projects that have a matching active collectible payment |
+| `hasOrder` | bool? | null | `true` = only projects with order; `false` = only projects without order |
+| `hasOutstandingPayment` | bool? | null | Uses current active collectible payment rules |
+| `hasReceivable` | bool? | null | Uses active order receivable rules: active order status and `remainingAmount > 0` |
+| `from` | DateTimeOffset? | null | Optional range start for `projects.created_at` |
+| `to` | DateTimeOffset? | null | Optional range end for `projects.created_at`; midnight means full local day |
+| `page` | int | `1` | Must be `> 0` |
+| `pageSize` | int | `20` | `1..100` |
+| `sortBy` | string? | `createdAt` | `createdAt`, `projectCode`, `projectName`, `projectStatus`, `orderFinalTotal`, `orderRemainingAmount`, `totalProjectCashCollected`, `lastPaidAt` |
+| `sortDirection` | string? | `desc` | `asc` or `desc` |
+
+Date filtering intentionally uses `projects.created_at` for this overview because the current schema does not have a dedicated project confirmed/financial started timestamp.
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Project financial overview retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "projectId": "...",
+        "projectCode": "PRJ-2026-0001",
+        "projectName": "Cafe Interior",
+        "projectStatus": "QUOTATION_SENT",
+        "customerId": "...",
+        "customerName": "Customer Alpha",
+        "assignedSalesId": "...",
+        "assignedSalesName": "Sales Alpha",
+        "projectStartFeeAmount": 2000000,
+        "projectStartFeeStatus": "PAID",
+        "projectStartFeePaidAt": "2026-07-01T03:00:00Z",
+        "orderId": "...",
+        "orderCode": "ORD-2026-0001",
+        "orderStatus": "FINAL_PAYMENT_PENDING",
+        "orderOriginalTotal": 100000000,
+        "orderAdjustmentAmount": 0,
+        "orderAdditionalDiscount": 0,
+        "orderFinalTotal": 100000000,
+        "orderPaidAmount": 30000000,
+        "orderRemainingAmount": 70000000,
+        "activePaymentId": "...",
+        "activePaymentType": "REMAINING_PAYMENT",
+        "activePaymentAmount": 70000000,
+        "activePaymentStatus": "PENDING",
+        "totalProjectCashCollected": 32000000,
+        "lastPaidAt": "2026-07-10T03:00:00Z"
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 1,
+    "totalPages": 1
+  }
+}
+```
+
+#### Project Financial Semantics
+
+| Field | Meaning |
+| --- | --- |
+| `projectStartFee*` | Latest project-level `PROJECT_START_FEE` payment for the project |
+| `order*` | Latest order for the project by `confirmedAt`, `createdAt`, then `orderId`; nullable when no order exists |
+| `activePayment*` | Latest active collectible payment: `PENDING` / `PROCESSING`, not expired, and no successful transaction |
+| `totalProjectCashCollected` | Sum of canonical `PAID` payments directly on the project; excludes `FULL_PAYMENT`, `REFUND`, `OTHER`, and standalone transactions |
+| `lastPaidAt` | Latest `paidAt` among canonical paid payments |
+
+Do not compute collected cash as `projectStartFeeAmount + orderPaidAmount`. The API already returns `totalProjectCashCollected` using canonical paid Payment rows.
+
+### `GET /admin/financial/projects/{projectId}`
+
+**Roles:** ADMIN
+
+Returns the same financial overview shape for one project. Nullable order/payment fields are expected when the project has not reached those workflow steps.
+
+#### Error Codes
+
+| HTTP | `errorCode` | Trigger |
+| --- | --- | --- |
+| 400 | `FINANCIAL_PROJECT_FILTER_INVALID` | Invalid paging, sort, or date range on list endpoint |
+| 404 | `PROJECT_NOT_FOUND` | Project detail does not exist |
+| 401/403 | auth result | Non-admin or unauthenticated request |
+
+### `GET /admin/financial/payments`
+
+**Roles:** ADMIN
+
+Returns a paged payment operations list with provider attempt diagnostics. This endpoint is read-only and never exposes raw provider payloads, signatures, webhook bodies, checkout secrets, or QR payload internals.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `projectId` | guid? | null | Filter one project |
+| `orderId` | guid? | null | Filter one order-linked payment |
+| `customerId` | guid? | null | Filter by project customer |
+| `paymentType` | `PaymentType?` | null | Example: `DEPOSIT`, `REMAINING_PAYMENT` |
+| `paymentStatus` | `PaymentStatus?` | null | Payment has no fake `FAILED` status; failures are on attempts |
+| `provider` | `PaymentProvider?` | null | Filters attempt provider, example `PAYOS` |
+| `currency` | string? | null | Optional drill-down filter; P0 accepts `VND` when supplied |
+| `createdFrom` / `createdTo` | DateTimeOffset? | null | Optional range for `payments.created_at`; midnight `to` means full local day |
+| `paidFrom` / `paidTo` | DateTimeOffset? | null | Optional range for `payments.paid_at` |
+| `expiredFrom` / `expiredTo` | DateTimeOffset? | null | Optional range for `payments.expired_at` |
+| `hasFailedAttempt` | bool? | null | `true` = at least one failed transaction attempt; `false` = none |
+| `minFailedAttemptCount` | int? | null | Must be `>= 0`; repeated failure screens usually use `2` |
+| `page` | int | `1` | Must be `> 0` |
+| `pageSize` | int | `20` | `1..100` |
+| `sortBy` | string? | `createdAt` | `createdAt`, `paidAt`, `expiredAt`, `amount`, `paymentCode`, `status` |
+| `sortDirection` | string? | `desc` | `asc` or `desc` |
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Financial payments retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "paymentId": "...",
+        "paymentCode": "PAY-2026-0001",
+        "projectId": "...",
+        "projectCode": "PRJ-2026-0001",
+        "orderId": "...",
+        "orderCode": "ORD-2026-0001",
+        "customerId": "...",
+        "customerName": "Customer Alpha",
+        "paymentType": "DEPOSIT",
+        "amount": 30000000,
+        "currency": "VND",
+        "status": "PENDING",
+        "createdAt": "2026-07-25T03:00:00Z",
+        "expiredAt": "2026-07-30T03:00:00Z",
+        "paidAt": null,
+        "lastProvider": "PAYOS",
+        "attemptCount": 2,
+        "failedAttemptCount": 2,
+        "lastTransactionStatus": "FAILED",
+        "lastFailureReason": "Insufficient funds",
+        "lastAttemptAt": "2026-07-26T03:00:00Z"
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 1,
+    "totalPages": 1
+  }
+}
+```
+
+`lastFailureReason` is the latest failed attempt reason, not necessarily the latest transaction reason. A paid payment can still show historical failed attempts, but it is not treated as an active failure exception.
+
+### `GET /admin/financial/exceptions`
+
+**Roles:** ADMIN
+
+Returns read-only operational financial exceptions for Admin attention. The endpoint does not create notification records, does not mutate Payment/Order state, and does not introduce a Payment `FAILED` lifecycle status.
+
+#### Query
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `exceptionType` | string? | null | One of the exception types below; case-insensitive input |
+| `severity` | string? | null | Example: `HIGH`, `MEDIUM` |
+| `projectId` | guid? | null | Filter one project |
+| `paymentType` | `PaymentType?` | null | Applies to payment-backed exceptions |
+| `from` / `to` | DateTimeOffset? | null | Optional range for exception occurrence time |
+| `page` | int | `1` | Must be `> 0` |
+| `pageSize` | int | `20` | `1..100` |
+
+#### Exception Types
+
+| Type | Meaning |
+| --- | --- |
+| `PAYMENT_EXPIRED` | Payment status is `EXPIRED` |
+| `PAYMENT_REPEATED_FAILURE` | Non-paid payment has at least 2 failed transaction attempts |
+| `FINAL_PAYMENT_NOT_CREATED` | Order is `FINAL_PAYMENT_PENDING`, has receivable, but no active `REMAINING_PAYMENT` |
+| `DELIVERED_WITH_RECEIVABLE` | Delivered order still has `remainingAmount > 0` |
+| `PAYMENT_PENDING_TOO_LONG` | Active collectible payment has stayed pending/processing beyond the operational threshold |
+
+#### Response
+
+```json
+{
+  "status": 200,
+  "message": "Financial exceptions retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "exceptionType": "PAYMENT_REPEATED_FAILURE",
+        "severity": "HIGH",
+        "projectId": "...",
+        "orderId": "...",
+        "paymentId": "...",
+        "title": "Payment has repeated failed attempts",
+        "reason": "Payment has two or more failed transaction attempts.",
+        "amount": 30000000,
+        "age": 1,
+        "occurredAt": "2026-07-26T03:00:00Z",
+        "recommendedAction": "Open payment attempts and support the customer with a new checkout if needed.",
+        "targetResourceType": "PAYMENT",
+        "targetResourceId": "..."
+      }
+    ],
+    "page": 1,
+    "pageSize": 20,
+    "totalItems": 1,
+    "totalPages": 1
+  }
+}
+```
+
+#### Error Codes
+
+| HTTP | `errorCode` | Trigger |
+| --- | --- | --- |
+| 400 | `FINANCIAL_PAYMENT_FILTER_INVALID` | Invalid paging, sort, failed-attempt, or date filter |
+| 400 | `FINANCIAL_EXCEPTION_TYPE_INVALID` | Unsupported `exceptionType` |
+| 401/403 | auth result | Non-admin or unauthenticated request |
+
+### FIN-ADM-06 Reporting Hardening Notes
+
+No new business endpoint was added for FIN-ADM-06. It hardens the existing Admin Financial endpoints:
+
+- Financial reporting periods use explicit `Asia/Ho_Chi_Minh` boundaries.
+- Backend resolves local business periods to UTC and queries half-open ranges: `>= fromUtc` and `< toUtc`.
+- Canonical collected payment types are centralized as:
+  - `PROJECT_START_FEE`
+  - `DEPOSIT`
+  - `REMAINING_PAYMENT`
+- `FULL_PAYMENT`, `REFUND`, and `OTHER` remain excluded from collected cash metrics.
+- `GET /admin/financial/payments` supports `currency=VND` so FE can reconcile card totals with paid payment drill-down rows.
+- Financial indexes were added by migration `20260810143000_AddAdminFinancialDashboardIndexes`.
+
+The added indexes target implemented query paths only:
+
+| Index | Purpose |
+| --- | --- |
+| `idx_fin_payments_paid_reporting` | Summary, breakdown, trend, and paid payment drill-down |
+| `idx_fin_payments_active_obligations` | Outstanding payment and stale pending payment checks |
+| `idx_fin_payment_transactions_failed_reporting` | Failed transaction count over reporting periods |
+| `idx_fin_payment_transactions_payment_failed_time` | Per-payment failed attempt diagnostics |
+| `idx_fin_orders_project_confirmed` | Project financial overview latest-order lookup |
+| `idx_fin_orders_receivable_status_confirmed` | Receivable and order exception scans |
 
 ---
 

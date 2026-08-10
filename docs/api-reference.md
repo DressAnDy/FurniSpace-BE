@@ -16,6 +16,7 @@ Complete HTTP + SignalR API reference for FurniSpace backend.
 2. [Authentication](#2-authentication)
 3. [Auth](#3-auth--auth)
 4. [Accounts](#4-accounts)
+4b. [Admin Reports](#4b-admin-reports-scrum-428--scrum-436)
 5. [Catalog — Business Types](#5-catalog--business-types)
 6. [Catalog — Categories](#6-catalog--categories)
 7. [Catalog — Products](#7-catalog--products)
@@ -2567,10 +2568,92 @@ CLI (not HTTP): `dotnet run --project src/FurniSpace.API -- reindex {accounts|pr
 
 ---
 
+## 4b. Admin Reports (SCRUM-428 → SCRUM-436)
+
+Controllers: `AdminReportsController`, `AdminProductionWorkloadController`  
+**Auth:** ADMIN only on all endpoints  
+Envelope: `ServiceResult` / `PagedResult` (except export which returns raw CSV on success)
+
+| Method | Path | Ticket | Description |
+| --- | --- | --- | --- |
+| GET | `/admin/reports/overview` | SCRUM-428 | Cross-domain dashboard snapshot |
+| GET | `/admin/reports/business` | SCRUM-429 | Accounts + designer/sales capacity |
+| GET | `/admin/reports/projects` | SCRUM-430 | Funnel, aging snapshot |
+| GET | `/admin/reports/commercial` | SCRUM-431 | Quotations / orders / payments KPIs |
+| GET | `/admin/reports/production` | SCRUM-432 | Production request/item KPIs |
+| GET | `/admin/reports/delivery` | SCRUM-433 | Delivery projects/orders/schedules |
+| GET | `/admin/reports/catalog` | SCRUM-435 | Catalog health + facets |
+| GET | `/admin/reports/projects/aging` | SCRUM-436 | Aging drill-down (paged) |
+| GET | `/admin/reports/commercial/trend` | SCRUM-436 | Day/week commercial trend (max 90d) |
+| GET | `/admin/reports/export` | SCRUM-436 | CSV export (`domain` required) |
+| GET | `/admin/reports/delivery/reviews` | SCRUM-436 | CSAT / project reviews |
+| GET | `/admin/reports/catalog/bestsellers` | SCRUM-436 | Top products by qty/revenue |
+| GET | `/admin/production/workload` | SCRUM-436 | Production staff workload board |
+| GET | `/admin/production/workload/summary` | SCRUM-436 | Production workload summary cards |
+
+### Common query
+
+| Param | Type | Notes |
+| --- | --- | --- |
+| `from`, `to` | datetime? | optional unless noted; `from <= to` |
+| `page`, `pageSize` | int | paging endpoints; pageSize 1–100 |
+
+### Common errors
+
+| HTTP | Message |
+| --- | --- |
+| 400 | `From date must be less than or equal to To date.` |
+| 400 | `Page must be greater than zero.` |
+| 400 | `Page size must be between 1 and 100.` |
+| 401/403 | auth |
+
+### `GET /admin/reports/overview`
+
+**Query:** `from?`, `to?`  
+**Success message:** `Report overview retrieved successfully.`
+
+Key `data` groups: `business`, `projects`, `commercial`, `production`, `delivery`, `catalog`.
+
+### `GET /admin/reports/business`
+
+Snapshot; reuses designer (max 2) + sales (max 5) workload semantics from SCRUM-412/414.
+
+### `GET /admin/reports/projects`
+
+Includes `byStatus`, `byBucket`, `unassignedIntakeCount`, `waitingForDesignerCount`, `aging.over7/14/30Days`.
+
+### `GET /admin/reports/projects/aging`
+
+| Param | Default | Notes |
+| --- | --- | --- |
+| `thresholdDays` | 7 | must be > 0 |
+| `bucket` | — | `INTAKE` \| `COMMERCIAL` \| `DESIGN_MONITOR` \| `FULFILLMENT` |
+| `reason` | — | `UNASSIGNED_INTAKE` \| `WAITING_DESIGNER` \| `STUCK` |
+| `sortBy` | `AgeDaysDesc` | or `SubmittedAtAsc` |
+
+### `GET /admin/reports/commercial/trend`
+
+**Required:** `from`, `to` (≤ 90 days). `granularity`: `day` (default) \| `week`.
+
+### `GET /admin/reports/export`
+
+| Param | Notes |
+| --- | --- |
+| `domain` | `overview` \| `business` \| `projects` \| `commercial` \| `production` \| `delivery` \| `catalog` |
+| `format` | `csv` (default) |
+
+Success: raw `text/csv` file (`Content-Disposition` attachment). Errors still use JSON `ServiceResult`.
+
+### `GET /admin/production/workload`
+
+Soft cap `maxActiveRequests = 5`. `capacityState`: `AVAILABLE` \| `FULL` \| `OVER`.
+
+---
+
 ## Appendix C — Maintenance notes
 
-- Prefer this doc + live `/swagger/v1/swagger.json` when fields drift; DTO source of truth is `src/FurniSpace.Application/DTOs`.
-- Routing is intentionally inconsistent in a few places (`/api/Accounts` vs `/accounts/...`, `/api/ProductVersions` vs `/ProductVersions`); paths above match controllers as coded.
+- Prefer this doc + live `/swagger/v1/swagger.json` when fields drift; DTO source of truth is `src/FurniSpace.Application/DTOs` (report models also in `src/FurniSpace.Shared/DTOs/Reports`).
+  2190|- Routing is intentionally inconsistent in a few places (`/api/Accounts` vs `/accounts/...`, `/api/ProductVersions` vs `/ProductVersions`); paths above match controllers as coded.
 - `AccountsController` CRUD currently lacks `[Authorize]` — treat as a security gap until locked down.
 - Auth tokens are cookie-first; JSON body does not include raw access/refresh tokens.
 - Deeper payment / SignalR / room-planner / Firebase behavior: see related guides listed at the top of `docs/backend-api-dev-guide.md`.

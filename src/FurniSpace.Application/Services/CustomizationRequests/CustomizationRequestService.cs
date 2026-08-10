@@ -625,13 +625,72 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 "Only production-feasible reviewing versions can be accepted.");
         }
 
+        if (!version.EstimatedAdditionalCost.HasValue)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.EstimatedAdditionalCostRequired,
+                "Estimated additional cost is required before acceptance.");
+        }
+
+        var sourceProductVersion = await _productVersions.GetByIdAsync(
+            entity.SourceProductVersionId,
+            cancellationToken);
+        if (sourceProductVersion is null)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.SourceProductVersionNotFound,
+                "Source product version not found.");
+        }
+
+        if (!sourceProductVersion.EstimatedPrice.HasValue)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.SourceProductVersionPriceRequired,
+                "Source product version price is required before acceptance.");
+        }
+
+        var acceptedProductVersion = await _productVersions.GetByIdAsync(
+            version.ProductVersionId,
+            cancellationToken);
+        if (acceptedProductVersion is null)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.ApprovedProductVersionNotFound,
+                "Accepted product version not found.");
+        }
+
+        if (acceptedProductVersion.VersionType != ProductVersionType.PROJECT_SPECIFIC)
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.ApprovedProductVersionInvalidType,
+                "Accepted product version must be project-specific.");
+        }
+
         var now = DateTime.UtcNow;
+        var finalPrice = CustomizationAcceptedProductVersionFactory.CalculateAcceptedFinalPrice(
+            sourceProductVersion.EstimatedPrice.Value,
+            version.EstimatedAdditionalCost.Value);
+        CustomizationAcceptedProductVersionFactory.ApplyAcceptedFinalPrice(
+            acceptedProductVersion,
+            finalPrice,
+            now);
         CustomizationAcceptedProductVersionFactory.MarkRequestAccepted(entity, version, now);
         await WithdrawOtherVersionsAsync(entity.CustomizationRequestId, version.CustomizationRequestVersionId, now, cancellationToken);
 
-        _customizationRequests.Update(entity);
-        _customizationRequestVersions.Update(version);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            _productVersions.Update(acceptedProductVersion);
+            _customizationRequests.Update(entity);
+            _customizationRequestVersions.Update(version);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
 
         return await ReloadUpdatedDetailAsync(
             customizationRequestId,

@@ -6,6 +6,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.DTOs.Quotations;
+using FurniSpace.Application.Services.Production;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Testing.Seeding;
@@ -19,14 +20,16 @@ namespace FurniSpace.API.IntegrationTests.Quotations;
 public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
 {
     private const string RevisionReason = "Please revise material and price.";
-    private const decimal ProductGross = 2_500_000m;
+    private const decimal ProductUnitPrice = 2_500_000m;
     private const decimal ProductDiscount = 500_000m;
-    private const decimal ProductTax = 200_000m;
-    private const decimal ProductTotal = 2_200_000m;
-    private const decimal ManualFeeTotal = 9_000_000m;
-    private const decimal StandaloneTaxLineTotal = 1_000_000m;
-    private const decimal QuotationTotal = ProductTotal + ManualFeeTotal + StandaloneTaxLineTotal;
-    private const decimal ExpectedFinalOrderTotal = ManualFeeTotal + StandaloneTaxLineTotal;
+    private const decimal ProductGross = 2_500_000m;
+    private const decimal ProductPreVatTotal = 2_000_000m;
+    private const decimal ProductVatShare = 160_000m;
+    private const decimal ProductVatInclusiveTotal = 2_160_000m;
+    private const decimal DraftPreVatTotal = 10_000_000m;
+    private const decimal DraftVatAmount = 800_000m;
+    private const decimal DraftTotalAmount = 10_800_000m;
+
     private readonly ApiIntegrationFixture _fixture;
 
     public QuotationLifecycleApiIntegrationTests(ApiIntegrationFixture fixture)
@@ -49,14 +52,15 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.NotNull(result.Data);
         Assert.Equal(QuotationStatus.DRAFT, result.Data.Status);
-        Assert.Equal(10_000_000m, result.Data.TotalAmount);
+        Assert.Equal(DraftTotalAmount, result.Data.TotalAmount);
+        Assert.Equal(DraftPreVatTotal, result.Data.PreVatAmount);
+        Assert.Equal(DraftVatAmount, result.Data.VatAmount);
         Assert.Single(result.Data.Items);
 
         var item = result.Data.Items[0];
-        Assert.Equal(QuotationItemType.PRODUCT_ITEM, item.ItemType);
         Assert.Equal(scenario.ProposalItemId, item.ProposalItemId);
         Assert.Equal(scenario.ProductVersionId, item.ProductVersionId);
-        Assert.Equal(10_000_000m, item.TotalAmount);
+        Assert.Equal(DraftPreVatTotal, item.TotalAmount);
 
         await using var context = _fixture.Database.CreateDbContext();
         var persistedQuotation = await context.QuotationSet.SingleAsync();
@@ -161,7 +165,7 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task FinancialLifecycle_WhenProductBecomesUnavailable_PreservesSnapshotsAndAppliesAdjustment()
+    public async Task FinancialLifecycle_WhenProductBecomesUnavailable_RequiresRefundFlowBeforeCompletion()
     {
         var scenario = await SeedSelectedProposalAsync();
         var productionAccountId = await SeedProductionAccountAsync();
@@ -169,8 +173,6 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         var productQuotationItemId = await GetProductQuotationItemIdAsync(quotationId);
 
         await UpdateProductFinancialsAsync(scenario, quotationId, productQuotationItemId);
-        var installationItemId = await AddManualItemAsync(scenario, quotationId, "Installation fee", ManualFeeTotal);
-        var taxLineItemId = await AddManualItemAsync(scenario, quotationId, "Standalone tax line", StandaloneTaxLineTotal);
         await UpdateValidUntilAsync(scenario.SalesAccountId, quotationId);
         await SendAsync(scenario.SalesAccountId, quotationId);
         await AcceptAsync(scenario, quotationId);
@@ -178,9 +180,7 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         var orderSnapshot = await AssertAcceptedOrderSnapshotsAsync(
             scenario,
             quotationId,
-            productQuotationItemId,
-            installationItemId,
-            taxLineItemId);
+            productQuotationItemId);
 
         await MarkDepositPaidAsync(scenario, quotationId, orderSnapshot.OrderId);
         var productionRequestId = await CreateProductionRequestAsync(
@@ -201,41 +201,25 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             scenario,
             adjustmentId,
             orderSnapshot.ProductOrderItemId,
-            ProductTotal);
+            ProductVatInclusiveTotal);
         await ConfirmAdjustmentAsync(scenario, adjustmentId);
-        var completion = await CompleteProductionAsync(productionAccountId, productionRequestId);
 
-        Assert.Equal(nameof(ProductionRequestStatus.COMPLETED), completion.ProductionStatus);
-        Assert.Equal(nameof(OrderStatus.READY_FOR_DELIVERY), completion.OrderStatus);
-        Assert.Equal(ExpectedFinalOrderTotal, completion.FinalTotalAmount);
-        Assert.Equal(1, completion.AppliedAdjustmentCount);
+        using var completeRequest = IntegrationHttp.Authenticated(
+            HttpMethod.Patch,
+            $"/production-requests/{productionRequestId}/complete",
+            productionAccountId,
+            CoreRoles.Production);
+        var completeResponse = await _fixture.Client.SendAsync(completeRequest);
+        var completeBody = await completeResponse.Content.ReadAsStringAsync();
 
-        await AssertFinalOrderFinancialsAsync(
+        Assert.Equal(HttpStatusCode.BadRequest, completeResponse.StatusCode);
+        Assert.Contains(ProductionErrorCodes.AdjustmentRequiresRefundFlow, completeBody, StringComparison.Ordinal);
+
+        await AssertRefundGuardStateAsync(
             orderSnapshot.OrderId,
             orderSnapshot.ProductOrderItemId,
-            adjustmentId);
-    }
-
-    [Fact]
-    public async Task UpdateManualItemFinancials_WhenCustomizationCostProvided_ReturnsBadRequest()
-    {
-        var scenario = await SeedSelectedProposalAsync();
-        var quotationId = await CreateDraftIdAsync(scenario);
-        var manualItemId = await AddManualItemAsync(scenario, quotationId, "Installation fee", ManualFeeTotal);
-
-        using var request = IntegrationHttp.AuthenticatedJson(
-            HttpMethod.Patch,
-            $"/quotations/{quotationId}/items/{manualItemId}/financials",
-            scenario.SalesAccountId,
-            CoreRoles.Sales,
-            new UpdateQuotationItemFinancialsRequestDto
-            {
-                CustomizationUnitAdditionalCost = 1m
-            });
-
-        var response = await _fixture.Client.SendAsync(request);
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            adjustmentId,
+            productionRequestId);
     }
 
     private async Task<QuotationDraftScenario> SeedSelectedProposalAsync()
@@ -331,10 +315,8 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             new UpdateQuotationItemFinancialsRequestDto
             {
                 Quantity = 1,
-                UnitPrice = 2_000_000m,
-                CustomizationUnitAdditionalCost = 500_000m,
-                DiscountAmount = ProductDiscount,
-                TaxRate = 10m
+                UnitPrice = ProductUnitPrice,
+                DiscountAmount = ProductDiscount
             });
 
         var response = await _fixture.Client.SendAsync(request);
@@ -345,36 +327,8 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         var item = quotation.Data.Items.Single(entry => entry.QuotationItemId == quotationItemId);
         Assert.Equal(ProductGross, item.GrossAmount);
         Assert.Equal(ProductDiscount, item.DiscountAmount);
-        Assert.Equal(ProductGross - ProductDiscount, item.TaxableAmount);
-        Assert.Equal(ProductTax, item.TaxAmount);
-        Assert.Equal(ProductTotal, item.TotalAmount);
-    }
-
-    private async Task<Guid> AddManualItemAsync(
-        QuotationDraftScenario scenario,
-        Guid quotationId,
-        string itemName,
-        decimal amount)
-    {
-        using var request = IntegrationHttp.AuthenticatedJson(
-            HttpMethod.Post,
-            $"/quotations/{quotationId}/items",
-            scenario.SalesAccountId,
-            CoreRoles.Sales,
-            new CreateManualQuotationItemRequestDto
-            {
-                ItemName = itemName,
-                Quantity = 1,
-                UnitPrice = amount,
-                DiscountAmount = 0m,
-                TaxRate = 0m
-            });
-
-        var response = await _fixture.Client.SendAsync(request);
-        var quotation = await ReadQuotationAsync(response);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.NotNull(quotation.Data);
-        return quotation.Data.Items.Single(item => item.ItemName == itemName).QuotationItemId;
+        Assert.Equal(ProductPreVatTotal, item.TotalAmount);
+        Assert.Equal(ProductVatInclusiveTotal, quotation.Data.TotalAmount);
     }
 
     private async Task<Guid> CreateProductionRequestAsync(
@@ -477,7 +431,7 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         QuotationDraftScenario scenario,
         Guid adjustmentId,
         Guid orderItemId,
-        decimal itemTotal)
+        decimal vatInclusiveAmount)
     {
         using var request = IntegrationHttp.AuthenticatedJson(
             HttpMethod.Post,
@@ -488,14 +442,14 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             {
                 AdjustmentType = OrderAdjustmentItemType.UNAVAILABLE_ITEM,
                 OrderItemId = orderItemId,
-                AdjustmentAmount = itemTotal,
+                AdjustmentAmount = vatInclusiveAmount,
                 Reason = "Material unavailable"
             });
 
         var response = await _fixture.Client.SendAsync(request);
         var item = await ReadDataAsync<OrderAdjustmentItemDto>(response, HttpStatusCode.Created);
-        Assert.Equal(itemTotal, item.AdjustmentAmount);
-        Assert.Equal(itemTotal, item.ItemTotalAmount);
+        Assert.Equal(vatInclusiveAmount, item.AdjustmentAmount);
+        Assert.Equal(vatInclusiveAmount, item.ItemTotalAmount);
     }
 
     private async Task ConfirmAdjustmentAsync(
@@ -510,20 +464,6 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
 
         var response = await _fixture.Client.SendAsync(request);
         await ReadDataAsync<OrderAdjustmentConfirmationDto>(response, HttpStatusCode.OK);
-    }
-
-    private async Task<ProductionCompletionDto> CompleteProductionAsync(
-        Guid productionAccountId,
-        Guid productionRequestId)
-    {
-        using var request = IntegrationHttp.Authenticated(
-            HttpMethod.Patch,
-            $"/production-requests/{productionRequestId}/complete",
-            productionAccountId,
-            CoreRoles.Production);
-
-        var response = await _fixture.Client.SendAsync(request);
-        return await ReadDataAsync<ProductionCompletionDto>(response, HttpStatusCode.OK);
     }
 
     private async Task<HttpResponseMessage> RequestRevisionAsync(
@@ -574,9 +514,7 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
     {
         await using var context = _fixture.Database.CreateDbContext();
         return await context.QuotationItemSet
-            .Where(item =>
-                item.QuotationId == quotationId &&
-                item.ItemType == QuotationItemType.PRODUCT_ITEM)
+            .Where(item => item.QuotationId == quotationId && item.ProposalItemId != null)
             .Select(item => item.QuotationItemId)
             .SingleAsync();
     }
@@ -624,9 +562,7 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
     private async Task<AcceptedOrderSnapshot> AssertAcceptedOrderSnapshotsAsync(
         QuotationDraftScenario scenario,
         Guid quotationId,
-        Guid productQuotationItemId,
-        Guid installationItemId,
-        Guid taxLineItemId)
+        Guid productQuotationItemId)
     {
         await using var context = _fixture.Database.CreateDbContext();
         var quotation = await context.QuotationSet.SingleAsync(item => item.QuotationId == quotationId);
@@ -637,61 +573,45 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
 
         Assert.Equal(QuotationStatus.ACCEPTED, quotation.Status);
         Assert.Equal(OrderStatus.DEPOSIT_PENDING, order.Status);
-        Assert.Equal(QuotationTotal, quotation.TotalAmount);
-        Assert.Equal(QuotationTotal, order.OriginalTotalAmount);
-        Assert.Equal(QuotationTotal, order.FinalTotalAmount);
-        Assert.Equal(QuotationTotal, order.RemainingAmount);
+        Assert.Equal(ProductVatInclusiveTotal, quotation.TotalAmount);
+        Assert.Equal(ProductVatInclusiveTotal, order.OriginalTotalAmount);
+        Assert.Equal(ProductVatInclusiveTotal, order.FinalTotalAmount);
+        Assert.Equal(ProductVatInclusiveTotal, order.RemainingAmount);
+        Assert.Equal(0.08m, order.VatRate);
+        Assert.Equal(ProductVatShare, order.VatAmount);
         Assert.Equal(scenario.CustomerAccountId, order.CustomerId);
         Assert.Equal(scenario.SalesAccountId, order.SalesId);
-        Assert.Equal(3, orderItems.Count);
+        Assert.Single(orderItems);
 
         var productOrderItem = orderItems.Single(item => item.QuotationItemId == productQuotationItemId);
-        Assert.Equal(QuotationItemType.PRODUCT_ITEM, productOrderItem.ItemType);
         Assert.Equal(1, productOrderItem.Quantity);
-        Assert.Equal(2_000_000m, productOrderItem.UnitPrice);
-        Assert.Equal(500_000m, productOrderItem.CustomizationFee);
-        Assert.Equal(ProductGross, productOrderItem.GrossAmount);
+        Assert.Equal(ProductUnitPrice, productOrderItem.UnitPrice);
         Assert.Equal(ProductDiscount, productOrderItem.DiscountAmount);
-        Assert.Equal(ProductGross - ProductDiscount, productOrderItem.TaxableAmount);
-        Assert.Equal(10m, productOrderItem.TaxRate);
-        Assert.Equal(ProductTax, productOrderItem.TaxAmount);
-        Assert.Equal(ProductTotal, productOrderItem.TotalAmount);
-        Assert.Equal(ProductGross, productOrderItem.SubtotalAmount);
+        Assert.Equal(ProductPreVatTotal, productOrderItem.SubtotalAmount);
 
-        AssertManualOrderItem(orderItems, installationItemId, ManualFeeTotal);
-        AssertManualOrderItem(orderItems, taxLineItemId, StandaloneTaxLineTotal);
         return new AcceptedOrderSnapshot(order.OrderId, productOrderItem.OrderItemId);
     }
 
-    private static void AssertManualOrderItem(
-        List<OrderItem> orderItems,
-        Guid quotationItemId,
-        decimal expectedTotal)
-    {
-        var item = orderItems.Single(entry => entry.QuotationItemId == quotationItemId);
-        Assert.Equal(QuotationItemType.MANUAL_ITEM, item.ItemType);
-        Assert.Equal(expectedTotal, item.GrossAmount);
-        Assert.Equal(expectedTotal, item.TotalAmount);
-    }
-
-    private async Task AssertFinalOrderFinancialsAsync(
+    private async Task AssertRefundGuardStateAsync(
         Guid orderId,
         Guid productOrderItemId,
-        Guid adjustmentId)
+        Guid adjustmentId,
+        Guid productionRequestId)
     {
         await using var context = _fixture.Database.CreateDbContext();
         var order = await context.OrderSet.SingleAsync(item => item.OrderId == orderId);
         var productItem = await context.OrderItemSet.SingleAsync(item => item.OrderItemId == productOrderItemId);
         var adjustment = await context.OrderAdjustmentSet.SingleAsync(item => item.OrderAdjustmentId == adjustmentId);
+        var productionRequest = await context.ProductionRequestSet.SingleAsync(
+            item => item.ProductionRequestId == productionRequestId);
 
-        Assert.Equal(OrderStatus.READY_FOR_DELIVERY, order.Status);
-        Assert.Equal(ProductTotal, order.ItemAdjustmentAmount);
-        Assert.Equal(ExpectedFinalOrderTotal, order.FinalTotalAmount);
-        Assert.Equal(order.FinalTotalAmount - order.PaidAmount, order.RemainingAmount);
-        Assert.Equal(OrderItemStatus.UNAVAILABLE, productItem.Status);
-        Assert.Equal(ProductTotal, productItem.AdjustmentAmount);
-        Assert.Equal(OrderAdjustmentStatus.APPLIED, adjustment.Status);
-        Assert.Equal(ProductTotal, adjustment.ItemAdjustmentAmount);
+        Assert.Equal(OrderStatus.IN_PRODUCTION, order.Status);
+        Assert.Equal(ProductVatInclusiveTotal, order.FinalTotalAmount);
+        Assert.Equal(0m, order.ItemAdjustmentAmount);
+        Assert.Equal(OrderItemStatus.IN_PRODUCTION, productItem.Status);
+        Assert.Equal(0m, productItem.AdjustmentAmount);
+        Assert.Equal(OrderAdjustmentStatus.CONFIRMED, adjustment.Status);
+        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, productionRequest.Status);
     }
 
     private async Task AssertQuotationStateAsync(

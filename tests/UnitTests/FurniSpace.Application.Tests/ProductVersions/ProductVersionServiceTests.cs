@@ -1015,28 +1015,6 @@ public sealed class ProductVersionServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_WithInvalidTaxRate_ReturnsBadRequest()
-    {
-        var productId = Guid.NewGuid();
-        var repository = new FakeProductVersionRepository(productIds: [productId]);
-        var service = CatalogServiceTestHelper.CreateProductVersionService(
-            repository,
-            new FakeCatalogProjectFileRepository());
-
-        var result = await service.CreateAsync(
-            productId,
-            new CreateProductVersionRequestDto
-            {
-                VersionCode = "PV-001",
-                VersionName = "Standard",
-                DefaultTaxRate = 150m
-            },
-            allowTaxConfiguration: true);
-
-        Assert.Equal(400, result.Status);
-    }
-
-    [Fact]
     public async Task DeactivateAsync_ClearsDefaultFlag()
     {
         var productVersionId = Guid.NewGuid();
@@ -1178,28 +1156,6 @@ public sealed class ProductVersionServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(CatalogErrorCodes.CatalogFilterInvalid, result.ErrorCode);
-    }
-
-    [Fact]
-    public async Task CreateAsync_WithTaxProvidedWithoutAdminRole_ReturnsBadRequest()
-    {
-        var productId = Guid.NewGuid();
-        var repository = new FakeProductVersionRepository(productIds: [productId]);
-        var service = CatalogServiceTestHelper.CreateProductVersionService(
-            repository,
-            new FakeCatalogProjectFileRepository());
-
-        var result = await service.CreateAsync(productId, new CreateProductVersionRequestDto
-        {
-            VersionCode = "PV-001",
-            VersionName = "Standard",
-            DefaultTaxRate = 10m
-        },
-        allowTaxConfiguration: false);
-
-        Assert.Equal(400, result.Status);
-        Assert.Equal("Validation failed", result.Message);
-        Assert.Contains("Default tax rate can only be configured by admin.", result.Errors!);
     }
 
     private static ProductVersionService CreateVersionUploadService(
@@ -1595,16 +1551,6 @@ public sealed class ProductVersionServiceTests
             => Task.FromResult(_versions.Count(version =>
                 version.ProjectId == projectId &&
                 version.VersionType == ProductVersionType.PROJECT_SPECIFIC));
-
-        public Task<IReadOnlyDictionary<Guid, decimal?>> GetDefaultTaxRatesByIdsAsync(
-            IReadOnlyCollection<Guid> productVersionIds,
-            CancellationToken cancellationToken = default)
-        {
-            var result = _versions
-                .Where(version => productVersionIds.Contains(version.ProductVersionId))
-                .ToDictionary(version => version.ProductVersionId, version => version.DefaultTaxRate);
-            return Task.FromResult<IReadOnlyDictionary<Guid, decimal?>>(result);
-        }
 
         public IQueryable<ProductVersion> Query() => _versions.AsQueryable();
 

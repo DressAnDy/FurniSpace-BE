@@ -63,17 +63,26 @@ public sealed class DataSeederTests
 
         var quotationSeed = rawCommands.Single(command => ExtractTableName(command) == "quotations");
         Assert.Contains("total_discount_amount", quotationSeed);
+        Assert.Contains("pre_vat_amount", quotationSeed);
+        Assert.Contains("vat_rate", quotationSeed);
+        Assert.Contains("vat_amount", quotationSeed);
         Assert.Contains("currency", quotationSeed);
-        Assert.DoesNotContain(" subtotal_amount, discount_amount,", quotationSeed);
+        Assert.DoesNotContain("taxable_amount", quotationSeed);
 
         var quotationItemSeed = rawCommands.Single(command => ExtractTableName(command) == "quotation_items");
-        Assert.Contains("customization_unit_additional_cost", quotationItemSeed);
-        Assert.DoesNotContain("customization_additional_cost", quotationItemSeed);
+        Assert.Contains("gross_amount", quotationItemSeed);
+        Assert.Contains("total_amount", quotationItemSeed);
+        Assert.DoesNotContain("item_type", quotationItemSeed);
+        Assert.DoesNotContain("customization_unit_additional_cost", quotationItemSeed);
+
+        var orderSeed = rawCommands.Single(command => ExtractTableName(command) == "orders");
+        Assert.Contains("vat_rate", orderSeed);
+        Assert.Contains("vat_amount", orderSeed);
 
         var orderItemSeed = rawCommands.Single(command => ExtractTableName(command) == "order_items");
-        Assert.Contains("customization_unit_additional_cost", orderItemSeed);
-        Assert.Contains("item_type", orderItemSeed);
-        Assert.DoesNotContain("customization_fee", orderItemSeed);
+        Assert.Contains("subtotal_amount", orderItemSeed);
+        Assert.DoesNotContain("item_type", orderItemSeed);
+        Assert.DoesNotContain("customization_unit_additional_cost", orderItemSeed);
     }
 
     [Fact]

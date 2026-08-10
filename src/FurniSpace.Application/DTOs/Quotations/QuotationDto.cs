@@ -13,8 +13,9 @@ public class QuotationDto
     public int? VersionNo { get; set; }
     public decimal? SubtotalAmount { get; set; }
     public decimal? TotalDiscountAmount { get; set; }
-    public decimal? TaxableAmount { get; set; }
-    public decimal? TaxAmount { get; set; }
+    public decimal? PreVatAmount { get; set; }
+    public decimal? VatRate { get; set; }
+    public decimal? VatAmount { get; set; }
     public decimal? TotalAmount { get; set; }
     public string Currency { get; set; } = "VND";
     public QuotationStatus? Status { get; set; }

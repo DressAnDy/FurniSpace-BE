@@ -64,7 +64,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         CancellationToken cancellationToken = default)
     {
         return DbContext.OrderItemSet
-            .Where(item => item.OrderId == orderId && item.ItemType == QuotationItemType.PRODUCT_ITEM)
+            .Where(item => item.OrderId == orderId)
             .OrderBy(item => item.OrderItemId)
             .ToListAsync(cancellationToken);
     }

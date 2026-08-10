@@ -46,6 +46,10 @@ public static class DepositOrderScenarioSeeder
             CreatedAt = CoreAccountSeeder.FixedTimestamp
         };
 
+        decimal preVatAmount = totalAmount;
+        decimal vatAmount = Math.Round(preVatAmount * 0.08m, 2, MidpointRounding.AwayFromZero);
+        decimal vatInclusiveTotal = preVatAmount + vatAmount;
+
         var quotation = new Quotation
         {
             QuotationId = Guid.NewGuid(),
@@ -53,10 +57,12 @@ public static class DepositOrderScenarioSeeder
             ProposalId = proposal.ProposalId,
             QuotationCode = $"QUO-{suffix}",
             VersionNo = 1,
-            SubtotalAmount = totalAmount,
-            DiscountAmount = 0m,
-            TaxAmount = 0m,
-            TotalAmount = totalAmount,
+            SubtotalAmount = preVatAmount,
+            TotalDiscountAmount = 0m,
+            PreVatAmount = preVatAmount,
+            VatRate = 0.08m,
+            VatAmount = vatAmount,
+            TotalAmount = vatInclusiveTotal,
             Status = QuotationStatus.ACCEPTED,
             ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
             AcceptedAt = CoreAccountSeeder.FixedTimestamp,
@@ -71,13 +77,15 @@ public static class DepositOrderScenarioSeeder
             QuotationId = quotation.QuotationId,
             OrderCode = $"ORD-{suffix}",
             CustomerId = customer.AccountId,
-            OriginalTotalAmount = totalAmount,
+            VatRate = 0.08m,
+            VatAmount = vatAmount,
+            OriginalTotalAmount = vatInclusiveTotal,
             ItemAdjustmentAmount = 0m,
             AdditionalDiscountAmount = 0m,
-            FinalTotalAmount = totalAmount,
+            FinalTotalAmount = vatInclusiveTotal,
             DepositAmount = depositAmount,
             PaidAmount = 0m,
-            RemainingAmount = totalAmount,
+            RemainingAmount = vatInclusiveTotal,
             Status = OrderStatus.DEPOSIT_PENDING,
             ConfirmedAt = CoreAccountSeeder.FixedTimestamp,
             CreatedAt = CoreAccountSeeder.FixedTimestamp,

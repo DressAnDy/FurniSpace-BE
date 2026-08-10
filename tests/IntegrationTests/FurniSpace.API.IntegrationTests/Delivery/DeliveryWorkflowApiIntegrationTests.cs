@@ -52,13 +52,13 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         await using var verification = _fixture.Database.CreateDbContext();
         var order = await verification.OrderSet.FindAsync(scenario.OrderId);
         var project = await verification.ProjectSet.FindAsync(scenario.ProjectId);
-        var manualItem = await verification.OrderItemSet.FindAsync(scenario.ManualOrderItemId);
+        var pendingItem = await verification.OrderItemSet.FindAsync(scenario.PendingOrderItemId);
         var completedSchedule = await verification.ProjectScheduleSet.FindAsync(schedule.ScheduleId);
 
         Assert.Equal(OrderStatus.DELIVERED, order?.Status);
         Assert.NotNull(order?.CustomerConfirmedDeliveryAt);
         Assert.Equal(ProjectStatus.DELIVERED, project?.Status);
-        Assert.Equal(OrderItemStatus.PENDING, manualItem?.Status);
+        Assert.Equal(OrderItemStatus.PENDING, pendingItem?.Status);
         Assert.Equal(ProjectScheduleStatus.COMPLETED, completedSchedule?.Status);
     }
 

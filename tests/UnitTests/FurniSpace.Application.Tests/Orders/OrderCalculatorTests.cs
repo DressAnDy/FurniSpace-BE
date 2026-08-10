@@ -7,6 +7,7 @@ public sealed class OrderCalculatorTests
 {
     [Theory]
     [InlineData(1000, 30, 300)]
+    [InlineData(221.4, 30, 66)]
     [InlineData(250, 30, 75)]
     [InlineData(100, 50, 50)]
     [InlineData(0, 30, 0)]

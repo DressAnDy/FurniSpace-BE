@@ -31,8 +31,8 @@ public sealed class ProductionRequestServiceTests
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
         context.OrderItemSet.AddRange(
-            CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Counter"),
-            CreateOrderItem(data.OrderId, QuotationItemType.MANUAL_ITEM, "Shipping"));
+            CreateOrderItem(data.OrderId, true, "Counter"),
+            CreateOrderItem(data.OrderId, false, "Shipping"));
         await context.SaveChangesAsync();
         var dispatcher = new CapturingNotificationDispatcher();
         var service = BuildService(context, dispatcher);
@@ -54,17 +54,12 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(data.ProjectId, result.Data.ProjectId);
         Assert.Equal(_productionId, result.Data.AssignedTo);
         Assert.Equal("PENDING_REVIEW", result.Data.Status);
-        Assert.Equal(1, result.Data.ProductionItemCount);
+        Assert.Equal(2, result.Data.ProductionItemCount);
         Assert.StartsWith("PRD-", result.Data.ProductionCode, StringComparison.Ordinal);
         Assert.Equal(OrderStatus.IN_PRODUCTION, context.OrderSet.Single().Status);
         Assert.Equal(ProjectStatus.IN_PRODUCTION, context.ProjectSet.Single().Status);
-        Assert.Single(context.ProductionItemSet);
-        Assert.Equal(
-            OrderItemStatus.IN_PRODUCTION,
-            context.OrderItemSet.Single(item => item.ItemType == QuotationItemType.PRODUCT_ITEM).Status);
-        Assert.Equal(
-            OrderItemStatus.PENDING,
-            context.OrderItemSet.Single(item => item.ItemType == QuotationItemType.MANUAL_ITEM).Status);
+        Assert.Equal(2, context.ProductionItemSet.Count());
+        Assert.All(context.OrderItemSet, item => Assert.Equal(OrderItemStatus.IN_PRODUCTION, item.Status));
         Assert.Equal("NORMAL", context.ProductionRequestSet.Single().Priority);
         Assert.Equal("Start soon", context.ProductionRequestSet.Single().Note);
         Assert.Equal(NotificationType.ProductionRequestAssigned, dispatcher.NotificationType);
@@ -120,11 +115,10 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_WhenNoProductItems_ReturnsOrderItemNotEligible()
+    public async Task CreateAsync_WhenNoOrderItems_ReturnsOrderItemNotEligible()
     {
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        context.OrderItemSet.Add(CreateOrderItem(data.OrderId, QuotationItemType.MANUAL_ITEM, "Shipping"));
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -143,7 +137,7 @@ public sealed class ProductionRequestServiceTests
     {
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        var item = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Chair");
+        var item = CreateOrderItem(data.OrderId, true, "Chair");
         item.Status = OrderItemStatus.READY;
         context.OrderItemSet.Add(item);
         await context.SaveChangesAsync();
@@ -237,7 +231,7 @@ public sealed class ProductionRequestServiceTests
     {
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        context.OrderItemSet.Add(CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Chair"));
+        context.OrderItemSet.Add(CreateOrderItem(data.OrderId, true, "Chair"));
         await context.SaveChangesAsync();
         var service = BuildService(context, new FailingNotificationDispatcher());
 
@@ -536,7 +530,7 @@ public sealed class ProductionRequestServiceTests
     {
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        var orderItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Display Cabinet");
+        var orderItem = CreateOrderItem(data.OrderId, true, "Display Cabinet");
         var productionRequest = CreateProductionRequest(
             data.ProjectId,
             data.OrderId,
@@ -1126,7 +1120,7 @@ public sealed class ProductionRequestServiceTests
         ProductionItemStatus itemStatus)
     {
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        var orderItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Cafe Chair");
+        var orderItem = CreateOrderItem(data.OrderId, true, "Cafe Chair");
         orderItem.Status = OrderItemStatus.IN_PRODUCTION;
         var productionRequest = CreateProductionRequest(
             data.ProjectId,
@@ -1153,8 +1147,8 @@ public sealed class ProductionRequestServiceTests
         order.PaidAmount = paidAmount;
         order.RemainingAmount = order.FinalTotalAmount - paidAmount;
         project.Status = ProjectStatus.IN_PRODUCTION;
-        var completedItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Counter");
-        var cancelledItem = CreateOrderItem(data.OrderId, QuotationItemType.PRODUCT_ITEM, "Chair");
+        var completedItem = CreateOrderItem(data.OrderId, true, "Counter");
+        var cancelledItem = CreateOrderItem(data.OrderId, true, "Chair");
         completedItem.Status = OrderItemStatus.IN_PRODUCTION;
         cancelledItem.Status = OrderItemStatus.IN_PRODUCTION;
         completedItem.SubtotalAmount = 3_000_000m;
@@ -1266,15 +1260,14 @@ public sealed class ProductionRequestServiceTests
 
     private static OrderItem CreateOrderItem(
         Guid orderId,
-        QuotationItemType itemType,
+        bool isProductItem,
         string productName)
     {
         return WithFinancialSnapshot(new OrderItem
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
-            ItemType = itemType,
-            ProductVersionId = itemType == QuotationItemType.PRODUCT_ITEM ? Guid.NewGuid() : null,
+            ProductVersionId = isProductItem ? Guid.NewGuid() : null,
             ProductNameSnapshot = productName,
             ProductVersionNameSnapshot = $"{productName} Version",
             Quantity = 2,
@@ -1283,17 +1276,11 @@ public sealed class ProductionRequestServiceTests
         });
     }
 
-    private static OrderItem WithFinancialSnapshot(OrderItem item, decimal totalAmount = 2_000_000m)
+    private static OrderItem WithFinancialSnapshot(OrderItem item, decimal subtotalAmount = 2_000_000m)
     {
-        item.UnitPrice = totalAmount / Math.Max(item.Quantity ?? 1, 1);
-        item.CustomizationFee = 0m;
-        item.GrossAmount = totalAmount;
+        item.UnitPrice = subtotalAmount / Math.Max(item.Quantity ?? 1, 1);
         item.DiscountAmount = 0m;
-        item.TaxableAmount = totalAmount;
-        item.TaxRate = 0m;
-        item.TaxAmount = 0m;
-        item.TotalAmount = totalAmount;
-        item.SubtotalAmount = totalAmount;
+        item.SubtotalAmount = subtotalAmount;
         return item;
     }
 

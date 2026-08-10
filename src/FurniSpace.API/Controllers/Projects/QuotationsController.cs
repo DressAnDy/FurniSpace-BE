@@ -98,48 +98,6 @@ public sealed class QuotationsController : BaseApiController
     }
 
     [Authorize(Roles = "SALES,ADMIN")]
-    [HttpPost("quotations/{quotationId:guid}/items")]
-    public async Task<IActionResult> AddManualItem(
-        Guid quotationId,
-        [FromBody] CreateManualQuotationItemRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _quotations.AddManualItemAsync(
-            quotationId,
-            currentUserId,
-            request,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "SALES,ADMIN")]
-    [HttpPatch("quotations/{quotationId:guid}/items/{quotationItemId:guid}")]
-    public async Task<IActionResult> UpdateManualItem(
-        Guid quotationId,
-        Guid quotationItemId,
-        [FromBody] UpdateManualQuotationItemRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _quotations.UpdateManualItemAsync(
-            quotationId,
-            quotationItemId,
-            currentUserId,
-            request,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "SALES,ADMIN")]
     [HttpPatch("quotations/{quotationId:guid}/items/{quotationItemId:guid}/financials")]
     public async Task<IActionResult> UpdateItemFinancials(
         Guid quotationId,
@@ -194,26 +152,6 @@ public sealed class QuotationsController : BaseApiController
 
         var result = await _quotations.SendAsync(
             quotationId,
-            currentUserId,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "SALES,ADMIN")]
-    [HttpDelete("quotations/{quotationId:guid}/items/{quotationItemId:guid}")]
-    public async Task<IActionResult> DeleteManualItem(
-        Guid quotationId,
-        Guid quotationItemId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _quotations.DeleteManualItemAsync(
-            quotationId,
-            quotationItemId,
             currentUserId,
             cancellationToken);
         return ToActionResult(result);

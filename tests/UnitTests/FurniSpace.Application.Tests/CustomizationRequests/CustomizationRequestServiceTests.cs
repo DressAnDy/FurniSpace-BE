@@ -1593,21 +1593,22 @@ public sealed class CustomizationRequestServiceTests
         var ids = CreateIds();
         var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
         var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING);
-        var productVersion = CreateSourceProductVersion(ids);
-        var version = CreateFeasibleVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        var sourceProductVersion = CreateSourceProductVersion(ids);
+        var acceptedProductVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateFeasibleVersion(ids, entity.CustomizationRequestId, acceptedProductVersion.ProductVersionId);
         var requestRepo = new FakeCustomizationRequestRepository
         {
             ExistingEntity = entity,
             Detail = detail
         };
         var versionRepo = new FakeCustomizationRequestVersionRepository();
-        versionRepo.StoreVersion(version, productVersion);
+        versionRepo.StoreVersion(version, acceptedProductVersion);
         var service = CreateService(
             requestRepo,
             versionRepo,
             new FakeProposalRepository(),
             new FakeProjectRepository(CustomerRole),
-            productVersions: new FakeProductVersionRepository([productVersion]));
+            productVersions: new FakeProductVersionRepository([sourceProductVersion, acceptedProductVersion]));
 
         var result = await service.AcceptVersionAsync(
             entity.CustomizationRequestId,
@@ -1624,6 +1625,38 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
+    public async Task AcceptVersionAsync_SetsAcceptedProductVersionFinalPriceFromSourceAndAdditionalCost()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING);
+        var sourceProductVersion = CreateSourceProductVersion(ids);
+        sourceProductVersion.EstimatedPrice = 2_000_000m;
+        var acceptedProductVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateFeasibleVersion(ids, entity.CustomizationRequestId, acceptedProductVersion.ProductVersionId);
+        version.EstimatedAdditionalCost = 500_000m;
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, acceptedProductVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(CustomerRole),
+            productVersions: new FakeProductVersionRepository([sourceProductVersion, acceptedProductVersion]));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new AcceptCustomizationRequestDto
+            {
+                CustomizationRequestVersionId = version.CustomizationRequestVersionId
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2_500_000m, acceptedProductVersion.EstimatedPrice);
+    }
+
+    [Fact]
     public async Task AcceptVersionAsync_WithdrawsOtherNonTerminalVersions()
     {
         var ids = CreateIds();
@@ -1631,6 +1664,7 @@ public sealed class CustomizationRequestServiceTests
         var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING);
         var acceptedProduct = CreateCustomProductVersion(Guid.NewGuid());
         var otherProduct = CreateCustomProductVersion(Guid.NewGuid());
+        var sourceProductVersion = CreateSourceProductVersion(ids);
         var acceptedVersion = CreateFeasibleVersion(ids, entity.CustomizationRequestId, acceptedProduct.ProductVersionId);
         var otherVersion = CreateReviewingVersion(ids, entity.CustomizationRequestId, otherProduct.ProductVersionId, versionNo: 2);
         var versionRepo = new FakeCustomizationRequestVersionRepository();
@@ -1641,7 +1675,7 @@ public sealed class CustomizationRequestServiceTests
             versionRepo,
             new FakeProposalRepository(),
             new FakeProjectRepository(CustomerRole),
-            productVersions: new FakeProductVersionRepository([acceptedProduct, otherProduct]));
+            productVersions: new FakeProductVersionRepository([sourceProductVersion, acceptedProduct, otherProduct]));
 
         var result = await service.AcceptVersionAsync(
             entity.CustomizationRequestId,
@@ -2791,15 +2825,6 @@ public sealed class CustomizationRequestServiceTests
                 version.ProjectId == projectId &&
                 version.VersionType == ProductVersionType.PROJECT_SPECIFIC));
 
-        public Task<IReadOnlyDictionary<Guid, decimal?>> GetDefaultTaxRatesByIdsAsync(
-            IReadOnlyCollection<Guid> productVersionIds,
-            CancellationToken cancellationToken = default)
-        {
-            var result = _versions
-                .Where(version => productVersionIds.Contains(version.ProductVersionId))
-                .ToDictionary(version => version.ProductVersionId, version => version.DefaultTaxRate);
-            return Task.FromResult<IReadOnlyDictionary<Guid, decimal?>>(result);
-        }
 
         public IQueryable<ProductVersion> Query() => _versions.AsQueryable();
         public Task<ProductVersion?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)

@@ -87,19 +87,6 @@ public sealed class CatalogValidatorTests
         Assert.False(ProductLifecycleTransitionValidator.CanRestore(ProductStatus.ACTIVE));
     }
 
-    [Theory]
-    [InlineData(null, true)]
-    [InlineData(0, true)]
-    [InlineData(10, true)]
-    [InlineData(100, true)]
-    [InlineData(-1, false)]
-    [InlineData(101, false)]
-    public void ProductVersionTaxRateValidator_IsValid_EnforcesRange(int? taxRate, bool expected)
-    {
-        decimal? rate = taxRate.HasValue ? taxRate.Value : null;
-        Assert.Equal(expected, ProductVersionTaxRateValidator.IsValid(rate));
-    }
-
     [Fact]
     public void ProjectCatalogEligibility_AllowsPublicActiveVersion()
     {

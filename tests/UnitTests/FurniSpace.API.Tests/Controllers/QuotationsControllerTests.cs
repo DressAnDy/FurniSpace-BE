@@ -35,12 +35,9 @@ public sealed class QuotationsControllerTests
     [InlineData(nameof(QuotationsController.GetDetail), "CUSTOMER,SALES,DESIGNER,ADMIN")]
     [InlineData(nameof(QuotationsController.CreateDraft), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.Update), "SALES,ADMIN")]
-    [InlineData(nameof(QuotationsController.AddManualItem), "SALES,ADMIN")]
-    [InlineData(nameof(QuotationsController.UpdateManualItem), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.UpdateItemFinancials), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.BulkUpdateItemFinancials), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.Send), "SALES,ADMIN")]
-    [InlineData(nameof(QuotationsController.DeleteManualItem), "SALES,ADMIN")]
     [InlineData(nameof(QuotationsController.Accept), "CUSTOMER")]
     [InlineData(nameof(QuotationsController.RequestRevision), "CUSTOMER")]
     [InlineData(nameof(QuotationsController.Revise), "SALES,ADMIN")]
@@ -128,42 +125,6 @@ public sealed class QuotationsControllerTests
     }
 
     [Fact]
-    public async Task AddManualItem_ReturnsServiceResultAndPassesRequest()
-    {
-        var quotationId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-        var request = new CreateManualQuotationItemRequestDto { ItemName = "Delivery" };
-        var service = new FakeQuotationService();
-        var controller = BuildController(service, userId);
-
-        var actionResult = await controller.AddManualItem(quotationId, request);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(quotationId, service.QuotationId);
-        Assert.Same(request, service.CreateItemRequest);
-    }
-
-    [Fact]
-    public async Task UpdateManualItem_ReturnsServiceResultAndPassesRequest()
-    {
-        var quotationId = Guid.NewGuid();
-        var itemId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-        var request = new UpdateManualQuotationItemRequestDto { ItemName = "Install" };
-        var service = new FakeQuotationService();
-        var controller = BuildController(service, userId);
-
-        var actionResult = await controller.UpdateManualItem(quotationId, itemId, request);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(quotationId, service.QuotationId);
-        Assert.Equal(itemId, service.QuotationItemId);
-        Assert.Same(request, service.UpdateItemRequest);
-    }
-
-    [Fact]
     public async Task UpdateItemFinancials_ReturnsServiceResultAndPassesRequest()
     {
         var quotationId = Guid.NewGuid();
@@ -212,24 +173,6 @@ public sealed class QuotationsControllerTests
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(200, objectResult.StatusCode);
         Assert.Equal(quotationId, service.QuotationId);
-        Assert.Equal(userId, service.CurrentUserId);
-    }
-
-    [Fact]
-    public async Task DeleteManualItem_ReturnsServiceResultAndPassesIds()
-    {
-        var quotationId = Guid.NewGuid();
-        var itemId = Guid.NewGuid();
-        var userId = Guid.NewGuid();
-        var service = new FakeQuotationService();
-        var controller = BuildController(service, userId);
-
-        var actionResult = await controller.DeleteManualItem(quotationId, itemId);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(quotationId, service.QuotationId);
-        Assert.Equal(itemId, service.QuotationItemId);
         Assert.Equal(userId, service.CurrentUserId);
     }
 
@@ -322,12 +265,9 @@ public sealed class QuotationsControllerTests
     [InlineData(nameof(QuotationsController.GetDetail))]
     [InlineData(nameof(QuotationsController.CreateDraft))]
     [InlineData(nameof(QuotationsController.Update))]
-    [InlineData(nameof(QuotationsController.AddManualItem))]
-    [InlineData(nameof(QuotationsController.UpdateManualItem))]
     [InlineData(nameof(QuotationsController.UpdateItemFinancials))]
     [InlineData(nameof(QuotationsController.BulkUpdateItemFinancials))]
     [InlineData(nameof(QuotationsController.Send))]
-    [InlineData(nameof(QuotationsController.DeleteManualItem))]
     [InlineData(nameof(QuotationsController.Accept))]
     [InlineData(nameof(QuotationsController.RequestRevision))]
     [InlineData(nameof(QuotationsController.Revise))]
@@ -343,12 +283,9 @@ public sealed class QuotationsControllerTests
             nameof(QuotationsController.GetDetail) => await controller.GetDetail(Guid.NewGuid()),
             nameof(QuotationsController.CreateDraft) => await controller.CreateDraft(Guid.NewGuid()),
             nameof(QuotationsController.Update) => await controller.Update(Guid.NewGuid(), new UpdateQuotationRequestDto()),
-            nameof(QuotationsController.AddManualItem) => await controller.AddManualItem(Guid.NewGuid(), new CreateManualQuotationItemRequestDto()),
-            nameof(QuotationsController.UpdateManualItem) => await controller.UpdateManualItem(Guid.NewGuid(), Guid.NewGuid(), new UpdateManualQuotationItemRequestDto()),
             nameof(QuotationsController.UpdateItemFinancials) => await controller.UpdateItemFinancials(Guid.NewGuid(), Guid.NewGuid(), new UpdateQuotationItemFinancialsRequestDto()),
             nameof(QuotationsController.BulkUpdateItemFinancials) => await controller.BulkUpdateItemFinancials(Guid.NewGuid(), new BulkUpdateQuotationItemFinancialsRequestDto()),
             nameof(QuotationsController.Send) => await controller.Send(Guid.NewGuid()),
-            nameof(QuotationsController.DeleteManualItem) => await controller.DeleteManualItem(Guid.NewGuid(), Guid.NewGuid()),
             nameof(QuotationsController.Accept) => await controller.Accept(Guid.NewGuid()),
             nameof(QuotationsController.RequestRevision) => await controller.RequestRevision(Guid.NewGuid(), new RequestQuotationRevisionDto()),
             nameof(QuotationsController.Revise) => await controller.Revise(Guid.NewGuid()),
@@ -398,8 +335,6 @@ public sealed class QuotationsControllerTests
         public Guid CurrentUserId { get; private set; }
         public QuotationQueryDto? Query { get; private set; }
         public UpdateQuotationRequestDto? UpdateRequest { get; private set; }
-        public CreateManualQuotationItemRequestDto? CreateItemRequest { get; private set; }
-        public UpdateManualQuotationItemRequestDto? UpdateItemRequest { get; private set; }
         public UpdateQuotationItemFinancialsRequestDto? FinancialsRequest { get; private set; }
         public BulkUpdateQuotationItemFinancialsRequestDto? BulkFinancialsRequest { get; private set; }
         public RequestQuotationRevisionDto? RevisionRequest { get; private set; }
@@ -449,32 +384,6 @@ public sealed class QuotationsControllerTests
             return Task.FromResult(DetailResult);
         }
 
-        public Task<ServiceResult<QuotationDetailDto>> AddManualItemAsync(
-            Guid quotationId,
-            Guid currentUserId,
-            CreateManualQuotationItemRequestDto request,
-            CancellationToken cancellationToken = default)
-        {
-            QuotationId = quotationId;
-            CurrentUserId = currentUserId;
-            CreateItemRequest = request;
-            return Task.FromResult(DetailResult);
-        }
-
-        public Task<ServiceResult<QuotationDetailDto>> UpdateManualItemAsync(
-            Guid quotationId,
-            Guid quotationItemId,
-            Guid currentUserId,
-            UpdateManualQuotationItemRequestDto request,
-            CancellationToken cancellationToken = default)
-        {
-            QuotationId = quotationId;
-            QuotationItemId = quotationItemId;
-            CurrentUserId = currentUserId;
-            UpdateItemRequest = request;
-            return Task.FromResult(DetailResult);
-        }
-
         public Task<ServiceResult<QuotationDetailDto>> UpdateItemFinancialsAsync(
             Guid quotationId,
             Guid quotationItemId,
@@ -507,18 +416,6 @@ public sealed class QuotationsControllerTests
             CancellationToken cancellationToken = default)
         {
             QuotationId = quotationId;
-            CurrentUserId = currentUserId;
-            return Task.FromResult(DetailResult);
-        }
-
-        public Task<ServiceResult<QuotationDetailDto>> DeleteManualItemAsync(
-            Guid quotationId,
-            Guid quotationItemId,
-            Guid currentUserId,
-            CancellationToken cancellationToken = default)
-        {
-            QuotationId = quotationId;
-            QuotationItemId = quotationItemId;
             CurrentUserId = currentUserId;
             return Task.FromResult(DetailResult);
         }

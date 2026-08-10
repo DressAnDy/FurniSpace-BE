@@ -11,9 +11,10 @@ public class Quotation
     public string QuotationCode { get; set; } = null!;
     public int? VersionNo { get; set; }
     public decimal? SubtotalAmount { get; set; }
-    public decimal? DiscountAmount { get; set; }
-    public decimal? TaxableAmount { get; set; }
-    public decimal? TaxAmount { get; set; }
+    public decimal? TotalDiscountAmount { get; set; }
+    public decimal? PreVatAmount { get; set; }
+    public decimal? VatRate { get; set; }
+    public decimal? VatAmount { get; set; }
     public decimal? TotalAmount { get; set; }
     public string Currency { get; set; } = "VND";
     public QuotationStatus? Status { get; set; }
@@ -29,4 +30,3 @@ public class Quotation
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
-

@@ -41,7 +41,6 @@ internal static class CustomizationAcceptedProductVersionFactory
             Height = Coalesce(request.Height, customizationRequest.RequestedHeight, sourceVersion.Height),
             Depth = Coalesce(request.Depth, customizationRequest.RequestedDepth, sourceVersion.Depth),
             EstimatedPrice = request.EstimatedPrice ?? originalUnitPrice,
-            DefaultTaxRate = sourceVersion.DefaultTaxRate,
             IsDefault = false,
             IsPublic = false,
             IsProjectSpecific = true,
@@ -130,6 +129,22 @@ internal static class CustomizationAcceptedProductVersionFactory
         version.Status = CustomizationVersionStatus.ACCEPTED;
         version.AcceptedAt = acceptedAt;
         version.UpdatedAt = acceptedAt;
+    }
+
+    internal static decimal CalculateAcceptedFinalPrice(
+        decimal sourceEstimatedPrice,
+        decimal estimatedAdditionalCost)
+    {
+        return sourceEstimatedPrice + estimatedAdditionalCost;
+    }
+
+    internal static void ApplyAcceptedFinalPrice(
+        ProductVersion acceptedProductVersion,
+        decimal finalPrice,
+        DateTime updatedAt)
+    {
+        acceptedProductVersion.EstimatedPrice = finalPrice;
+        acceptedProductVersion.UpdatedAt = updatedAt;
     }
 
     internal static ApprovedProductVersionSummaryDto ToSummaryDto(ProductVersion version)

@@ -55,4 +55,6 @@ public static class CustomizationRequestErrorCodes
     public const string CustomizationVersionAlreadyReviewed = "CUSTOMIZATION_VERSION_ALREADY_REVIEWED";
     public const string CustomizationNotInReviewing = "CUSTOMIZATION_NOT_IN_REVIEWING";
     public const string CustomizationVersionProductMismatch = "CUSTOMIZATION_VERSION_PRODUCT_MISMATCH";
+    public const string SourceProductVersionPriceRequired = "SOURCE_PRODUCT_VERSION_PRICE_REQUIRED";
+    public const string EstimatedAdditionalCostRequired = "ESTIMATED_ADDITIONAL_COST_REQUIRED";
 }

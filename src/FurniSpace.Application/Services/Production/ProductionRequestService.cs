@@ -913,13 +913,13 @@ public sealed class ProductionRequestService : IProductionRequestService
 
     private static bool IsReadyProductItem(OrderItem item)
     {
-        return item.ItemType == QuotationItemType.PRODUCT_ITEM &&
+        return item.ProductVersionId.HasValue &&
             item.Status == OrderItemStatus.READY;
     }
 
     private static bool IsUnavailableProductItem(OrderItem item)
     {
-        return item.ItemType == QuotationItemType.PRODUCT_ITEM &&
+        return item.ProductVersionId.HasValue &&
             item.Status == OrderItemStatus.UNAVAILABLE;
     }
 

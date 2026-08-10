@@ -187,10 +187,11 @@ public sealed class ProjectFileRepositoryTests
             ProposalId = proposalId,
             QuotationCode = "Q-001",
             SubtotalAmount = 100m,
-            DiscountAmount = 0m,
-            TaxableAmount = 100m,
-            TaxAmount = 0m,
-            TotalAmount = 100m,
+            TotalDiscountAmount = 0m,
+            PreVatAmount = 100m,
+            VatRate = 0.08m,
+            VatAmount = 8m,
+            TotalAmount = 108m,
             Currency = "VND"
         });
         context.OrderSet.Add(new Order

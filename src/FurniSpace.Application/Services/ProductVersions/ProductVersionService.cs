@@ -52,7 +52,6 @@ public sealed class ProductVersionService : IProductVersionService
     public async Task<ServiceResult<ProductVersionDto>> CreateAsync(
         Guid productId,
         CreateProductVersionRequestDto request,
-        bool allowTaxConfiguration = false,
         CancellationToken cancellationToken = default)
     {
         if (productId == Guid.Empty)
@@ -60,7 +59,7 @@ public sealed class ProductVersionService : IProductVersionService
             return ServiceResult<ProductVersionDto>.BadRequest("Product id is required.");
         }
 
-        var errors = ValidateCreateRequest(request, allowTaxConfiguration);
+        var errors = ValidateCreateRequest(request);
         if (errors.Count > 0)
         {
             return ServiceResult<ProductVersionDto>.BadRequest(errors);
@@ -90,7 +89,6 @@ public sealed class ProductVersionService : IProductVersionService
             Height = request.Height,
             Depth = request.Depth,
             EstimatedPrice = request.EstimatedPrice,
-            DefaultTaxRate = allowTaxConfiguration ? request.DefaultTaxRate : null,
             IsDefault = request.IsDefault ?? false,
             IsPublic = request.IsPublic ?? true,
             IsProjectSpecific = request.IsProjectSpecific ?? false
@@ -121,7 +119,7 @@ public sealed class ProductVersionService : IProductVersionService
             return ServiceResult<ProductVersionDto>.BadRequest(ProductVersionIdRequiredMessage);
         }
 
-        var errors = ValidateUpdateRequest(request, allowTaxConfiguration: true);
+        var errors = ValidateUpdateRequest(request);
         if (errors.Count > 0)
         {
             return ServiceResult<ProductVersionDto>.BadRequest(errors);
@@ -141,7 +139,6 @@ public sealed class ProductVersionService : IProductVersionService
         productVersion.Height = request.Height;
         productVersion.Depth = request.Depth;
         productVersion.EstimatedPrice = request.EstimatedPrice;
-        productVersion.DefaultTaxRate = request.DefaultTaxRate;
         productVersion.IsPublic = request.IsPublic ?? true;
         productVersion.IsProjectSpecific = request.IsProjectSpecific ?? false;
         productVersion.Status ??= ProductStatus.ACTIVE;
@@ -720,12 +717,9 @@ public sealed class ProductVersionService : IProductVersionService
         return dto;
     }
 
-    private static List<string> ValidateCreateRequest(
-        CreateProductVersionRequestDto request,
-        bool allowTaxConfiguration)
+    private static List<string> ValidateCreateRequest(CreateProductVersionRequestDto request)
     {
         var errors = ValidateCommonRequest(request.VersionName);
-        errors.AddRange(ValidateTaxRate(request.DefaultTaxRate, allowTaxConfiguration));
 
         if (string.IsNullOrWhiteSpace(request.VersionCode))
         {
@@ -739,27 +733,9 @@ public sealed class ProductVersionService : IProductVersionService
         return errors;
     }
 
-    private static List<string> ValidateUpdateRequest(
-        UpdateProductVersionRequestDto request,
-        bool allowTaxConfiguration)
+    private static List<string> ValidateUpdateRequest(UpdateProductVersionRequestDto request)
     {
-        var errors = ValidateCommonRequest(request.VersionName);
-        errors.AddRange(ValidateTaxRate(request.DefaultTaxRate, allowTaxConfiguration));
-        return errors;
-    }
-
-    private static IEnumerable<string> ValidateTaxRate(decimal? defaultTaxRate, bool allowTaxConfiguration)
-    {
-        if (!allowTaxConfiguration && defaultTaxRate.HasValue)
-        {
-            yield return "Default tax rate can only be configured by admin.";
-            yield break;
-        }
-
-        if (!ProductVersionTaxRateValidator.IsValid(defaultTaxRate))
-        {
-            yield return "Default tax rate must be between 0 and 100.";
-        }
+        return ValidateCommonRequest(request.VersionName);
     }
 
     private static List<string> ValidateCommonRequest(string versionName)

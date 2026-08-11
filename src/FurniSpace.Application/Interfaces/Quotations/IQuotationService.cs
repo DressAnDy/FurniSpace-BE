@@ -27,19 +27,6 @@ public interface IQuotationService
         UpdateQuotationRequestDto request,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<QuotationDetailDto>> AddManualItemAsync(
-        Guid quotationId,
-        Guid currentUserId,
-        CreateManualQuotationItemRequestDto request,
-        CancellationToken cancellationToken = default);
-
-    Task<ServiceResult<QuotationDetailDto>> UpdateManualItemAsync(
-        Guid quotationId,
-        Guid quotationItemId,
-        Guid currentUserId,
-        UpdateManualQuotationItemRequestDto request,
-        CancellationToken cancellationToken = default);
-
     Task<ServiceResult<QuotationDetailDto>> UpdateItemFinancialsAsync(
         Guid quotationId,
         Guid quotationItemId,
@@ -55,12 +42,6 @@ public interface IQuotationService
 
     Task<ServiceResult<QuotationDetailDto>> SendAsync(
         Guid quotationId,
-        Guid currentUserId,
-        CancellationToken cancellationToken = default);
-
-    Task<ServiceResult<QuotationDetailDto>> DeleteManualItemAsync(
-        Guid quotationId,
-        Guid quotationItemId,
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 

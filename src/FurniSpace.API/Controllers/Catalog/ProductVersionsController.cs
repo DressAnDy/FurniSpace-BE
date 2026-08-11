@@ -38,11 +38,9 @@ public sealed class ProductVersionsController : BaseApiController
         [FromBody] CreateProductVersionRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var allowTaxConfiguration = User?.IsInRole("ADMIN") == true;
         var result = await _productVersions.CreateAsync(
             productId,
             request,
-            allowTaxConfiguration,
             cancellationToken);
         return ToActionResult(result);
     }

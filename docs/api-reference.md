@@ -716,8 +716,6 @@ Preview reorder/delete controller uses `[Route("ProductVersions")]` (no `/api` p
 | PATCH | `/ProductVersions/product-versions/{id}/preview-files/reorder` | ADMIN |
 | DELETE | `/ProductVersions/product-versions/{id}/preview-files/{fileId}` | ADMIN |
 
-**Tax on create/update**: field `defaultTaxRate` is accepted on create/update bodies but **only persisted when caller is ADMIN** (Designer create ignores/overrides tax). Update route is ADMIN-only.
-
 ### Admin version list — query
 
 | Param | Type | Notes |
@@ -732,7 +730,7 @@ Preview reorder/delete controller uses `[Route("ProductVersions")]` (no `/api` p
 
 **List response**: `{ items: ProductVersionManagementDto[], page, pageSize, totalCount }`
 
-`ProductVersionManagementDto` adds `projectId?`, `dimensionUnit?`, `defaultTaxRate?`, `createdAt?`, `updatedAt?` to version fields.
+`ProductVersionManagementDto` adds `projectId?`, `dimensionUnit?`, `createdAt?`, `updatedAt?` to version fields.
 
 ### Create body
 
@@ -747,7 +745,6 @@ Preview reorder/delete controller uses `[Route("ProductVersions")]` (no `/api` p
   "height": 75,
   "depth": 60,
   "estimatedPrice": 4500000,
-  "defaultTaxRate": 10,
   "isDefault": true,
   "isPublic": true,
   "isProjectSpecific": false
@@ -756,18 +753,7 @@ Preview reorder/delete controller uses `[Route("ProductVersions")]` (no `/api` p
 
 ### Update body
 
-Same fields except `versionCode` is not updated; `versionName` required-by-type. `defaultTaxRate` nullable: omit unchanged; `null` clears configured rate; `0` = explicit 0%.
-
-### `defaultTaxRate` semantics
-
-| Value | Meaning |
-| --- | --- |
-| omitted on create (Designer) | stored as `null` |
-| `null` | not configured |
-| `0` | explicitly 0% |
-| `1`–`100` | valid percentage |
-
-Invalid: &lt; 0 or &gt; 100 → `400 PRODUCT_VERSION_TAX_RATE_INVALID`
+Same fields except `versionCode` is not updated; `versionName` required-by-type.
 
 ### Version lifecycle (ADMIN)
 
@@ -777,9 +763,7 @@ Does **not** change parent Product status. Deactivate/archive on a default versi
 
 ### Response — `ProductVersionDto` / detail
 
-Includes: `productVersionId`, `productId`, `versionCode`, `versionName`, `versionType?`, `material?`, `color?`, dimensions, `dimensionUnit?`, `estimatedPrice?`, `defaultTaxRate?`, flags, `status?`, `thumbnail?`, `files[]`. Detail may add `productName?`.
-
-**Quotation snapshot**: on draft quotation create, each PRODUCT_ITEM copies `defaultTaxRate` from Product Version at creation time (`null` → item `taxRate: 0`). Later version tax edits do not mutate existing quotation/order items.
+Includes: `productVersionId`, `productId`, `versionCode`, `versionName`, `versionType?`, `material?`, `color?`, dimensions, `dimensionUnit?`, `estimatedPrice?`, flags, `status?`, `thumbnail?`, `files[]`. Detail may add `productName?`.
 
 ---
 
@@ -812,7 +796,7 @@ Dedicated admin catalog read API (not public `/products`). Shows products in **a
 
 `productId`, `productCode`, `productName`, `categoryId?`, `categoryName?`, `businessTypeIds?`, `status?`, `totalVersionCount`, `activeVersionCount`, `inactiveVersionCount`, `archivedVersionCount`, `defaultVersionSummary?`, `createdAt?`, `updatedAt?`
 
-**`defaultVersionSummary`**: `productVersionId`, `versionCode`, `versionName`, `status?`, `estimatedPrice?`, `defaultTaxRate?`
+**`defaultVersionSummary`**: `productVersionId`, `versionCode`, `versionName`, `status?`, `estimatedPrice?`
 
 **Error codes**: `CATALOG_ADMIN_ACCESS_DENIED`, `CATALOG_FILTER_INVALID`, `CATALOG_SORT_INVALID`, `CATEGORY_NOT_FOUND`, `BUSINESS_TYPE_NOT_FOUND`
 
@@ -820,7 +804,7 @@ Dedicated admin catalog read API (not public `/products`). Shows products in **a
 
 ## 8b. Catalog — Designer project catalog
 
-Project-scoped catalog for assigned Designer (ADMIN allowed). Eligibility: parent Product **ACTIVE**, version **ACTIVE**, and (public **or** PROJECT_SPECIFIC with matching `projectId`). **Does not expose** `defaultTaxRate` or commercial totals.
+Project-scoped catalog for assigned Designer (ADMIN allowed). Eligibility: parent Product **ACTIVE**, version **ACTIVE**, and (public **or** PROJECT_SPECIFIC with matching `projectId`). **Does not expose** commercial totals beyond `estimatedPrice`.
 
 Route prefix: `/projects/{projectId}/catalog`
 
@@ -1154,6 +1138,7 @@ Route: `proposal-scenes`
 | Method | Path | Roles | Description |
 | --- | --- | --- | --- |
 | GET | `/proposal-scenes/{sceneId}/room-planner` | CUSTOMER, DESIGNER, SALES, ADMIN | Load Mongo scene payload |
+| POST | `/proposal-scenes/{sceneId}/room-planner/resolve-products` | CUSTOMER, DESIGNER, SALES, ADMIN | Resolve scene-referenced ProductVersions + files |
 | PUT | `/proposal-scenes/{sceneId}/room-planner` | DESIGNER, ADMIN | Save scene payload |
 
 ### Request / response payload (`RoomPlannerScenePayloadDto`, schema v3)
@@ -1214,6 +1199,12 @@ Notes:
 
 **GET response** also includes: `sceneId`, `mongoSceneId?`, `proposalId?`, `projectId?`, `projectAreaIds[]`, `areas[]`, `lastSavedAt?`
 
+**POST resolve-products** (`ResolveRoomPlannerProductsRequestDto` → `ResolveRoomPlannerProductsResponseDto`):
+
+- Request: `{ "productVersionIds": ["..."] }` — IDs must already appear in the scene `objects[]`.
+- Response: `{ "sceneId", "projectId", "items": [{ productVersionId, productId, productName, versionCode, versionName, dimensions, files[] }] }`.
+- Customer receives only `CUSTOMER_VISIBLE` files. Does not expose full project catalog.
+
 **PUT response** (`RoomPlannerSceneSaveResponseDto`): `sceneId`, `mongoSceneId`, `lastSavedAt`
 
 See `docs/mongodb-room-planner-guide.md` for nested document details.
@@ -1230,9 +1221,8 @@ Absolute routes on `QuotationsController`.
 | GET | `/quotations/{quotationId}` | same |
 | POST | `/projects/{projectId}/quotations` | SALES, ADMIN · no body (from selected proposal) |
 | PATCH | `/quotations/{quotationId}` | SALES, ADMIN |
-| POST | `/quotations/{quotationId}/items` | SALES, ADMIN · manual item |
-| PATCH | `/quotations/{quotationId}/items/{itemId}` | SALES, ADMIN |
-| DELETE | `/quotations/{quotationId}/items/{itemId}` | SALES, ADMIN |
+| PATCH | `/quotations/{quotationId}/items/{quotationItemId}/financials` | SALES, ADMIN |
+| PUT | `/quotations/{quotationId}/items/financials` | SALES, ADMIN · bulk item financials |
 | PATCH | `/quotations/{quotationId}/send` | SALES, ADMIN |
 | PATCH | `/quotations/{quotationId}/revise` | SALES, ADMIN |
 | PATCH | `/quotations/{quotationId}/cancel` | SALES, ADMIN |
@@ -1240,7 +1230,7 @@ Absolute routes on `QuotationsController`.
 | PATCH | `/quotations/{quotationId}/request-revision` | CUSTOMER |
 | PATCH | `/quotations/{quotationId}/reject` | CUSTOMER |
 
-Accepting a quotation creates an **Order** with deposit/remaining amounts (default deposit **30%** via `OrderWorkflow:DepositPercent`).
+Accepting a quotation creates an **Order** with deposit/remaining amounts (default deposit **30%** via `OrderWorkflow:DepositPercent`). The order snapshots `vatRate` and `vatAmount` from the accepted quotation header.
 
 ### List query
 
@@ -1248,7 +1238,9 @@ Accepting a quotation creates an **Order** with deposit/remaining amounts (defau
 
 ### Update quotation
 
-Only non-calculated header fields are writable. The backend recalculates `subtotalAmount`, `totalDiscountAmount`, `taxableAmount`, `taxAmount`, and `totalAmount` from quotation items.
+Only non-calculated header fields are writable. The backend recalculates `subtotalAmount`, `totalDiscountAmount`, `preVatAmount`, `vatAmount`, and `totalAmount` from quotation items whenever item financials change.
+
+Draft quotations are created with header `vatRate = 0.08` (8%). VAT is applied once at the quotation header, not per item.
 
 ```json
 {
@@ -1259,17 +1251,30 @@ Only non-calculated header fields are writable. The backend recalculates `subtot
 }
 ```
 
-### Manual item create / update
+### Update item financials
+
+Single item (`PATCH .../items/{quotationItemId}/financials`) or bulk (`PUT .../items/financials`). Writable fields: `quantity`, `unitPrice`, `discountAmount`. All monetary totals on items and header are server-calculated.
 
 ```json
 {
-  "itemName": "Installation fee",
-  "description": "On-site install",
-  "quantity": 1,
-  "unitPrice": 2000000,
-  "discountAmount": 0,
-  "taxRate": 0,
-  "note": null
+  "quantity": 4,
+  "unitPrice": 4500000,
+  "discountAmount": 0
+}
+```
+
+Bulk body:
+
+```json
+{
+  "items": [
+    {
+      "quotationItemId": "...",
+      "quantity": 4,
+      "unitPrice": 4500000,
+      "discountAmount": 0
+    }
+  ]
 }
 ```
 
@@ -1292,11 +1297,12 @@ Only non-calculated header fields are writable. The backend recalculates `subtot
   "proposalId": "...",
   "quotationCode": "QT-...",
   "versionNo": 1,
-  "subtotalAmount": 100000000,
-  "totalDiscountAmount": 1000000,
-  "taxableAmount": 99000000,
-  "taxAmount": 0,
-  "totalAmount": 99000000,
+  "subtotalAmount": 18000000,
+  "totalDiscountAmount": 0,
+  "preVatAmount": 18000000,
+  "vatRate": 0.08,
+  "vatAmount": 1440000,
+  "totalAmount": 19440000,
   "currency": "VND",
   "status": "SENT",
   "validUntil": "...",
@@ -1314,7 +1320,6 @@ Only non-calculated header fields are writable. The backend recalculates `subtot
     {
       "quotationItemId": "...",
       "quotationId": "...",
-      "itemType": "PRODUCT_ITEM",
       "proposalItemId": "...",
       "productVersionId": "...",
       "productNameSnapshot": "Oak Cafe Table",
@@ -1322,14 +1327,9 @@ Only non-calculated header fields are writable. The backend recalculates `subtot
       "productVersionCodeSnapshot": "TABLE-OAK-001-A",
       "quantity": 4,
       "unitPrice": 4500000,
-      "customizationUnitAdditionalCost": 0,
       "grossAmount": 18000000,
       "discountAmount": 0,
-      "taxableAmount": 18000000,
-      "taxRate": 0,
-      "taxAmount": 0,
       "totalAmount": 18000000,
-      "subtotalAmount": 18000000,
       "isCustomized": false,
       "customizationNote": null,
       "note": null
@@ -1338,21 +1338,18 @@ Only non-calculated header fields are writable. The backend recalculates `subtot
 }
 ```
 
-Quotation item formula:
+Quotation item formula (all amounts **pre-VAT**):
 
-- `grossAmount = quantity * (unitPrice + customizationUnitAdditionalCost)`
-- `taxableAmount = grossAmount - discountAmount`
-- `taxAmount = ROUND(taxableAmount * taxRate / 100)`
-- `totalAmount = taxableAmount + taxAmount`
-- `subtotalAmount` is retained as a compatibility field and mirrors `grossAmount`.
+- `grossAmount = quantity * unitPrice`
+- `totalAmount = grossAmount - discountAmount`
 
 Quotation header formula:
 
 - `subtotalAmount = SUM(item.grossAmount)`
 - `totalDiscountAmount = SUM(item.discountAmount)`
-- `taxableAmount = SUM(item.taxableAmount)`
-- `taxAmount = SUM(item.taxAmount)`
-- `totalAmount = SUM(item.totalAmount)`
+- `preVatAmount = SUM(item.totalAmount)`
+- `vatAmount = ROUND(preVatAmount * vatRate)` — `vatRate` is a decimal fraction (`0.08` = 8%)
+- `totalAmount = preVatAmount + vatAmount`
 
 `QuotationStatus`: `DRAFT`, `SENT`, `REVISION_REQUESTED`, `REVISED`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `CANCELLED`
 
@@ -1429,12 +1426,20 @@ Absolute routes on `OrdersController`.
 {
   "adjustmentType": "UNAVAILABLE_ITEM",
   "orderItemId": "...",
-  "adjustmentAmount": -4500000,
+  "adjustmentAmount": 2160000,
   "reason": "Out of stock"
 }
 ```
 
 `adjustmentType`: `UNAVAILABLE_ITEM` | `ADDITIONAL_DISCOUNT`
+
+For `UNAVAILABLE_ITEM`, `adjustmentAmount` must equal the order item's VAT-inclusive total (server-validated). The backend derives this from the order snapshot:
+
+- `itemPreVatAmount = orderItem.subtotalAmount` (= `quantity * unitPrice - discountAmount`)
+- `vatShare = ROUND(itemPreVatAmount * order.vatRate)`
+- required `adjustmentAmount = itemPreVatAmount + vatShare`
+
+Example: pre-VAT subtotal `2,000,000` with `vatRate = 0.08` → `adjustmentAmount = 2,160,000`.
 
 ### Delivered quantity
 
@@ -1456,17 +1461,35 @@ Absolute routes on `OrdersController`.
   "orderCode": "ORD-...",
   "customerId": "...",
   "salesId": "...",
-  "originalTotalAmount": 99000000,
+  "vatRate": 0.08,
+  "vatAmount": 1440000,
+  "originalTotalAmount": 19440000,
   "itemAdjustmentAmount": 0,
   "additionalDiscountAmount": 0,
-  "finalTotalAmount": 99000000,
-  "depositAmount": 29700000,
+  "finalTotalAmount": 19440000,
+  "depositAmount": 5832000,
   "paidAmount": 0,
-  "remainingAmount": 99000000,
+  "remainingAmount": 19440000,
   "status": "DEPOSIT_PENDING",
-  "items": []
+  "items": [
+    {
+      "orderItemId": "...",
+      "productNameSnapshot": "Oak Cafe Table",
+      "quantity": 4,
+      "unitPrice": 4500000,
+      "discountAmount": 0,
+      "subtotalAmount": 18000000,
+      "status": "PENDING"
+    }
+  ]
 }
 ```
+
+Order header `vatRate` and `vatAmount` are snapshotted from the accepted quotation at order creation and are not recalculated when quotation header values change later.
+
+Order item formula:
+
+- `subtotalAmount = quantity * unitPrice - discountAmount` (pre-VAT; copied from quotation item `totalAmount` at accept time)
 
 `OrderStatus`: `CREATED`, `DEPOSIT_PENDING`, `DEPOSIT_PAID`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `DELIVERED`, `FINAL_PAYMENT_PENDING`, `COMPLETED`, `CANCELLED`
 
@@ -1520,7 +1543,7 @@ Default for PRODUCTION (no filters): `status=REVIEWING`, `feasibilityStatus=PEND
 
 ### Create version (Product Version + version row + file links in one transaction)
 
-Upload files to the project first, then reference file IDs in the body.
+Upload files to the project first, then reference file IDs in the body. `previewFileIds` may be omitted, empty, or null.
 
 ```json
 {
@@ -1569,7 +1592,9 @@ Same fields as create (partial update). Replacing `modelFileId` / `previewFileId
 }
 ```
 
-Requires request `REVIEWING`, version `REVIEWING` with `feasibilityStatus=FEASIBLE`.
+Requires request `REVIEWING`, version `REVIEWING` with `feasibilityStatus=FEASIBLE`, and production `estimatedAdditionalCost` set.
+
+On accept, the accepted version's linked `ProductVersion.estimatedPrice` is set to **source version `estimatedPrice` + `estimatedAdditionalCost`** (final catalog price for the project-specific version).
 
 ### Cancel request
 
@@ -2668,7 +2693,6 @@ All values are JSON strings matching C# member names.
 | `ProposalStatus` | `DRAFT`, `PUBLISHED`, `SELECTED`, `REVISION_REQUESTED`, `REJECTED`, `ARCHIVED` |
 | `ProposalSceneType` | `TWO_D`, `THREE_D` |
 | `QuotationStatus` | `DRAFT`, `SENT`, `REVISION_REQUESTED`, `REVISED`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `CANCELLED` |
-| `QuotationItemType` | `PRODUCT_ITEM`, `MANUAL_ITEM` |
 | `OrderStatus` | `CREATED`, `DEPOSIT_PENDING`, `DEPOSIT_PAID`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `DELIVERED`, `FINAL_PAYMENT_PENDING`, `COMPLETED`, `CANCELLED` |
 | `OrderItemStatus` | `PENDING`, `IN_PRODUCTION`, `READY`, `UNAVAILABLE`, `DELIVERED`, `CANCELLED` |
 | `OrderAdjustmentStatus` | `DRAFT`, `CONFIRMED`, `APPLIED`, `CANCELLED` |

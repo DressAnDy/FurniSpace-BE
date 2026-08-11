@@ -49,18 +49,12 @@ public sealed class QuotationRepositoryTests
         {
             QuotationItemId = Guid.NewGuid(),
             QuotationId = quotation.QuotationId,
-            ItemType = QuotationItemType.MANUAL_ITEM,
             ItemName = "Delivery fee",
             Quantity = 1,
             UnitPrice = 50m,
-            CustomizationAdditionalCost = 0m,
             GrossAmount = 50m,
             DiscountAmount = 0m,
-            TaxableAmount = 50m,
-            TaxRate = 0m,
-            TaxAmount = 0m,
-            TotalAmount = 50m,
-            SubtotalAmount = 50m
+            TotalAmount = 50m
         });
         await context.SaveChangesAsync();
         var repository = new QuotationRepository(context);
@@ -135,55 +129,18 @@ public sealed class QuotationRepositoryTests
         {
             QuotationItemId = Guid.NewGuid(),
             QuotationId = Guid.NewGuid(),
-            ItemType = QuotationItemType.PRODUCT_ITEM,
             ItemName = "Counter",
             Quantity = 1,
             UnitPrice = 100m,
-            CustomizationAdditionalCost = 0m,
             GrossAmount = 100m,
             DiscountAmount = 0m,
-            TaxableAmount = 100m,
-            TaxRate = 0m,
-            TaxAmount = 0m,
-            TotalAmount = 100m,
-            SubtotalAmount = 100m
+            TotalAmount = 100m
         };
 
         await repository.AddItemAsync(item);
         await context.SaveChangesAsync();
 
         Assert.Contains(context.QuotationItemSet, stored => stored.QuotationItemId == item.QuotationItemId);
-    }
-
-    [Fact]
-    public async Task GetItemsByQuotationAsync_ReturnsOnlyQuotationItems()
-    {
-        await using var context = CreateContext();
-        var quotationId = Guid.NewGuid();
-        context.QuotationItemSet.Add(MakeQuotationItem(quotationId, "Delivery"));
-        context.QuotationItemSet.Add(MakeQuotationItem(Guid.NewGuid(), "Other"));
-        await context.SaveChangesAsync();
-        var repository = new QuotationRepository(context);
-
-        var result = await repository.GetItemsByQuotationAsync(quotationId);
-
-        var item = Assert.Single(result);
-        Assert.Equal("Delivery", item.ItemName);
-    }
-
-    [Fact]
-    public async Task GetItemAsync_ReturnsMatchingQuotationItem()
-    {
-        await using var context = CreateContext();
-        var item = MakeQuotationItem(Guid.NewGuid(), "Installation");
-        context.QuotationItemSet.Add(item);
-        await context.SaveChangesAsync();
-        var repository = new QuotationRepository(context);
-
-        var result = await repository.GetItemAsync(item.QuotationItemId);
-
-        Assert.NotNull(result);
-        Assert.Equal("Installation", result.ItemName);
     }
 
     [Fact]
@@ -229,8 +186,10 @@ public sealed class QuotationRepositoryTests
             QuotationId = Guid.NewGuid(),
             OrderCode = "ORD-TEST",
             CustomerId = Guid.NewGuid(),
-            OriginalTotalAmount = 100m,
-            FinalTotalAmount = 100m,
+            VatRate = 0.08m,
+            VatAmount = 8m,
+            OriginalTotalAmount = 108m,
+            FinalTotalAmount = 108m,
             Status = OrderStatus.DEPOSIT_PENDING
         };
         var item = new OrderItem
@@ -240,13 +199,7 @@ public sealed class QuotationRepositoryTests
             Quantity = 1,
             Status = OrderItemStatus.PENDING,
             UnitPrice = 100m,
-            CustomizationFee = 0m,
-            GrossAmount = 100m,
             DiscountAmount = 0m,
-            TaxableAmount = 100m,
-            TaxRate = 0m,
-            TaxAmount = 0m,
-            TotalAmount = 100m,
             SubtotalAmount = 100m
         };
 
@@ -296,10 +249,11 @@ public sealed class QuotationRepositoryTests
             QuotationCode = Guid.NewGuid().ToString("N")[..12],
             VersionNo = versionNo,
             SubtotalAmount = 100m,
-            DiscountAmount = 0m,
-            TaxableAmount = 100m,
-            TaxAmount = 0m,
-            TotalAmount = 100m,
+            TotalDiscountAmount = 0m,
+            PreVatAmount = 100m,
+            VatRate = 0.08m,
+            VatAmount = 8m,
+            TotalAmount = 108m,
             Currency = "VND",
             Status = status,
             CreatedAt = DateTime.UtcNow.AddMinutes(versionNo)
@@ -337,18 +291,12 @@ public sealed class QuotationRepositoryTests
         {
             QuotationItemId = Guid.NewGuid(),
             QuotationId = quotationId,
-            ItemType = QuotationItemType.MANUAL_ITEM,
             ItemName = itemName,
             Quantity = 1,
             UnitPrice = 100m,
-            CustomizationAdditionalCost = 0m,
             GrossAmount = 100m,
             DiscountAmount = 0m,
-            TaxableAmount = 100m,
-            TaxRate = 0m,
-            TaxAmount = 0m,
-            TotalAmount = 100m,
-            SubtotalAmount = 100m
+            TotalAmount = 100m
         };
     }
 }

@@ -105,9 +105,7 @@ public sealed class OrderAdjustmentServiceTests
         await using var context = CreateContext();
         var seeded = SeedAdjustmentItemScenario(context, ProductionItemStatus.CANCELLED);
         var orderItem = context.OrderItemSet.Local.Single(item => item.OrderItemId == seeded.OrderItemId);
-        orderItem.TaxableAmount = 2_000_000m;
-        orderItem.TaxAmount = 200_000m;
-        orderItem.TotalAmount = 2_200_000m;
+        context.OrderSet.Local.Single(order => order.OrderId == seeded.OrderId).VatRate = 0.08m;
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -118,18 +116,18 @@ public sealed class OrderAdjustmentServiceTests
             {
                 AdjustmentType = OrderAdjustmentItemType.UNAVAILABLE_ITEM,
                 OrderItemId = seeded.OrderItemId,
-                AdjustmentAmount = 2_200_000m,
+                AdjustmentAmount = 2_160_000m,
                 Reason = "Material unavailable."
             });
 
         Assert.Equal(201, result.Status);
         Assert.Equal("UNAVAILABLE_ITEM", result.Data!.AdjustmentType);
-        Assert.Equal(2_200_000m, result.Data.PreviousItemAmount);
-        Assert.Equal(2_200_000m, result.Data.AdjustmentAmount);
-        Assert.Equal(2_200_000m, result.Data.ItemTotalAmount);
+        Assert.Equal(2_160_000m, result.Data.PreviousItemAmount);
+        Assert.Equal(2_160_000m, result.Data.AdjustmentAmount);
+        Assert.Equal(2_160_000m, result.Data.ItemTotalAmount);
         var adjustment = context.OrderAdjustmentSet.Single();
-        Assert.Equal(2_200_000m, adjustment.ItemAdjustmentAmount);
-        Assert.Equal(2_200_000m, adjustment.TotalAdjustmentAmount);
+        Assert.Equal(2_160_000m, adjustment.ItemAdjustmentAmount);
+        Assert.Equal(2_160_000m, adjustment.TotalAdjustmentAmount);
     }
 
     [Fact]
@@ -182,7 +180,7 @@ public sealed class OrderAdjustmentServiceTests
             {
                 AdjustmentType = OrderAdjustmentItemType.UNAVAILABLE_ITEM,
                 OrderItemId = cancelled.OrderItemId,
-                AdjustmentAmount = 2_000_000m,
+                AdjustmentAmount = 2_160_000m,
                 Reason = "not cancelled"
             });
         var missingOrderItem = await service.AddAdjustmentItemAsync(
@@ -534,12 +532,12 @@ public sealed class OrderAdjustmentServiceTests
     }
 
     [Theory]
-    [InlineData(QuotationItemType.MANUAL_ITEM, OrderItemStatus.PENDING, OrderErrorCodes.ItemNotDeliverable)]
-    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.CANCELLED, OrderErrorCodes.ItemNotDeliverable)]
-    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.IN_PRODUCTION, OrderErrorCodes.OrderItemNotReady)]
-    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.PENDING, OrderErrorCodes.OrderNotDelivering)]
+    [InlineData(false, OrderItemStatus.PENDING, OrderErrorCodes.ItemNotDeliverable)]
+    [InlineData(true, OrderItemStatus.CANCELLED, OrderErrorCodes.ItemNotDeliverable)]
+    [InlineData(true, OrderItemStatus.IN_PRODUCTION, OrderErrorCodes.OrderItemNotReady)]
+    [InlineData(true, OrderItemStatus.PENDING, OrderErrorCodes.OrderNotDelivering)]
     public async Task UpdateDeliveredQuantityAsync_WhenNotDeliverable_ReturnsExpectedError(
-        QuotationItemType itemType,
+        bool isProductItem,
         OrderItemStatus itemStatus,
         string expectedCode)
     {
@@ -548,7 +546,7 @@ public sealed class OrderAdjustmentServiceTests
             ? OrderStatus.READY_FOR_DELIVERY
             : OrderStatus.DELIVERING;
         var seeded = SeedDeliveryScenario(context, orderStatus, ProjectStatus.DELIVERING);
-        var item = AddOrderItem(context, seeded.OrderId, itemType, itemStatus);
+        var item = AddOrderItem(context, seeded.OrderId, isProductItem, itemStatus);
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -603,10 +601,10 @@ public sealed class OrderAdjustmentServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal("DELIVERED", result.Data!.Status);
-        Assert.Equal("DELIVERING", result.Data.OrderStatus);
+        Assert.Equal("DELIVERED", result.Data.OrderStatus);
         Assert.Equal(OrderItemStatus.DELIVERED, item.Status);
         Assert.NotNull(item.CustomerConfirmedAt);
-        Assert.Equal(OrderStatus.DELIVERING, context.OrderSet.Single().Status);
+        Assert.Equal(OrderStatus.DELIVERED, context.OrderSet.Single().Status);
     }
 
     [Fact]
@@ -616,7 +614,7 @@ public sealed class OrderAdjustmentServiceTests
         var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
         var finalItem = AddOrderItem(context, seeded.OrderId, status: OrderItemStatus.READY, quantity: 2, deliveredQuantity: 2);
         AddOrderItem(context, seeded.OrderId, status: OrderItemStatus.DELIVERED);
-        AddOrderItem(context, seeded.OrderId, QuotationItemType.MANUAL_ITEM);
+        AddOrderItem(context, seeded.OrderId, isProductItem: false);
         AddOrderItem(context, seeded.OrderId, status: OrderItemStatus.UNAVAILABLE);
         await context.SaveChangesAsync();
         var service = BuildService(context);
@@ -648,11 +646,11 @@ public sealed class OrderAdjustmentServiceTests
     }
 
     [Theory]
-    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.READY, 2, 1, OrderErrorCodes.ItemNotFullyDelivered)]
-    [InlineData(QuotationItemType.PRODUCT_ITEM, OrderItemStatus.IN_PRODUCTION, 1, 1, OrderErrorCodes.OrderItemNotReady)]
-    [InlineData(QuotationItemType.MANUAL_ITEM, OrderItemStatus.PENDING, 1, 1, OrderErrorCodes.ItemNotDeliverable)]
+    [InlineData(true, OrderItemStatus.READY, 2, 1, OrderErrorCodes.ItemNotFullyDelivered)]
+    [InlineData(true, OrderItemStatus.IN_PRODUCTION, 1, 1, OrderErrorCodes.OrderItemNotReady)]
+    [InlineData(false, OrderItemStatus.PENDING, 1, 1, OrderErrorCodes.ItemNotDeliverable)]
     public async Task ConfirmItemDeliveryAsync_WhenInvalid_ReturnsExpectedBadRequest(
-        QuotationItemType itemType,
+        bool isProductItem,
         OrderItemStatus status,
         int quantity,
         int deliveredQuantity,
@@ -660,7 +658,7 @@ public sealed class OrderAdjustmentServiceTests
     {
         await using var context = CreateContext();
         var seeded = SeedDeliveryScenario(context, OrderStatus.DELIVERING, ProjectStatus.DELIVERING);
-        var item = AddOrderItem(context, seeded.OrderId, itemType, status, quantity, deliveredQuantity);
+        var item = AddOrderItem(context, seeded.OrderId, isProductItem, status, quantity, deliveredQuantity);
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -976,6 +974,8 @@ public sealed class OrderAdjustmentServiceTests
             OrderCode = "ORD-001",
             CustomerId = _customerId,
             SalesId = _salesId,
+            VatRate = 0.08m,
+            VatAmount = 400_000m,
             OriginalTotalAmount = 5_000_000m,
             FinalTotalAmount = 5_000_000m,
             Status = orderStatus
@@ -1060,7 +1060,7 @@ public sealed class OrderAdjustmentServiceTests
     private static OrderItem AddOrderItem(
         AppDbContext context,
         Guid orderId,
-        QuotationItemType itemType = QuotationItemType.PRODUCT_ITEM,
+        bool isProductItem = true,
         OrderItemStatus status = OrderItemStatus.PENDING,
         int quantity = 4,
         int deliveredQuantity = 0)
@@ -1069,7 +1069,7 @@ public sealed class OrderAdjustmentServiceTests
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
-            ItemType = itemType,
+            ProductVersionId = isProductItem ? Guid.NewGuid() : null,
             ProductNameSnapshot = "Chair",
             Quantity = quantity,
             DeliveredQuantity = deliveredQuantity,
@@ -1088,7 +1088,7 @@ public sealed class OrderAdjustmentServiceTests
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = order.OrderId,
-            ItemType = QuotationItemType.PRODUCT_ITEM,
+            ProductVersionId = Guid.NewGuid(),
             ProductNameSnapshot = "Cabinet",
             Quantity = 1,
             SubtotalAmount = 2_000_000m,
@@ -1121,20 +1121,14 @@ public sealed class OrderAdjustmentServiceTests
         context.ProductionRequestSet.Add(productionRequest);
         context.ProductionItemSet.Add(productionItem);
         context.OrderAdjustmentSet.Add(adjustment);
-        return new SeededAdjustmentItem(adjustment.OrderAdjustmentId, orderItem.OrderItemId);
+        return new SeededAdjustmentItem(adjustment.OrderAdjustmentId, orderItem.OrderItemId, order.OrderId);
     }
 
-    private static OrderItem WithFinancialSnapshot(OrderItem item, decimal totalAmount = 2_000_000m)
+    private static OrderItem WithFinancialSnapshot(OrderItem item, decimal subtotalAmount = 2_000_000m)
     {
-        item.UnitPrice = totalAmount / Math.Max(item.Quantity ?? 1, 1);
-        item.CustomizationFee = 0m;
-        item.GrossAmount = totalAmount;
+        item.UnitPrice = subtotalAmount / Math.Max(item.Quantity ?? 1, 1);
         item.DiscountAmount = 0m;
-        item.TaxableAmount = totalAmount;
-        item.TaxRate = 0m;
-        item.TaxAmount = 0m;
-        item.TotalAmount = totalAmount;
-        item.SubtotalAmount = totalAmount;
+        item.SubtotalAmount = subtotalAmount;
         return item;
     }
 
@@ -1203,5 +1197,5 @@ public sealed class OrderAdjustmentServiceTests
 
     private sealed record SeededOrder(Guid OrderId, Guid ProjectId);
 
-    private sealed record SeededAdjustmentItem(Guid AdjustmentId, Guid OrderItemId);
+    private sealed record SeededAdjustmentItem(Guid AdjustmentId, Guid OrderItemId, Guid OrderId);
 }

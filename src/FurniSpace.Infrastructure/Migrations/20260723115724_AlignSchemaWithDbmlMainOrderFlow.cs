@@ -104,12 +104,11 @@ namespace FurniSpace.Infrastructure.Migrations
                 type: "text",
                 nullable: true);
 
-            migrationBuilder.AddColumn<QuotationItemType>(
-                name: "item_type",
-                table: "order_items",
-                type: "quotation_item_type",
-                nullable: false,
-                defaultValue: QuotationItemType.PRODUCT_ITEM);
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE order_items
+                    ADD COLUMN IF NOT EXISTS item_type quotation_item_type NOT NULL DEFAULT 'PRODUCT_ITEM'::quotation_item_type;
+                """);
 
             migrationBuilder.AddColumn<DateTime>(
                 name: "unavailable_confirmed_at",

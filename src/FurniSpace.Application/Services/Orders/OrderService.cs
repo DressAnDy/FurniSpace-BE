@@ -876,7 +876,17 @@ public sealed class OrderService : IOrderService
                 NotFound<OrderAdjustmentItemDto>(OrderErrorCodes.OrderItemNotFound, OrderItemNotFoundMessage));
         }
 
-        var itemTotalAmount = GetTaxInclusiveItemTotal(orderItem);
+        var order = await _orders.GetByIdAsync(adjustment.OrderId, cancellationToken);
+        if (order is null)
+        {
+            return new OrderAdjustmentItemBuildResult(
+                null,
+                NotFound<OrderAdjustmentItemDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage));
+        }
+
+        var itemTotalAmount = OrderFinancialAdjustmentCalculator.CalculateVatInclusiveUnavailableAdjustment(
+            orderItem.SubtotalAmount ?? 0m,
+            order.VatRate);
         if (request.AdjustmentAmount.HasValue && request.AdjustmentAmount.Value != itemTotalAmount)
         {
             return new OrderAdjustmentItemBuildResult(
@@ -1083,7 +1093,7 @@ public sealed class OrderService : IOrderService
         }
 
         var items = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
-        if (items.Where(IsDeliverableItem).Any(item => item.Status != OrderItemStatus.DELIVERED))
+        if (items.Where(IsActiveDeliveryItem).Any(item => item.Status != OrderItemStatus.DELIVERED))
         {
             return BadRequest<T>(
                 OrderErrorCodes.DeliveryNotCompleted,
@@ -1216,7 +1226,7 @@ public sealed class OrderService : IOrderService
                     "Order must be DELIVERING before item delivery can be updated."));
         }
 
-        if (!IsDeliverableItem(item))
+        if (!IsProductLineItem(item))
         {
             return OrderItemDeliveryContext<T>.WithError(
                 BadRequest<T>(
@@ -1247,10 +1257,17 @@ public sealed class OrderService : IOrderService
             : ServiceResult<T>.Forbidden(ForbiddenMessage);
     }
 
-    private static bool IsDeliverableItem(OrderItem item)
+    private static bool IsProductLineItem(OrderItem item)
     {
-        return item.ItemType == QuotationItemType.PRODUCT_ITEM &&
+        return item.ProductVersionId.HasValue &&
+            (item.Quantity ?? 0) > 0 &&
             item.Status is not (OrderItemStatus.UNAVAILABLE or OrderItemStatus.CANCELLED);
+    }
+
+    private static bool IsActiveDeliveryItem(OrderItem item)
+    {
+        return IsProductLineItem(item) &&
+            item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED;
     }
 
     private static ServiceResult<T>? ValidateReadyOrderItem<T>(OrderItem item)
@@ -1273,7 +1290,7 @@ public sealed class OrderService : IOrderService
     {
         var items = await _orders.GetItemsByOrderAsync(currentItem.OrderId, cancellationToken);
         return items
-            .Where(IsDeliverableItem)
+            .Where(IsActiveDeliveryItem)
             .All(item =>
                 item.OrderItemId == currentItem.OrderItemId ||
                 item.Status == OrderItemStatus.DELIVERED);
@@ -1424,11 +1441,6 @@ public sealed class OrderService : IOrderService
         return BadRequest<OrderAdjustmentItemDto>(
             OrderErrorCodes.InvalidAdjustmentItem,
             "Order adjustment item is invalid.");
-    }
-
-    private static decimal GetTaxInclusiveItemTotal(OrderItem orderItem)
-    {
-        return orderItem.TotalAmount ?? orderItem.SubtotalAmount ?? 0m;
     }
 
     private sealed record OrderAdjustmentAccess<T>(

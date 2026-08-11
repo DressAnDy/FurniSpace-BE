@@ -1,8 +1,9 @@
-using FurniSpace.Application.Common;
 using System.Collections.Concurrent;
+using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Quotations;
+using FurniSpace.Application.Constants.Financial;
 using static FurniSpace.Application.Constants.Quotations.QuotationServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Quotations;
@@ -26,7 +27,6 @@ public sealed class QuotationService : IQuotationService
     private readonly IProjectRepository _projects;
     private readonly IOrderRepository _orders;
     private readonly ICustomizationRequestRepository _customizationRequests;
-    private readonly IProductVersionRepository _productVersions;
     private readonly IUnitOfWork _unitOfWork;
     private readonly OrderWorkflowSettings _orderWorkflowSettings;
     //private readonly QuotationRecalculationService _recalculationService;
@@ -38,14 +38,12 @@ public sealed class QuotationService : IQuotationService
         IProjectRepository projects,
         IOrderRepository orders,
         ICustomizationRequestRepository customizationRequests,
-        IProductVersionRepository productVersions,
         QuotationServiceDependencies dependencies)
     {
         _quotations = quotations;
         _projects = projects;
         _orders = orders;
         _customizationRequests = customizationRequests;
-        _productVersions = productVersions;
         _unitOfWork = dependencies.UnitOfWork;
         _orderWorkflowSettings = dependencies.OrderWorkflowSettings;
         //_recalculationService = dependencies.RecalculationService;
@@ -180,16 +178,9 @@ public sealed class QuotationService : IQuotationService
         }
 
         var proposalItems = await _quotations.GetProposalItemsAsync(selected.ProposalId, cancellationToken);
-        var taxRates = await _productVersions.GetDefaultTaxRatesByIdsAsync(
-            proposalItems
-                .Where(item => item.ProductVersionId.HasValue)
-                .Select(item => item.ProductVersionId!.Value)
-                .Distinct()
-                .ToList(),
-            cancellationToken);
         var quotation = CreateDraftQuotation(selected, currentUserId);
         var quotationItems = proposalItems
-            .Select(item => ToQuotationItem(quotation.QuotationId, item, taxRates))
+            .Select(item => ToQuotationItem(quotation.QuotationId, item))
             .ToList();
 
         QuotationRecalculationService.Recalculate(quotation, quotationItems);
@@ -252,128 +243,6 @@ public sealed class QuotationService : IQuotationService
         return await LoadDetailResultAsync(quotationId, "Quotation updated successfully.", cancellationToken);
     }
 
-    public async Task<ServiceResult<QuotationDetailDto>> AddManualItemAsync(
-        Guid quotationId,
-        Guid currentUserId,
-        CreateManualQuotationItemRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
-        var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
-        if (context.Result is not null)
-        {
-            return context.Result;
-        }
-
-        if (!IsManualItemEditable(context.Detail!.Status))
-        {
-            return BadRequestDetail(
-                QuotationErrorCodes.InvalidQuotationStatus,
-                QuotationItemsNotEditableMessage);
-        }
-
-        var validation = ValidateQuotationItem(
-            request.ItemName,
-            request.Quantity,
-            request.UnitPrice,
-            0m,
-            request.DiscountAmount,
-            request.TaxRate);
-        if (validation is not null)
-        {
-            return validation;
-        }
-
-        var item = new QuotationItem
-        {
-            QuotationItemId = Guid.NewGuid(),
-            QuotationId = quotationId,
-            ItemType = QuotationItemType.MANUAL_ITEM,
-            ItemName = request.ItemName!.Trim(),
-            Description = request.Description?.Trim(),
-            DisplayOrder = request.DisplayOrder ?? 0,
-            Quantity = request.Quantity,
-            UnitPrice = request.UnitPrice,
-            CustomizationAdditionalCost = 0m,
-            DiscountAmount = request.DiscountAmount ?? 0m,
-            TaxRate = request.TaxRate ?? 0m,
-            IsCustomized = false,
-            Note = request.Note?.Trim()
-        };
-
-        await RecalculateQuotationTotalsAsync(context.Quotation!, cancellationToken, item);
-        context.Quotation!.UpdatedAt = DateTime.UtcNow;
-        await _quotations.AddItemAsync(item, cancellationToken);
-        _quotations.Update(context.Quotation);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return await LoadDetailResultAsync(quotationId, "Manual quotation item created successfully.", cancellationToken);
-    }
-
-    public async Task<ServiceResult<QuotationDetailDto>> UpdateManualItemAsync(
-        Guid quotationId,
-        Guid quotationItemId,
-        Guid currentUserId,
-        UpdateManualQuotationItemRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
-        var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
-        if (context.Result is not null)
-        {
-            return context.Result;
-        }
-
-        if (!IsManualItemEditable(context.Detail!.Status))
-        {
-            return BadRequestDetail(
-                QuotationErrorCodes.InvalidQuotationStatus,
-                QuotationItemsNotEditableMessage);
-        }
-
-        var item = await _quotations.GetItemAsync(quotationItemId, cancellationToken);
-        if (item is null || item.QuotationId != quotationId)
-        {
-            return BadRequestDetail(
-                QuotationErrorCodes.QuotationItemNotFound,
-                QuotationItemNotFoundMessage);
-        }
-
-        var itemName = request.ItemName ?? item.ItemName;
-        if (HasManualCustomizationCost(item, request.CustomizationUnitAdditionalCost))
-        {
-            return InvalidManualCustomizationCost();
-        }
-
-        var financialInput = ResolveFinancialInput(
-            item,
-            request.Quantity,
-            request.UnitPrice,
-            request.CustomizationUnitAdditionalCost,
-            request.DiscountAmount,
-            request.TaxRate);
-        var validation = ValidateQuotationItem(itemName, financialInput);
-        if (validation is not null)
-        {
-            return validation;
-        }
-
-        item.ItemName = itemName!.Trim();
-        item.Description = request.Description?.Trim() ?? item.Description;
-        item.DisplayOrder = request.DisplayOrder ?? item.DisplayOrder;
-        ApplyFinancialInput(item, financialInput);
-        item.Note = request.Note?.Trim() ?? item.Note;
-        PreserveManualItemRestrictions(item);
-        _quotations.UpdateItem(item);
-
-        await RecalculateQuotationTotalsAsync(context.Quotation!, cancellationToken);
-        context.Quotation!.UpdatedAt = DateTime.UtcNow;
-        _quotations.Update(context.Quotation);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return await LoadDetailResultAsync(quotationId, "Quotation item updated successfully.", cancellationToken);
-    }
-
     public async Task<ServiceResult<QuotationDetailDto>> UpdateItemFinancialsAsync(
         Guid quotationId,
         Guid quotationItemId,
@@ -396,18 +265,11 @@ public sealed class QuotationService : IQuotationService
                 QuotationItemNotFoundMessage);
         }
 
-        if (HasManualCustomizationCost(item, request.CustomizationUnitAdditionalCost))
-        {
-            return InvalidManualCustomizationCost();
-        }
-
         var financialInput = ResolveFinancialInput(
             item,
             request.Quantity,
             request.UnitPrice,
-            request.CustomizationUnitAdditionalCost,
-            request.DiscountAmount,
-            request.TaxRate);
+            request.DiscountAmount);
         var validation = ValidateQuotationItem(item.ItemName, financialInput);
         if (validation is not null)
         {
@@ -415,7 +277,6 @@ public sealed class QuotationService : IQuotationService
         }
 
         ApplyFinancialInput(item, financialInput);
-        PreserveManualItemRestrictions(item);
         _quotations.UpdateItem(item);
 
         await RecalculateQuotationTotalsAsync(context.Quotation!, cancellationToken);
@@ -457,18 +318,11 @@ public sealed class QuotationService : IQuotationService
                     QuotationItemNotFoundMessage);
             }
 
-            if (HasManualCustomizationCost(item, requestedItem.CustomizationUnitAdditionalCost))
-            {
-                return InvalidManualCustomizationCost();
-            }
-
             var financialInput = ResolveFinancialInput(
                 item,
                 requestedItem.Quantity,
                 requestedItem.UnitPrice,
-                requestedItem.CustomizationUnitAdditionalCost,
-                requestedItem.DiscountAmount,
-                requestedItem.TaxRate);
+                requestedItem.DiscountAmount);
             var validation = ValidateQuotationItem(item.ItemName, financialInput);
             if (validation is not null)
             {
@@ -552,50 +406,6 @@ public sealed class QuotationService : IQuotationService
         await DispatchQuotationSentNotificationAsync(detail, cancellationToken);
 
         return await LoadDetailResultAsync(quotationId, "Quotation sent successfully.", cancellationToken);
-    }
-
-    public async Task<ServiceResult<QuotationDetailDto>> DeleteManualItemAsync(
-        Guid quotationId,
-        Guid quotationItemId,
-        Guid currentUserId,
-        CancellationToken cancellationToken = default)
-    {
-        await using var mutationLock = await AcquireQuotationMutationLockAsync(quotationId, cancellationToken);
-        var context = await GetMutationContextAsync(quotationId, currentUserId, cancellationToken);
-        if (context.Result is not null)
-        {
-            return context.Result;
-        }
-
-        if (!IsManualItemEditable(context.Detail!.Status))
-        {
-            return BadRequestDetail(
-                QuotationErrorCodes.InvalidQuotationStatus,
-                QuotationItemsNotEditableMessage);
-        }
-
-        var item = await _quotations.GetItemAsync(quotationItemId, cancellationToken);
-        if (item is null || item.QuotationId != quotationId)
-        {
-            return BadRequestDetail(
-                QuotationErrorCodes.QuotationItemNotFound,
-                QuotationItemNotFoundMessage);
-        }
-
-        if (item.ItemType != QuotationItemType.MANUAL_ITEM)
-        {
-            return BadRequestDetail(
-                QuotationErrorCodes.QuotationItemNotEditable,
-                "Product quotation items are not deletable.");
-        }
-
-        await RecalculateQuotationTotalsAsync(context.Quotation!, cancellationToken, excludedItemId: quotationItemId);
-        context.Quotation!.UpdatedAt = DateTime.UtcNow;
-        _quotations.RemoveItem(item);
-        _quotations.Update(context.Quotation);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return await LoadDetailResultAsync(quotationId, "Manual quotation item deleted successfully.", cancellationToken);
     }
 
     public async Task<ServiceResult<QuotationDetailDto>> AcceptAsync(
@@ -888,9 +698,10 @@ public sealed class QuotationService : IQuotationService
             QuotationCode = $"QTN-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..30],
             VersionNo = 1,
             SubtotalAmount = 0m,
-            DiscountAmount = 0m,
-            TaxableAmount = 0m,
-            TaxAmount = 0m,
+            TotalDiscountAmount = 0m,
+            PreVatAmount = 0m,
+            VatRate = FinancialConstants.DefaultVatRate,
+            VatAmount = 0m,
             TotalAmount = 0m,
             Currency = "VND",
             Status = QuotationStatus.DRAFT,
@@ -918,6 +729,8 @@ public sealed class QuotationService : IQuotationService
             OrderCode = $"ORD-{now:yyyyMMddHHmmss}-{Guid.NewGuid():N}"[..30],
             CustomerId = quotation.CustomerId,
             SalesId = quotation.AssignedSalesId,
+            VatRate = quotationEntity.VatRate ?? FinancialConstants.DefaultVatRate,
+            VatAmount = quotationEntity.VatAmount ?? 0m,
             OriginalTotalAmount = total,
             ItemAdjustmentAmount = 0m,
             AdditionalDiscountAmount = 0m,
@@ -942,7 +755,6 @@ public sealed class QuotationService : IQuotationService
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
             QuotationItemId = quotationItem.QuotationItemId,
-            ItemType = quotationItem.ItemType ?? QuotationItemType.PRODUCT_ITEM,
             ProductVersionId = quotationItem.ProductVersionId,
             ProductNameSnapshot = quotationItem.ProductNameSnapshot ?? quotationItem.ItemName,
             ProductVersionNameSnapshot = quotationItem.ProductVersionNameSnapshot,
@@ -951,35 +763,20 @@ public sealed class QuotationService : IQuotationService
             DeliveredQuantity = 0,
             Status = OrderItemStatus.PENDING,
             UnitPrice = quotationItem.UnitPrice,
-            CustomizationFee = quotationItem.CustomizationAdditionalCost,
-            GrossAmount = quotationItem.GrossAmount,
             DiscountAmount = quotationItem.DiscountAmount,
-            TaxableAmount = quotationItem.TaxableAmount,
-            TaxRate = quotationItem.TaxRate,
-            TaxAmount = quotationItem.TaxAmount,
-            TotalAmount = quotationItem.TotalAmount,
-            SubtotalAmount = quotationItem.SubtotalAmount
+            SubtotalAmount = quotationItem.TotalAmount
         };
     }
 
     private static QuotationItem ToQuotationItem(
         Guid quotationId,
-        ProposalItem item,
-        IReadOnlyDictionary<Guid, decimal?> taxRates)
+        ProposalItem item)
     {
-        var taxRate = 0m;
-        if (item.ProductVersionId.HasValue &&
-            taxRates.TryGetValue(item.ProductVersionId.Value, out var configuredTaxRate) &&
-            configuredTaxRate.HasValue)
-        {
-            taxRate = configuredTaxRate.Value;
-        }
-
+        var now = DateTime.UtcNow;
         return new QuotationItem
         {
             QuotationItemId = Guid.NewGuid(),
             QuotationId = quotationId,
-            ItemType = QuotationItemType.PRODUCT_ITEM,
             ProposalItemId = item.ProposalItemId,
             ProductVersionId = item.ProductVersionId,
             ProductNameSnapshot = item.ItemName,
@@ -988,12 +785,12 @@ public sealed class QuotationService : IQuotationService
             DisplayOrder = 0,
             Quantity = item.Quantity,
             UnitPrice = item.UnitPriceSnapshot,
-            CustomizationAdditionalCost = 0m,
             DiscountAmount = 0m,
-            TaxRate = taxRate,
             IsCustomized = item.IsCustomized,
             CustomizationNote = item.Note,
-            Note = item.Note
+            Note = item.Note,
+            CreatedAt = now,
+            UpdatedAt = now
         };
     }
 
@@ -1015,13 +812,13 @@ public sealed class QuotationService : IQuotationService
 
     private static bool IsInvalidSendItem(QuotationItem item)
     {
-        return ValidateQuotationItem(
-            item.ItemName,
-            item.Quantity,
-            item.UnitPrice,
-            item.CustomizationAdditionalCost,
-            item.DiscountAmount,
-            item.TaxRate) is not null;
+        return !item.ProposalItemId.HasValue ||
+            !item.ProductVersionId.HasValue ||
+            ValidateQuotationItem(
+                item.ItemName,
+                item.Quantity,
+                item.UnitPrice,
+                item.DiscountAmount) is not null;
     }
 
     private static ServiceResult<QuotationDetailDto> QuotationNotReadyToSendResult()
@@ -1267,7 +1064,7 @@ public sealed class QuotationService : IQuotationService
             return context;
         }
 
-        return IsManualItemEditable(context.Detail!.Status)
+        return IsItemEditable(context.Detail!.Status)
             ? context
             : new QuotationMutationContext(BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationStatus,
@@ -1355,29 +1152,16 @@ public sealed class QuotationService : IQuotationService
             : ServiceResult<QuotationDetailDto>.Success(ToDetailDto(detail), message);
     }
 
-    private static decimal? ResolveCustomizationCost(
-        QuotationItem item,
-        decimal? requestedCost)
-    {
-        return item.ItemType == QuotationItemType.MANUAL_ITEM
-            ? 0m
-            : requestedCost ?? item.CustomizationAdditionalCost;
-    }
-
     private static QuotationItemFinancialInput ResolveFinancialInput(
         QuotationItem item,
         int? quantity,
         decimal? unitPrice,
-        decimal? customizationCost,
-        decimal? discountAmount,
-        decimal? taxRate)
+        decimal? discountAmount)
     {
         return new QuotationItemFinancialInput(
             quantity ?? item.Quantity,
             unitPrice ?? item.UnitPrice,
-            ResolveCustomizationCost(item, customizationCost),
-            discountAmount ?? item.DiscountAmount,
-            taxRate ?? item.TaxRate);
+            discountAmount ?? item.DiscountAmount);
     }
 
     private static void ApplyFinancialUpdates(List<QuotationItemFinancialUpdate> updates)
@@ -1385,7 +1169,6 @@ public sealed class QuotationService : IQuotationService
         foreach (var update in updates)
         {
             ApplyFinancialInput(update.Item, update.Input);
-            PreserveManualItemRestrictions(update.Item);
         }
     }
 
@@ -1395,34 +1178,8 @@ public sealed class QuotationService : IQuotationService
     {
         item.Quantity = input.Quantity;
         item.UnitPrice = input.UnitPrice;
-        item.CustomizationAdditionalCost = input.CustomizationUnitAdditionalCost;
         item.DiscountAmount = input.DiscountAmount ?? 0m;
-        item.TaxRate = input.TaxRate ?? 0m;
-    }
-
-    private static void PreserveManualItemRestrictions(QuotationItem item)
-    {
-        if (item.ItemType != QuotationItemType.MANUAL_ITEM)
-        {
-            return;
-        }
-
-        item.CustomizationAdditionalCost = 0m;
-        item.ProposalItemId = null;
-        item.ProductVersionId = null;
-        item.IsCustomized = false;
-    }
-
-    private static bool HasManualCustomizationCost(QuotationItem item, decimal? customizationCost)
-    {
-        return item.ItemType == QuotationItemType.MANUAL_ITEM && customizationCost is > 0m;
-    }
-
-    private static ServiceResult<QuotationDetailDto> InvalidManualCustomizationCost()
-    {
-        return BadRequestDetail(
-            QuotationErrorCodes.InvalidQuotationItem,
-            "Manual quotation items cannot include customization additional cost.");
+        item.UpdatedAt = DateTime.UtcNow;
     }
 
     private static bool HasDuplicateQuotationItems(List<BulkUpdateQuotationItemFinancialsItemDto> items)
@@ -1440,27 +1197,21 @@ public sealed class QuotationService : IQuotationService
             itemName,
             input.Quantity,
             input.UnitPrice,
-            input.CustomizationUnitAdditionalCost,
-            input.DiscountAmount,
-            input.TaxRate);
+            input.DiscountAmount);
     }
 
     private static ServiceResult<QuotationDetailDto>? ValidateQuotationItem(
         string? itemName,
         int? quantity,
         decimal? unitPrice,
-        decimal? customizationCost,
-        decimal? discountAmount,
-        decimal? taxRate)
+        decimal? discountAmount)
     {
-        var grossAmount = (quantity ?? 0) * ((unitPrice ?? 0m) + (customizationCost ?? 0m));
+        var grossAmount = (quantity ?? 0) * (unitPrice ?? 0m);
         if (string.IsNullOrWhiteSpace(itemName) ||
             quantity is null or <= 0 ||
             unitPrice is null or < 0m ||
-            customizationCost < 0m ||
             discountAmount < 0m ||
-            discountAmount > grossAmount ||
-            taxRate is < 0m or > 100m)
+            discountAmount > grossAmount)
         {
             return BadRequestDetail(
                 QuotationErrorCodes.InvalidQuotationItem,
@@ -1475,9 +1226,9 @@ public sealed class QuotationService : IQuotationService
         return status.HasValue && HeaderEditableStatuses.Contains(status.Value);
     }
 
-    private static bool IsManualItemEditable(QuotationStatus? status)
+    private static bool IsItemEditable(QuotationStatus? status)
     {
-        return status.HasValue && ManualItemEditableStatuses.Contains(status.Value);
+        return status.HasValue && ItemEditableStatuses.Contains(status.Value);
     }
 
     private static bool CanCancelQuotation(QuotationStatus? status)
@@ -1522,9 +1273,7 @@ public sealed class QuotationService : IQuotationService
     private sealed record QuotationItemFinancialInput(
         int? Quantity,
         decimal? UnitPrice,
-        decimal? CustomizationUnitAdditionalCost,
-        decimal? DiscountAmount,
-        decimal? TaxRate);
+        decimal? DiscountAmount);
 
     private sealed record QuotationItemFinancialUpdate(
         QuotationItem Item,
@@ -1566,9 +1315,10 @@ public sealed class QuotationService : IQuotationService
             QuotationCode = quotation.QuotationCode,
             VersionNo = quotation.VersionNo,
             SubtotalAmount = quotation.SubtotalAmount,
-            TotalDiscountAmount = quotation.DiscountAmount,
-            TaxableAmount = quotation.TaxableAmount,
-            TaxAmount = quotation.TaxAmount,
+            TotalDiscountAmount = quotation.TotalDiscountAmount,
+            PreVatAmount = quotation.PreVatAmount,
+            VatRate = quotation.VatRate,
+            VatAmount = quotation.VatAmount,
             TotalAmount = quotation.TotalAmount,
             Currency = quotation.Currency,
             Status = quotation.Status,
@@ -1592,7 +1342,6 @@ public sealed class QuotationService : IQuotationService
         {
             QuotationItemId = item.QuotationItemId,
             QuotationId = item.QuotationId,
-            ItemType = item.ItemType,
             ProposalItemId = item.ProposalItemId,
             ProductVersionId = item.ProductVersionId,
             ProductNameSnapshot = item.ProductNameSnapshot,
@@ -1603,12 +1352,8 @@ public sealed class QuotationService : IQuotationService
             DisplayOrder = item.DisplayOrder,
             Quantity = item.Quantity,
             UnitPrice = item.UnitPrice,
-            CustomizationUnitAdditionalCost = item.CustomizationAdditionalCost,
             GrossAmount = item.GrossAmount,
             DiscountAmount = item.DiscountAmount,
-            TaxableAmount = item.TaxableAmount,
-            TaxRate = item.TaxRate,
-            TaxAmount = item.TaxAmount,
             TotalAmount = item.TotalAmount,
             IsCustomized = item.IsCustomized,
             CustomizationNote = item.CustomizationNote,

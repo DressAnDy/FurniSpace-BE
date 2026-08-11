@@ -115,47 +115,25 @@ public sealed class CustomizationAcceptedProductVersionFactoryTests
     }
 
     [Fact]
-    public void CreateFromDesignerRequest_InheritsDefaultTaxRateFromSource()
+    public void CalculateAcceptedFinalPrice_AddsSourcePriceAndAdditionalCost()
     {
-        var sourceVersion = new ProductVersion
-        {
-            ProductId = Guid.NewGuid(),
-            DefaultTaxRate = 10m,
-            EstimatedPrice = 1000000m
-        };
+        var finalPrice = CustomizationAcceptedProductVersionFactory.CalculateAcceptedFinalPrice(
+            1_000_000m,
+            1_500_000m);
 
-        var version = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
-            new CreateCustomizationRequestVersionDto { VersionName = "Custom" },
-            new CustomizationRequest { ProjectId = Guid.NewGuid() },
-            sourceVersion,
-            "PRJ-000001",
-            1,
-            "Custom",
-            null);
-
-        Assert.Equal(10m, version.DefaultTaxRate);
+        Assert.Equal(2_500_000m, finalPrice);
     }
 
     [Fact]
-    public void CreateFromDesignerRequest_WhenSourceTaxIsNull_KeepsNullDefaultTaxRate()
+    public void ApplyAcceptedFinalPrice_UpdatesEstimatedPrice()
     {
-        var sourceVersion = new ProductVersion
-        {
-            ProductId = Guid.NewGuid(),
-            DefaultTaxRate = null,
-            EstimatedPrice = 1000000m
-        };
+        var version = new ProductVersion { EstimatedPrice = 1_000_000m };
+        var updatedAt = DateTime.UtcNow;
 
-        var version = CustomizationAcceptedProductVersionFactory.CreateFromDesignerRequest(
-            new CreateCustomizationRequestVersionDto { VersionName = "Custom" },
-            new CustomizationRequest { ProjectId = Guid.NewGuid() },
-            sourceVersion,
-            "PRJ-000001",
-            1,
-            "Custom",
-            null);
+        CustomizationAcceptedProductVersionFactory.ApplyAcceptedFinalPrice(version, 2_500_000m, updatedAt);
 
-        Assert.Null(version.DefaultTaxRate);
+        Assert.Equal(2_500_000m, version.EstimatedPrice);
+        Assert.Equal(updatedAt, version.UpdatedAt);
     }
 
     [Fact]

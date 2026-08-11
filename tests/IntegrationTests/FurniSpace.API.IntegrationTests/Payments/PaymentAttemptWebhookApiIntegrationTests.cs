@@ -77,7 +77,7 @@ public sealed class PaymentAttemptWebhookApiIntegrationTests : IAsyncLifetime
         Assert.Equal(PaymentTransactionStatus.SUCCESS, transaction.Status);
         Assert.Equal(OrderStatus.DEPOSIT_PAID, order.Status);
         Assert.Equal(scenario.DepositAmount, order.PaidAmount);
-        Assert.Equal(7_000_000m, order.RemainingAmount);
+        Assert.Equal(7_800_000m, order.RemainingAmount);
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public sealed class PaymentAttemptWebhookApiIntegrationTests : IAsyncLifetime
             transaction => transaction.Status == PaymentTransactionStatus.SUCCESS));
         var order = await context.OrderSet.SingleAsync(item => item.OrderId == scenario.OrderId);
         Assert.Equal(scenario.DepositAmount, order.PaidAmount);
-        Assert.Equal(7_000_000m, order.RemainingAmount);
+        Assert.Equal(7_800_000m, order.RemainingAmount);
     }
 
     [Fact]

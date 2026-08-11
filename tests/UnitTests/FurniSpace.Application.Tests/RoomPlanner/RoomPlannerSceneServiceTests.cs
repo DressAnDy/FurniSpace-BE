@@ -1056,6 +1056,107 @@ public sealed class RoomPlannerSceneServiceTests
         Assert.NotNull(result.Data.EditorState);
     }
 
+    [Fact]
+    public async Task ResolveProductsAsync_CustomerPublishedScene_ReturnsEligibleProducts()
+    {
+        var document = CreateDocument("64fb8f0f2a98f67b1c000002");
+        var productVersions = new FakeProductVersionRepository();
+        productVersions.ValidProductVersionIds.Add(ProductVersionId);
+        var projectFiles = new FakeProjectFileRepository();
+        projectFiles.CatalogFilesByReferenceId[ProductVersionId] =
+        [
+            new CatalogFileReadModel
+            {
+                ReferenceId = ProductVersionId,
+                FileId = Guid.NewGuid(),
+                FileLinkId = Guid.NewGuid(),
+                FileType = FileType.MODEL_3D,
+                FileUrl = "https://cdn.example.com/model.glb",
+                MimeType = "model/gltf-binary",
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                OriginalFileName = "model.glb"
+            }
+        ];
+        var service = CreateService(
+            new FakeSqlSceneRepository
+            {
+                Context = CreateContext(document.Id!, ProposalStatus.PUBLISHED)
+            },
+            new FakeSceneDocumentRepository { DocumentById = document },
+            productVersions: productVersions,
+            projectFiles: projectFiles);
+
+        var result = await service.ResolveProductsAsync(
+            SceneId,
+            new ResolveRoomPlannerProductsRequestDto { ProductVersionIds = [ProductVersionId] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(1, productVersions.GetValidDetailsCallCount);
+        Assert.Equal([ProductVersionId], productVersions.LastRequestedIds);
+        Assert.Equal(1, productVersions.LastReturnedCount);
+        Assert.NotEmpty(result.Data!.Items);
+        Assert.Equal(ProductVersionId, result.Data.Items[0].ProductVersionId);
+    }
+
+    [Fact]
+    public async Task ResolveProductsAsync_ProductNotInScene_ReturnsBadRequest()
+    {
+        var documents = new FakeSceneDocumentRepository { DocumentById = CreateDocument("64fb8f0f2a98f67b1c000000") };
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.PUBLISHED) },
+            documents,
+            productVersions: new FakeProductVersionRepository(),
+            projectFiles: new FakeProjectFileRepository());
+
+        var result = await service.ResolveProductsAsync(
+            SceneId,
+            new ResolveRoomPlannerProductsRequestDto { ProductVersionIds = [Guid.NewGuid()] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task ResolveProductsAsync_CustomerDraftProposal_ReturnsForbidden()
+    {
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.DRAFT) },
+            new FakeSceneDocumentRepository { DocumentById = CreateDocument("64fb8f0f2a98f67b1c000000") },
+            productVersions: new FakeProductVersionRepository(),
+            projectFiles: new FakeProjectFileRepository());
+
+        var result = await service.ResolveProductsAsync(
+            SceneId,
+            new ResolveRoomPlannerProductsRequestDto { ProductVersionIds = [ProductVersionId] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task ResolveProductsAsync_EmptyRequest_ReturnsEmptyItems()
+    {
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository { DocumentById = CreateDocument("64fb8f0f2a98f67b1c000000") },
+            productVersions: new FakeProductVersionRepository(),
+            projectFiles: new FakeProjectFileRepository());
+
+        var result = await service.ResolveProductsAsync(
+            SceneId,
+            new ResolveRoomPlannerProductsRequestDto(),
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(200, result.Status);
+        Assert.Empty(result.Data!.Items);
+    }
+
     private static RoomPlannerSceneService CreateService(
         FakeSqlSceneRepository sql,
         FakeSceneDocumentRepository documents,
@@ -1355,22 +1456,31 @@ public sealed class RoomPlannerSceneServiceTests
     private sealed class FakeProductVersionRepository : IProductVersionRepository
     {
         public HashSet<Guid> ValidProductVersionIds { get; } = [];
+        public int GetValidDetailsCallCount { get; private set; }
+        public IReadOnlyList<Guid> LastRequestedIds { get; private set; } = [];
+        public int LastReturnedCount { get; private set; }
 
         public Task<IReadOnlyList<ProductVersionDetailReadModel>> GetValidDetailsAsync(
             IReadOnlyCollection<Guid> productVersionIds,
             Guid projectId,
             CancellationToken cancellationToken = default)
         {
+            GetValidDetailsCallCount++;
+            LastRequestedIds = productVersionIds.ToList();
             var details = productVersionIds
                 .Where(ValidProductVersionIds.Contains)
                 .Select(productVersionId => new ProductVersionDetailReadModel
                 {
                     ProductVersionId = productVersionId,
                     ProductId = Guid.NewGuid(),
+                    ProductName = "Cafe Chair",
+                    VersionCode = "CHR-001",
                     VersionName = "Cafe Chair",
-                    Status = ProductStatus.ACTIVE
+                    Status = ProductStatus.ACTIVE,
+                    IsProjectSpecific = ValidProductVersionIds.Contains(productVersionId)
                 })
                 .ToList();
+            LastReturnedCount = details.Count;
             return Task.FromResult<IReadOnlyList<ProductVersionDetailReadModel>>(details);
         }
 
@@ -1431,7 +1541,20 @@ public sealed class RoomPlannerSceneServiceTests
             Task.FromResult(new FileReferencePageReadModel { Items = [], Total = 0 });
         public Task<FileLinkReadModel?> GetFileLinkAsync(Guid fileLinkId, CancellationToken cancellationToken = default) => Task.FromResult<FileLinkReadModel?>(null);
         public void RemoveFileLinks(IEnumerable<FileLink> fileLinks) { }
-        public Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(string referenceType, IReadOnlyList<Guid> referenceIds, bool customerVisibleOnly, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CatalogFileReadModel>>([]);
+        public Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
+            string referenceType,
+            IReadOnlyList<Guid> referenceIds,
+            bool customerVisibleOnly,
+            CancellationToken cancellationToken = default)
+        {
+            var files = referenceIds
+                .SelectMany(referenceId => CatalogFilesByReferenceId.GetValueOrDefault(referenceId, []))
+                .Where(file => !customerVisibleOnly || file.Visibility == FileVisibility.CUSTOMER_VISIBLE)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<CatalogFileReadModel>>(files);
+        }
+
+        public Dictionary<Guid, List<CatalogFileReadModel>> CatalogFilesByReferenceId { get; } = [];
         public Task<int> CountProductPreviewFilesAsync(Guid productId, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<IReadOnlyList<ProductPreviewImageReadModel>> GetProductPreviewFilesAsync(Guid productId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductPreviewImageReadModel>>([]);
         public Task<ProductPreviewImageReadModel?> GetProductPreviewFileAsync(Guid productId, Guid fileId, CancellationToken cancellationToken = default) => Task.FromResult<ProductPreviewImageReadModel?>(null);

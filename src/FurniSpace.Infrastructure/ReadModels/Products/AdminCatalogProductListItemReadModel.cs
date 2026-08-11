@@ -9,5 +9,4 @@ public class AdminCatalogProductListItemReadModel : AdminCatalogProductSummaryMo
     public string? DefaultVersionName { get; set; }
     public ProductStatus? DefaultVersionStatus { get; set; }
     public decimal? DefaultVersionEstimatedPrice { get; set; }
-    public decimal? DefaultVersionDefaultTaxRate { get; set; }
 }

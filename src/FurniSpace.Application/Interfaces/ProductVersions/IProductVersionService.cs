@@ -10,7 +10,6 @@ public interface IProductVersionService
     Task<ServiceResult<ProductVersionDto>> CreateAsync(
         Guid productId,
         CreateProductVersionRequestDto request,
-        bool allowTaxConfiguration = false,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<ProductVersionDto>> UpdateAsync(

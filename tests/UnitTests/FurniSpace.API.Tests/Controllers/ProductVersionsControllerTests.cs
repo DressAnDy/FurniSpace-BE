@@ -87,7 +87,6 @@ public sealed class ProductVersionsControllerTests
         Assert.Same(response, result.Data);
         Assert.Equal(productId, service.ProductId);
         Assert.Same(request, service.CreateRequest);
-        Assert.True(service.AllowTaxConfiguration);
     }
 
     [Fact]
@@ -341,7 +340,6 @@ public sealed class ProductVersionsControllerTests
         public Guid CurrentUserId { get; private set; }
         public Guid FileId { get; private set; }
         public CreateProductVersionRequestDto? CreateRequest { get; private set; }
-        public bool AllowTaxConfiguration { get; private set; }
         public UpdateProductVersionRequestDto? UpdateRequest { get; private set; }
         public UploadCatalogFileRequestDto? UploadFileRequest { get; private set; }
         public ReorderProductVersionPreviewFilesRequestDto? ReorderPreviewRequest { get; private set; }
@@ -349,12 +347,10 @@ public sealed class ProductVersionsControllerTests
         public Task<ServiceResult<ProductVersionDto>> CreateAsync(
             Guid productId,
             CreateProductVersionRequestDto request,
-            bool allowTaxConfiguration = false,
             CancellationToken cancellationToken = default)
         {
             ProductId = productId;
             CreateRequest = request;
-            AllowTaxConfiguration = allowTaxConfiguration;
             return Task.FromResult(_createResult);
         }
 

@@ -124,7 +124,6 @@ public sealed class ProductVersionPreviewFilesControllerTests
         public Task<ServiceResult<ProductVersionDto>> CreateAsync(
             Guid productId,
             CreateProductVersionRequestDto request,
-            bool allowTaxConfiguration = false,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

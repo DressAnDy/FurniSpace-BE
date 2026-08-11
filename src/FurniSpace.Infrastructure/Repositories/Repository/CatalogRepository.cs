@@ -203,11 +203,6 @@ public sealed class CatalogRepository : GenericRepository<Product>, ICatalogRepo
                     .OrderBy(version => version.CreatedAt)
                     .Select(version => version.EstimatedPrice)
                     .FirstOrDefault(),
-                DefaultVersionDefaultTaxRate = DbContext.ProductVersionSet
-                    .Where(version => version.ProductId == product.ProductId && version.IsDefault == true)
-                    .OrderBy(version => version.CreatedAt)
-                    .Select(version => version.DefaultTaxRate)
-                    .FirstOrDefault(),
                 CreatedAt = product.CreatedAt,
                 UpdatedAt = product.UpdatedAt
             };
@@ -426,7 +421,6 @@ public sealed class CatalogRepository : GenericRepository<Product>, ICatalogRepo
             Height = version.Height,
             Depth = version.Depth,
             EstimatedPrice = version.EstimatedPrice,
-            DefaultTaxRate = version.DefaultTaxRate,
             IsDefault = version.IsDefault,
             IsPublic = version.IsPublic,
             IsProjectSpecific = version.IsProjectSpecific,

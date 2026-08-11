@@ -16,6 +16,9 @@ public sealed record FinalPaymentOrderScenario(
 
 public static class FinalPaymentScenarioSeeder
 {
+    private const decimal PreVatTotalAmount = 11_111_111.11m;
+    private const decimal VatRate = 0.08m;
+    private const decimal VatAmount = 888_888.89m;
     private const decimal FinalTotalAmount = 12_000_000m;
     private const decimal DepositPaidAmount = 3_600_000m;
 
@@ -105,6 +108,11 @@ public static class FinalPaymentScenarioSeeder
             ProposalId = proposalId,
             QuotationCode = $"QUO-FP-{suffix}",
             VersionNo = 1,
+            SubtotalAmount = PreVatTotalAmount,
+            TotalDiscountAmount = 0m,
+            PreVatAmount = PreVatTotalAmount,
+            VatRate = VatRate,
+            VatAmount = VatAmount,
             TotalAmount = FinalTotalAmount,
             Status = QuotationStatus.ACCEPTED,
             AcceptedAt = CoreAccountSeeder.FixedTimestamp,
@@ -130,6 +138,8 @@ public static class FinalPaymentScenarioSeeder
             OrderCode = $"ORD-FP-{suffix}",
             CustomerId = customerId,
             SalesId = salesId,
+            VatRate = VatRate,
+            VatAmount = VatAmount,
             OriginalTotalAmount = FinalTotalAmount,
             FinalTotalAmount = FinalTotalAmount,
             DepositAmount = paidAmount,
@@ -149,7 +159,6 @@ public static class FinalPaymentScenarioSeeder
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
-            ItemType = QuotationItemType.PRODUCT_ITEM,
             ProductVersionId = productVersionId,
             ProductNameSnapshot = "Delivered counter",
             ProductVersionNameSnapshot = "Delivered counter version",
@@ -158,8 +167,9 @@ public static class FinalPaymentScenarioSeeder
             DeliveredQuantity = 1,
             Status = OrderItemStatus.DELIVERED,
             CustomerConfirmedAt = CoreAccountSeeder.FixedTimestamp,
-            UnitPrice = FinalTotalAmount,
-            SubtotalAmount = FinalTotalAmount
+            UnitPrice = PreVatTotalAmount,
+            DiscountAmount = 0m,
+            SubtotalAmount = PreVatTotalAmount
         };
     }
 

@@ -6,7 +6,6 @@ namespace FurniSpace.Domain.Common;
 public abstract class OrderItemShape
 {
     public Guid OrderItemId { get; set; }
-    public QuotationItemType? ItemType { get; set; }
     public string? ProductNameSnapshot { get; set; }
     public string? ItemName { get; set; }
     public int? Quantity { get; set; }
@@ -14,14 +13,7 @@ public abstract class OrderItemShape
     public int? DeliveredQuantity { get; set; }
     public DateTime? CustomerConfirmedAt { get; set; }
     public decimal? UnitPrice { get; set; }
-    public decimal? CustomizationUnitAdditionalCost { get; set; }
-    public decimal? CustomizationAdditionalCost { get; set; }
-    public decimal? GrossAmount { get; set; }
     public decimal? DiscountAmount { get; set; }
-    public decimal? TaxableAmount { get; set; }
-    public decimal? TaxRate { get; set; }
-    public decimal? TaxAmount { get; set; }
-    public decimal? TotalAmount { get; set; }
     public decimal? SubtotalAmount { get; set; }
     public bool? IsCustomized { get; set; }
 }
@@ -49,6 +41,8 @@ public abstract class OrderDetailShape
     public string OrderCode { get; set; } = string.Empty;
     public Guid CustomerId { get; set; }
     public Guid? SalesId { get; set; }
+    public decimal VatRate { get; set; }
+    public decimal VatAmount { get; set; }
     public decimal OriginalTotalAmount { get; set; }
     public decimal? ItemAdjustmentAmount { get; set; }
     public decimal? AdditionalDiscountAmount { get; set; }

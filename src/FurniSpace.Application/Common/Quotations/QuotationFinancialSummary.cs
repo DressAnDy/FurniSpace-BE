@@ -5,8 +5,8 @@ namespace FurniSpace.Application.Common.Quotations;
 public readonly record struct QuotationFinancialSummary(
     decimal SubtotalAmount,
     decimal TotalDiscountAmount,
-    decimal TaxableAmount,
-    decimal TaxAmount,
+    decimal PreVatAmount,
+    decimal VatAmount,
     decimal TotalAmount)
 {
     public static QuotationFinancialSummary Empty { get; } = new(0m, 0m, 0m, 0m, 0m);
@@ -16,9 +16,20 @@ public readonly record struct QuotationFinancialSummary(
         return new QuotationFinancialSummary(
             SubtotalAmount + (item.GrossAmount ?? 0m),
             TotalDiscountAmount + (item.DiscountAmount ?? 0m),
-            TaxableAmount + (item.TaxableAmount ?? 0m),
-            TaxAmount + (item.TaxAmount ?? 0m),
+            PreVatAmount + (item.TotalAmount ?? 0m),
+            VatAmount,
             TotalAmount + (item.TotalAmount ?? 0m));
+    }
+
+    public QuotationFinancialSummary WithHeaderVat(decimal vatRate)
+    {
+        var vatAmount = RoundMoney(PreVatAmount * vatRate);
+        return new QuotationFinancialSummary(
+            SubtotalAmount,
+            TotalDiscountAmount,
+            PreVatAmount,
+            vatAmount,
+            PreVatAmount + vatAmount);
     }
 
     public QuotationFinancialSummary Round()
@@ -26,8 +37,8 @@ public readonly record struct QuotationFinancialSummary(
         return new QuotationFinancialSummary(
             RoundMoney(SubtotalAmount),
             RoundMoney(TotalDiscountAmount),
-            RoundMoney(TaxableAmount),
-            RoundMoney(TaxAmount),
+            RoundMoney(PreVatAmount),
+            RoundMoney(VatAmount),
             RoundMoney(TotalAmount));
     }
 

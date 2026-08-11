@@ -28,6 +28,8 @@ internal static class RoomPlannerSceneServiceConstants
     internal const string RoomPlannerSqlLinkFailedCode = "ROOM_PLANNER_SQL_LINK_FAILED";
     internal const string RoomPlannerUnitMismatchCode = "ROOM_PLANNER_UNIT_MISMATCH";
     internal const string EmptyTemplateEditorVersion = "ROOM_PLANNER_BABYLON_BUILDING_V1";
+    internal const string RoomPlannerProductNotInSceneCode = "ROOM_PLANNER_PRODUCT_NOT_IN_SCENE";
+    internal const string RoomPlannerProductResolveInvalidCode = "ROOM_PLANNER_PRODUCT_RESOLVE_INVALID";
     internal const decimal DefaultFloorHeight = 3m;
     internal const decimal DefaultSlabThickness = 0.12m;
 }

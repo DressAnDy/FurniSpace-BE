@@ -20,6 +20,7 @@ using FurniSpace.Infrastructure.ReadModels.Proposals;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.CustomizationRequests;
@@ -842,6 +843,165 @@ public sealed class CustomizationRequestServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(CustomizationRequestErrorCodes.InvalidProductDimensions, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_NullPreviewFileIds_ReturnsCreated()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var sourceVersion = CreateSourceProductVersion(ids);
+        var requestRepo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = detail
+        };
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            requestRepo.SaveChangesAsync,
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateService(
+            requestRepo,
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([sourceVersion]),
+            unitOfWork: unitOfWork);
+
+        var request = ValidCreateVersionRequest();
+        request.PreviewFileIds = null!;
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            request);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(CustomizationVersionStatus.DRAFT, result.Data!.Version.Status);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_EmptyPreviewFileIds_ReturnsCreated()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var sourceVersion = CreateSourceProductVersion(ids);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = detail
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([sourceVersion]));
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                PreviewFileIds = []
+            });
+
+        Assert.Equal(201, result.Status);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_DuplicateVersionCodeFromDatabase_ReturnsConflict()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var sourceVersion = CreateSourceProductVersion(ids);
+        var dbException = new DbUpdateException(
+            "duplicate key",
+            new Exception("duplicate key value violates unique constraint \"product_versions_version_code_key\""));
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ => throw dbException,
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = detail
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([sourceVersion]),
+            unitOfWork: unitOfWork);
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            ValidCreateVersionRequest());
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.VersionCodeAlreadyExists, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateVersionAsync_WithValidFiles_AddsFileLinksBeforeSaveChanges()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var sourceVersion = CreateSourceProductVersion(ids);
+        var modelFileId = Guid.NewGuid();
+        var previewFileId = Guid.NewGuid();
+        var projectFiles = new FakeCustomizationProjectFileRepository();
+        projectFiles.SetMetadata(modelFileId, CreateModelFileMetadata(modelFileId));
+        projectFiles.SetMetadata(previewFileId, CreatePreviewFileMetadata(previewFileId));
+        var saveChangesCalls = 0;
+        var fileLinksBeforeSave = false;
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ =>
+            {
+                saveChangesCalls++;
+                fileLinksBeforeSave = projectFiles.AddedFileLinkCount == 2;
+                return Task.FromResult(1);
+            },
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository
+            {
+                ExistingEntity = entity,
+                Detail = detail
+            },
+            new FakeCustomizationRequestVersionRepository(),
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([sourceVersion]),
+            unitOfWork: unitOfWork,
+            projectFiles: projectFiles);
+
+        var result = await service.CreateVersionAsync(
+            entity.CustomizationRequestId,
+            ids.DesignerId,
+            new CreateCustomizationRequestVersionDto
+            {
+                VersionName = "Custom Chair V1",
+                DimensionUnit = "cm",
+                ModelFileId = modelFileId,
+                PreviewFileIds = [previewFileId]
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(2, projectFiles.AddedFileLinkCount);
+        Assert.True(fileLinksBeforeSave);
+        Assert.Equal(1, saveChangesCalls);
     }
 
     #endregion

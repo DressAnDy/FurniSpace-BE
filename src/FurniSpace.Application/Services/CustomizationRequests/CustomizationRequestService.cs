@@ -17,6 +17,7 @@ using FurniSpace.Infrastructure.ReadModels.Proposals;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
+using Microsoft.EntityFrameworkCore;
 
 namespace FurniSpace.Application.Services.CustomizationRequests;
 
@@ -256,7 +257,8 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         }
 
         var entity = contextResult.Entity!;
-        var validationError = ValidateCreateVersionRequest(request);
+        var previewFileIds = request.PreviewFileIds ?? [];
+        var validationError = ValidateCreateVersionRequest(request, previewFileIds);
         if (validationError is not null)
         {
             return validationError;
@@ -264,7 +266,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
 
         var fileValidationError = await ValidateVersionFilesAsync(
             request.ModelFileId,
-            request.PreviewFileIds,
+            previewFileIds,
             cancellationToken);
         if (fileValidationError is not null)
         {
@@ -319,8 +321,20 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             entity.UpdatedAt = DateTime.UtcNow;
             _customizationRequests.Update(entity);
 
+            await AddProductVersionFileLinksAsync(
+                productVersion.ProductVersionId,
+                currentUserId,
+                request.ModelFileId,
+                previewFileIds,
+                cancellationToken);
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (DatabaseExceptionMapper.IsUniqueConstraintViolation(ex))
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            return VersionFailure(MapCreateVersionUniqueConstraintFailure(ex));
         }
         catch
         {
@@ -330,13 +344,6 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                     CustomizationRequestErrorCodes.CustomProductVersionCreationFailed,
                     "Failed to create customization request version."));
         }
-
-        await AddProductVersionFileLinksAsync(
-            productVersion.ProductVersionId,
-            currentUserId,
-            request.ModelFileId,
-            request.PreviewFileIds,
-            cancellationToken);
 
         return ServiceResult<CreateCustomizationRequestVersionResponseDto>.Created(
             CustomizationAcceptedProductVersionFactory.ToCreateVersionResponse(entity, requestVersion, productVersion),
@@ -1283,8 +1290,37 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             : null;
     }
 
+    private static Error MapCreateVersionUniqueConstraintFailure(DbUpdateException exception)
+    {
+        if (DatabaseExceptionMapper.IsVersionCodeUniqueViolation(exception))
+        {
+            return Error.Conflict(
+                CustomizationRequestErrorCodes.VersionCodeAlreadyExists,
+                "Version code already exists.");
+        }
+
+        if (DatabaseExceptionMapper.IsCustomizationVersionNumberUniqueViolation(exception))
+        {
+            return Error.Conflict(
+                CustomizationRequestErrorCodes.CustomizationVersionNumberConflict,
+                "Customization version number conflict. Please retry.");
+        }
+
+        if (DatabaseExceptionMapper.IsFileLinkUniqueViolation(exception))
+        {
+            return Error.Conflict(
+                CustomizationRequestErrorCodes.ProductVersionFileLinkConflict,
+                "Product version file link already exists.");
+        }
+
+        return Error.Conflict(
+            CustomizationRequestErrorCodes.CustomizationProductVersionLinkConflict,
+            "Customization product version link conflict.");
+    }
+
     private static ServiceResult<CreateCustomizationRequestVersionResponseDto>? ValidateCreateVersionRequest(
-        CreateCustomizationRequestVersionDto request)
+        CreateCustomizationRequestVersionDto request,
+        IReadOnlyList<Guid> previewFileIds)
     {
         var versionNameError = CustomizationAcceptedProductVersionFactory.ValidateVersionName(request.VersionName);
         if (versionNameError is not null)
@@ -1326,12 +1362,13 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                     "Estimated price must be greater than or equal to zero."));
         }
 
-        return ValidatePreviewFileCount(request.PreviewFileIds);
+        return ValidatePreviewFileCount(previewFileIds);
     }
 
     private static ServiceResult<CreateCustomizationRequestVersionResponseDto>? ValidatePreviewFileCount(
-        IReadOnlyList<Guid> previewFileIds)
+        IReadOnlyList<Guid>? previewFileIds)
     {
+        previewFileIds ??= [];
         if (previewFileIds.Count > MaxProductVersionPreviewFileCount)
         {
             return VersionFailure(

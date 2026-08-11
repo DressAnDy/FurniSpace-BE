@@ -1138,6 +1138,7 @@ Route: `proposal-scenes`
 | Method | Path | Roles | Description |
 | --- | --- | --- | --- |
 | GET | `/proposal-scenes/{sceneId}/room-planner` | CUSTOMER, DESIGNER, SALES, ADMIN | Load Mongo scene payload |
+| POST | `/proposal-scenes/{sceneId}/room-planner/resolve-products` | CUSTOMER, DESIGNER, SALES, ADMIN | Resolve scene-referenced ProductVersions + files |
 | PUT | `/proposal-scenes/{sceneId}/room-planner` | DESIGNER, ADMIN | Save scene payload |
 
 ### Request / response payload (`RoomPlannerScenePayloadDto`, schema v3)
@@ -1197,6 +1198,12 @@ Notes:
 - GET when SQL has `mongoSceneId` but Mongo doc is missing returns `ROOM_PLANNER_DOCUMENT_NOT_FOUND`.
 
 **GET response** also includes: `sceneId`, `mongoSceneId?`, `proposalId?`, `projectId?`, `projectAreaIds[]`, `areas[]`, `lastSavedAt?`
+
+**POST resolve-products** (`ResolveRoomPlannerProductsRequestDto` → `ResolveRoomPlannerProductsResponseDto`):
+
+- Request: `{ "productVersionIds": ["..."] }` — IDs must already appear in the scene `objects[]`.
+- Response: `{ "sceneId", "projectId", "items": [{ productVersionId, productId, productName, versionCode, versionName, dimensions, files[] }] }`.
+- Customer receives only `CUSTOMER_VISIBLE` files. Does not expose full project catalog.
 
 **PUT response** (`RoomPlannerSceneSaveResponseDto`): `sceneId`, `mongoSceneId`, `lastSavedAt`
 
@@ -1536,7 +1543,7 @@ Default for PRODUCTION (no filters): `status=REVIEWING`, `feasibilityStatus=PEND
 
 ### Create version (Product Version + version row + file links in one transaction)
 
-Upload files to the project first, then reference file IDs in the body.
+Upload files to the project first, then reference file IDs in the body. `previewFileIds` may be omitted, empty, or null.
 
 ```json
 {

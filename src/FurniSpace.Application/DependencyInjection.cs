@@ -207,6 +207,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
         services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<IProjectWorkflowService, ProjectWorkflowService>();
         services.AddScoped<ProjectStatusTransitionEvaluator>();
         services.AddScoped<ProjectScheduleServiceDependencies>(sp =>
         {

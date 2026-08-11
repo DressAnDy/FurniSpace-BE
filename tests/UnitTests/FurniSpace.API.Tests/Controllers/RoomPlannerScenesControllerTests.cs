@@ -31,6 +31,7 @@ public sealed class RoomPlannerScenesControllerTests
 
     [Theory]
     [InlineData(nameof(RoomPlannerScenesController.GetScene), "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(RoomPlannerScenesController.ResolveProducts), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(RoomPlannerScenesController.SaveScene), "DESIGNER,ADMIN")]
     public void Actions_UseExpectedRoles(string actionName, string expectedRoles)
     {
@@ -94,12 +95,52 @@ public sealed class RoomPlannerScenesControllerTests
     }
 
     [Fact]
+    public async Task ResolveProducts_ReturnsServiceResultAndPassesCurrentUser()
+    {
+        var sceneId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var response = new ResolveRoomPlannerProductsResponseDto
+        {
+            SceneId = sceneId,
+            Items =
+            [
+                new RoomPlannerResolvedProductDto
+                {
+                    ProductVersionId = productVersionId,
+                    VersionName = "Chair"
+                }
+            ]
+        };
+        var service = new FakeRoomPlannerSceneService(
+            resolveResult: ServiceResult<ResolveRoomPlannerProductsResponseDto>.Success(
+                response,
+                "Room planner products resolved successfully."));
+        var controller = BuildController(service, currentUserId, "CUSTOMER");
+
+        var actionResult = await controller.ResolveProducts(
+            sceneId,
+            new ResolveRoomPlannerProductsRequestDto { ProductVersionIds = [productVersionId] });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ResolveRoomPlannerProductsResponseDto>>(objectResult.Value);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(sceneId, service.SceneId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Equal("CUSTOMER", service.CurrentUserRole);
+    }
+
+    [Fact]
     public async Task Actions_WithoutUserClaim_ReturnUnauthorized()
     {
         var service = new FakeRoomPlannerSceneService();
         var controller = BuildController(service);
 
         Assert.IsType<UnauthorizedResult>(await controller.GetScene(Guid.NewGuid()));
+        Assert.IsType<UnauthorizedResult>(await controller.ResolveProducts(
+            Guid.NewGuid(),
+            new ResolveRoomPlannerProductsRequestDto()));
         Assert.IsType<UnauthorizedResult>(await controller.SaveScene(Guid.NewGuid(), new RoomPlannerScenePayloadDto()));
         Assert.Equal(0, service.CallCount);
     }
@@ -133,13 +174,16 @@ public sealed class RoomPlannerScenesControllerTests
     {
         private readonly ServiceResult<RoomPlannerSceneResponseDto> _getResult;
         private readonly ServiceResult<RoomPlannerSceneSaveResponseDto> _saveResult;
+        private readonly ServiceResult<ResolveRoomPlannerProductsResponseDto> _resolveResult;
 
         public FakeRoomPlannerSceneService(
             ServiceResult<RoomPlannerSceneResponseDto>? getResult = null,
-            ServiceResult<RoomPlannerSceneSaveResponseDto>? saveResult = null)
+            ServiceResult<RoomPlannerSceneSaveResponseDto>? saveResult = null,
+            ServiceResult<ResolveRoomPlannerProductsResponseDto>? resolveResult = null)
         {
             _getResult = getResult ?? ServiceResult<RoomPlannerSceneResponseDto>.Success(new RoomPlannerSceneResponseDto());
             _saveResult = saveResult ?? ServiceResult<RoomPlannerSceneSaveResponseDto>.Success(new RoomPlannerSceneSaveResponseDto());
+            _resolveResult = resolveResult ?? ServiceResult<ResolveRoomPlannerProductsResponseDto>.Success(new ResolveRoomPlannerProductsResponseDto());
         }
 
         public int CallCount { get; private set; }
@@ -168,6 +212,17 @@ public sealed class RoomPlannerScenesControllerTests
         {
             Capture(sceneId, currentUserId, currentUserRole);
             return Task.FromResult(_getResult);
+        }
+
+        public Task<ServiceResult<ResolveRoomPlannerProductsResponseDto>> ResolveProductsAsync(
+            Guid sceneId,
+            ResolveRoomPlannerProductsRequestDto request,
+            Guid currentUserId,
+            string currentUserRole,
+            CancellationToken cancellationToken = default)
+        {
+            Capture(sceneId, currentUserId, currentUserRole);
+            return Task.FromResult(_resolveResult);
         }
 
         private void Capture(Guid sceneId, Guid currentUserId, string currentUserRole)

@@ -143,12 +143,28 @@ public static class QuotationAcceptScenarioSeeder
             QuotationCode = $"QUO-{suffix}",
             VersionNo = 1,
             SubtotalAmount = 10_000_000m,
-            DiscountAmount = 0m,
-            TaxAmount = 0m,
-            TotalAmount = 10_000_000m,
+            TotalDiscountAmount = 0m,
+            PreVatAmount = 10_000_000m,
+            VatRate = 0.08m,
+            VatAmount = 800_000m,
+            TotalAmount = 10_800_000m,
             Status = QuotationStatus.SENT,
             ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
             SentAt = CoreAccountSeeder.FixedTimestamp,
+            CreatedAt = CoreAccountSeeder.FixedTimestamp
+        };
+
+        var (category, product, productVersion) = ProposalScenarioSeeder.CreateCatalog(suffix);
+        var proposalItem = new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = proposal.ProposalId,
+            ProductVersionId = productVersion.ProductVersionId,
+            ItemName = "Design product package",
+            ItemType = "PRODUCT",
+            Quantity = 1,
+            UnitPriceSnapshot = 10_000_000m,
+            TotalPriceSnapshot = 10_000_000m,
             CreatedAt = CoreAccountSeeder.FixedTimestamp
         };
 
@@ -156,19 +172,29 @@ public static class QuotationAcceptScenarioSeeder
         {
             QuotationItemId = Guid.NewGuid(),
             QuotationId = quotation.QuotationId,
-            ItemType = QuotationItemType.MANUAL_ITEM,
-            ItemName = "Design service",
+            ProposalItemId = proposalItem.ProposalItemId,
+            ProductVersionId = productVersion.ProductVersionId,
+            ProductNameSnapshot = product.ProductName,
+            ProductVersionNameSnapshot = productVersion.VersionName,
+            ProductVersionCodeSnapshot = productVersion.VersionCode,
+            ItemName = "Design product package",
             Quantity = 1,
             UnitPrice = 10_000_000m,
-            SubtotalAmount = 10_000_000m,
+            GrossAmount = 10_000_000m,
             DiscountAmount = 0m,
-            CustomizationAdditionalCost = 0m
+            TotalAmount = 10_000_000m,
+            CreatedAt = CoreAccountSeeder.FixedTimestamp,
+            UpdatedAt = CoreAccountSeeder.FixedTimestamp
         };
 
         context.AccountSet.Add(customer);
         context.ProjectSet.Add(project);
         context.ProposalSet.Add(proposal);
+        context.ProposalItemSet.Add(proposalItem);
         context.QuotationSet.Add(quotation);
+        context.CategorySet.Add(category);
+        context.ProductSet.Add(product);
+        context.ProductVersionSet.Add(productVersion);
         context.QuotationItemSet.Add(quotationItem);
         await context.SaveChangesAsync(cancellationToken);
 

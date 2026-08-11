@@ -286,9 +286,10 @@ public sealed class AdminReportRepositoryTests
                 QuotationCode = "QT-1",
                 Status = QuotationStatus.SENT,
                 SubtotalAmount = 1000m,
-                DiscountAmount = 0m,
-                TaxableAmount = 1000m,
-                TaxAmount = 0m,
+                TotalDiscountAmount = 0m,
+                PreVatAmount = 1000m,
+                VatRate = 0.08m,
+                VatAmount = 80m,
                 TotalAmount = 1000m,
                 SentAt = now.AddDays(-3),
                 AcceptedAt = now.AddDays(-2)
@@ -301,9 +302,10 @@ public sealed class AdminReportRepositoryTests
                 QuotationCode = "QT-2",
                 Status = QuotationStatus.REVISION_REQUESTED,
                 SubtotalAmount = 0m,
-                DiscountAmount = 0m,
-                TaxableAmount = 0m,
-                TaxAmount = 0m,
+                TotalDiscountAmount = 0m,
+                PreVatAmount = 0m,
+                VatRate = 0.08m,
+                VatAmount = 0m,
                 TotalAmount = 0m
             },
             new Quotation
@@ -314,9 +316,10 @@ public sealed class AdminReportRepositoryTests
                 QuotationCode = "QT-3",
                 Status = QuotationStatus.REVISED,
                 SubtotalAmount = 0m,
-                DiscountAmount = 0m,
-                TaxableAmount = 0m,
-                TaxAmount = 0m,
+                TotalDiscountAmount = 0m,
+                PreVatAmount = 0m,
+                VatRate = 0.08m,
+                VatAmount = 0m,
                 TotalAmount = 0m
             });
 
@@ -409,20 +412,13 @@ public sealed class AdminReportRepositoryTests
         {
             OrderItemId = orderItemId,
             OrderId = orderId,
-            ItemType = QuotationItemType.PRODUCT_ITEM,
             ProductVersionId = productVersionId,
             ProductNameSnapshot = "Chair X",
             ProductVersionCodeSnapshot = "CHAIR-X-01",
             Quantity = 5,
             DeliveredQuantity = 2,
             UnitPrice = 200m,
-            CustomizationFee = 0m,
-            GrossAmount = 1000m,
             DiscountAmount = 0m,
-            TaxableAmount = 1000m,
-            TaxRate = 0m,
-            TaxAmount = 0m,
-            TotalAmount = 1000m,
             SubtotalAmount = 1000m,
             CustomerConfirmedAt = now.AddDays(-1)
         });

@@ -17,4 +17,11 @@ public interface IRoomPlannerSceneService
         Guid currentUserId,
         string currentUserRole,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ResolveRoomPlannerProductsResponseDto>> ResolveProductsAsync(
+        Guid sceneId,
+        ResolveRoomPlannerProductsRequestDto request,
+        Guid currentUserId,
+        string currentUserRole,
+        CancellationToken cancellationToken = default);
 }

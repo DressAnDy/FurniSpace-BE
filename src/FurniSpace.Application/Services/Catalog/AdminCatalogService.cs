@@ -116,8 +116,7 @@ public sealed class AdminCatalogService : IAdminCatalogService
                     VersionCode = item.DefaultVersionCode ?? string.Empty,
                     VersionName = item.DefaultVersionName ?? string.Empty,
                     Status = item.DefaultVersionStatus,
-                    EstimatedPrice = item.DefaultVersionEstimatedPrice,
-                    DefaultTaxRate = item.DefaultVersionDefaultTaxRate
+                    EstimatedPrice = item.DefaultVersionEstimatedPrice
                 }
                 : null,
             CreatedAt = item.CreatedAt,

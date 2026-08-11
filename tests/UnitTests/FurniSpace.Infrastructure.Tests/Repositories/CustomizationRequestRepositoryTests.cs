@@ -252,9 +252,10 @@ public sealed class CustomizationRequestRepositoryTests
             ProjectId = Guid.NewGuid(),
             QuotationCode = "QT-001",
             SubtotalAmount = 100m,
-            DiscountAmount = 0m,
-            TaxableAmount = 100m,
-            TaxAmount = 0m,
+            TotalDiscountAmount = 0m,
+            PreVatAmount = 100m,
+            VatRate = 0.08m,
+            VatAmount = 8m,
             TotalAmount = 100m,
             Currency = "VND",
             Status = QuotationStatus.DRAFT

@@ -51,9 +51,11 @@ public sealed class QuotationAcceptanceApiIntegrationTests : IAsyncLifetime
         Assert.Equal(ProjectStatus.ORDER_CONFIRMED, project.Status);
         Assert.Equal(quotation.QuotationId, order.QuotationId);
         Assert.Equal(OrderStatus.DEPOSIT_PENDING, order.Status);
-        Assert.Equal(10_000_000m, order.FinalTotalAmount);
+        Assert.Equal(10_800_000m, order.FinalTotalAmount);
+        Assert.Equal(0.08m, order.VatRate);
+        Assert.Equal(800_000m, order.VatAmount);
         Assert.Equal(order.OrderId, orderItem.OrderId);
-        Assert.Equal("Design service", orderItem.ProductNameSnapshot);
+        Assert.Equal("Office Desk", orderItem.ProductNameSnapshot);
     }
 
     [Fact]

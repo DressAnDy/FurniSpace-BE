@@ -12,10 +12,15 @@ public sealed record DeliveryOrderScenario(
     Guid OrderId,
     Guid FirstOrderItemId,
     Guid SecondOrderItemId,
-    Guid ManualOrderItemId);
+    Guid PendingOrderItemId);
 
 public static class DeliveryScenarioSeeder
 {
+    private const decimal PreVatTotalAmount = 11_111_111.11m;
+    private const decimal VatRate = 0.08m;
+    private const decimal VatAmount = 888_888.89m;
+    private const decimal TotalAmount = 12_000_000m;
+
     public static async Task<DeliveryOrderScenario> SeedReadyForDeliveryOrderAsync(
         AppDbContext context,
         CancellationToken cancellationToken = default)
@@ -61,7 +66,12 @@ public static class DeliveryScenarioSeeder
             ProposalId = proposal.ProposalId,
             QuotationCode = $"QUO-DEL-{suffix}",
             VersionNo = 1,
-            TotalAmount = 12_000_000m,
+            SubtotalAmount = PreVatTotalAmount,
+            TotalDiscountAmount = 0m,
+            PreVatAmount = PreVatTotalAmount,
+            VatRate = VatRate,
+            VatAmount = VatAmount,
+            TotalAmount = TotalAmount,
             Status = QuotationStatus.ACCEPTED,
             AcceptedAt = CoreAccountSeeder.FixedTimestamp,
             CreatedAt = CoreAccountSeeder.FixedTimestamp
@@ -71,7 +81,7 @@ public static class DeliveryScenarioSeeder
         var (category, product, productVersion) = ProposalScenarioSeeder.CreateCatalog(suffix);
         var firstProductItem = CreateProductOrderItem(order.OrderId, productVersion.ProductVersionId, "Counter", quantity: 2);
         var secondProductItem = CreateProductOrderItem(order.OrderId, productVersion.ProductVersionId, "Shelf", quantity: 1);
-        var manualItem = CreateManualOrderItem(order.OrderId);
+        var pendingProductItem = CreatePendingProductOrderItem(order.OrderId, productVersion.ProductVersionId);
 
         context.AccountSet.AddRange(customer, sales, production);
         context.ProjectSet.Add(project);
@@ -81,7 +91,7 @@ public static class DeliveryScenarioSeeder
         context.CategorySet.Add(category);
         context.ProductSet.Add(product);
         context.ProductVersionSet.Add(productVersion);
-        context.OrderItemSet.AddRange(firstProductItem, secondProductItem, manualItem);
+        context.OrderItemSet.AddRange(firstProductItem, secondProductItem, pendingProductItem);
         await context.SaveChangesAsync(cancellationToken);
 
         return new DeliveryOrderScenario(
@@ -92,7 +102,7 @@ public static class DeliveryScenarioSeeder
             order.OrderId,
             firstProductItem.OrderItemId,
             secondProductItem.OrderItemId,
-            manualItem.OrderItemId);
+            pendingProductItem.OrderItemId);
     }
 
     private static Order CreateReadyOrder(
@@ -112,8 +122,10 @@ public static class DeliveryScenarioSeeder
             OrderCode = $"ORD-DEL-{suffix}",
             CustomerId = customerId,
             SalesId = salesId,
-            OriginalTotalAmount = 12_000_000m,
-            FinalTotalAmount = 12_000_000m,
+            VatRate = VatRate,
+            VatAmount = VatAmount,
+            OriginalTotalAmount = TotalAmount,
+            FinalTotalAmount = TotalAmount,
             DepositAmount = 3_600_000m,
             PaidAmount = 3_600_000m,
             RemainingAmount = 8_400_000m,
@@ -134,7 +146,6 @@ public static class DeliveryScenarioSeeder
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
-            ItemType = QuotationItemType.PRODUCT_ITEM,
             ProductVersionId = productVersionId,
             ProductNameSnapshot = productName,
             ProductVersionNameSnapshot = $"{productName} Version",
@@ -143,22 +154,26 @@ public static class DeliveryScenarioSeeder
             DeliveredQuantity = 0,
             Status = OrderItemStatus.READY,
             UnitPrice = 4_000_000m,
+            DiscountAmount = 0m,
             SubtotalAmount = 4_000_000m * quantity
         };
     }
 
-    private static OrderItem CreateManualOrderItem(Guid orderId)
+    private static OrderItem CreatePendingProductOrderItem(Guid orderId, Guid productVersionId)
     {
         return new OrderItem
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
-            ItemType = QuotationItemType.MANUAL_ITEM,
-            ProductNameSnapshot = "Delivery fee",
+            ProductVersionId = productVersionId,
+            ProductNameSnapshot = "Delivery fee product",
+            ProductVersionNameSnapshot = "Delivery fee version",
+            ProductVersionCodeSnapshot = "PV-DELIVERY-FEE",
             Quantity = 1,
             DeliveredQuantity = 0,
             Status = OrderItemStatus.PENDING,
             UnitPrice = 500_000m,
+            DiscountAmount = 0m,
             SubtotalAmount = 500_000m
         };
     }

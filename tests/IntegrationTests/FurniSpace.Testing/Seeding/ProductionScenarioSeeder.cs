@@ -12,11 +12,15 @@ public sealed record ProductionOrderScenario(
     Guid InactiveProductionAccountId,
     Guid ProjectId,
     Guid OrderId,
-    Guid ProductOrderItemId,
-    Guid ManualOrderItemId);
+    Guid ProductOrderItemId);
 
 public static class ProductionScenarioSeeder
 {
+    private const decimal PreVatTotalAmount = 9_259_259.26m;
+    private const decimal VatRate = 0.08m;
+    private const decimal VatAmount = 740_740.74m;
+    private const decimal TotalAmount = 10_000_000m;
+
     public static async Task<ProductionOrderScenario> SeedDepositPaidOrderAsync(
         AppDbContext context,
         CancellationToken cancellationToken = default)
@@ -74,10 +78,12 @@ public static class ProductionScenarioSeeder
             ProposalId = proposal.ProposalId,
             QuotationCode = $"QUO-PRD-{suffix}",
             VersionNo = 1,
-            SubtotalAmount = 10_000_000m,
-            DiscountAmount = 0m,
-            TaxAmount = 0m,
-            TotalAmount = 10_000_000m,
+            SubtotalAmount = PreVatTotalAmount,
+            TotalDiscountAmount = 0m,
+            PreVatAmount = PreVatTotalAmount,
+            VatRate = VatRate,
+            VatAmount = VatAmount,
+            TotalAmount = TotalAmount,
             Status = QuotationStatus.ACCEPTED,
             AcceptedAt = CoreAccountSeeder.FixedTimestamp,
             CreatedAt = CoreAccountSeeder.FixedTimestamp
@@ -92,10 +98,12 @@ public static class ProductionScenarioSeeder
             OrderCode = $"ORD-PRD-{suffix}",
             CustomerId = customer.AccountId,
             SalesId = sales.AccountId,
-            OriginalTotalAmount = 10_000_000m,
+            VatRate = VatRate,
+            VatAmount = VatAmount,
+            OriginalTotalAmount = TotalAmount,
             ItemAdjustmentAmount = 0m,
             AdditionalDiscountAmount = 0m,
-            FinalTotalAmount = 10_000_000m,
+            FinalTotalAmount = TotalAmount,
             DepositAmount = 3_000_000m,
             PaidAmount = 3_000_000m,
             RemainingAmount = 7_000_000m,
@@ -106,16 +114,7 @@ public static class ProductionScenarioSeeder
         };
 
         var (category, product, productVersion) = ProposalScenarioSeeder.CreateCatalog(suffix);
-        var productItem = CreateOrderItem(
-            order.OrderId,
-            QuotationItemType.PRODUCT_ITEM,
-            productVersion.ProductVersionId,
-            product.ProductName);
-        var manualItem = CreateOrderItem(
-            order.OrderId,
-            QuotationItemType.MANUAL_ITEM,
-            productVersionId: null,
-            "Shipping");
+        var productItem = CreateOrderItem(order.OrderId, productVersion.ProductVersionId, product.ProductName);
 
         context.AccountSet.AddRange(customer, sales, production, secondProduction, inactiveProduction);
         context.ProjectSet.Add(project);
@@ -125,7 +124,7 @@ public static class ProductionScenarioSeeder
         context.CategorySet.Add(category);
         context.ProductSet.Add(product);
         context.ProductVersionSet.Add(productVersion);
-        context.OrderItemSet.AddRange(productItem, manualItem);
+        context.OrderItemSet.Add(productItem);
         context.PaymentSet.Add(new Payment
         {
             PaymentId = Guid.NewGuid(),
@@ -151,29 +150,27 @@ public static class ProductionScenarioSeeder
             inactiveProduction.AccountId,
             project.ProjectId,
             order.OrderId,
-            productItem.OrderItemId,
-            manualItem.OrderItemId);
+            productItem.OrderItemId);
     }
 
     private static OrderItem CreateOrderItem(
         Guid orderId,
-        QuotationItemType itemType,
-        Guid? productVersionId,
+        Guid productVersionId,
         string productName)
     {
         return new OrderItem
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
-            ItemType = itemType,
             ProductVersionId = productVersionId,
             ProductNameSnapshot = productName,
             ProductVersionNameSnapshot = $"{productName} Version",
-            ProductVersionCodeSnapshot = productVersionId.HasValue ? "PV-PROD-001" : null,
+            ProductVersionCodeSnapshot = "PV-PROD-001",
             Quantity = 2,
             DeliveredQuantity = 0,
             Status = OrderItemStatus.PENDING,
             UnitPrice = 5_000_000m,
+            DiscountAmount = 0m,
             SubtotalAmount = 10_000_000m,
             ProductionNote = "Use premium finish"
         };

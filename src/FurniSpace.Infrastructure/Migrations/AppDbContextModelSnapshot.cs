@@ -55,7 +55,6 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_scene_variant_status", new[] { "DRAFT", "SUBMITTED", "ACCEPTED", "REJECTED", "APPLIED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_scene_variant_type", new[] { "CUSTOMER_SUGGESTION", "DESIGNER_REVISION" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_status", new[] { "DRAFT", "PUBLISHED", "SELECTED", "REVISION_REQUESTED", "REJECTED", "ARCHIVED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "quotation_item_type", new[] { "PRODUCT_ITEM", "MANUAL_ITEM" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "quotation_status", new[] { "DRAFT", "SENT", "REVISION_REQUESTED", "REVISED", "ACCEPTED", "REJECTED", "EXPIRED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -694,6 +693,19 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("sales_id");
 
+                    b.Property<decimal>("VatAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("vat_amount");
+
+                    b.Property<decimal>("VatRate")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(7,4)")
+                        .HasDefaultValue(0.08m)
+                        .HasColumnName("vat_rate");
+
                     b.Property<OrderStatus?>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("order_status")
@@ -715,12 +727,19 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasIndex("ProjectId");
 
+                    b.HasIndex("ProjectId", "ConfirmedAt", "OrderId")
+                        .HasDatabaseName("idx_fin_orders_project_confirmed");
+
                     b.HasIndex("ProposalId");
 
                     b.HasIndex("QuotationId")
                         .IsUnique();
 
                     b.HasIndex("SalesId");
+
+                    b.HasIndex("Status", "ConfirmedAt", "ProjectId")
+                        .HasDatabaseName("idx_fin_orders_receivable_status_confirmed")
+                        .HasFilter("remaining_amount > 0");
 
                     b.ToTable("orders", (string)null);
                 });
@@ -911,12 +930,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("customer_confirmed_at");
 
-                    b.Property<decimal?>("CustomizationFee")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("customization_unit_additional_cost");
 
                     b.Property<int?>("DeliveredQuantity")
                         .ValueGeneratedOnAdd()
@@ -935,16 +948,7 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDefaultValue(0m)
                         .HasColumnName("discount_amount");
 
-                    b.Property<decimal?>("GrossAmount")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("gross_amount");
 
-                    b.Property<QuotationItemType>("ItemType")
-                        .HasColumnType("quotation_item_type")
-                        .HasColumnName("item_type");
 
                     b.Property<DateTime?>("LastDeliveredAt")
                         .HasColumnType("timestamp with time zone")
@@ -996,38 +1000,11 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDefaultValueSql("'PENDING'::order_item_status");
 
                     b.Property<decimal?>("SubtotalAmount")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("subtotal_amount");
-
-                    b.Property<decimal?>("TaxAmount")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("tax_amount");
-
-                    b.Property<decimal?>("TaxRate")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(7,4)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("tax_rate");
-
-                    b.Property<decimal?>("TaxableAmount")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("taxable_amount");
-
-                    b.Property<decimal?>("TotalAmount")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("total_amount");
 
                     b.Property<DateTime?>("UnavailableConfirmedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1163,6 +1140,14 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasIndex("ProjectId", "CreatedAt")
                         .HasDatabaseName("idx_payments_project_time");
 
+                    b.HasIndex("Status", "ExpiredAt", "CreatedAt", "PaymentType", "OrderId")
+                        .HasDatabaseName("idx_fin_payments_active_obligations")
+                        .HasFilter("status IN ('PENDING', 'PROCESSING')");
+
+                    b.HasIndex("Status", "PaidAt", "PaymentType", "Currency")
+                        .HasDatabaseName("idx_fin_payments_paid_reporting")
+                        .HasFilter("status = 'PAID' AND paid_at IS NOT NULL");
+
                     b.ToTable("payments", (string)null);
                 });
 
@@ -1290,8 +1275,16 @@ namespace FurniSpace.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("uq_payment_transactions_provider_txn");
 
+                    b.HasIndex("PaymentId", "Status", "CreatedAt")
+                        .HasDatabaseName("idx_fin_payment_transactions_payment_failed_time")
+                        .HasFilter("status = 'FAILED'");
+
                     b.HasIndex("ProjectId", "CreatedAt")
                         .HasDatabaseName("idx_payment_transactions_project_time");
+
+                    b.HasIndex("Status", "CreatedAt", "Currency")
+                        .HasDatabaseName("idx_fin_payment_transactions_failed_reporting")
+                        .HasFilter("status = 'FAILED'");
 
                     b.ToTable("payment_transactions", (string)null);
                 });
@@ -1387,10 +1380,6 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.Property<decimal?>("EstimatedPrice")
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("estimated_price");
-
-                    b.Property<decimal?>("DefaultTaxRate")
-                        .HasColumnType("numeric(7,4)")
-                        .HasColumnName("default_tax_rate");
 
                     b.Property<decimal?>("Height")
                         .HasColumnType("numeric(10,2)")
@@ -2219,9 +2208,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("varchar(150)")
                         .HasColumnName("item_name");
 
-                    b.Property<string>("ItemType")
-                        .HasColumnType("varchar(50)")
-                        .HasColumnName("item_type");
 
                     b.Property<string>("Material")
                         .HasColumnType("varchar(100)")
@@ -2525,7 +2511,14 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("customer_note");
 
-                    b.Property<decimal?>("DiscountAmount")
+                    b.Property<decimal?>("PreVatAmount")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("numeric(14,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("pre_vat_amount");
+
+                    b.Property<decimal?>("TotalDiscountAmount")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("numeric(14,2)")
@@ -2578,19 +2571,19 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDefaultValue(0m)
                         .HasColumnName("subtotal_amount");
 
-                    b.Property<decimal?>("TaxAmount")
+                    b.Property<decimal?>("VatAmount")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
-                        .HasColumnName("tax_amount");
+                        .HasColumnName("vat_amount");
 
-                    b.Property<decimal?>("TaxableAmount")
+                    b.Property<decimal?>("VatRate")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("taxable_amount");
+                        .HasColumnType("numeric(7,4)")
+                        .HasDefaultValue(0.08m)
+                        .HasColumnName("vat_rate");
 
                     b.Property<decimal?>("TotalAmount")
                         .IsRequired()
@@ -2634,12 +2627,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("quotation_item_id");
 
-                    b.Property<decimal?>("CustomizationAdditionalCost")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("customization_unit_additional_cost");
 
                     b.Property<string>("CustomizationNote")
                         .HasColumnType("text")
@@ -2679,12 +2666,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("varchar(150)")
                         .HasColumnName("item_name");
 
-                    b.Property<QuotationItemType?>("ItemType")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("quotation_item_type")
-                        .HasColumnName("item_type")
-                        .HasDefaultValueSql("'PRODUCT_ITEM'::quotation_item_type");
-
                     b.Property<string>("Note")
                         .HasColumnType("text")
                         .HasColumnName("note");
@@ -2720,33 +2701,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("quotation_id");
 
-                    b.Property<decimal?>("SubtotalAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("subtotal_amount");
-
-                    b.Property<decimal?>("TaxAmount")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("tax_amount");
-
-                    b.Property<decimal?>("TaxRate")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(7,4)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("tax_rate");
-
-                    b.Property<decimal?>("TaxableAmount")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(14,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("taxable_amount");
-
                     b.Property<decimal?>("TotalAmount")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -2760,6 +2714,14 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("unit_price");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
 
                     b.HasKey("QuotationItemId");
 

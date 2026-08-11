@@ -14,7 +14,6 @@ public abstract class ProductVersionModelBase
     public decimal? Height { get; set; }
     public decimal? Depth { get; set; }
     public decimal? EstimatedPrice { get; set; }
-    public decimal? DefaultTaxRate { get; set; }
     public bool? IsDefault { get; set; }
     public bool? IsPublic { get; set; }
     public bool? IsProjectSpecific { get; set; }

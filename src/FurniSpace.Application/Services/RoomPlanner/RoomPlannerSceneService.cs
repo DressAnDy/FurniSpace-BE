@@ -1,14 +1,19 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.RoomPlanner.RoomPlannerSceneServiceConstants;
+using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.RoomPlanner;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Interfaces.RoomPlanner;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
+using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Shared.DTOs.RoomPlanner;
 using FurniSpace.Shared.DTOs.Proposals;
+using Mapster;
 using ApplicationRoomPlannerSceneRepository = FurniSpace.Application.Interfaces.RoomPlanner.IRoomPlannerSceneRepository;
 using RoomPlannerSqlSceneRepository = FurniSpace.Infrastructure.Repositories.IRepository.IRoomPlannerProposalSceneRepository;
 
@@ -201,6 +206,165 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         return ServiceResult<RoomPlannerSceneResponseDto>.Success(
             ToResponse(context, document),
             "Room planner scene retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ResolveRoomPlannerProductsResponseDto>> ResolveProductsAsync(
+        Guid sceneId,
+        ResolveRoomPlannerProductsRequestDto request,
+        Guid currentUserId,
+        string currentUserRole,
+        CancellationToken cancellationToken = default)
+    {
+        if (sceneId == Guid.Empty)
+        {
+            return ServiceResult<ResolveRoomPlannerProductsResponseDto>.BadRequest("Scene id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ResolveRoomPlannerProductsResponseDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        if (request is null)
+        {
+            return ServiceResult<ResolveRoomPlannerProductsResponseDto>.BadRequest("Resolve products request is required.");
+        }
+
+        if (_productVersions is null || _projectFiles is null)
+        {
+            return ServiceResult<ResolveRoomPlannerProductsResponseDto>.Failure(
+                Error.InternalServerError(
+                    RoomPlannerLoadFailedCode,
+                    "Room planner product resolution is unavailable."));
+        }
+
+        var context = await _proposalScenes.GetContextAsync(sceneId, cancellationToken);
+        if (context is null)
+        {
+            return ServiceResult<ResolveRoomPlannerProductsResponseDto>.NotFound(SceneNotFoundMessage);
+        }
+
+        if (!CanViewScene(context, currentUserId, currentUserRole))
+        {
+            return ServiceResult<ResolveRoomPlannerProductsResponseDto>.Forbidden(
+                "You do not have access to resolve products for this room planner scene.");
+        }
+
+        var requestedIds = (request.ProductVersionIds ?? [])
+            .Where(productVersionId => productVersionId != Guid.Empty)
+            .Distinct()
+            .ToList();
+
+        if (requestedIds.Count == 0)
+        {
+            return ServiceResult<ResolveRoomPlannerProductsResponseDto>.Success(
+                new ResolveRoomPlannerProductsResponseDto
+                {
+                    SceneId = sceneId,
+                    ProjectId = context.ProjectId,
+                    Items = []
+                },
+                "Room planner products resolved successfully.");
+        }
+
+        var sceneProductVersionIds = await GetSceneProductVersionIdsAsync(context, cancellationToken);
+        if (requestedIds.Any(productVersionId => !sceneProductVersionIds.Contains(productVersionId)))
+        {
+            return ServiceResult<ResolveRoomPlannerProductsResponseDto>.Failure(
+                Error.BadRequest(
+                    RoomPlannerProductNotInSceneCode,
+                    "One or more product versions are not referenced by this room planner scene."));
+        }
+
+        var validProductVersions = await _productVersions.GetValidDetailsAsync(
+            requestedIds,
+            context.ProjectId,
+            cancellationToken);
+
+        var customerVisibleOnly = IsCustomer(currentUserRole);
+        var files = await _projectFiles.GetCatalogFilesByReferencesAsync(
+            CatalogFileReferenceTypes.ProductVersion,
+            validProductVersions.Select(version => version.ProductVersionId).ToList(),
+            customerVisibleOnly,
+            cancellationToken);
+
+        var filesByVersionId = files
+            .GroupBy(file => file.ReferenceId)
+            .ToDictionary(
+                group => group.Key,
+                group => ToCatalogFileList(group, customerVisibleOnly));
+
+        var items = validProductVersions
+            .Select(version => ToResolvedProductDto(
+                version,
+                filesByVersionId.GetValueOrDefault(version.ProductVersionId, [])))
+            .ToList();
+
+        return ServiceResult<ResolveRoomPlannerProductsResponseDto>.Success(
+            new ResolveRoomPlannerProductsResponseDto
+            {
+                SceneId = sceneId,
+                ProjectId = context.ProjectId,
+                Items = items
+            },
+            "Room planner products resolved successfully.");
+    }
+
+    private async Task<HashSet<Guid>> GetSceneProductVersionIdsAsync(
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(context.MongoSceneId))
+        {
+            return [];
+        }
+
+        var document = await _sceneDocuments.GetByIdAsync(context.MongoSceneId, cancellationToken);
+        if (document is null)
+        {
+            return [];
+        }
+
+        return document.Objects
+            .Where(sceneObject =>
+                string.Equals(sceneObject.ObjectType, "FURNITURE", StringComparison.OrdinalIgnoreCase) &&
+                sceneObject.ProductVersionId != Guid.Empty)
+            .Select(sceneObject => sceneObject.ProductVersionId)
+            .ToHashSet();
+    }
+
+    private static bool IsCustomer(string role) =>
+        string.Equals(role, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase);
+
+    private static RoomPlannerResolvedProductDto ToResolvedProductDto(
+        Infrastructure.ReadModels.Products.ProductVersionDetailReadModel version,
+        IReadOnlyList<CatalogFileDto> files) =>
+        new()
+        {
+            ProductVersionId = version.ProductVersionId,
+            ProductId = version.ProductId,
+            ProductName = version.ProductName,
+            VersionCode = version.VersionCode,
+            VersionName = version.VersionName,
+            VersionType = version.VersionType,
+            Material = version.Material,
+            Color = version.Color,
+            Width = version.Width,
+            Height = version.Height,
+            Depth = version.Depth,
+            DimensionUnit = version.DimensionUnit,
+            EstimatedPrice = version.EstimatedPrice,
+            IsProjectSpecific = version.IsProjectSpecific,
+            Files = files
+        };
+
+    private static List<CatalogFileDto> ToCatalogFileList(
+        IEnumerable<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
+    {
+        return CatalogFileOrdering
+            .SortCatalogFiles(CatalogFileOrdering.FilterVisible(files, customerVisibleOnly))
+            .Adapt<List<CatalogFileDto>>();
     }
 
     private static RoomPlannerSceneDocument BuildDocument(

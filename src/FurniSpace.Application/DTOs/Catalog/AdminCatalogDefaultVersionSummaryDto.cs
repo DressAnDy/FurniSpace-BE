@@ -9,5 +9,4 @@ public sealed class AdminCatalogDefaultVersionSummaryDto
     public string VersionName { get; set; } = string.Empty;
     public ProductStatus? Status { get; set; }
     public decimal? EstimatedPrice { get; set; }
-    public decimal? DefaultTaxRate { get; set; }
 }

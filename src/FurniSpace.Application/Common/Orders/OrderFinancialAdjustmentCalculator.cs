@@ -15,4 +15,17 @@ internal static class OrderFinancialAdjustmentCalculator
     {
         return baseBeforeAdditionalDiscount - additionalDiscountAmount;
     }
+
+    public static decimal CalculateVatInclusiveUnavailableAdjustment(
+        decimal itemPreVatAmount,
+        decimal orderVatRate)
+    {
+        var vatShare = RoundMoney(itemPreVatAmount * orderVatRate);
+        return itemPreVatAmount + vatShare;
+    }
+
+    private static decimal RoundMoney(decimal value)
+    {
+        return Math.Round(value, 2, MidpointRounding.AwayFromZero);
+    }
 }

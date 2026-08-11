@@ -168,7 +168,7 @@ public sealed class OrderServiceTests
         {
             OrderItemId = orderItemId,
             OrderId = orderId,
-            ItemType = QuotationItemType.PRODUCT_ITEM,
+            ProductVersionId = Guid.NewGuid(),
             Status = OrderItemStatus.READY,
             Quantity = 2,
             DeliveredQuantity = 1

@@ -41,8 +41,7 @@ public sealed class AdminCatalogServiceTests
                     DefaultVersionCode = "PV-001",
                     DefaultVersionName = "Standard",
                     DefaultVersionStatus = ProductStatus.ACTIVE,
-                    DefaultVersionEstimatedPrice = 1000m,
-                    DefaultVersionDefaultTaxRate = 10m
+                    DefaultVersionEstimatedPrice = 1000m
                 }
             ],
             AdminCatalogTotal = 1
@@ -62,7 +61,7 @@ public sealed class AdminCatalogServiceTests
         Assert.Equal("Coffee Counter", result.Data.Items[0].ProductName);
         Assert.NotNull(result.Data.Items[0].DefaultVersionSummary);
         Assert.Equal("PV-001", result.Data.Items[0].DefaultVersionSummary!.VersionCode);
-        Assert.Equal(10m, result.Data.Items[0].DefaultVersionSummary.DefaultTaxRate);
+        Assert.Equal(1000m, result.Data.Items[0].DefaultVersionSummary.EstimatedPrice);
         Assert.Equal(1, result.Data.TotalCount);
     }
 

@@ -37,6 +37,8 @@ public static class CustomizationRequestErrorCodes
     public const string ApprovedProductVersionProductMismatch = "APPROVED_PRODUCT_VERSION_PRODUCT_MISMATCH";
     public const string CustomizationProductVersionLinkConflict = "CUSTOMIZATION_PRODUCT_VERSION_LINK_CONFLICT";
     public const string VersionCodeAlreadyExists = "VERSION_CODE_ALREADY_EXISTS";
+    public const string CustomizationVersionNumberConflict = "CUSTOMIZATION_VERSION_NUMBER_CONFLICT";
+    public const string ProductVersionFileLinkConflict = "PRODUCT_VERSION_FILE_LINK_CONFLICT";
     public const string VersionNameRequired = "VERSION_NAME_REQUIRED";
     public const string InvalidDimensionUnit = "INVALID_DIMENSION_UNIT";
     public const string InvalidProductDimensions = "INVALID_PRODUCT_DIMENSIONS";
@@ -55,4 +57,6 @@ public static class CustomizationRequestErrorCodes
     public const string CustomizationVersionAlreadyReviewed = "CUSTOMIZATION_VERSION_ALREADY_REVIEWED";
     public const string CustomizationNotInReviewing = "CUSTOMIZATION_NOT_IN_REVIEWING";
     public const string CustomizationVersionProductMismatch = "CUSTOMIZATION_VERSION_PRODUCT_MISMATCH";
+    public const string SourceProductVersionPriceRequired = "SOURCE_PRODUCT_VERSION_PRICE_REQUIRED";
+    public const string EstimatedAdditionalCostRequired = "ESTIMATED_ADDITIONAL_COST_REQUIRED";
 }

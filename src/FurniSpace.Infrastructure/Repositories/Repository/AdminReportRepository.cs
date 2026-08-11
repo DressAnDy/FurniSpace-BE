@@ -713,7 +713,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
                 ProductName = group.Key.Name,
                 Sku = group.Key.Sku,
                 QuantitySold = group.Sum(item => item.Quantity ?? 0),
-                Revenue = group.Sum(item => item.TotalAmount ?? item.SubtotalAmount ?? 0m)
+                Revenue = group.Sum(item => item.SubtotalAmount ?? 0m)
             });
 
         var byMetric = string.Equals(metric, "revenue", StringComparison.OrdinalIgnoreCase)

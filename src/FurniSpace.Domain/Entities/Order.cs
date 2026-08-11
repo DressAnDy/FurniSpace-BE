@@ -12,6 +12,8 @@ public class Order
     public string OrderCode { get; set; } = null!;
     public Guid CustomerId { get; set; }
     public Guid? SalesId { get; set; }
+    public decimal VatRate { get; set; }
+    public decimal VatAmount { get; set; }
     public decimal OriginalTotalAmount { get; set; }
     public decimal? ItemAdjustmentAmount { get; set; }
     public decimal? AdditionalDiscountAmount { get; set; }
@@ -33,4 +35,3 @@ public class Order
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
-

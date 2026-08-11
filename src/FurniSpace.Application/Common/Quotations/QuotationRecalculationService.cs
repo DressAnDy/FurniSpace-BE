@@ -1,3 +1,4 @@
+using FurniSpace.Application.Constants.Financial;
 using FurniSpace.Domain.Entities;
 
 namespace FurniSpace.Application.Common.Quotations;
@@ -24,11 +25,16 @@ public sealed class QuotationRecalculationService
             QuotationItemFinancialCalculator.Calculate(item);
         }
 
-        var summary = QuotationFinancialSummaryCalculator.Calculate(items);
+        var vatRate = quotation.VatRate ?? FinancialConstants.DefaultVatRate;
+        var summary = QuotationFinancialSummaryCalculator.Calculate(items)
+            .WithHeaderVat(vatRate)
+            .Round();
+
         quotation.SubtotalAmount = summary.SubtotalAmount;
-        quotation.DiscountAmount = summary.TotalDiscountAmount;
-        quotation.TaxableAmount = summary.TaxableAmount;
-        quotation.TaxAmount = summary.TaxAmount;
+        quotation.TotalDiscountAmount = summary.TotalDiscountAmount;
+        quotation.PreVatAmount = summary.PreVatAmount;
+        quotation.VatRate = vatRate;
+        quotation.VatAmount = summary.VatAmount;
         quotation.TotalAmount = summary.TotalAmount;
         quotation.Currency = string.IsNullOrWhiteSpace(quotation.Currency) ? "VND" : quotation.Currency;
 

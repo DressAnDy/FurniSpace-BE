@@ -45,14 +45,12 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
         await using var verification = _fixture.Database.CreateDbContext();
         var request = await verification.ProductionRequestSet.SingleAsync();
         var productOrderItem = await verification.OrderItemSet.FindAsync(scenario.ProductOrderItemId);
-        var manualOrderItem = await verification.OrderItemSet.FindAsync(scenario.ManualOrderItemId);
         var order = await verification.OrderSet.FindAsync(scenario.OrderId);
         var project = await verification.ProjectSet.FindAsync(scenario.ProjectId);
 
         Assert.Equal(NormalPriority, request.Priority);
         Assert.Equal("Build product items", request.Note);
         Assert.Equal(OrderItemStatus.IN_PRODUCTION, productOrderItem?.Status);
-        Assert.Equal(OrderItemStatus.PENDING, manualOrderItem?.Status);
         Assert.Equal(OrderStatus.IN_PRODUCTION, order?.Status);
         Assert.Equal(ProjectStatus.IN_PRODUCTION, project?.Status);
     }
@@ -150,12 +148,10 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
 
         await using var verification = _fixture.Database.CreateDbContext();
         var productOrderItem = await verification.OrderItemSet.FindAsync(scenario.ProductOrderItemId);
-        var manualOrderItem = await verification.OrderItemSet.FindAsync(scenario.ManualOrderItemId);
         var order = await verification.OrderSet.FindAsync(scenario.OrderId);
         var project = await verification.ProjectSet.FindAsync(scenario.ProjectId);
 
         Assert.Equal(OrderItemStatus.READY, productOrderItem?.Status);
-        Assert.Equal(OrderItemStatus.PENDING, manualOrderItem?.Status);
         Assert.Equal(OrderStatus.READY_FOR_DELIVERY, order?.Status);
         Assert.Equal(ProjectStatus.READY_FOR_DELIVERY, project?.Status);
     }

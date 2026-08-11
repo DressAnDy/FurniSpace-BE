@@ -88,8 +88,9 @@ public class AppDbContext : DbContext
     private const string TitleColumnName = "title";
     private const string SubtotalAmountColumnName = "subtotal_amount";
     private const string TotalDiscountAmountColumnName = "total_discount_amount";
-    private const string TaxableAmountColumnName = "taxable_amount";
-    private const string TaxAmountColumnName = "tax_amount";
+    private const string PreVatAmountColumnName = "pre_vat_amount";
+    private const string VatRateColumnName = "vat_rate";
+    private const string VatAmountColumnName = "vat_amount";
     private const string TotalAmountColumnName = "total_amount";
     private const string GrossAmountColumnName = "gross_amount";
     private const string TaxRateColumnName = "tax_rate";
@@ -153,7 +154,6 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:customization_version_status", "DRAFT,REVIEWING,PRODUCTION_REJECTED,ACCEPTED,WITHDRAWN");
         modelBuilder.HasAnnotation("Npgsql:Enum:production_feasibility_status", "PENDING,FEASIBLE,NOT_FEASIBLE");
         modelBuilder.HasAnnotation("Npgsql:Enum:quotation_status", "DRAFT,SENT,REVISION_REQUESTED,REVISED,ACCEPTED,REJECTED,EXPIRED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:quotation_item_type", "PRODUCT_ITEM,MANUAL_ITEM");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_status", "CREATED,DEPOSIT_PENDING,DEPOSIT_PAID,IN_PRODUCTION,READY_FOR_DELIVERY,DELIVERING,DELIVERED,FINAL_PAYMENT_PENDING,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_item_status", "PENDING,IN_PRODUCTION,READY,UNAVAILABLE,DELIVERED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_adjustment_status", "DRAFT,CONFIRMED,APPLIED,CANCELLED");
@@ -328,9 +328,6 @@ public class AppDbContext : DbContext
                 table.HasCheckConstraint(
                     "ck_product_versions_project_specific",
                     "(version_type = 'PROJECT_SPECIFIC'::product_version_type AND project_id IS NOT NULL AND is_project_specific = TRUE AND is_public = FALSE AND is_default = FALSE) OR version_type <> 'PROJECT_SPECIFIC'::product_version_type");
-                table.HasCheckConstraint(
-                    "ck_product_versions_default_tax_rate_range",
-                    "default_tax_rate IS NULL OR (default_tax_rate >= 0 AND default_tax_rate <= 100)");
             });
             entity.HasKey(e => e.ProductVersionId);
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
@@ -346,7 +343,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Height).HasColumnName(HeightColumnName).HasColumnType(Decimal10ColumnType);
             entity.Property(e => e.Depth).HasColumnName("depth").HasColumnType(Decimal10ColumnType);
             entity.Property(e => e.EstimatedPrice).HasColumnName("estimated_price").HasColumnType(Decimal12ColumnType);
-            entity.Property(e => e.DefaultTaxRate).HasColumnName("default_tax_rate").HasColumnType(TaxRateColumnType);
             entity.Property(e => e.IsDefault).HasColumnName("is_default").HasColumnType(BooleanColumnType).HasDefaultValue(false);
             entity.Property(e => e.IsPublic).HasColumnName("is_public").HasColumnType(BooleanColumnType).HasDefaultValue(true);
             entity.Property(e => e.IsProjectSpecific).HasColumnName("is_project_specific").HasColumnType(BooleanColumnType).HasDefaultValue(false);
@@ -846,9 +842,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.QuotationCode).HasColumnName("quotation_code").HasColumnType(Varchar50ColumnType).IsRequired();
             entity.Property(e => e.VersionNo).HasColumnName(VersionNoColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1);
             entity.Property(e => e.SubtotalAmount).HasColumnName(SubtotalAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.DiscountAmount).HasColumnName(TotalDiscountAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TaxableAmount).HasColumnName(TaxableAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TaxAmount).HasColumnName(TaxAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
+            entity.Property(e => e.TotalDiscountAmount).HasColumnName(TotalDiscountAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
+            entity.Property(e => e.PreVatAmount).HasColumnName(PreVatAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
+            entity.Property(e => e.VatRate).HasColumnName(VatRateColumnName).HasColumnType(TaxRateColumnType).HasDefaultValue(0.08m).IsRequired();
+            entity.Property(e => e.VatAmount).HasColumnName(VatAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.TotalAmount).HasColumnName(TotalAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.Currency).HasColumnName("currency").HasColumnType(Varchar10ColumnType).HasDefaultValue("VND").IsRequired();
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(QuotationStatusColumnType).HasDefaultValueSql("'DRAFT'::quotation_status");
@@ -878,7 +875,6 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.QuotationItemId);
             entity.Property(e => e.QuotationItemId).HasColumnName("quotation_item_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.QuotationId).HasColumnName(QuotationIdColumnName).HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.ItemType).HasColumnName("item_type").HasColumnType(QuotationItemTypeColumnType).HasDefaultValueSql("'PRODUCT_ITEM'::quotation_item_type");
             entity.Property(e => e.ProposalItemId).HasColumnName(ProposalItemIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductNameSnapshot).HasColumnName(ProductNameSnapshotColumnName).HasColumnType(Varchar150ColumnType);
@@ -889,17 +885,14 @@ public class AppDbContext : DbContext
             entity.Property(e => e.DisplayOrder).HasColumnName("display_order").HasColumnType(IntegerColumnType).HasDefaultValue(0);
             entity.Property(e => e.Quantity).HasColumnName(QuantityColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1).IsRequired();
             entity.Property(e => e.UnitPrice).HasColumnName("unit_price").HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.CustomizationAdditionalCost).HasColumnName(CustomizationUnitAdditionalCostColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.GrossAmount).HasColumnName(GrossAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.DiscountAmount).HasColumnName(DiscountAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TaxableAmount).HasColumnName(TaxableAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TaxRate).HasColumnName(TaxRateColumnName).HasColumnType(TaxRateColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TaxAmount).HasColumnName(TaxAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.TotalAmount).HasColumnName(TotalAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.SubtotalAmount).HasColumnName(SubtotalAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.IsCustomized).HasColumnName("is_customized").HasColumnType(BooleanColumnType).HasDefaultValue(false);
             entity.Property(e => e.CustomizationNote).HasColumnName("customization_note").HasColumnType(TextColumnType);
             entity.Property(e => e.Note).HasColumnName(NoteColumnName).HasColumnType(TextColumnType);
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasOne<Quotation>().WithMany().HasForeignKey(e => e.QuotationId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProposalItem>().WithMany().HasForeignKey(e => e.ProposalItemId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
@@ -919,6 +912,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.OrderCode).HasColumnName("order_code").HasColumnType(Varchar50ColumnType).IsRequired();
             entity.Property(e => e.CustomerId).HasColumnName(CustomerIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.SalesId).HasColumnName("sales_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.VatRate).HasColumnName(VatRateColumnName).HasColumnType(TaxRateColumnType).HasDefaultValue(0.08m).IsRequired();
+            entity.Property(e => e.VatAmount).HasColumnName(VatAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.OriginalTotalAmount).HasColumnName("original_total_amount").HasColumnType(Decimal12ColumnType);
             entity.Property(e => e.ItemAdjustmentAmount).HasColumnName("item_adjustment_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.AdditionalDiscountAmount).HasColumnName("additional_discount_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
@@ -941,6 +936,11 @@ public class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => e.QuotationId).IsUnique();
             entity.HasIndex(e => e.OrderCode).IsUnique();
+            entity.HasIndex(e => new { e.ProjectId, e.ConfirmedAt, e.OrderId })
+                .HasDatabaseName("idx_fin_orders_project_confirmed");
+            entity.HasIndex(e => new { e.Status, e.ConfirmedAt, e.ProjectId })
+                .HasDatabaseName("idx_fin_orders_receivable_status_confirmed")
+                .HasFilter("remaining_amount > 0");
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Proposal>().WithMany().HasForeignKey(e => e.ProposalId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Quotation>().WithMany().HasForeignKey(e => e.QuotationId).OnDelete(DeleteBehavior.Restrict);
@@ -959,7 +959,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.OrderItemId).HasColumnName("order_item_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.OrderId).HasColumnName(OrderIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.QuotationItemId).HasColumnName("quotation_item_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.ItemType).HasColumnName("item_type").HasColumnType(QuotationItemTypeColumnType).IsRequired();
             entity.Property(e => e.ProductVersionId).HasColumnName(ProductVersionIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.ProductNameSnapshot).HasColumnName(ProductNameSnapshotColumnName).HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.ProductVersionNameSnapshot).HasColumnName(ProductVersionNameSnapshotColumnName).HasColumnType(Varchar150ColumnType);
@@ -968,14 +967,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.DeliveredQuantity).HasColumnName("delivered_quantity").HasColumnType(IntegerColumnType).HasDefaultValue(0);
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(OrderItemStatusColumnType).HasDefaultValueSql("'PENDING'::order_item_status");
             entity.Property(e => e.UnitPrice).HasColumnName("unit_price").HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.CustomizationFee).HasColumnName(CustomizationUnitAdditionalCostColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.GrossAmount).HasColumnName(GrossAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.DiscountAmount).HasColumnName(DiscountAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TaxableAmount).HasColumnName(TaxableAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TaxRate).HasColumnName(TaxRateColumnName).HasColumnType(TaxRateColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TaxAmount).HasColumnName(TaxAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TotalAmount).HasColumnName(TotalAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.SubtotalAmount).HasColumnName(SubtotalAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m);
+            entity.Property(e => e.SubtotalAmount).HasColumnName(SubtotalAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.AdjustmentAmount).HasColumnName("adjustment_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.UnavailableReason).HasColumnName("unavailable_reason").HasColumnType(TextColumnType);
             entity.Property(e => e.UnavailableConfirmedBy).HasColumnName("unavailable_confirmed_by").HasColumnType(UuidColumnType);
@@ -1084,6 +1077,12 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.QuotationId).HasDatabaseName("idx_payments_quotation_id");
             entity.HasIndex(e => new { e.ProjectId, e.CreatedAt }).HasDatabaseName("idx_payments_project_time");
             entity.HasIndex(e => new { e.OrderId, e.PaymentType }).HasDatabaseName("idx_payments_order_type");
+            entity.HasIndex(e => new { e.Status, e.PaidAt, e.PaymentType, e.Currency })
+                .HasDatabaseName("idx_fin_payments_paid_reporting")
+                .HasFilter("status = 'PAID' AND paid_at IS NOT NULL");
+            entity.HasIndex(e => new { e.Status, e.ExpiredAt, e.CreatedAt, e.PaymentType, e.OrderId })
+                .HasDatabaseName("idx_fin_payments_active_obligations")
+                .HasFilter("status IN ('PENDING', 'PROCESSING')");
             entity.HasIndex(e => new { e.OrderId, e.PaymentType })
                 .IsUnique()
                 .HasDatabaseName("uq_payments_active_order_type")
@@ -1156,6 +1155,12 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => new { e.OrderId, e.CreatedAt }).HasDatabaseName("idx_payment_transactions_order_time");
             entity.HasIndex(e => e.ProviderTransactionId).HasDatabaseName("idx_payment_transactions_provider_transaction_id");
             entity.HasIndex(e => e.ProviderReferenceCode).HasDatabaseName("idx_payment_transactions_provider_reference_code");
+            entity.HasIndex(e => new { e.Status, e.CreatedAt, e.Currency })
+                .HasDatabaseName("idx_fin_payment_transactions_failed_reporting")
+                .HasFilter("status = 'FAILED'");
+            entity.HasIndex(e => new { e.PaymentId, e.Status, e.CreatedAt })
+                .HasDatabaseName("idx_fin_payment_transactions_payment_failed_time")
+                .HasFilter("status = 'FAILED'");
             entity.HasIndex(e => new { e.PaymentProvider, e.ProviderTransactionId })
                 .IsUnique()
                 .HasDatabaseName("uq_payment_transactions_provider_txn");

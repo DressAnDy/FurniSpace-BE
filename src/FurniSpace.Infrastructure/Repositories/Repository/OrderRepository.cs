@@ -46,6 +46,8 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                     OrderCode = order.OrderCode,
                     CustomerId = order.CustomerId,
                     SalesId = order.SalesId,
+                    VatRate = order.VatRate,
+                    VatAmount = order.VatAmount,
                     OriginalTotalAmount = order.OriginalTotalAmount,
                     ItemAdjustmentAmount = order.ItemAdjustmentAmount,
                     AdditionalDiscountAmount = order.AdditionalDiscountAmount,
@@ -338,7 +340,6 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                 (pair, quotationItem) => new OrderItemDetailReadModel
                 {
                     OrderItemId = pair.orderItem.OrderItemId,
-                    ItemType = quotationItem != null ? quotationItem.ItemType : null,
                     ProductNameSnapshot = pair.orderItem.ProductNameSnapshot,
                     ItemName = quotationItem != null ? quotationItem.ItemName : pair.orderItem.ProductNameSnapshot,
                     Quantity = pair.orderItem.Quantity,
@@ -346,14 +347,7 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                     DeliveredQuantity = pair.orderItem.DeliveredQuantity,
                     CustomerConfirmedAt = pair.orderItem.CustomerConfirmedAt,
                     UnitPrice = pair.orderItem.UnitPrice,
-                    CustomizationUnitAdditionalCost = pair.orderItem.CustomizationFee,
-                    CustomizationAdditionalCost = pair.orderItem.CustomizationFee,
-                    GrossAmount = pair.orderItem.GrossAmount,
                     DiscountAmount = pair.orderItem.DiscountAmount,
-                    TaxableAmount = pair.orderItem.TaxableAmount,
-                    TaxRate = pair.orderItem.TaxRate,
-                    TaxAmount = pair.orderItem.TaxAmount,
-                    TotalAmount = pair.orderItem.TotalAmount,
                     SubtotalAmount = pair.orderItem.SubtotalAmount,
                     IsCustomized = quotationItem != null ? quotationItem.IsCustomized : null
                 })

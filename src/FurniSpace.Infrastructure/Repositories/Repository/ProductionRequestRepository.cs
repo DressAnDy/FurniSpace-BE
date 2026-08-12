@@ -18,8 +18,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
     [
         ProductionRequestStatus.PENDING_REVIEW,
         ProductionRequestStatus.FEASIBLE,
-        ProductionRequestStatus.IN_PRODUCTION,
-        ProductionRequestStatus.BLOCKED
+        ProductionRequestStatus.IN_PRODUCTION
     ];
 
     private static readonly ProductionRequestStatus[] ScheduleReadRequestStatuses =
@@ -27,7 +26,6 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         ProductionRequestStatus.PENDING_REVIEW,
         ProductionRequestStatus.FEASIBLE,
         ProductionRequestStatus.IN_PRODUCTION,
-        ProductionRequestStatus.BLOCKED,
         ProductionRequestStatus.COMPLETED
     ];
 
@@ -45,6 +43,15 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                 request.OrderId == orderId &&
                 request.Status.HasValue &&
                 ActiveRequestStatuses.Contains(request.Status.Value),
+            cancellationToken);
+    }
+
+    public Task<bool> ExistsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProductionRequestSet.AnyAsync(
+            request => request.OrderId == orderId,
             cancellationToken);
     }
 
@@ -123,9 +130,6 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             let inProductionCount = DbContext.ProductionRequestSet.Count(request =>
                 request.AssignedTo == account.AccountId &&
                 request.Status == ProductionRequestStatus.IN_PRODUCTION)
-            let blockedCount = DbContext.ProductionRequestSet.Count(request =>
-                request.AssignedTo == account.AccountId &&
-                request.Status == ProductionRequestStatus.BLOCKED)
             select new AvailableProductionStaffReadModel
             {
                 AccountId = account.AccountId,
@@ -136,7 +140,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                 ActiveRequestCount = activeCount,
                 PendingReviewRequestCount = pendingReviewCount,
                 InProductionRequestCount = inProductionCount,
-                BlockedRequestCount = blockedCount,
+                BlockedRequestCount = 0,
                 IsAvailable = true
             };
 

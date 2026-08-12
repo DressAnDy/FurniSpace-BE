@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Constants.Common;
@@ -36,6 +37,10 @@ public sealed class ProjectService : IProjectService
     private readonly ILogger<ProjectService>? _logger;
     private readonly IProjectChatService? _projectChats;
     private readonly IPaymentRepository _payments;
+    private readonly IOrderRepository _orders;
+    private readonly IQuotationRepository _quotations;
+    private readonly IProposalRepository _proposals;
+    private readonly IProductionRequestRepository _productionRequests;
 
     public ProjectService(
         IProjectRepository projects,
@@ -50,6 +55,10 @@ public sealed class ProjectService : IProjectService
         _search = dependencies.Search;
         _projectSearchIndexer = dependencies.ProjectSearchIndexer;
         _payments = dependencies.Payments;
+        _orders = dependencies.Orders;
+        _quotations = dependencies.Quotations;
+        _proposals = dependencies.Proposals;
+        _productionRequests = dependencies.ProductionRequests;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(
@@ -889,6 +898,174 @@ public sealed class ProjectService : IProjectService
             "Project request rejected.");
     }
 
+    public async Task<ServiceResult<ReopenProposalResponseDto>> ReopenProposalAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ReopenProposalResponseDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ReopenProposalResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ReopenProposalResponseDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanReopenProposal(project, currentUserId, roleName))
+        {
+            return ServiceResult<ReopenProposalResponseDto>.Forbidden(
+                "You do not have access to reopen proposals for this project.");
+        }
+
+        if (!CanReopenFromProjectStatus(project.Status))
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project cannot reopen proposal consultation from its current status.");
+        }
+
+        var order = await _orders.GetLatestByProjectInStatusesAsync(
+            projectId,
+            ReopenEligibleOrderStatuses,
+            cancellationToken);
+        if (order is null)
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.NoAcceptedOrder,
+                "Project does not have an accepted order eligible for reopening.");
+        }
+
+        if (order.Status == OrderStatus.DEPOSIT_PAID)
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.DepositAlreadyPaid,
+                "Deposit payment has already been paid for this project.");
+        }
+
+        var depositPayments = await _payments.GetAllByOrderAndTypeAsync(
+            order.OrderId,
+            PaymentType.DEPOSIT,
+            cancellationToken);
+        if (depositPayments.Any(payment => payment.Status == PaymentStatus.PAID))
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.DepositAlreadyPaid,
+                "Deposit payment has already been paid for this project.");
+        }
+
+        if (await _productionRequests.ExistsForOrderAsync(order.OrderId, cancellationToken))
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ProductionAlreadyCreated,
+                "Production has already been created for this project order.");
+        }
+
+        var quotation = await _quotations.GetByIdAsync(order.QuotationId, cancellationToken);
+        if (quotation is null || quotation.Status != QuotationStatus.ACCEPTED)
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project does not have an accepted quotation eligible for reopening.");
+        }
+
+        var selectedProposal = await _proposals.GetSelectedProposalByProjectAsync(projectId, cancellationToken);
+        if (selectedProposal is null)
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project does not have a selected proposal to reopen.");
+        }
+
+        var oldStatus = project.Status;
+        var autoRejectedAt = selectedProposal.SelectedAt;
+        var now = DateTime.UtcNow;
+
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var paymentCancellationError = await ProjectReopenDepositPaymentSupport.TryCancelOrExpireActiveDepositPaymentsAsync(
+                _payments,
+                order.OrderId,
+                now,
+                cancellationToken);
+            if (paymentCancellationError is not null)
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                return ReopenProposalFailure(
+                    paymentCancellationError,
+                    paymentCancellationError switch
+                    {
+                        ProjectReopenProposalErrorCodes.DepositAlreadyPaid =>
+                            "Deposit payment has already been paid for this project.",
+                        ProjectReopenProposalErrorCodes.ActiveDepositCannotBeCancelled =>
+                            "Active deposit payment cannot be cancelled.",
+                        _ => "Project cannot reopen proposal consultation."
+                    });
+            }
+
+            order.Status = OrderStatus.CANCELLED;
+            order.CancelledAt = now;
+            order.UpdatedAt = now;
+            _orders.Update(order);
+
+            quotation.Status = QuotationStatus.CANCELLED;
+            quotation.UpdatedAt = now;
+            _quotations.Update(quotation);
+
+            selectedProposal.Status = ProposalStatus.PUBLISHED;
+            selectedProposal.SelectedAt = null;
+            selectedProposal.UpdatedAt = now;
+            _proposals.Update(selectedProposal);
+
+            var restoredProposalCount = autoRejectedAt.HasValue
+                ? await _proposals.RestoreAutoRejectedProposalsAsync(
+                    projectId,
+                    autoRejectedAt.Value,
+                    now,
+                    cancellationToken)
+                : 0;
+
+            project.Status = ProjectStatus.PROPOSAL_CONSULTING;
+            project.UpdatedAt = now;
+            _projects.Update(project);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+
+            return ServiceResult<ReopenProposalResponseDto>.Success(
+                new ReopenProposalResponseDto
+                {
+                    ProjectId = project.ProjectId,
+                    OldStatus = oldStatus,
+                    NewStatus = project.Status,
+                    OrderId = order.OrderId,
+                    OrderStatus = order.Status,
+                    QuotationId = quotation.QuotationId,
+                    QuotationStatus = quotation.Status,
+                    SelectedProposalId = selectedProposal.ProposalId,
+                    SelectedProposalStatus = selectedProposal.Status,
+                    RestoredProposalCount = restoredProposalCount,
+                    UpdatedAt = project.UpdatedAt
+                },
+                "Proposal consultation reopened successfully.");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+    }
+
     public async Task<ServiceResult<ProjectDesignerAssignmentDto>> AssignDesignerAsync(
         Guid projectId,
         Guid currentUserId,
@@ -1331,6 +1508,25 @@ public sealed class ProjectService : IProjectService
         }
 
         return currentRank < ProjectStatusRanks[ProjectStatus.ORDER_CONFIRMED];
+    }
+
+    private static bool CanReopenFromProjectStatus(ProjectStatus? status)
+    {
+        return status == ProjectStatus.ORDER_CONFIRMED;
+    }
+
+    private static bool CanReopenProposal(Project project, Guid currentUserId, string? roleName)
+    {
+        return OrderAccessEvaluator.CanManageDepositPayment(
+            roleName,
+            project.CustomerId,
+            project.AssignedSalesId,
+            currentUserId);
+    }
+
+    private static ServiceResult<ReopenProposalResponseDto> ReopenProposalFailure(string code, string message)
+    {
+        return ServiceResult<ReopenProposalResponseDto>.Failure(Error.BadRequest(code, message));
     }
 
     private static ProjectStatus ResolveDesignerAssignmentStatus(ProjectSpaceDataStatus spaceDataStatus)

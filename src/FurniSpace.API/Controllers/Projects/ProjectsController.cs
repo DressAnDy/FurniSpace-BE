@@ -217,6 +217,21 @@ public sealed class ProjectsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [HttpPost("{projectId:guid}/reopen-proposal")]
+    public async Task<IActionResult> ReopenProposal(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.ReopenProposalAsync(projectId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "SALES,ADMIN")]
     [HttpPatch("{projectId:guid}/designer-assignment")]
     public async Task<IActionResult> AssignDesigner(

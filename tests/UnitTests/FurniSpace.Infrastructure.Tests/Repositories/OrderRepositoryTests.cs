@@ -213,6 +213,7 @@ public sealed class OrderRepositoryTests
             VatRate = 0.08m,
             VatAmount = 8m,
             TotalAmount = 100m,
+            DepositAmount = 30m,
             Currency = "VND",
             Status = QuotationStatus.ACCEPTED,
             CreatedAt = DateTime.UtcNow

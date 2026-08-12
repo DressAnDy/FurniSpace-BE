@@ -662,7 +662,7 @@ public sealed class QuotationServiceTests
     public async Task SendAsync_WhenReady_SendsQuotationAndNotifiesCustomer()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
-        quotation.TotalAmount = 250m;
+        SeedDepositForTotal(quotation, 250m);
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
         var detail = MakeDetail(QuotationStatus.DRAFT);
         detail.QuotationId = quotation.QuotationId;
@@ -690,6 +690,7 @@ public sealed class QuotationServiceTests
     {
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
         quotation.TotalAmount = 1m;
+        quotation.DepositAmount = 51m;
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
         var item = MakeQuotationItem(quotation.QuotationId, subtotal: 1m);
         item.Quantity = 2;
@@ -765,6 +766,7 @@ public sealed class QuotationServiceTests
     {
         var quotation = MakeEntityQuotation(QuotationStatus.SENT);
         quotation.TotalAmount = 250m;
+        quotation.DepositAmount = 66m;
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
         var detail = MakeAcceptReadyDetail(quotation);
         var quotations = new FakeQuotationRepository { Detail = detail };
@@ -780,7 +782,7 @@ public sealed class QuotationServiceTests
         Assert.Equal(QuotationStatus.ACCEPTED, quotation.Status);
         Assert.Equal(ProjectStatus.ORDER_CONFIRMED, ProjectEntity!.Status);
         var order = Assert.Single(orders.AddedOrders);
-        Assert.Equal(OrderStatus.DEPOSIT_PENDING, order.Status);
+        Assert.Equal(OrderStatus.CREATED, order.Status);
         Assert.Equal(221.4m, order.OriginalTotalAmount);
         Assert.Equal(221.4m, order.FinalTotalAmount);
         Assert.Equal(66m, order.DepositAmount);
@@ -1296,6 +1298,17 @@ public sealed class QuotationServiceTests
         };
     }
 
+    private static void SeedDepositForTotal(Quotation quotation, decimal totalAmount)
+    {
+        quotation.TotalAmount = totalAmount;
+        quotation.DepositAmount = decimal.Truncate(totalAmount * 0.30m);
+    }
+
+    private static void SeedAcceptDeposit(Quotation quotation)
+    {
+        quotation.DepositAmount = 66m;
+    }
+
     private Quotation MakeEntityQuotation(QuotationStatus status)
     {
         return new Quotation
@@ -1307,7 +1320,8 @@ public sealed class QuotationServiceTests
             Status = status,
             TotalDiscountAmount = 0m,
             VatRate = FinancialConstants.DefaultVatRate,
-            VatAmount = 0m
+            VatAmount = 0m,
+            DepositAmount = status is QuotationStatus.SENT or QuotationStatus.REVISED ? 66m : 0m
         };
     }
 

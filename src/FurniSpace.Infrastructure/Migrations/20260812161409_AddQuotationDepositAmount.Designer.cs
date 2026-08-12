@@ -4,6 +4,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace FurniSpace.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260812161409_AddQuotationDepositAmount")]
+    partial class AddQuotationDepositAmount
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -39,8 +42,8 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "product_status", new[] { "ACTIVE", "INACTIVE", "ARCHIVED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "product_version_type", new[] { "STANDARD", "CUSTOM", "PROJECT_SPECIFIC" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_feasibility_status", new[] { "PENDING", "FEASIBLE", "NOT_FEASIBLE" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_item_status", new[] { "PENDING", "IN_PRODUCTION", "COMPLETED", "CANCELLED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_request_status", new[] { "PENDING_REVIEW", "FEASIBLE", "IN_PRODUCTION", "COMPLETED", "CANCELLED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_item_status", new[] { "PENDING", "IN_PRODUCTION", "COMPLETED", "BLOCKED", "CANCELLED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_request_status", new[] { "PENDING_REVIEW", "FEASIBLE", "IN_PRODUCTION", "COMPLETED", "BLOCKED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_area_status", new[] { "DRAFT", "NEED_MEASUREMENT", "MEASURED", "VERIFIED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_area_type", new[] { "STORE", "FLOOR", "ROOM", "ZONE", "OUTDOOR_AREA", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_chat_message_type", new[] { "TEXT", "FILE", "SYSTEM" });
@@ -48,7 +51,7 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_chat_type", new[] { "SALES", "DESIGNER", "PRODUCTION", "DELIVERY", "GENERAL", "INTERNAL" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_schedule_status", new[] { "PENDING_CONFIRMATION", "CONFIRMED", "COMPLETED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_schedule_type", new[] { "MEASUREMENT", "CONSULTATION", "DESIGN_REVIEW", "DELIVERY", "HANDOVER", "OTHER" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_status", new[] { "SUBMITTED", "IN_CONSULTATION", "NEED_BASIC_INFORMATION", "WAITING_FOR_DESIGNER_ASSIGNMENT", "MEASUREMENT_REQUIRED", "SPACE_VERIFIED", "PROPOSAL_CONSULTING", "PROPOSAL_SELECTED", "QUOTATION_SENT", "QUOTATION_REVISION_REQUESTED", "ORDER_CONFIRMED", "IN_PRODUCTION", "READY_FOR_DELIVERY", "DELIVERING", "DELIVERED", "COMPLETED", "REJECTED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_status", new[] { "SUBMITTED", "IN_CONSULTATION", "NEED_BASIC_INFORMATION", "WAITING_FOR_DESIGNER_ASSIGNMENT", "MEASUREMENT_REQUIRED", "SPACE_VERIFIED", "PROPOSAL_CONSULTING", "PROPOSAL_SELECTED", "QUOTATION_SENT", "QUOTATION_REVISION_REQUESTED", "ORDER_CONFIRMED", "IN_PRODUCTION", "PRODUCTION_BLOCKED", "READY_FOR_DELIVERY", "DELIVERING", "DELIVERED", "COMPLETED", "REJECTED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_scene_type", new[] { "TWO_D", "THREE_D", "ROOM_PLANNER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_scene_variant_status", new[] { "DRAFT", "SUBMITTED", "ACCEPTED", "REJECTED", "APPLIED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "proposal_scene_variant_type", new[] { "CUSTOMER_SUGGESTION", "DESIGNER_REVISION" });

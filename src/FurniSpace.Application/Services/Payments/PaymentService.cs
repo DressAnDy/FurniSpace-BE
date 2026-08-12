@@ -137,9 +137,30 @@ public sealed class PaymentService : IPaymentService
             return ServiceResult<PaymentDetailDto>.Forbidden("You do not have permission to create this deposit payment.");
         }
 
-        if (order.Status != OrderStatus.DEPOSIT_PENDING)
+        if (order.Status == OrderStatus.DEPOSIT_PENDING)
         {
-            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, "Order is not pending deposit payment.");
+            var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
+            if (existing?.Status == PaymentStatus.PAID)
+            {
+                return BadRequestDetail(OrderErrorCodes.DepositAlreadyPaid, "Deposit payment has already been paid.");
+            }
+
+            var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
+                _payments,
+                _unitOfWork,
+                existing,
+                cancellationToken);
+            if (reusable is not null && ActivePaymentResolver.IsActive(reusable, DateTime.UtcNow))
+            {
+                var existingDetail = await _payments.GetDetailAsync(reusable.PaymentId, cancellationToken);
+                return ServiceResult<PaymentDetailDto>.Success(
+                    PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusable, reused: true),
+                    "Active payment retrieved successfully.");
+            }
+        }
+        else if (order.Status != OrderStatus.CREATED)
+        {
+            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, "Order is not ready for deposit payment.");
         }
 
         var depositAmount = order.DepositAmount ?? 0m;
@@ -148,22 +169,22 @@ public sealed class PaymentService : IPaymentService
             return BadRequestDetail(PaymentErrorCodes.InvalidPaymentAmount, "Deposit amount must be greater than zero.");
         }
 
-        var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
-        if (existing?.Status == PaymentStatus.PAID)
+        var activeDeposit = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
+        if (activeDeposit?.Status == PaymentStatus.PAID)
         {
             return BadRequestDetail(OrderErrorCodes.DepositAlreadyPaid, "Deposit payment has already been paid.");
         }
 
-        var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
+        var reusableFromCreated = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
             _payments,
             _unitOfWork,
-            existing,
+            activeDeposit,
             cancellationToken);
-        if (reusable is not null && ActivePaymentResolver.IsActive(reusable, DateTime.UtcNow))
+        if (reusableFromCreated is not null && ActivePaymentResolver.IsActive(reusableFromCreated, DateTime.UtcNow))
         {
-            var existingDetail = await _payments.GetDetailAsync(reusable.PaymentId, cancellationToken);
+            var existingDetail = await _payments.GetDetailAsync(reusableFromCreated.PaymentId, cancellationToken);
             return ServiceResult<PaymentDetailDto>.Success(
-                PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusable, reused: true),
+                PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusableFromCreated, reused: true),
                 "Active payment retrieved successfully.");
         }
 
@@ -188,6 +209,18 @@ public sealed class PaymentService : IPaymentService
         };
 
         await _payments.AddPaymentAsync(payment, cancellationToken);
+
+        if (order.Status == OrderStatus.CREATED)
+        {
+            var orderEntity = await _orders.GetByIdAsync(orderId, cancellationToken);
+            if (orderEntity is not null)
+            {
+                orderEntity.Status = OrderStatus.DEPOSIT_PENDING;
+                orderEntity.UpdatedAt = now;
+                _orders.Update(orderEntity);
+            }
+        }
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         await PaymentCustomerNotificationSupport.TryDispatchAsync(

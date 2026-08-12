@@ -21,6 +21,18 @@ public interface IQuotationService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<QuotationDetailDto>> CreateDraftFromProposalSelectionAsync(
+        Guid projectId,
+        Guid proposalId,
+        Guid triggeredByUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<QuotationDetailDto>> AddDraftQuotationForSelectedProposalAsync(
+        Guid projectId,
+        Guid proposalId,
+        Guid triggeredByUserId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<QuotationDetailDto>> UpdateAsync(
         Guid quotationId,
         Guid currentUserId,

@@ -184,6 +184,7 @@ public sealed class QuotationService : IQuotationService
             .ToList();
 
         QuotationRecalculationService.Recalculate(quotation, quotationItems);
+        ApplyInitialDeposit(quotation, _orderWorkflowSettings.DepositPercent);
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
@@ -206,6 +207,86 @@ public sealed class QuotationService : IQuotationService
         var detail = await _quotations.GetDetailAsync(quotation.QuotationId, cancellationToken);
         return ServiceResult<QuotationDetailDto>.Created(
             detail is null ? ToDetailDto(quotation) : ToDetailDto(detail),
+            "Draft quotation created successfully.");
+    }
+
+    public async Task<ServiceResult<QuotationDetailDto>> CreateDraftFromProposalSelectionAsync(
+        Guid projectId,
+        Guid proposalId,
+        Guid triggeredByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var selected = await _quotations.GetSelectedProposalAsync(projectId, cancellationToken);
+        if (selected is null || selected.ProposalId != proposalId)
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.ProposalNotSelected,
+                "Proposal has not been selected.");
+        }
+
+        var stateError = await ValidateCreateStateAsync(selected, cancellationToken);
+        if (stateError is not null)
+        {
+            return stateError;
+        }
+
+        return await AddDraftQuotationForSelectedProposalAsync(
+            projectId,
+            proposalId,
+            triggeredByUserId,
+            cancellationToken);
+    }
+
+    public async Task<ServiceResult<QuotationDetailDto>> AddDraftQuotationForSelectedProposalAsync(
+        Guid projectId,
+        Guid proposalId,
+        Guid triggeredByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty || proposalId == Guid.Empty || triggeredByUserId == Guid.Empty)
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidQuotationStatus,
+                "Proposal selection context is invalid.");
+        }
+
+        if (await _quotations.HasQuotationForProposalAsync(proposalId, cancellationToken))
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.QuotationAlreadyExists,
+                "Quotation already exists for this proposal.");
+        }
+
+        if (await _customizationRequests.HasPendingForProposalAsync(proposalId, cancellationToken))
+        {
+            return BadRequestDetail(
+                CustomizationRequestErrorCodes.CustomizationRequestPending,
+                "Proposal has unresolved customization requests.");
+        }
+
+        var proposalItems = await _quotations.GetProposalItemsAsync(proposalId, cancellationToken);
+        var quotation = CreateDraftQuotation(
+            new SelectedProposalForQuotationReadModel
+            {
+                ProjectId = projectId,
+                ProposalId = proposalId
+            },
+            triggeredByUserId);
+        var quotationItems = proposalItems
+            .Select(item => ToQuotationItem(quotation.QuotationId, item))
+            .ToList();
+
+        QuotationRecalculationService.Recalculate(quotation, quotationItems);
+        ApplyInitialDeposit(quotation, _orderWorkflowSettings.DepositPercent);
+
+        await _quotations.AddAsync(quotation, cancellationToken);
+        foreach (var item in quotationItems)
+        {
+            await _quotations.AddItemAsync(item, cancellationToken);
+        }
+
+        return ServiceResult<QuotationDetailDto>.Success(
+            ToDetailDto(quotation),
             "Draft quotation created successfully.");
     }
 
@@ -236,7 +317,25 @@ public sealed class QuotationService : IQuotationService
         quotation.RevisionReason = request.RevisionReason?.Trim();
         quotation.UpdatedAt = DateTime.UtcNow;
 
-        await RecalculateQuotationTotalsAsync(quotation, cancellationToken);
+        if (request.DepositAmount.HasValue)
+        {
+            await RecalculateQuotationTotalsAsync(quotation, cancellationToken);
+            var depositValidation = ValidateDepositAmount(
+                request.DepositAmount.Value,
+                quotation.TotalAmount ?? 0m,
+                requirePositive: false);
+            if (depositValidation is not null)
+            {
+                return depositValidation;
+            }
+
+            quotation.DepositAmount = request.DepositAmount.Value;
+        }
+        else
+        {
+            await RecalculateQuotationTotalsAsync(quotation, cancellationToken);
+        }
+
         _quotations.Update(quotation);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -383,6 +482,22 @@ public sealed class QuotationService : IQuotationService
             return QuotationNotReadyToSendResult();
         }
 
+        var depositValidation = ValidateDepositAmount(
+            quotation.DepositAmount ?? 0m,
+            quotation.TotalAmount ?? 0m,
+            requirePositive: true);
+        if (depositValidation is not null)
+        {
+            return depositValidation;
+        }
+
+        if (quotation.ValidUntil < DateOnly.FromDateTime(DateTime.UtcNow))
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.QuotationExpired,
+                "Quotation has expired.");
+        }
+
         var project = await _projects.GetByIdAsync(quotation.ProjectId, cancellationToken);
         if (project is null)
         {
@@ -467,7 +582,16 @@ public sealed class QuotationService : IQuotationService
             return QuotationNotReadyToSendResult();
         }
 
-        var order = CreateOrder(detail, quotation, currentUserId, now, _orderWorkflowSettings.DepositPercent);
+        var depositValidation = ValidateDepositAmount(
+            quotation.DepositAmount ?? 0m,
+            quotation.TotalAmount ?? 0m,
+            requirePositive: true);
+        if (depositValidation is not null)
+        {
+            return depositValidation;
+        }
+
+        var order = CreateOrder(detail, quotation, currentUserId, now);
         var orderItems = quotationItems
             .Select(item => CreateOrderItem(order.OrderId, item))
             .ToList();
@@ -653,6 +777,42 @@ public sealed class QuotationService : IQuotationService
         return await LoadDetailResultAsync(quotationId, "Quotation rejected successfully.", cancellationToken);
     }
 
+    private static void ApplyInitialDeposit(Quotation quotation, int depositPercent)
+    {
+        quotation.DepositAmount = QuotationDepositCalculator.CalculateDefaultDepositAmount(
+            quotation.TotalAmount ?? 0m,
+            depositPercent);
+    }
+
+    private static ServiceResult<QuotationDetailDto>? ValidateDepositAmount(
+        decimal depositAmount,
+        decimal totalAmount,
+        bool requirePositive)
+    {
+        if (depositAmount < 0m)
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidDepositAmount,
+                "Deposit amount cannot be negative.");
+        }
+
+        if (requirePositive && depositAmount <= 0m)
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidDepositAmount,
+                "Deposit amount must be greater than zero.");
+        }
+
+        if (depositAmount > totalAmount)
+        {
+            return BadRequestDetail(
+                QuotationErrorCodes.InvalidDepositAmount,
+                "Deposit amount cannot exceed total amount.");
+        }
+
+        return null;
+    }
+
     private async Task<ServiceResult<QuotationDetailDto>?> ValidateCreateStateAsync(
         SelectedProposalForQuotationReadModel selected,
         CancellationToken cancellationToken)
@@ -715,11 +875,9 @@ public sealed class QuotationService : IQuotationService
         QuotationDetailReadModel quotation,
         Quotation quotationEntity,
         Guid currentUserId,
-        DateTime now,
-        int depositPercent)
+        DateTime now)
     {
         var total = quotationEntity.TotalAmount ?? 0m;
-        var depositAmount = OrderDepositCalculator.CalculateDepositAmount(total, depositPercent);
         return new Order
         {
             OrderId = Guid.NewGuid(),
@@ -735,10 +893,10 @@ public sealed class QuotationService : IQuotationService
             ItemAdjustmentAmount = 0m,
             AdditionalDiscountAmount = 0m,
             FinalTotalAmount = total,
-            DepositAmount = depositAmount,
+            DepositAmount = quotationEntity.DepositAmount ?? 0m,
             PaidAmount = 0m,
             RemainingAmount = total,
-            Status = OrderStatus.DEPOSIT_PENDING,
+            Status = OrderStatus.CREATED,
             ConfirmedBy = currentUserId,
             ConfirmedAt = now,
             CreatedAt = now,
@@ -800,6 +958,7 @@ public sealed class QuotationService : IQuotationService
     {
         if (quotation.Status is not (QuotationStatus.DRAFT or QuotationStatus.REVISED) ||
             quotation.ValidUntil is null ||
+            quotation.ValidUntil < DateOnly.FromDateTime(DateTime.UtcNow) ||
             items.Count == 0)
         {
             return QuotationNotReadyToSendResult();
@@ -1209,7 +1368,7 @@ public sealed class QuotationService : IQuotationService
         var grossAmount = (quantity ?? 0) * (unitPrice ?? 0m);
         if (string.IsNullOrWhiteSpace(itemName) ||
             quantity is null or <= 0 ||
-            unitPrice is null or < 0m ||
+            unitPrice is null or <= 0m ||
             discountAmount < 0m ||
             discountAmount > grossAmount)
         {
@@ -1320,6 +1479,7 @@ public sealed class QuotationService : IQuotationService
             VatRate = quotation.VatRate,
             VatAmount = quotation.VatAmount,
             TotalAmount = quotation.TotalAmount,
+            DepositAmount = quotation.DepositAmount,
             Currency = quotation.Currency,
             Status = quotation.Status,
             ValidUntil = quotation.ValidUntil,

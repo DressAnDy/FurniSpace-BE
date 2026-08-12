@@ -37,8 +37,7 @@ public sealed class ProductionRequestRepositoryTests
         context.OrderSet.Add(CreateOrder(orderId, projectId, salesId));
         context.ProductionRequestSet.AddRange(
             CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.PENDING_REVIEW),
-            CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.IN_PRODUCTION),
-            CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.BLOCKED),
+            CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.FEASIBLE),
             CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.COMPLETED),
             CreateRequest(orderId, projectId, deletedStaffId, ProductionRequestStatus.IN_PRODUCTION),
             CreateRequest(orderId, projectId, inactiveStaffId, ProductionRequestStatus.IN_PRODUCTION));
@@ -49,10 +48,10 @@ public sealed class ProductionRequestRepositoryTests
 
         var item = Assert.Single(staff);
         Assert.Equal(staffId, item.AccountId);
-        Assert.Equal(3, item.ActiveRequestCount);
+        Assert.Equal(2, item.ActiveRequestCount);
         Assert.Equal(1, item.PendingReviewRequestCount);
-        Assert.Equal(1, item.InProductionRequestCount);
-        Assert.Equal(1, item.BlockedRequestCount);
+        Assert.Equal(0, item.InProductionRequestCount);
+        Assert.Equal(0, item.BlockedRequestCount);
         Assert.Equal(AccountStatus.ACTIVE, item.AccountStatus);
         Assert.DoesNotContain(staff, item => item.AccountId == deletedStaffId);
         Assert.DoesNotContain(staff, item => item.AccountId == inactiveStaffId);
@@ -78,7 +77,6 @@ public sealed class ProductionRequestRepositoryTests
     [InlineData(ProductionRequestStatus.PENDING_REVIEW, true)]
     [InlineData(ProductionRequestStatus.FEASIBLE, true)]
     [InlineData(ProductionRequestStatus.IN_PRODUCTION, true)]
-    [InlineData(ProductionRequestStatus.BLOCKED, true)]
     [InlineData(ProductionRequestStatus.COMPLETED, true)]
     [InlineData(ProductionRequestStatus.CANCELLED, false)]
     public async Task HasViewableAssignedRequestAsync_UsesScheduleReadStatusPolicy(

@@ -76,7 +76,7 @@ public sealed class AdminReportRepositoryTests
         var report = await repository.GetProductionReportAsync(seed.From, seed.To);
 
         Assert.True(report.OpenRequestCount >= 1);
-        Assert.True(report.BlockedCount >= 1);
+        Assert.Equal(0, report.BlockedCount);
         Assert.True(report.OverdueCount >= 1);
         Assert.True(report.TopAssignees.Count >= 1);
         Assert.True(report.ItemsByStatus.Count >= 1);
@@ -291,6 +291,7 @@ public sealed class AdminReportRepositoryTests
                 VatRate = 0.08m,
                 VatAmount = 80m,
                 TotalAmount = 1000m,
+                DepositAmount = 300m,
                 SentAt = now.AddDays(-3),
                 AcceptedAt = now.AddDays(-2)
             },
@@ -306,7 +307,8 @@ public sealed class AdminReportRepositoryTests
                 PreVatAmount = 0m,
                 VatRate = 0.08m,
                 VatAmount = 0m,
-                TotalAmount = 0m
+                TotalAmount = 0m,
+                DepositAmount = 0m
             },
             new Quotation
             {
@@ -320,7 +322,8 @@ public sealed class AdminReportRepositoryTests
                 PreVatAmount = 0m,
                 VatRate = 0.08m,
                 VatAmount = 0m,
-                TotalAmount = 0m
+                TotalAmount = 0m,
+                DepositAmount = 0m
             });
 
         var orderId = Guid.NewGuid();
@@ -472,7 +475,7 @@ public sealed class AdminReportRepositoryTests
                 ProjectId = commercialProjectId,
                 OrderId = orderId,
                 AssignedTo = prodStaffId,
-                Status = ProductionRequestStatus.BLOCKED,
+                Status = ProductionRequestStatus.FEASIBLE,
                 CreatedAt = now.AddDays(-2)
             },
             new ProductionRequest

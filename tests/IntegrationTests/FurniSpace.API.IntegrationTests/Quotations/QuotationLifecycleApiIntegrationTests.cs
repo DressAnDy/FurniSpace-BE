@@ -26,6 +26,7 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
     private const decimal ProductPreVatTotal = 2_000_000m;
     private const decimal ProductVatShare = 160_000m;
     private const decimal ProductVatInclusiveTotal = 2_160_000m;
+    private const decimal ProductDepositAmount = 648_000m;
     private const decimal DraftPreVatTotal = 10_000_000m;
     private const decimal DraftVatAmount = 800_000m;
     private const decimal DraftTotalAmount = 10_800_000m;
@@ -165,7 +166,7 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task FinancialLifecycle_WhenProductBecomesUnavailable_RequiresRefundFlowBeforeCompletion()
+    public async Task FinancialLifecycle_WhenProductBecomesUnavailable_CompletesProductionWithoutAdjustments()
     {
         var scenario = await SeedSelectedProposalAsync();
         var productionAccountId = await SeedProductionAccountAsync();
@@ -173,7 +174,7 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         var productQuotationItemId = await GetProductQuotationItemIdAsync(quotationId);
 
         await UpdateProductFinancialsAsync(scenario, quotationId, productQuotationItemId);
-        await UpdateValidUntilAsync(scenario.SalesAccountId, quotationId);
+        await UpdateValidUntilAsync(scenario.SalesAccountId, quotationId, ProductDepositAmount);
         await SendAsync(scenario.SalesAccountId, quotationId);
         await AcceptAsync(scenario, quotationId);
 
@@ -196,29 +197,20 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             ProductionItemStatus.CANCELLED,
             "Material unavailable");
 
-        var adjustmentId = await CreateAdjustmentAsync(scenario, orderSnapshot.OrderId);
-        await AddUnavailableAdjustmentItemAsync(
-            scenario,
-            adjustmentId,
-            orderSnapshot.ProductOrderItemId,
-            ProductVatInclusiveTotal);
-        await ConfirmAdjustmentAsync(scenario, adjustmentId);
-
         using var completeRequest = IntegrationHttp.Authenticated(
             HttpMethod.Patch,
             $"/production-requests/{productionRequestId}/complete",
             productionAccountId,
             CoreRoles.Production);
         var completeResponse = await _fixture.Client.SendAsync(completeRequest);
-        var completeBody = await completeResponse.Content.ReadAsStringAsync();
+        var completion = await ReadDataAsync<ProductionCompletionDto>(completeResponse, HttpStatusCode.OK);
 
-        Assert.Equal(HttpStatusCode.BadRequest, completeResponse.StatusCode);
-        Assert.Contains(ProductionErrorCodes.AdjustmentRequiresRefundFlow, completeBody, StringComparison.Ordinal);
+        Assert.Equal("COMPLETED", completion.ProductionStatus);
+        Assert.Equal("READY_FOR_DELIVERY", completion.OrderStatus);
 
-        await AssertRefundGuardStateAsync(
+        await AssertUnavailableProductionCompletionStateAsync(
             orderSnapshot.OrderId,
             orderSnapshot.ProductOrderItemId,
-            adjustmentId,
             productionRequestId);
     }
 
@@ -264,7 +256,13 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         return draft.Data.QuotationId;
     }
 
-    private async Task<HttpResponseMessage> UpdateValidUntilAsync(Guid salesId, Guid quotationId)
+    private Task<HttpResponseMessage> UpdateValidUntilAsync(Guid salesId, Guid quotationId)
+        => UpdateValidUntilAsync(salesId, quotationId, depositAmount: null);
+
+    private async Task<HttpResponseMessage> UpdateValidUntilAsync(
+        Guid salesId,
+        Guid quotationId,
+        decimal? depositAmount)
     {
         using var request = IntegrationHttp.AuthenticatedJson(
             HttpMethod.Patch,
@@ -273,7 +271,8 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             CoreRoles.Sales,
             new UpdateQuotationRequestDto
             {
-                ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7))
+                ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
+                DepositAmount = depositAmount
             });
 
         return await _fixture.Client.SendAsync(request);
@@ -407,63 +406,22 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         await ReadDataAsync<ProductionItemStatusDto>(response, HttpStatusCode.OK);
     }
 
-    private async Task<Guid> CreateAdjustmentAsync(
-        QuotationDraftScenario scenario,
-        Guid orderId)
+    private async Task AssertUnavailableProductionCompletionStateAsync(
+        Guid orderId,
+        Guid productOrderItemId,
+        Guid productionRequestId)
     {
-        using var request = IntegrationHttp.AuthenticatedJson(
-            HttpMethod.Post,
-            $"/orders/{orderId}/adjustments",
-            scenario.SalesAccountId,
-            CoreRoles.Sales,
-            new CreateOrderAdjustmentDto
-            {
-                Reason = "Unavailable item adjustment",
-                InternalNote = "Created by quotation financial E2E"
-            });
+        await using var context = _fixture.Database.CreateDbContext();
+        var order = await context.OrderSet.SingleAsync(item => item.OrderId == orderId);
+        var productItem = await context.OrderItemSet.SingleAsync(item => item.OrderItemId == productOrderItemId);
+        var productionRequest = await context.ProductionRequestSet.SingleAsync(
+            item => item.ProductionRequestId == productionRequestId);
 
-        var response = await _fixture.Client.SendAsync(request);
-        var adjustment = await ReadDataAsync<OrderAdjustmentDto>(response, HttpStatusCode.Created);
-        return adjustment.OrderAdjustmentId;
-    }
-
-    private async Task AddUnavailableAdjustmentItemAsync(
-        QuotationDraftScenario scenario,
-        Guid adjustmentId,
-        Guid orderItemId,
-        decimal vatInclusiveAmount)
-    {
-        using var request = IntegrationHttp.AuthenticatedJson(
-            HttpMethod.Post,
-            $"/order-adjustments/{adjustmentId}/items",
-            scenario.SalesAccountId,
-            CoreRoles.Sales,
-            new UpsertOrderAdjustmentItemDto
-            {
-                AdjustmentType = OrderAdjustmentItemType.UNAVAILABLE_ITEM,
-                OrderItemId = orderItemId,
-                AdjustmentAmount = vatInclusiveAmount,
-                Reason = "Material unavailable"
-            });
-
-        var response = await _fixture.Client.SendAsync(request);
-        var item = await ReadDataAsync<OrderAdjustmentItemDto>(response, HttpStatusCode.Created);
-        Assert.Equal(vatInclusiveAmount, item.AdjustmentAmount);
-        Assert.Equal(vatInclusiveAmount, item.ItemTotalAmount);
-    }
-
-    private async Task ConfirmAdjustmentAsync(
-        QuotationDraftScenario scenario,
-        Guid adjustmentId)
-    {
-        using var request = IntegrationHttp.Authenticated(
-            HttpMethod.Patch,
-            $"/order-adjustments/{adjustmentId}/confirm",
-            scenario.CustomerAccountId,
-            CoreRoles.Customer);
-
-        var response = await _fixture.Client.SendAsync(request);
-        await ReadDataAsync<OrderAdjustmentConfirmationDto>(response, HttpStatusCode.OK);
+        Assert.Equal(OrderStatus.READY_FOR_DELIVERY, order.Status);
+        Assert.Equal(ProductVatInclusiveTotal, order.FinalTotalAmount);
+        Assert.Equal(OrderItemStatus.UNAVAILABLE, productItem.Status);
+        Assert.Equal("Material unavailable", productItem.UnavailableReason);
+        Assert.Equal(ProductionRequestStatus.COMPLETED, productionRequest.Status);
     }
 
     private async Task<HttpResponseMessage> RequestRevisionAsync(
@@ -572,11 +530,13 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             .ToListAsync();
 
         Assert.Equal(QuotationStatus.ACCEPTED, quotation.Status);
-        Assert.Equal(OrderStatus.DEPOSIT_PENDING, order.Status);
+        Assert.Equal(OrderStatus.CREATED, order.Status);
         Assert.Equal(ProductVatInclusiveTotal, quotation.TotalAmount);
+        Assert.Equal(ProductDepositAmount, quotation.DepositAmount);
         Assert.Equal(ProductVatInclusiveTotal, order.OriginalTotalAmount);
         Assert.Equal(ProductVatInclusiveTotal, order.FinalTotalAmount);
         Assert.Equal(ProductVatInclusiveTotal, order.RemainingAmount);
+        Assert.Equal(ProductDepositAmount, order.DepositAmount);
         Assert.Equal(0.08m, order.VatRate);
         Assert.Equal(ProductVatShare, order.VatAmount);
         Assert.Equal(scenario.CustomerAccountId, order.CustomerId);
@@ -590,28 +550,6 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         Assert.Equal(ProductPreVatTotal, productOrderItem.SubtotalAmount);
 
         return new AcceptedOrderSnapshot(order.OrderId, productOrderItem.OrderItemId);
-    }
-
-    private async Task AssertRefundGuardStateAsync(
-        Guid orderId,
-        Guid productOrderItemId,
-        Guid adjustmentId,
-        Guid productionRequestId)
-    {
-        await using var context = _fixture.Database.CreateDbContext();
-        var order = await context.OrderSet.SingleAsync(item => item.OrderId == orderId);
-        var productItem = await context.OrderItemSet.SingleAsync(item => item.OrderItemId == productOrderItemId);
-        var adjustment = await context.OrderAdjustmentSet.SingleAsync(item => item.OrderAdjustmentId == adjustmentId);
-        var productionRequest = await context.ProductionRequestSet.SingleAsync(
-            item => item.ProductionRequestId == productionRequestId);
-
-        Assert.Equal(OrderStatus.IN_PRODUCTION, order.Status);
-        Assert.Equal(ProductVatInclusiveTotal, order.FinalTotalAmount);
-        Assert.Equal(0m, order.ItemAdjustmentAmount);
-        Assert.Equal(OrderItemStatus.IN_PRODUCTION, productItem.Status);
-        Assert.Equal(0m, productItem.AdjustmentAmount);
-        Assert.Equal(OrderAdjustmentStatus.CONFIRMED, adjustment.Status);
-        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, productionRequest.Status);
     }
 
     private async Task AssertQuotationStateAsync(

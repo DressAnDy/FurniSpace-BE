@@ -1494,7 +1494,7 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
-    public async Task SelectFinalAsync_WithAlreadySelectedProposal_ReturnsProposalAlreadySelected()
+    public async Task SelectFinalAsync_WithAlreadySelectedProposal_ReturnsSuccess()
     {
         var customerId = Guid.NewGuid();
         var proposalId = Guid.NewGuid();
@@ -1509,8 +1509,8 @@ public sealed class ProposalServiceTests
             customerId,
             new SelectFinalProposalRequestDto());
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(CustomizationRequestErrorCodes.ProposalAlreadySelected, result.ErrorCode);
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProposalStatus.SELECTED, result.Data!.ProposalStatus);
     }
 
     [Fact]

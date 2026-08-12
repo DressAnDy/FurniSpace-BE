@@ -852,6 +852,7 @@ Route: `projects`
 | PATCH | `/projects/{projectId}/basic-information` | CUSTOMER, SALES, ADMIN | Update basic info |
 | PATCH | `/projects/{projectId}/status` | SALES, DESIGNER, ADMIN | Status transition |
 | PATCH | `/projects/{projectId}/rejection` | SALES, ADMIN | Reject project |
+| POST | `/projects/{projectId}/reopen-proposal` | CUSTOMER, SALES, ADMIN | Roll back to proposal consulting before deposit paid |
 | PATCH | `/projects/{projectId}/designer-assignment` | SALES, ADMIN | Assign designer |
 | GET | `/projects/{projectId}/catalog/products` | DESIGNER, ADMIN | Project-eligible catalog list — see [§8b](#8b-catalog--designer-project-catalog) |
 | GET | `/projects/{projectId}/catalog/products/{productId}` | DESIGNER, ADMIN | Eligible product detail |
@@ -937,6 +938,25 @@ Customers cannot use this endpoint. Designer target statuses are restricted (`Pr
 { "rejectionReason": "Out of service area" }
 ```
 
+### Reopen proposal
+
+No request body.
+
+Rolls back a project from `ORDER_CONFIRMED` to `PROPOSAL_CONSULTING` **before deposit is paid** and **before production is created**. In one transaction the backend:
+
+- Cancels or expires active `DEPOSIT` payments (if any)
+- Sets the latest order (`CREATED` or `DEPOSIT_PENDING`) → `CANCELLED`
+- Sets the accepted quotation → `CANCELLED`
+- Demotes the selected proposal → `PUBLISHED` (clears `selectedAt`)
+- Restores auto-rejected sibling proposals when applicable
+- Moves project → `PROPOSAL_CONSULTING`
+
+**Response** (`ReopenProposalResponseDto`): `projectId`, `oldStatus?`, `newStatus?`, `orderId?`, `orderStatus?`, `quotationId?`, `quotationStatus?`, `selectedProposalId?`, `selectedProposalStatus?`, `restoredProposalCount`, `updatedAt?`
+
+**Common error codes:** `PROJECT_REOPEN_NOT_ALLOWED`, `PROJECT_NO_ACCEPTED_ORDER`, `PROJECT_DEPOSIT_ALREADY_PAID`, `PROJECT_PRODUCTION_ALREADY_CREATED`, `ACTIVE_DEPOSIT_CANNOT_BE_CANCELLED`
+
+**Access:** customer (own project), assigned sales, or admin.
+
 ### Designer assignment
 
 ```json
@@ -988,7 +1008,8 @@ SUBMITTED
   → PROPOSAL_CONSULTING → PROPOSAL_SELECTED
   → QUOTATION_SENT / QUOTATION_REVISION_REQUESTED
   → ORDER_CONFIRMED
-  → IN_PRODUCTION / PRODUCTION_BLOCKED
+  → (optional reopen-proposal back to PROPOSAL_CONSULTING before deposit paid)
+  → IN_PRODUCTION
   → READY_FOR_DELIVERY → DELIVERING → DELIVERED → COMPLETED
   (or REJECTED)
 ```
@@ -1060,6 +1081,12 @@ Controller uses `[Route("")]` — absolute paths.
 ```json
 { "revisionNote": "Need warmer lighting" }
 ```
+
+**Select-final response** (`SelectFinalProposalResponseDto`): `proposalId`, `projectId`, `quotationId?`, `proposalStatus?`, `projectStatus?`, `selectedAt?`
+
+On first successful select-final, the backend **auto-creates a draft quotation** from the selected proposal in the same transaction and returns its `quotationId`. Idempotent re-call when the proposal is already `SELECTED` returns `200` without creating another quotation (`quotationId` may be omitted).
+
+Sales normally continue from this draft (`PATCH` quotation → `PATCH` send). `POST /projects/{projectId}/quotations` remains as a manual fallback for SALES/ADMIN.
 
 ### Create scene
 
@@ -1219,7 +1246,7 @@ Absolute routes on `QuotationsController`.
 | --- | --- | --- |
 | GET | `/projects/{projectId}/quotations` | CUSTOMER, SALES, DESIGNER, ADMIN |
 | GET | `/quotations/{quotationId}` | same |
-| POST | `/projects/{projectId}/quotations` | SALES, ADMIN · no body (from selected proposal) |
+| POST | `/projects/{projectId}/quotations` | SALES, ADMIN · no body · **fallback** (normal flow: auto-created on select-final) |
 | PATCH | `/quotations/{quotationId}` | SALES, ADMIN |
 | PATCH | `/quotations/{quotationId}/items/{quotationItemId}/financials` | SALES, ADMIN |
 | PUT | `/quotations/{quotationId}/items/financials` | SALES, ADMIN · bulk item financials |
@@ -1230,7 +1257,9 @@ Absolute routes on `QuotationsController`.
 | PATCH | `/quotations/{quotationId}/request-revision` | CUSTOMER |
 | PATCH | `/quotations/{quotationId}/reject` | CUSTOMER |
 
-Accepting a quotation creates an **Order** with deposit/remaining amounts (default deposit **30%** via `OrderWorkflow:DepositPercent`). The order snapshots `vatRate` and `vatAmount` from the accepted quotation header.
+Accepting a quotation creates an **Order** in status **`CREATED`**. The order snapshots `depositAmount`, `vatRate`, `vatAmount`, and monetary totals from the accepted quotation header. Deposit is **not** collected at accept time — the customer initiates deposit payment separately (§13).
+
+Draft quotations are initialized with `depositAmount = 30%` of `totalAmount` (config: `OrderWorkflow:DepositPercent`). Sales may edit `depositAmount` on the quotation while it is still `DRAFT` / `REVISED`; send and accept require `0 < depositAmount ≤ totalAmount`. After item financials change, update `depositAmount` if the default no longer fits the new total.
 
 ### List query
 
@@ -1245,11 +1274,14 @@ Draft quotations are created with header `vatRate = 0.08` (8%). VAT is applied o
 ```json
 {
   "validUntil": "2026-08-31",
+  "depositAmount": 5832000,
   "customerNote": null,
   "salesNote": "VIP discount",
   "revisionReason": null
 }
 ```
+
+Writable: `validUntil`, `depositAmount`, `customerNote`, `salesNote`, `revisionReason`. Monetary header totals remain server-calculated from items.
 
 ### Update item financials
 
@@ -1303,6 +1335,7 @@ Bulk body:
   "vatRate": 0.08,
   "vatAmount": 1440000,
   "totalAmount": 19440000,
+  "depositAmount": 5832000,
   "currency": "VND",
   "status": "SENT",
   "validUntil": "...",
@@ -1363,32 +1396,18 @@ Absolute routes on `OrdersController`.
 | --- | --- | --- |
 | GET | `/projects/{projectId}/orders` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | GET | `/orders/{orderId}` | same |
-| PATCH | `/orders/{orderId}/financial-adjustment` | SALES, ADMIN |
 | POST | `/orders/{orderId}/payments/deposit` | CUSTOMER, SALES, ADMIN |
 | POST | `/orders/{orderId}/payments/remaining` | SALES, ADMIN |
 | PATCH | `/orders/{orderId}/prepare-final-payment` | SALES, ADMIN |
 | PATCH | `/orders/{orderId}/complete` | SALES, ADMIN |
 | POST | `/orders/{orderId}/production-request` | SALES, ADMIN |
-| POST | `/orders/{orderId}/adjustments` | SALES, ADMIN |
-| POST | `/order-adjustments/{id}/items` | SALES, ADMIN |
-| PATCH | `/order-adjustment-items/{id}` | SALES, ADMIN |
-| DELETE | `/order-adjustment-items/{id}` | SALES, ADMIN |
-| PATCH | `/order-adjustments/{id}/confirm` | CUSTOMER |
 | PATCH | `/orders/{orderId}/start-delivery` | SALES, PRODUCTION, ADMIN |
 | PATCH | `/order-items/{id}/delivered-quantity` | SALES, PRODUCTION, ADMIN |
 | PATCH | `/order-items/{id}/confirm-delivery` | CUSTOMER |
 
 `PaidAmount` / `RemainingAmount` live on **Order**, not on Payment.
 
-### Financial adjustment
-
-```json
-{
-  "additionalDiscountAmount": 500000,
-  "depositAmount": 30000000,
-  "adjustmentNote": "Promo"
-}
-```
+New orders start as **`CREATED`** after quotation accept. Deposit payment is initiated explicitly; creating a deposit payment from `CREATED` moves the order to **`DEPOSIT_PENDING`**. Webhook/settlement then moves to `DEPOSIT_PAID`.
 
 ### Create deposit / remaining payment
 
@@ -1398,6 +1417,8 @@ Absolute routes on `OrdersController`.
   "note": "Deposit invoice"
 }
 ```
+
+Eligible order statuses: **`CREATED`** (creates payment and moves order → `DEPOSIT_PENDING`) or **`DEPOSIT_PENDING`** (reuses an active pending deposit payment when present). Amount is always taken from the order snapshot `depositAmount`.
 
 ### Create production request
 
@@ -1410,36 +1431,6 @@ Absolute routes on `OrdersController`.
   "note": null
 }
 ```
-
-### Create adjustment
-
-```json
-{
-  "reason": "Item unavailable",
-  "internalNote": "Supplier delay"
-}
-```
-
-### Upsert adjustment item
-
-```json
-{
-  "adjustmentType": "UNAVAILABLE_ITEM",
-  "orderItemId": "...",
-  "adjustmentAmount": 2160000,
-  "reason": "Out of stock"
-}
-```
-
-`adjustmentType`: `UNAVAILABLE_ITEM` | `ADDITIONAL_DISCOUNT`
-
-For `UNAVAILABLE_ITEM`, `adjustmentAmount` must equal the order item's VAT-inclusive total (server-validated). The backend derives this from the order snapshot:
-
-- `itemPreVatAmount = orderItem.subtotalAmount` (= `quantity * unitPrice - discountAmount`)
-- `vatShare = ROUND(itemPreVatAmount * order.vatRate)`
-- required `adjustmentAmount = itemPreVatAmount + vatShare`
-
-Example: pre-VAT subtotal `2,000,000` with `vatRate = 0.08` → `adjustmentAmount = 2,160,000`.
 
 ### Delivered quantity
 
@@ -1470,7 +1461,7 @@ Example: pre-VAT subtotal `2,000,000` with `vatRate = 0.08` → `adjustmentAmoun
   "depositAmount": 5832000,
   "paidAmount": 0,
   "remainingAmount": 19440000,
-  "status": "DEPOSIT_PENDING",
+  "status": "CREATED",
   "items": [
     {
       "orderItemId": "...",
@@ -2622,8 +2613,10 @@ Create production request: `POST /orders/{orderId}/production-request` (§13).
 
 ### Start
 
+Optional body (ignored for date assignment — server sets `actualStartDate` to UTC today on start):
+
 ```json
-{ "actualStartDate": "2026-08-05T00:00:00Z" }
+{ "actualStartDate": "2026-08-05" }
 ```
 
 ### Update production item status
@@ -2636,8 +2629,10 @@ Create production request: `POST /orders/{orderId}/production-request` (§13).
 }
 ```
 
-`ProductionItemStatus`: `PENDING`, `IN_PRODUCTION`, `COMPLETED`, `BLOCKED`, `CANCELLED`  
-`ProductionRequestStatus`: `PENDING_REVIEW`, `FEASIBLE`, `IN_PRODUCTION`, `COMPLETED`, `BLOCKED`, `CANCELLED`
+`ProductionItemStatus`: `PENDING`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED`  
+`ProductionRequestStatus`: `PENDING_REVIEW`, `FEASIBLE`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED`
+
+When completing production, each item must be `COMPLETED` or `CANCELLED`. Cancelled production items map the linked order item to **`UNAVAILABLE`** (with `unavailableReason` from production cancellation) — no order financial adjustment is required. Server sets `actualCompletionDate` on complete.
 
 ### Available staff query
 
@@ -2647,7 +2642,7 @@ Create production request: `POST /orders/{orderId}/production-request` (§13).
 
 ### Completion response
 
-Includes `productionRequestId`, `productionStatus`, `orderStatus`, `projectStatus`, `appliedAdjustmentCount`, `finalTotalAmount`, `paidAmount?`, `remainingAmount?`
+`ProductionCompletionDto`: `productionRequestId`, `productionStatus`, `orderStatus`, `projectStatus`, `actualStartDate?`, `actualCompletionDate?`, `readyOrderItemCount`, `unavailableOrderItemCount`, `finalTotalAmount`, `paidAmount?`, `remainingAmount?`
 
 ---
 
@@ -2688,15 +2683,13 @@ All values are JSON strings matching C# member names.
 | Enum | Values |
 | --- | --- |
 | `AccountStatus` | `ACTIVE`, `INACTIVE`, `SUSPENDED` |
-| `ProjectStatus` | `SUBMITTED`, `IN_CONSULTATION`, `NEED_BASIC_INFORMATION`, `WAITING_FOR_DESIGNER_ASSIGNMENT`, `MEASUREMENT_REQUIRED`, `SPACE_VERIFIED`, `PROPOSAL_CONSULTING`, `PROPOSAL_SELECTED`, `QUOTATION_SENT`, `QUOTATION_REVISION_REQUESTED`, `ORDER_CONFIRMED`, `IN_PRODUCTION`, `PRODUCTION_BLOCKED`, `READY_FOR_DELIVERY`, `DELIVERING`, `DELIVERED`, `COMPLETED`, `REJECTED` |
+| `ProjectStatus` | `SUBMITTED`, `IN_CONSULTATION`, `NEED_BASIC_INFORMATION`, `WAITING_FOR_DESIGNER_ASSIGNMENT`, `MEASUREMENT_REQUIRED`, `SPACE_VERIFIED`, `PROPOSAL_CONSULTING`, `PROPOSAL_SELECTED`, `QUOTATION_SENT`, `QUOTATION_REVISION_REQUESTED`, `ORDER_CONFIRMED`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `DELIVERED`, `COMPLETED`, `REJECTED` |
 | `ProjectSpaceDataStatus` | `SUFFICIENT`, `INSUFFICIENT` |
 | `ProposalStatus` | `DRAFT`, `PUBLISHED`, `SELECTED`, `REVISION_REQUESTED`, `REJECTED`, `ARCHIVED` |
 | `ProposalSceneType` | `TWO_D`, `THREE_D` |
 | `QuotationStatus` | `DRAFT`, `SENT`, `REVISION_REQUESTED`, `REVISED`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `CANCELLED` |
 | `OrderStatus` | `CREATED`, `DEPOSIT_PENDING`, `DEPOSIT_PAID`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `DELIVERED`, `FINAL_PAYMENT_PENDING`, `COMPLETED`, `CANCELLED` |
 | `OrderItemStatus` | `PENDING`, `IN_PRODUCTION`, `READY`, `UNAVAILABLE`, `DELIVERED`, `CANCELLED` |
-| `OrderAdjustmentStatus` | `DRAFT`, `CONFIRMED`, `APPLIED`, `CANCELLED` |
-| `OrderAdjustmentItemType` | `UNAVAILABLE_ITEM`, `ADDITIONAL_DISCOUNT` |
 | `PaymentType` | `PROJECT_START_FEE`, `DEPOSIT`, `REMAINING_PAYMENT`, `FULL_PAYMENT`, `REFUND`, `OTHER` |
 | `PaymentStatus` | `PENDING`, `PROCESSING`, `PAID`, `CANCELLED`, `EXPIRED`, `REFUNDED` |
 | `PaymentProvider` | `PAYOS`, `SEPAY`, `CASH`, `MANUAL_BANK_TRANSFER`, `OTHER` |
@@ -2706,8 +2699,8 @@ All values are JSON strings matching C# member names.
 | `CustomizationStatus` | `SUBMITTED`, `REVIEWING`, `ACCEPTED`, `CANCELLED` |
 | `CustomizationVersionStatus` | `DRAFT`, `REVIEWING`, `ACCEPTED`, `PRODUCTION_REJECTED`, `WITHDRAWN` |
 | `ProductionFeasibilityStatus` | `PENDING`, `FEASIBLE`, `NOT_FEASIBLE` |
-| `ProductionRequestStatus` | `PENDING_REVIEW`, `FEASIBLE`, `IN_PRODUCTION`, `COMPLETED`, `BLOCKED`, `CANCELLED` |
-| `ProductionItemStatus` | `PENDING`, `IN_PRODUCTION`, `COMPLETED`, `BLOCKED`, `CANCELLED` |
+| `ProductionRequestStatus` | `PENDING_REVIEW`, `FEASIBLE`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED` |
+| `ProductionItemStatus` | `PENDING`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED` |
 | `ProductStatus` | `ACTIVE`, `INACTIVE`, `ARCHIVED` |
 | `ProductVersionType` | `STANDARD`, `CUSTOM`, `PROJECT_SPECIFIC` |
 | `ProjectAreaType` | `STORE`, `FLOOR`, `ROOM`, `ZONE`, `OUTDOOR_AREA`, `OTHER` |
@@ -2744,12 +2737,13 @@ CLI (not HTTP): `dotnet run --project src/FurniSpace.API -- reindex {accounts|pr
 3. Sales: PATCH .../sales-assignment → consultation / info requests
 4. Sales: PATCH .../designer-assignment (after start fee if required)
 5. Designer: POST proposals → scenes → PUT room-planner → sync items → publish
-6. Customer: select-final (or request-revision)
-7. Sales: POST quotations → PATCH send
-8. Customer: PATCH quotations/{id}/accept → Order created (deposit pending)
-9. POST orders/{id}/payments/deposit → POST /api/payments/{id}/transactions (or SePay/PayOS helpers)
+6. Customer: PATCH proposals/{id}/select-final → draft quotation auto-created (`quotationId` in response)
+7. Sales: PATCH quotations/{id} (validUntil, depositAmount) → PATCH send
+8. Customer: PATCH quotations/{id}/accept → Order **CREATED** (deposit snapshotted, not collected yet)
+9. POST orders/{id}/payments/deposit → order **DEPOSIT_PENDING** → POST /api/payments/{id}/transactions (or SePay/PayOS helpers)
 10. Provider webhook → PAID → order/project side effects
-11. Sales: POST production-request → production lifecycle → delivery → complete
+11. (Optional before deposit paid) POST projects/{id}/reopen-proposal → back to PROPOSAL_CONSULTING
+12. Sales: POST production-request → production lifecycle → delivery → complete
 ```
 
 ---

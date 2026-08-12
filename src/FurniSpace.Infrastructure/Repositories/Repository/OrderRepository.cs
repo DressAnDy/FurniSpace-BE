@@ -95,6 +95,21 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
             cancellationToken);
     }
 
+    public Task<Order?> GetLatestByProjectInStatusesAsync(
+        Guid projectId,
+        IReadOnlyCollection<OrderStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.OrderSet
+            .Where(order =>
+                order.ProjectId == projectId &&
+                order.Status.HasValue &&
+                statuses.Contains(order.Status.Value))
+            .OrderByDescending(order => order.CreatedAt)
+            .ThenByDescending(order => order.OrderId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default)
     {
         return DbContext.OrderItemSet.AddAsync(item, cancellationToken).AsTask();
@@ -116,88 +131,6 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
         return await DbContext.OrderItemSet
             .Where(item => item.OrderId == orderId)
             .ToListAsync(cancellationToken);
-    }
-
-    public Task<OrderAdjustment?> GetAdjustmentByIdAsync(
-        Guid orderAdjustmentId,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.OrderAdjustmentSet.FirstOrDefaultAsync(
-            adjustment => adjustment.OrderAdjustmentId == orderAdjustmentId,
-            cancellationToken);
-    }
-
-    public Task<OrderAdjustmentItem?> GetAdjustmentItemByIdAsync(
-        Guid orderAdjustmentItemId,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.OrderAdjustmentItemSet.FirstOrDefaultAsync(
-            item => item.OrderAdjustmentItemId == orderAdjustmentItemId,
-            cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsAsync(
-        Guid orderAdjustmentId,
-        CancellationToken cancellationToken = default)
-    {
-        return await DbContext.OrderAdjustmentItemSet
-            .Where(item => item.OrderAdjustmentId == orderAdjustmentId)
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<OrderAdjustment>> GetAdjustmentsByOrderAsync(
-        Guid orderId,
-        CancellationToken cancellationToken = default)
-    {
-        return await DbContext.OrderAdjustmentSet
-            .Where(adjustment => adjustment.OrderId == orderId)
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsByOrderAsync(
-        Guid orderId,
-        CancellationToken cancellationToken = default)
-    {
-        return await (
-                from item in DbContext.OrderAdjustmentItemSet
-                join adjustment in DbContext.OrderAdjustmentSet
-                    on item.OrderAdjustmentId equals adjustment.OrderAdjustmentId
-                where adjustment.OrderId == orderId
-                select item)
-            .ToListAsync(cancellationToken);
-    }
-
-    public Task<bool> HasCancelledProductionItemAsync(
-        Guid orderItemId,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.ProductionItemSet.AnyAsync(
-            item => item.OrderItemId == orderItemId && item.Status == ProductionItemStatus.CANCELLED,
-            cancellationToken);
-    }
-
-    public Task AddAdjustmentAsync(
-        OrderAdjustment adjustment,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.OrderAdjustmentSet.AddAsync(adjustment, cancellationToken).AsTask();
-    }
-
-    public Task AddAdjustmentItemAsync(
-        OrderAdjustmentItem item,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.OrderAdjustmentItemSet.AddAsync(item, cancellationToken).AsTask();
-    }
-
-    public void UpdateAdjustment(OrderAdjustment adjustment)
-    {
-        DbContext.OrderAdjustmentSet.Update(adjustment);
-    }
-
-    public void UpdateAdjustmentItem(OrderAdjustmentItem item)
-    {
-        DbContext.OrderAdjustmentItemSet.Update(item);
     }
 
     public void UpdateItem(OrderItem item)
@@ -287,11 +220,6 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
         item.LastDeliveredBy = deliveredBy;
         UpdateItem(item);
         return item;
-    }
-
-    public void RemoveAdjustmentItem(OrderAdjustmentItem item)
-    {
-        DbContext.OrderAdjustmentItemSet.Remove(item);
     }
 
     public new void Update(Order order)

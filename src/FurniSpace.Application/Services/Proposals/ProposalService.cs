@@ -4,9 +4,11 @@ using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.Proposals.ProposalServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.Proposals;
+using FurniSpace.Application.DTOs.Quotations;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Proposals;
+using FurniSpace.Application.Interfaces.Quotations;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.Proposals;
@@ -28,6 +30,7 @@ public sealed class ProposalService : IProposalService
     private readonly IUnitOfWork _unitOfWork;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<ProposalService>? _logger;
+    private readonly IQuotationService? _quotations;
 
     public ProposalService(
         IProposalRepository proposals,
@@ -44,6 +47,7 @@ public sealed class ProposalService : IProposalService
         _unitOfWork = unitOfWork;
         _notifications = dependencies?.Notifications;
         _logger = dependencies?.Logger;
+        _quotations = dependencies?.Quotations;
     }
 
     public async Task<ServiceResult<ProposalDto>> CreateAsync(
@@ -804,9 +808,17 @@ public sealed class ProposalService : IProposalService
         {
             if (proposal.Status == ProposalStatus.SELECTED)
             {
-                return ServiceResult<SelectFinalProposalResponseDto>.Failure(Error.BadRequest(
-                    CustomizationRequestErrorCodes.ProposalAlreadySelected,
-                    "Proposal has already been selected."));
+                var existingProject = await _projects.GetByIdAsync(proposal.ProjectId, cancellationToken);
+                return ServiceResult<SelectFinalProposalResponseDto>.Success(
+                    new SelectFinalProposalResponseDto
+                    {
+                        ProposalId = proposalId,
+                        ProjectId = proposal.ProjectId,
+                        ProposalStatus = proposal.Status,
+                        ProjectStatus = existingProject?.Status,
+                        SelectedAt = proposal.SelectedAt
+                    },
+                    "Final proposal selected successfully.");
             }
 
             return ServiceResult<SelectFinalProposalResponseDto>.Failure(Error.BadRequest(
@@ -843,6 +855,27 @@ public sealed class ProposalService : IProposalService
                 proposalId,
                 now,
                 cancellationToken);
+
+            Guid? quotationId = null;
+            if (_quotations is not null)
+            {
+                var draftResult = await _quotations.AddDraftQuotationForSelectedProposalAsync(
+                    proposal.ProjectId,
+                    proposalId,
+                    currentUserId,
+                    cancellationToken);
+                if (draftResult.Status is not (200 or 201))
+                {
+                    await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                    return ServiceResult<SelectFinalProposalResponseDto>.Failure(
+                        Error.BadRequest(
+                            draftResult.ErrorCode ?? QuotationErrorCodes.InvalidQuotationStatus,
+                            draftResult.Message ?? "Failed to create draft quotation."));
+                }
+
+                quotationId = draftResult.Data?.QuotationId;
+            }
+
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
             await DispatchProposalFinalSelectedNotificationAsync(proposal, cancellationToken);
@@ -852,6 +885,7 @@ public sealed class ProposalService : IProposalService
                 {
                     ProposalId = proposalId,
                     ProjectId = proposal.ProjectId,
+                    QuotationId = quotationId,
                     ProposalStatus = proposalEntity.Status,
                     ProjectStatus = projectEntity.Status,
                     SelectedAt = proposalEntity.SelectedAt

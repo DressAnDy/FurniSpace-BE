@@ -61,4 +61,9 @@ public interface IProjectService
         Guid currentUserId,
         GetProjectsByUserQueryDto query,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ReopenProposalResponseDto>> ReopenProposalAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
 }

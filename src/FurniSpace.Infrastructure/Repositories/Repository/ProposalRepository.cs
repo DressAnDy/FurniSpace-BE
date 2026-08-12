@@ -613,6 +613,42 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
         }
     }
 
+    public Task<Proposal?> GetSelectedProposalByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalSet
+            .Where(proposal =>
+                proposal.ProjectId == projectId &&
+                proposal.Status == ProposalStatus.SELECTED)
+            .OrderByDescending(proposal => proposal.SelectedAt)
+            .ThenByDescending(proposal => proposal.ProposalId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<int> RestoreAutoRejectedProposalsAsync(
+        Guid projectId,
+        DateTime autoRejectedAt,
+        DateTime restoredAt,
+        CancellationToken cancellationToken = default)
+    {
+        var proposals = await DbContext.ProposalSet
+            .Where(proposal =>
+                proposal.ProjectId == projectId &&
+                proposal.Status == ProposalStatus.REJECTED &&
+                proposal.RejectedAt == autoRejectedAt)
+            .ToListAsync(cancellationToken);
+
+        foreach (var proposal in proposals)
+        {
+            proposal.Status = ProposalStatus.PUBLISHED;
+            proposal.RejectedAt = null;
+            proposal.UpdatedAt = restoredAt;
+        }
+
+        return proposals.Count;
+    }
+
     private IQueryable<Proposal> BuildListQuery(ProposalListQueryReadModel query)
     {
         var proposals = DbContext.ProposalSet.Where(proposal => proposal.ProjectId == query.ProjectId);

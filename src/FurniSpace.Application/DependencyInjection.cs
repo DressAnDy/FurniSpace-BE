@@ -130,7 +130,8 @@ public static class DependencyInjection
                 sp.GetService<IRoomPlannerSceneRepository>(),
                 sp.GetService<INotificationDispatcher>(),
                 sp.GetService<ILogger<ProposalService>>(),
-                sp.GetService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>());
+                sp.GetService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>(),
+                sp.GetService<IQuotationService>());
         });
         services.AddScoped<IProposalService, ProposalService>();
         services.AddScoped<QuotationRecalculationService>();
@@ -225,7 +226,11 @@ public static class DependencyInjection
                 sp.GetService<IProjectChatService>(),
                 sp.GetService<ISearchIndexService>(),
                 sp.GetService<IProjectSearchIndexer>(),
-                sp.GetRequiredService<PaymentRepository>());
+                sp.GetRequiredService<PaymentRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IOrderRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IQuotationRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProposalRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProductionRequestRepository>());
         });
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped(static sp => new IdentityVerificationStores(

@@ -17,4 +17,10 @@ internal static class ProjectServiceConstants
 
     internal static readonly string[] ProjectSubmittedReceiverRoles = [ApplicationRoles.Sales, ApplicationRoles.Admin];
     internal static readonly IReadOnlyDictionary<ProjectStatus, int> ProjectStatusRanks = ProjectStatusRankings.Values;
+
+    internal static readonly OrderStatus[] ReopenEligibleOrderStatuses =
+    [
+        OrderStatus.CREATED,
+        OrderStatus.DEPOSIT_PENDING
+    ];
 }

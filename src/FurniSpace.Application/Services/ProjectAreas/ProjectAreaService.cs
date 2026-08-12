@@ -354,12 +354,13 @@ public sealed class ProjectAreaService : IProjectAreaService
         decimal? length,
         decimal? height)
     {
-        if (IsNegative(areaSqm) || IsNegative(width) || IsNegative(length) || IsNegative(height))
+        if (IsNegative(areaSqm) || IsNegative(width) || IsNegative(length) || IsNegative(height) ||
+            IsZero(areaSqm) || IsZero(width) || IsZero(length) || IsZero(height))
         {
             return ServiceResult<ProjectAreaDto>.Failure(
                 Error.Validation(
                     ProjectAreaErrorCodes.InvalidAreaDimension,
-                    "Area dimensions must not be negative."));
+                    "Area dimensions must be null or greater than zero."));
         }
 
         return null;
@@ -523,6 +524,11 @@ public sealed class ProjectAreaService : IProjectAreaService
             area.CustomerId,
             area.AssignedSalesId,
             area.AssignedDesignerId);
+    }
+
+    private static bool IsZero(decimal? value)
+    {
+        return value.HasValue && value.Value == 0m;
     }
 
     private static bool IsNegative(decimal? value)

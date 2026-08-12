@@ -192,6 +192,7 @@ public sealed class ProjectFileRepositoryTests
             VatRate = 0.08m,
             VatAmount = 8m,
             TotalAmount = 108m,
+            DepositAmount = 32m,
             Currency = "VND"
         });
         context.OrderSet.Add(new Order

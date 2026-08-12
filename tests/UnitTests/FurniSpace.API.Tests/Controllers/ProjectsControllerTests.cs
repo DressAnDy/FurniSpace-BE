@@ -126,6 +126,15 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public void ReopenProposal_AllowsCustomerSalesAndAdminRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.ReopenProposal));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public void AssignDesigner_AllowsSalesAndAdminRoles()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.AssignDesigner));
@@ -829,6 +838,7 @@ public sealed class ProjectsControllerTests
         private readonly ServiceResult<ProjectBasicInformationDto> _updateBasicInformationResult;
         private readonly ServiceResult<ProjectStatusUpdateDto> _updateStatusResult;
         private readonly ServiceResult<ProjectRejectionDto> _rejectResult;
+        private readonly ServiceResult<ReopenProposalResponseDto> _reopenProposalResult;
         private readonly ServiceResult<ProjectDesignerAssignmentDto> _assignDesignerResult;
         private readonly ServiceResult<ProjectsByUserResponseDto> _projectsByUserResult;
 
@@ -841,6 +851,7 @@ public sealed class ProjectsControllerTests
             ServiceResult<ProjectBasicInformationDto>? updateBasicInformationResult = null,
             ServiceResult<ProjectStatusUpdateDto>? updateStatusResult = null,
             ServiceResult<ProjectRejectionDto>? rejectResult = null,
+            ServiceResult<ReopenProposalResponseDto>? reopenProposalResult = null,
             ServiceResult<ProjectDesignerAssignmentDto>? assignDesignerResult = null,
             ServiceResult<ProjectsByUserResponseDto>? projectsByUserResult = null)
         {
@@ -856,6 +867,8 @@ public sealed class ProjectsControllerTests
                 ServiceResult<ProjectStatusUpdateDto>.Success(new ProjectStatusUpdateDto());
             _rejectResult = rejectResult ??
                 ServiceResult<ProjectRejectionDto>.Success(new ProjectRejectionDto());
+            _reopenProposalResult = reopenProposalResult ??
+                ServiceResult<ReopenProposalResponseDto>.Success(new ReopenProposalResponseDto());
             _assignDesignerResult = assignDesignerResult ??
                 ServiceResult<ProjectDesignerAssignmentDto>.Success(new ProjectDesignerAssignmentDto());
             _projectsByUserResult = projectsByUserResult ??
@@ -987,6 +1000,16 @@ public sealed class ProjectsControllerTests
             UserId = userId;
             ProjectsByUserQuery = query;
             return Task.FromResult(_projectsByUserResult);
+        }
+
+        public Task<ServiceResult<ReopenProposalResponseDto>> ReopenProposalAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_reopenProposalResult);
         }
     }
 

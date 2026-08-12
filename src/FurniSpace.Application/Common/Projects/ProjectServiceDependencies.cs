@@ -17,4 +17,8 @@ public sealed record ProjectServiceDependencies(
     IProjectChatService? ProjectChats,
     ISearchIndexService? Search,
     IProjectSearchIndexer? ProjectSearchIndexer,
-    IPaymentRepository Payments);
+    IPaymentRepository Payments,
+    IOrderRepository Orders,
+    IQuotationRepository Quotations,
+    IProposalRepository Proposals,
+    IProductionRequestRepository ProductionRequests);

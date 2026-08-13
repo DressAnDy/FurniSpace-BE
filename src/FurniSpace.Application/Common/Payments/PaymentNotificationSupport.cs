@@ -85,11 +85,12 @@ internal static class PaymentNotificationSupport
                 type,
                 parameters,
                 receiverIds,
-                projectId: payment.ProjectId,
-                referenceType: PaymentReferenceType,
-                referenceId: payment.PaymentId,
-                cancellationToken: cancellationToken,
-                metadata: metadata);
+                new NotificationDispatchRequest(
+                    payment.ProjectId,
+                    PaymentReferenceType,
+                    payment.PaymentId,
+                    metadata),
+                cancellationToken);
         }
         catch (Exception exception)
         {

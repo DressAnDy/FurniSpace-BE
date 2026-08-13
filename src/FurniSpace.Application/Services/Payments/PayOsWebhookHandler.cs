@@ -28,19 +28,16 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
         IPaymentRepository payments,
         IUnitOfWork unitOfWork,
         IPayOsClient payOsClient,
-        IPaymentRealtimeService paymentRealtime,
-        IPaymentBusinessEffectService paymentBusinessEffects,
-        INotificationDispatcher? notifications = null,
-        IProjectStakeholderResolver? stakeholders = null,
+        PaymentWebhookRuntime runtime,
         ILogger<PayOsWebhookHandler>? logger = null)
     {
         _payments = payments;
         _unitOfWork = unitOfWork;
         _payOsClient = payOsClient;
-        _paymentRealtime = paymentRealtime;
-        _paymentBusinessEffects = paymentBusinessEffects;
-        _notifications = notifications;
-        _stakeholders = stakeholders;
+        _paymentRealtime = runtime.PaymentRealtime;
+        _paymentBusinessEffects = runtime.PaymentBusinessEffects;
+        _notifications = runtime.Notifications;
+        _stakeholders = runtime.Stakeholders;
         _logger = logger;
     }
 

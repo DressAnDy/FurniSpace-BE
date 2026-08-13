@@ -1,3 +1,5 @@
+#nullable enable
+
 using FurniSpace.API.Hubs;
 using FurniSpace.Application.Common.Realtime;
 using FurniSpace.Application.DTOs.Payments;

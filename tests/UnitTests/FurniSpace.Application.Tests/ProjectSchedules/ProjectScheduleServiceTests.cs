@@ -1382,11 +1382,8 @@ public sealed class ProjectScheduleServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             DispatchCallCount++;
             LastType = type;

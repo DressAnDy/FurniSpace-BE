@@ -243,18 +243,15 @@ public sealed class OrderNotificationSupportTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             Dispatches.Add(new CapturedDispatch(
                 type,
                 receiverIds.ToList(),
-                referenceType,
-                referenceId,
-                metadata));
+                request?.ReferenceType,
+                request?.ReferenceId,
+                request?.Metadata));
             return Task.CompletedTask;
         }
     }
@@ -265,11 +262,8 @@ public sealed class OrderNotificationSupportTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Dispatch failed.");
         }

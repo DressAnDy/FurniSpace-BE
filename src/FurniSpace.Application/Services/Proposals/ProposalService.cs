@@ -2144,15 +2144,16 @@ public sealed class ProposalService : IProposalService
                     ["Status"] = project.Status?.ToString() ?? string.Empty
                 },
                 receivers,
-                projectId: project.ProjectId,
-                referenceType: "PROJECT",
-                referenceId: project.ProjectId,
-                cancellationToken,
-                metadata: new Dictionary<string, object?>
-                {
-                    ["newProjectStatus"] = project.Status?.ToString(),
-                    ["proposalId"] = proposal.ProposalId
-                });
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    "PROJECT",
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["newProjectStatus"] = project.Status?.ToString(),
+                        ["proposalId"] = proposal.ProposalId
+                    }),
+                cancellationToken);
         }
         catch (Exception ex)
         {
@@ -2187,9 +2188,10 @@ public sealed class ProposalService : IProposalService
                     ["ProposalName"] = proposal.ProposalName
                 },
                 receiverIds,
-                projectId: proposal.ProjectId,
-                referenceType: "PROPOSAL",
-                referenceId: proposal.ProposalId,
+                new NotificationDispatchRequest(
+                    proposal.ProjectId,
+                    "PROPOSAL",
+                    proposal.ProposalId),
                 cancellationToken);
         }
         catch (Exception ex)
@@ -2219,9 +2221,10 @@ public sealed class ProposalService : IProposalService
                     ["ProposalName"] = proposal.ProposalName
                 },
                 [proposal.CustomerId],
-                projectId: proposal.ProjectId,
-                referenceType: "PROPOSAL",
-                referenceId: proposal.ProposalId,
+                new NotificationDispatchRequest(
+                    proposal.ProjectId,
+                    "PROPOSAL",
+                    proposal.ProposalId),
                 cancellationToken);
         }
         catch (Exception ex)
@@ -2257,9 +2260,10 @@ public sealed class ProposalService : IProposalService
                     ["ProposalName"] = proposal.ProposalName
                 },
                 receiverIds,
-                projectId: proposal.ProjectId,
-                referenceType: "PROPOSAL",
-                referenceId: proposal.ProposalId,
+                new NotificationDispatchRequest(
+                    proposal.ProjectId,
+                    "PROPOSAL",
+                    proposal.ProposalId),
                 cancellationToken);
         }
         catch (Exception ex)

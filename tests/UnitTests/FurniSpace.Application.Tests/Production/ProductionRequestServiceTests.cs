@@ -1297,11 +1297,8 @@ public sealed class ProductionRequestServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             var receivers = receiverIds.ToList();
             NotificationType = type;
@@ -1317,11 +1314,8 @@ public sealed class ProductionRequestServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Notification failed.");
         }

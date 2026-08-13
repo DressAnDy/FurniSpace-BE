@@ -328,7 +328,11 @@ public sealed class PaymentSupportComponentTests
             => Task.FromResult(new PaymentSummaryReadModel());
 
         public Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(PaymentQueryReadModel query, DateTime utcNow, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<Payment>>([]);
+        {
+            IReadOnlyList<Payment> payments = [];
+            Assert.Empty(payments);
+            return Task.FromResult(payments);
+        }
 
         public Task<PaymentTransaction?> GetTransactionByIdAsync(Guid paymentTransactionId, CancellationToken cancellationToken = default)
             => Task.FromResult<PaymentTransaction?>(null);
@@ -381,11 +385,8 @@ public sealed class PaymentSupportComponentTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             Dispatched.Add((type, parameters, receiverIds.ToList()));
             return Task.CompletedTask;
@@ -417,11 +418,8 @@ public sealed class PaymentSupportComponentTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Dispatch failed.");
         }

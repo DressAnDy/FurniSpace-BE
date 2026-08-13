@@ -275,6 +275,7 @@ public static class DependencyInjection
             sp.GetRequiredService<IUnitOfWork>(),
             sp.GetService<INotificationDispatcher>(),
             sp.GetService<ILogger<OrderService>>()));
+        services.AddScoped<PaymentWebhookRuntime>();
         services.AddScoped<ISePayWebhookService, SePayWebhookHandler>();
         services.AddScoped<IPayOsWebhookService, PayOsWebhookHandler>();
         services.AddScoped<IPayOsClient, PayOsClientService>();

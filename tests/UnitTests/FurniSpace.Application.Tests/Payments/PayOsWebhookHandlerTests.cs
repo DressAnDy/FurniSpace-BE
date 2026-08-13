@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -318,10 +319,11 @@ public sealed class PayOsWebhookHandlerTests
             repository,
             unitOfWork,
             payOsClient,
-            realtime,
-            new NoOpPaymentBusinessEffectService(),
-            notifications,
-            stakeholders);
+            new PaymentWebhookRuntime(
+                realtime,
+                new NoOpPaymentBusinessEffectService(),
+                notifications,
+                stakeholders));
     }
 
     private sealed class NoOpPaymentBusinessEffectService : IPaymentBusinessEffectService
@@ -606,11 +608,8 @@ public sealed class PayOsWebhookHandlerTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             Types.Add(type);
             return Task.CompletedTask;

@@ -36,18 +36,16 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
         IUnitOfWork unitOfWork,
         IOptions<SePayOptions> options,
         SePayWebhookSignatureVerifier signatureVerifier,
-        IPaymentRealtimeService paymentRealtime,
-        IPaymentBusinessEffectService paymentBusinessEffects,
-        IProjectStakeholderResolver? stakeholders = null,
+        PaymentWebhookRuntime runtime,
         ILogger<SePayWebhookHandler>? logger = null)
     {
         _payments = payments;
         _unitOfWork = unitOfWork;
         _options = options.Value;
         _signatureVerifier = signatureVerifier;
-        _paymentRealtime = paymentRealtime;
-        _paymentBusinessEffects = paymentBusinessEffects;
-        _stakeholders = stakeholders;
+        _paymentRealtime = runtime.PaymentRealtime;
+        _paymentBusinessEffects = runtime.PaymentBusinessEffects;
+        _stakeholders = runtime.Stakeholders;
         _logger = logger;
     }
 

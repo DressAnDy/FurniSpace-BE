@@ -43,10 +43,7 @@ public sealed class NotificationDispatcherTests
                 ["Currency"] = "VND"
             },
             [receiverId],
-            projectId,
-            "PAYMENT",
-            paymentId,
-            metadata: new Dictionary<string, object?> { ["paymentType"] = "DEPOSIT" });
+            new NotificationDispatchRequest(projectId, "PAYMENT", paymentId, new Dictionary<string, object?> { ["paymentType"] = "DEPOSIT" }));
 
         var saved = Assert.Single(repository.Added);
         Assert.Equal(receiverId, saved.ReceiverId);
@@ -87,9 +84,7 @@ public sealed class NotificationDispatcherTests
                 ["Currency"] = "VND"
             },
             [receiverId],
-            Guid.NewGuid(),
-            "PAYMENT",
-            paymentId);
+            new NotificationDispatchRequest(Guid.NewGuid(), "PAYMENT", paymentId));
 
         Assert.Empty(repository.Added);
         Assert.Empty(realtime.Sent);
@@ -117,9 +112,7 @@ public sealed class NotificationDispatcherTests
                 ["Status"] = "PROPOSAL_SELECTED"
             },
             [receiverId],
-            projectId,
-            "PROJECT",
-            projectId);
+            new NotificationDispatchRequest(projectId, "PROJECT", projectId));
 
         Assert.Empty(repository.Added);
         var sent = Assert.Single(realtime.Sent);
@@ -178,7 +171,7 @@ public sealed class NotificationDispatcherTests
                 ["Currency"] = "VND"
             },
             [receiverId],
-            Guid.NewGuid());
+            new NotificationDispatchRequest(Guid.NewGuid()));
 
         Assert.Single(repository.Added);
         Assert.Single(realtime.Sent);
@@ -207,9 +200,7 @@ public sealed class NotificationDispatcherTests
                 ["Currency"] = "VND"
             },
             [receiverId],
-            Guid.NewGuid(),
-            "PAYMENT",
-            Guid.NewGuid());
+            new NotificationDispatchRequest(Guid.NewGuid(), "PAYMENT", Guid.NewGuid()));
 
         Assert.Empty(repository.Added);
         Assert.Empty(realtime.Sent);
@@ -237,9 +228,7 @@ public sealed class NotificationDispatcherTests
                 ["Currency"] = "VND"
             },
             [receiverId],
-            Guid.NewGuid(),
-            "PAYMENT",
-            Guid.NewGuid()));
+            new NotificationDispatchRequest(Guid.NewGuid(), "PAYMENT", Guid.NewGuid())));
 
         Assert.Null(exception);
         Assert.Single(repository.Added);
@@ -262,9 +251,7 @@ public sealed class NotificationDispatcherTests
                 ["Status"] = "PROPOSAL_SELECTED"
             },
             [Guid.NewGuid()],
-            Guid.NewGuid(),
-            "PROJECT",
-            Guid.NewGuid()));
+            new NotificationDispatchRequest(Guid.NewGuid(), "PROJECT", Guid.NewGuid())));
 
         Assert.Null(exception);
     }

@@ -1,3 +1,5 @@
+#nullable enable
+
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Notifications;

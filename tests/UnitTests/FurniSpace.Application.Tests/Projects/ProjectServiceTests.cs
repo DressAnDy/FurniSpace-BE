@@ -3275,19 +3275,16 @@ public sealed class ProjectServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             DispatchCallCount++;
             LastType = type;
             LastParameters = parameters;
             LastReceiverIds = receiverIds.ToList();
-            LastProjectId = projectId;
-            LastReferenceType = referenceType;
-            LastReferenceId = referenceId;
+            LastProjectId = request?.ProjectId;
+            LastReferenceType = request?.ReferenceType;
+            LastReferenceId = request?.ReferenceId;
             _onDispatch?.Invoke();
 
             if (_throwOnDispatch)

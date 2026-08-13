@@ -703,7 +703,7 @@ public sealed class QuotationService : IQuotationService
         await RecalculateQuotationTotalsAsync(context.Quotation, cancellationToken);
         _quotations.Update(context.Quotation);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await DispatchQuotationRevisedNotificationAsync(context.Detail!, cancellationToken);
+        await DispatchQuotationRevisedNotificationAsync(context.Detail, cancellationToken);
 
         return await LoadDetailResultAsync(quotationId, "Quotation revised successfully.", cancellationToken);
     }
@@ -1089,10 +1089,11 @@ public sealed class QuotationService : IQuotationService
                     [QuotationCodeParameter] = quotation.QuotationCode
                 },
                 [quotation.CustomerId],
-                projectId: quotation.ProjectId,
-                referenceType: QuotationReferenceType,
-                referenceId: quotation.QuotationId,
-                cancellationToken: cancellationToken);
+                new NotificationDispatchRequest(
+                    quotation.ProjectId,
+                    QuotationReferenceType,
+                    quotation.QuotationId),
+                cancellationToken);
         }
         catch (Exception exception)
         {
@@ -1121,9 +1122,10 @@ public sealed class QuotationService : IQuotationService
                     [QuotationCodeParameter] = quotation.QuotationCode
                 },
                 [quotation.CustomerId],
-                projectId: quotation.ProjectId,
-                referenceType: QuotationReferenceType,
-                referenceId: quotation.QuotationId,
+                new NotificationDispatchRequest(
+                    quotation.ProjectId,
+                    QuotationReferenceType,
+                    quotation.QuotationId),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -1202,9 +1204,10 @@ public sealed class QuotationService : IQuotationService
                 notificationType,
                 parameters,
                 [quotation.AssignedSalesId.Value],
-                projectId: quotation.ProjectId,
-                referenceType: QuotationReferenceType,
-                referenceId: quotation.QuotationId,
+                new NotificationDispatchRequest(
+                    quotation.ProjectId,
+                    QuotationReferenceType,
+                    quotation.QuotationId),
                 cancellationToken);
         }
         catch (Exception exception)

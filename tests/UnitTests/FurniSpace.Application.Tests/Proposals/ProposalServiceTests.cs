@@ -2884,23 +2884,20 @@ public sealed class ProposalServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             var receivers = receiverIds.ToList();
             DispatchCount++;
             DispatchedTypes.Add(type);
-            Dispatches.Add(new CapturedDispatch(type, receivers, projectId, referenceType, referenceId));
+            Dispatches.Add(new CapturedDispatch(type, receivers, request?.ProjectId, request?.ReferenceType, request?.ReferenceId));
             LastType = type;
             LastParameters = parameters;
             LastReceiverIds.Clear();
             LastReceiverIds.AddRange(receivers);
-            LastProjectId = projectId;
-            LastReferenceType = referenceType;
-            LastReferenceId = referenceId;
+            LastProjectId = request?.ProjectId;
+            LastReferenceType = request?.ReferenceType;
+            LastReferenceId = request?.ReferenceId;
             return Task.CompletedTask;
         }
     }
@@ -2911,11 +2908,8 @@ public sealed class ProposalServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
-            CancellationToken cancellationToken = default,
-            IReadOnlyDictionary<string, object?>? metadata = null)
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Notification failed.");
         }

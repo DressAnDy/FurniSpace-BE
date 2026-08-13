@@ -31,11 +31,8 @@ public sealed class NotificationDispatcher : INotificationDispatcher
         NotificationType type,
         IReadOnlyDictionary<string, string> parameters,
         IEnumerable<Guid> receiverIds,
-        Guid? projectId = null,
-        string? referenceType = null,
-        Guid? referenceId = null,
-        CancellationToken cancellationToken = default,
-        IReadOnlyDictionary<string, object?>? metadata = null)
+        NotificationDispatchRequest? request = null,
+        CancellationToken cancellationToken = default)
     {
         var template = NotificationTemplateProvider.Get(type);
         var title = NotificationTemplateProvider.RenderTitle(template, parameters);
@@ -56,12 +53,12 @@ public sealed class NotificationDispatcher : INotificationDispatcher
             title,
             message,
             typeName,
-            projectId,
-            referenceType,
-            referenceId,
+            request?.ProjectId,
+            request?.ReferenceType,
+            request?.ReferenceId,
             now,
             template.SignalREventName,
-            metadata);
+            request?.Metadata);
 
         if (template.DeliveryLevel == NotificationDeliveryLevel.InAppRealtime)
         {

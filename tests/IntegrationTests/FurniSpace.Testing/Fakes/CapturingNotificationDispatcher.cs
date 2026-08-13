@@ -23,20 +23,17 @@ public sealed class CapturingNotificationDispatcher : INotificationDispatcher
         NotificationType type,
         IReadOnlyDictionary<string, string> parameters,
         IEnumerable<Guid> receiverIds,
-        Guid? projectId = null,
-        string? referenceType = null,
-        Guid? referenceId = null,
-        CancellationToken cancellationToken = default,
-        IReadOnlyDictionary<string, object?>? metadata = null)
+        NotificationDispatchRequest? request = null,
+        CancellationToken cancellationToken = default)
     {
         var captured = new CapturedNotification(
             type,
             new Dictionary<string, string>(parameters),
             receiverIds.ToArray(),
-            projectId,
-            referenceType,
-            referenceId,
-            metadata is null ? null : new Dictionary<string, object?>(metadata));
+            request?.ProjectId,
+            request?.ReferenceType,
+            request?.ReferenceId,
+            request?.Metadata is null ? null : new Dictionary<string, object?>(request.Metadata));
 
         lock (_sync)
         {

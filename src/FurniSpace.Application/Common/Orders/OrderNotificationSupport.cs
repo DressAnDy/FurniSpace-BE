@@ -71,11 +71,12 @@ internal static class OrderNotificationSupport
         return TryDispatchAsync(
             notifications,
             logger,
-            NotificationType.OrderItemDeliveryUpdated,
-            order,
-            project,
-            [project.CustomerId],
-            metadata: BuildOrderItemMetadata(order, orderItem),
+            new OrderDispatchCall(
+                NotificationType.OrderItemDeliveryUpdated,
+                order,
+                project,
+                [project.CustomerId],
+                BuildOrderItemMetadata(order, orderItem)),
             cancellationToken);
     }
 
@@ -95,11 +96,12 @@ internal static class OrderNotificationSupport
         return TryDispatchAsync(
             notifications,
             logger,
-            NotificationType.OrderItemDeliveryConfirmed,
-            order,
-            project,
-            [project.AssignedSalesId.Value],
-            metadata: BuildOrderItemMetadata(order, orderItem),
+            new OrderDispatchCall(
+                NotificationType.OrderItemDeliveryConfirmed,
+                order,
+                project,
+                [project.AssignedSalesId.Value],
+                BuildOrderItemMetadata(order, orderItem)),
             cancellationToken);
     }
 
@@ -134,14 +136,15 @@ internal static class OrderNotificationSupport
                     [StatusParameter] = project.Status?.ToString() ?? string.Empty
                 },
                 receivers,
-                projectId: project.ProjectId,
-                referenceType: "PROJECT",
-                referenceId: project.ProjectId,
-                cancellationToken,
-                metadata: new Dictionary<string, object?>
-                {
-                    ["newProjectStatus"] = project.Status?.ToString()
-                });
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    "PROJECT",
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["newProjectStatus"] = project.Status?.ToString()
+                    }),
+                cancellationToken);
         }
         catch (Exception exception)
         {
@@ -165,25 +168,22 @@ internal static class OrderNotificationSupport
         return TryDispatchAsync(
             notifications,
             logger,
-            type,
-            order,
-            project,
-            receivers,
-            metadata: BuildOrderMetadata(order),
+            new OrderDispatchCall(
+                type,
+                order,
+                project,
+                receivers,
+                BuildOrderMetadata(order)),
             cancellationToken);
     }
 
     private static Task TryDispatchAsync(
         INotificationDispatcher? notifications,
         ILogger? logger,
-        NotificationType type,
-        Order order,
-        Project project,
-        IReadOnlyCollection<Guid> receiverIds,
-        IReadOnlyDictionary<string, object?>? metadata = null,
+        OrderDispatchCall call,
         CancellationToken cancellationToken = default)
     {
-        if (notifications is null || receiverIds.Count == 0)
+        if (notifications is null || call.ReceiverIds.Count == 0)
         {
             return Task.CompletedTask;
         }
@@ -191,26 +191,27 @@ internal static class OrderNotificationSupport
         try
         {
             return notifications.DispatchAsync(
-                type,
+                call.Type,
                 new Dictionary<string, string>
                 {
-                    [OrderCodeParameter] = order.OrderCode,
-                    [StatusParameter] = order.Status?.ToString() ?? string.Empty
+                    [OrderCodeParameter] = call.Order.OrderCode,
+                    [StatusParameter] = call.Order.Status?.ToString() ?? string.Empty
                 },
-                receiverIds,
-                projectId: project.ProjectId,
-                referenceType: OrderReferenceType,
-                referenceId: order.OrderId,
-                cancellationToken,
-                metadata: metadata);
+                call.ReceiverIds,
+                new NotificationDispatchRequest(
+                    call.Project.ProjectId,
+                    OrderReferenceType,
+                    call.Order.OrderId,
+                    call.Metadata),
+                cancellationToken);
         }
         catch (Exception exception)
         {
             logger?.LogWarning(
                 exception,
                 "Failed to dispatch order notification {NotificationType} for order {OrderId}",
-                type,
-                order.OrderId);
+                call.Type,
+                call.Order.OrderId);
             return Task.CompletedTask;
         }
     }
@@ -245,4 +246,11 @@ internal static class OrderNotificationSupport
         metadata["orderItemId"] = orderItem.OrderItemId;
         return metadata;
     }
+
+    private sealed record OrderDispatchCall(
+        NotificationType Type,
+        Order Order,
+        Project Project,
+        List<Guid> ReceiverIds,
+        IReadOnlyDictionary<string, object?>? Metadata);
 }

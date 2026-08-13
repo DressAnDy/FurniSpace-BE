@@ -23,6 +23,7 @@ public sealed class ProductionRequestService : IProductionRequestService
     private const string SalesRole = "SALES";
     private const string OrderReferenceType = "ORDER";
     private const string ProductionRequestReferenceType = "PRODUCTION_REQUEST";
+    private const string ProductionCodeParameter = "ProductionCode";
     private const string ProductionStaffNotFoundMessage = "Production staff not found.";
     private const string OrderNotFoundMessage = "Order not found.";
     private const string ProjectNotFoundMessage = "Project not found.";
@@ -971,20 +972,21 @@ public sealed class ProductionRequestService : IProductionRequestService
                 NotificationType.ProductionRequestCreated,
                 new Dictionary<string, string>
                 {
-                    ["ProductionCode"] = productionRequest.ProductionCode ?? string.Empty,
+                    [ProductionCodeParameter] = productionRequest.ProductionCode ?? string.Empty,
                     ["ProjectName"] = project.ProjectName
                 },
                 receivers,
-                productionRequest.ProjectId,
-                ProductionRequestReferenceType,
-                productionRequest.ProductionRequestId,
-                cancellationToken,
-                metadata: new Dictionary<string, object?>
-                {
-                    ["productionRequestId"] = productionRequest.ProductionRequestId,
-                    ["orderId"] = productionRequest.OrderId,
-                    ["assignedToAccountId"] = productionRequest.AssignedTo
-                });
+                new NotificationDispatchRequest(
+                    productionRequest.ProjectId,
+                    ProductionRequestReferenceType,
+                    productionRequest.ProductionRequestId,
+                    new Dictionary<string, object?>
+                    {
+                        ["productionRequestId"] = productionRequest.ProductionRequestId,
+                        ["orderId"] = productionRequest.OrderId,
+                        ["assignedToAccountId"] = productionRequest.AssignedTo
+                    }),
+                cancellationToken);
         }
         catch (Exception exception)
         {
@@ -1028,19 +1030,20 @@ public sealed class ProductionRequestService : IProductionRequestService
                 NotificationType.ProductionRequestCompleted,
                 new Dictionary<string, string>
                 {
-                    ["ProductionCode"] = productionRequest.ProductionCode ?? string.Empty,
+                    [ProductionCodeParameter] = productionRequest.ProductionCode ?? string.Empty,
                     ["ProjectName"] = project.ProjectName
                 },
                 receivers,
-                productionRequest.ProjectId,
-                ProductionRequestReferenceType,
-                productionRequest.ProductionRequestId,
-                cancellationToken,
-                metadata: new Dictionary<string, object?>
-                {
-                    ["productionRequestId"] = productionRequest.ProductionRequestId,
-                    ["orderId"] = productionRequest.OrderId
-                });
+                new NotificationDispatchRequest(
+                    productionRequest.ProjectId,
+                    ProductionRequestReferenceType,
+                    productionRequest.ProductionRequestId,
+                    new Dictionary<string, object?>
+                    {
+                        ["productionRequestId"] = productionRequest.ProductionRequestId,
+                        ["orderId"] = productionRequest.OrderId
+                    }),
+                cancellationToken);
         }
         catch (Exception exception)
         {
@@ -1095,19 +1098,20 @@ public sealed class ProductionRequestService : IProductionRequestService
                 NotificationType.ProductionRequestAssigned,
                 new Dictionary<string, string>
                 {
-                    ["ProductionCode"] = productionRequest.ProductionCode ?? string.Empty,
+                    [ProductionCodeParameter] = productionRequest.ProductionCode ?? string.Empty,
                     ["ProjectName"] = projectName
                 },
                 receivers,
-                productionRequest.ProjectId,
-                ProductionRequestReferenceType,
-                productionRequest.ProductionRequestId,
-                cancellationToken,
-                metadata: new Dictionary<string, object?>
-                {
-                    ["productionRequestId"] = productionRequest.ProductionRequestId,
-                    ["assignedToAccountId"] = productionRequest.AssignedTo
-                });
+                new NotificationDispatchRequest(
+                    productionRequest.ProjectId,
+                    ProductionRequestReferenceType,
+                    productionRequest.ProductionRequestId,
+                    new Dictionary<string, object?>
+                    {
+                        ["productionRequestId"] = productionRequest.ProductionRequestId,
+                        ["assignedToAccountId"] = productionRequest.AssignedTo
+                    }),
+                cancellationToken);
         }
         catch (Exception exception)
         {
@@ -1135,12 +1139,13 @@ public sealed class ProductionRequestService : IProductionRequestService
                 new Dictionary<string, string>
                 {
                     ["ProductName"] = item.ProductNameSnapshot ?? string.Empty,
-                    ["ProductionCode"] = detail.ProductionCode ?? string.Empty
+                    [ProductionCodeParameter] = detail.ProductionCode ?? string.Empty
                 },
                 [detail.AssignedSalesId.Value],
-                detail.ProjectId,
-                OrderReferenceType,
-                detail.OrderId,
+                new NotificationDispatchRequest(
+                    detail.ProjectId,
+                    OrderReferenceType,
+                    detail.OrderId),
                 cancellationToken);
         }
         catch (Exception exception)

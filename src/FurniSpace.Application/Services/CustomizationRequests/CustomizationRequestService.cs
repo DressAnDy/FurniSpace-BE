@@ -1692,9 +1692,10 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 ["ProposalName"] = context.ProposalName
             },
             receivers,
-            context.ProjectId,
-            CustomizationReferenceType,
-            request.CustomizationRequestId,
+            new NotificationDispatchRequest(
+                context.ProjectId,
+                CustomizationReferenceType,
+                request.CustomizationRequestId),
             cancellationToken);
     }
 
@@ -1719,9 +1720,10 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 ["ProjectName"] = context.ProjectName
             },
             receivers,
-            context.ProjectId,
-            CustomizationReferenceType,
-            request.CustomizationRequestId,
+            new NotificationDispatchRequest(
+                context.ProjectId,
+                CustomizationReferenceType,
+                request.CustomizationRequestId),
             cancellationToken);
     }
 

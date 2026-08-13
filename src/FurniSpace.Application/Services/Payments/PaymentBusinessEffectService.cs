@@ -193,15 +193,16 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
                     ["Message"] = "Project start fee has been paid. Designer assignment is now allowed."
                 },
                 receivers,
-                projectId: project.ProjectId,
-                referenceType: "PROJECT",
-                referenceId: project.ProjectId,
-                cancellationToken,
-                metadata: new Dictionary<string, object?>
-                {
-                    ["paymentType"] = payment.PaymentType?.ToString(),
-                    ["newProjectStatus"] = project.Status?.ToString()
-                });
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    "PROJECT",
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["paymentType"] = payment.PaymentType?.ToString(),
+                        ["newProjectStatus"] = project.Status?.ToString()
+                    }),
+                cancellationToken);
         }
         catch (Exception exception)
         {

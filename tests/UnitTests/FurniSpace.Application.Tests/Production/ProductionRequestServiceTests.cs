@@ -773,6 +773,27 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
+    public async Task UpdateItemStatusAsync_WhenCancelledAndNotificationFails_StillCancelsItem()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.IN_PRODUCTION);
+        await context.SaveChangesAsync();
+        var service = BuildService(context, new FailingNotificationDispatcher());
+
+        var result = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto
+            {
+                Status = ProductionItemStatus.CANCELLED,
+                CancellationReason = "Material unavailable."
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductionItemStatus.CANCELLED, context.ProductionItemSet.Single().Status);
+    }
+
+    [Fact]
     public async Task UpdateItemStatusAsync_WhenInvalid_ReturnsExpectedErrors()
     {
         await using var context = CreateContext();
@@ -832,7 +853,8 @@ public sealed class ProductionRequestServiceTests
         await using var context = CreateContext();
         var seeded = SeedCompletionScenario(context);
         await context.SaveChangesAsync();
-        var service = BuildService(context);
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(context, dispatcher);
 
         var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
 
@@ -848,6 +870,29 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(OrderItemStatus.READY, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CompletedOrderItemId).Status);
         Assert.Equal(OrderItemStatus.UNAVAILABLE, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CancelledOrderItemId).Status);
         Assert.Equal(ProjectStatus.READY_FOR_DELIVERY, context.ProjectSet.Single().Status);
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestCompleted &&
+                        dispatch.Receivers.Contains(_salesId));
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.OrderUpdated &&
+                        dispatch.Receivers.Contains(_salesId));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenNotificationFails_DoesNotRollbackCompletion()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        await context.SaveChangesAsync();
+        var service = BuildService(context, new FailingNotificationDispatcher());
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductionRequestStatus.COMPLETED, context.ProductionRequestSet.Single().Status);
+        Assert.Equal(OrderStatus.READY_FOR_DELIVERY, context.OrderSet.Single().Status);
     }
 
     [Fact]

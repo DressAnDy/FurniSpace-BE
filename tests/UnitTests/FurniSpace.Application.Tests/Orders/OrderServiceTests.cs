@@ -5,7 +5,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.Orders;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.Orders;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -197,20 +199,267 @@ public sealed class OrderServiceTests
         Assert.Equal(OrderErrorCodes.DeliveredQuantityExceeded, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task StartDeliveryAsync_WhenReady_UpdatesStatusAndNotifies()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            OrderCode = "ORD-001",
+            Status = OrderStatus.READY_FOR_DELIVERY
+        };
+        var project = new Project
+        {
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.READY_FOR_DELIVERY
+        };
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Order = order,
+            Project = project,
+            HasConfirmedDeliverySchedule = true,
+            Notifications = dispatcher
+        });
+
+        var result = await service.StartDeliveryAsync(orderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(OrderStatus.DELIVERING, order.Status);
+        Assert.Equal(ProjectStatus.DELIVERING, project.Status);
+        Assert.Contains(NotificationType.OrderUpdated, dispatcher.Types);
+        Assert.Contains(NotificationType.ProjectStatusChanged, dispatcher.Types);
+    }
+
+    [Fact]
+    public async Task UpdateDeliveredQuantityAsync_WhenValid_NotifiesCustomer()
+    {
+        var orderId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            OrderCode = "ORD-001",
+            Status = OrderStatus.DELIVERING
+        };
+        var item = new OrderItem
+        {
+            OrderItemId = orderItemId,
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.READY,
+            Quantity = 2,
+            DeliveredQuantity = 1
+        };
+        var updated = new OrderItem
+        {
+            OrderItemId = orderItemId,
+            OrderId = orderId,
+            ProductVersionId = item.ProductVersionId,
+            Status = OrderItemStatus.READY,
+            Quantity = 2,
+            DeliveredQuantity = 2
+        };
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                ProjectName = "Cafe",
+                Status = ProjectStatus.DELIVERING
+            },
+            Order = order,
+            OrderItem = item,
+            AtomicDeliveredQuantityResult = updated,
+            Notifications = dispatcher
+        });
+
+        var result = await service.UpdateDeliveredQuantityAsync(
+            orderItemId,
+            _salesId,
+            new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = 1 });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(NotificationType.OrderItemDeliveryUpdated, Assert.Single(dispatcher.Types));
+        Assert.Contains(_customerId, dispatcher.LastReceivers);
+    }
+
+    [Fact]
+    public async Task ConfirmItemDeliveryAsync_WhenLastItem_MarksOrderDeliveredAndNotifies()
+    {
+        var orderId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            OrderCode = "ORD-001",
+            Status = OrderStatus.DELIVERING
+        };
+        var item = new OrderItem
+        {
+            OrderItemId = orderItemId,
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.READY,
+            Quantity = 1,
+            DeliveredQuantity = 1
+        };
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                ProjectName = "Cafe",
+                Status = ProjectStatus.DELIVERING
+            },
+            Order = order,
+            OrderItem = item,
+            OrderItems = [item],
+            Notifications = dispatcher
+        });
+
+        var result = await service.ConfirmItemDeliveryAsync(orderItemId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(OrderItemStatus.DELIVERED, item.Status);
+        Assert.Equal(OrderStatus.DELIVERED, order.Status);
+        Assert.Contains(NotificationType.OrderItemDeliveryConfirmed, dispatcher.Types);
+        Assert.Contains(NotificationType.OrderDelivered, dispatcher.Types);
+        Assert.Contains(NotificationType.ProjectStatusChanged, dispatcher.Types);
+    }
+
+    [Fact]
+    public async Task PrepareFinalPaymentAsync_WhenDelivered_NotifiesOrderUpdated()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            OrderCode = "ORD-001",
+            FinalTotalAmount = 100m,
+            Status = OrderStatus.DELIVERED,
+            CustomerConfirmedDeliveryAt = DateTime.UtcNow
+        };
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            OrderDetail = CreateDetail(orderId, _customerId),
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                ProjectName = "Cafe",
+                Status = ProjectStatus.DELIVERED
+            },
+            SummedPaidAmount = 30m,
+            Notifications = dispatcher
+        });
+
+        var result = await service.PrepareFinalPaymentAsync(orderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, order.Status);
+        Assert.Equal(NotificationType.OrderUpdated, Assert.Single(dispatcher.Types));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenReady_CompletesOrderAndNotifies()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            OrderCode = "ORD-001",
+            FinalTotalAmount = 100m,
+            Status = OrderStatus.DELIVERED,
+            CustomerConfirmedDeliveryAt = DateTime.UtcNow
+        };
+        var item = new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.DELIVERED,
+            Quantity = 1,
+            DeliveredQuantity = 1
+        };
+        var project = new Project
+        {
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.DELIVERED
+        };
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            OrderDetail = CreateDetail(orderId, _customerId),
+            Order = order,
+            OrderItems = [item],
+            Project = project,
+            SummedPaidAmount = 100m,
+            Notifications = dispatcher
+        });
+
+        var result = await service.CompleteAsync(orderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(OrderStatus.COMPLETED, order.Status);
+        Assert.Equal(ProjectStatus.COMPLETED, project.Status);
+        Assert.Contains(NotificationType.OrderCompleted, dispatcher.Types);
+        Assert.Contains(NotificationType.ProjectStatusChanged, dispatcher.Types);
+    }
+
     private static OrderService BuildService(OrderServiceTestOptions? options = null)
     {
         options ??= new OrderServiceTestOptions();
+        var payments = new EmptyPaymentRepository { SummedPaidAmount = options.SummedPaidAmount };
         return new OrderService(
             new FakeOrderRepository(
                 options.Orders,
                 options.OrderDetail,
                 options.Order,
                 options.OrderItem,
-                options.AtomicDeliveredQuantityResult),
+                options.AtomicDeliveredQuantityResult,
+                options.OrderItems),
             new FakeProjectRepository(options.ProjectDetail, options.Role, options.Project),
-            new EmptyPaymentRepository(),
-            new EmptyProjectScheduleRepository(),
-            new FakeUnitOfWork());
+            payments,
+            new EmptyProjectScheduleRepository { ConfirmedDeliverySchedule = options.HasConfirmedDeliverySchedule },
+            new FakeUnitOfWork(),
+            options.Notifications);
     }
 
     private ProjectDetailReadModel CreateProjectDetail()
@@ -282,7 +531,15 @@ public sealed class OrderServiceTests
 
         public OrderItem? AtomicDeliveredQuantityResult { get; init; }
 
+        public IReadOnlyList<OrderItem> OrderItems { get; init; } = [];
+
         public Project? Project { get; init; }
+
+        public bool HasConfirmedDeliverySchedule { get; init; }
+
+        public decimal SummedPaidAmount { get; init; }
+
+        public INotificationDispatcher? Notifications { get; init; }
     }
 
     private sealed class FakeOrderRepository(
@@ -290,7 +547,8 @@ public sealed class OrderServiceTests
         OrderDetailReadModel? orderDetail,
         Order? order = null,
         OrderItem? orderItem = null,
-        OrderItem? atomicDeliveredQuantityResult = null) : IOrderRepository
+        OrderItem? atomicDeliveredQuantityResult = null,
+        IReadOnlyList<OrderItem>? orderItems = null) : IOrderRepository
     {
         public Task<IReadOnlyList<OrderListItemReadModel>> GetByProjectAsync(
             Guid projectId,
@@ -314,6 +572,20 @@ public sealed class OrderServiceTests
             Guid orderItemId,
             CancellationToken cancellationToken = default)
             => Task.FromResult(orderItem?.OrderItemId == orderItemId ? orderItem : null);
+
+        public Task<IReadOnlyList<OrderItem>> GetItemsByOrderAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+        {
+            var items = (orderItems ?? [])
+                .Where(item => item.OrderId == orderId)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<OrderItem>>(items);
+        }
+
+        public void UpdateItem(OrderItem item)
+        {
+        }
 
         public Task<OrderItem?> TryIncrementDeliveredQuantityAsync(
             Guid orderItemId,
@@ -437,6 +709,8 @@ public sealed class OrderServiceTests
 
     private sealed class EmptyPaymentRepository : IPaymentRepository
     {
+        public decimal SummedPaidAmount { get; init; }
+
         public Task<Payment?> GetByIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
             => Task.FromResult<Payment?>(null);
 
@@ -507,7 +781,7 @@ public sealed class OrderServiceTests
         public Task<decimal> SumOrderScopedPaidAmountAsync(
             Guid orderId,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(0m);
+            => Task.FromResult(SummedPaidAmount);
 
         public Task<bool> HasSuccessfulTransactionAsync(
             Guid paymentId,
@@ -577,6 +851,28 @@ public sealed class OrderServiceTests
 
         public Task RollbackTransactionAsync(CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+    }
+
+    private sealed class CapturingNotificationDispatcher : INotificationDispatcher
+    {
+        public List<NotificationType> Types { get; } = [];
+        public List<Guid> LastReceivers { get; } = [];
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            Guid? projectId = null,
+            string? referenceType = null,
+            Guid? referenceId = null,
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
+        {
+            Types.Add(type);
+            LastReceivers.Clear();
+            LastReceivers.AddRange(receiverIds);
+            return Task.CompletedTask;
+        }
     }
 
 }

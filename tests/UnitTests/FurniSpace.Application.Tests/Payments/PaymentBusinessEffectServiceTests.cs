@@ -6,7 +6,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Services.Payments;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -84,11 +86,14 @@ public sealed class PaymentBusinessEffectServiceTests
             Project = new Project
             {
                 ProjectId = projectId,
+                CustomerId = Guid.NewGuid(),
                 AssignedSalesId = salesId,
+                ProjectName = "Cafe",
                 Status = ProjectStatus.IN_CONSULTATION
             }
         };
         var dispatcher = new FakeNotificationDispatcher();
+        var customerId = Guid.NewGuid();
         var service = new PaymentBusinessEffectService(
             new FakePaymentRepository(),
             new FakeOrderRepository(),
@@ -96,11 +101,66 @@ public sealed class PaymentBusinessEffectServiceTests
             dispatcher);
 
         var payment = CreatePayment(null, PaymentType.PROJECT_START_FEE, PaymentStatus.PAID, projectId);
+        payment.PaidBy = customerId;
 
         await service.ApplyAsync(payment);
 
         Assert.Equal(ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT, projects.Project!.Status);
-        Assert.Single(dispatcher.Dispatched);
+        Assert.Contains(dispatcher.Dispatched, item => item.Type == NotificationType.PaymentPaid);
+        Assert.Contains(dispatcher.Dispatched, item => item.Type == NotificationType.ProjectStatusChanged);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_ProjectStartFeePaid_WhenNotificationFails_StillUpdatesProject()
+    {
+        var projectId = Guid.NewGuid();
+        var projects = new FakeProjectRepository
+        {
+            Project = new Project
+            {
+                ProjectId = projectId,
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = Guid.NewGuid(),
+                Status = ProjectStatus.IN_CONSULTATION,
+                ProjectName = "Cafe"
+            }
+        };
+        var service = new PaymentBusinessEffectService(
+            new FakePaymentRepository(),
+            new FakeOrderRepository(),
+            projects,
+            new ThrowingNotificationDispatcher());
+
+        var payment = CreatePayment(null, PaymentType.PROJECT_START_FEE, PaymentStatus.PAID, projectId);
+
+        await service.ApplyAsync(payment);
+
+        Assert.Equal(ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT, projects.Project!.Status);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_PaymentPaid_IncludesAssignedSalesFromStakeholders()
+    {
+        var orderId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = new PaymentBusinessEffectService(
+            new FakePaymentRepository(),
+            new FakeOrderRepository { Order = CreateOrder(orderId, salesId, OrderStatus.DEPOSIT_PENDING) },
+            new FakeProjectRepository(),
+            dispatcher,
+            new StubStakeholderResolver(projectId, salesId));
+
+        var payment = CreatePayment(orderId, PaymentType.DEPOSIT, PaymentStatus.PAID, projectId);
+        payment.PaidBy = customerId;
+
+        await service.ApplyAsync(payment);
+
+        var paid = Assert.Single(dispatcher.Dispatched, item => item.Type == NotificationType.PaymentPaid);
+        Assert.Contains(customerId, paid.Receivers);
+        Assert.Contains(salesId, paid.Receivers);
     }
 
     [Fact]
@@ -433,7 +493,7 @@ public sealed class PaymentBusinessEffectServiceTests
 
     private sealed class FakeNotificationDispatcher : INotificationDispatcher
     {
-        public List<(NotificationType Type, IReadOnlyDictionary<string, string> Data)> Dispatched { get; } = [];
+        public List<(NotificationType Type, IReadOnlyDictionary<string, string> Data, IReadOnlyList<Guid> Receivers)> Dispatched { get; } = [];
 
         public Task DispatchAsync(
             NotificationType type,
@@ -445,8 +505,43 @@ public sealed class PaymentBusinessEffectServiceTests
             CancellationToken cancellationToken = default,
             IReadOnlyDictionary<string, object?>? metadata = null)
         {
-            Dispatched.Add((type, parameters));
+            Dispatched.Add((type, parameters, receiverIds.ToList()));
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingNotificationDispatcher : INotificationDispatcher
+    {
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            Guid? projectId = null,
+            string? referenceType = null,
+            Guid? referenceId = null,
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
+        {
+            throw new InvalidOperationException("Notification failed.");
+        }
+    }
+
+    private sealed class StubStakeholderResolver(Guid projectId, Guid salesId) : IProjectStakeholderResolver
+    {
+        public Task<ProjectStakeholders?> ResolveAsync(
+            Guid requestedProjectId,
+            CancellationToken cancellationToken = default)
+        {
+            if (requestedProjectId != projectId)
+            {
+                return Task.FromResult<ProjectStakeholders?>(null);
+            }
+
+            return Task.FromResult<ProjectStakeholders?>(new ProjectStakeholders
+            {
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = salesId
+            });
         }
     }
 }

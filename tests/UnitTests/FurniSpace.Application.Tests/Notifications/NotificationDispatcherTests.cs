@@ -130,10 +130,150 @@ public sealed class NotificationDispatcherTests
         Assert.Equal("PROJECT", payload.ReferenceType);
     }
 
+    [Fact]
+    public async Task DispatchAsync_WithEmptyReceivers_DoesNothing()
+    {
+        var repository = new CapturingNotificationRepository();
+        var realtime = new CapturingRealtimeNotificationService();
+        var dispatcher = new NotificationDispatcher(
+            repository,
+            realtime,
+            NullLogger<NotificationDispatcher>.Instance,
+            TestUnitOfWork.Instance);
+
+        await dispatcher.DispatchAsync(
+            NotificationType.PaymentCreated,
+            new Dictionary<string, string>
+            {
+                ["PaymentCode"] = "PAY-001",
+                ["PaymentType"] = "DEPOSIT",
+                ["Amount"] = "1000000",
+                ["Currency"] = "VND"
+            },
+            [Guid.Empty]);
+
+        Assert.Empty(repository.Added);
+        Assert.Empty(realtime.Sent);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_InAppWithoutReferenceId_DoesNotCheckDuplicates()
+    {
+        var receiverId = Guid.NewGuid();
+        var repository = new CapturingNotificationRepository { DuplicateExists = true };
+        var realtime = new CapturingRealtimeNotificationService();
+        var dispatcher = new NotificationDispatcher(
+            repository,
+            realtime,
+            NullLogger<NotificationDispatcher>.Instance,
+            TestUnitOfWork.Instance);
+
+        await dispatcher.DispatchAsync(
+            NotificationType.PaymentCreated,
+            new Dictionary<string, string>
+            {
+                ["PaymentCode"] = "PAY-001",
+                ["PaymentType"] = "DEPOSIT",
+                ["Amount"] = "1000000",
+                ["Currency"] = "VND"
+            },
+            [receiverId],
+            Guid.NewGuid());
+
+        Assert.Single(repository.Added);
+        Assert.Single(realtime.Sent);
+        Assert.Equal(0, repository.DuplicateChecks);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_WhenPersistFails_DoesNotPushRealtime()
+    {
+        var receiverId = Guid.NewGuid();
+        var repository = new CapturingNotificationRepository { ThrowOnAdd = true };
+        var realtime = new CapturingRealtimeNotificationService();
+        var dispatcher = new NotificationDispatcher(
+            repository,
+            realtime,
+            NullLogger<NotificationDispatcher>.Instance,
+            TestUnitOfWork.Instance);
+
+        await dispatcher.DispatchAsync(
+            NotificationType.PaymentCreated,
+            new Dictionary<string, string>
+            {
+                ["PaymentCode"] = "PAY-001",
+                ["PaymentType"] = "DEPOSIT",
+                ["Amount"] = "1000000",
+                ["Currency"] = "VND"
+            },
+            [receiverId],
+            Guid.NewGuid(),
+            "PAYMENT",
+            Guid.NewGuid());
+
+        Assert.Empty(repository.Added);
+        Assert.Empty(realtime.Sent);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_WhenRealtimeFails_StillPersistsInApp()
+    {
+        var receiverId = Guid.NewGuid();
+        var repository = new CapturingNotificationRepository();
+        var realtime = new CapturingRealtimeNotificationService { ThrowOnSend = true };
+        var dispatcher = new NotificationDispatcher(
+            repository,
+            realtime,
+            NullLogger<NotificationDispatcher>.Instance,
+            TestUnitOfWork.Instance);
+
+        var exception = await Record.ExceptionAsync(() => dispatcher.DispatchAsync(
+            NotificationType.PaymentCreated,
+            new Dictionary<string, string>
+            {
+                ["PaymentCode"] = "PAY-001",
+                ["PaymentType"] = "DEPOSIT",
+                ["Amount"] = "1000000",
+                ["Currency"] = "VND"
+            },
+            [receiverId],
+            Guid.NewGuid(),
+            "PAYMENT",
+            Guid.NewGuid()));
+
+        Assert.Null(exception);
+        Assert.Single(repository.Added);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_RealtimeOnly_WhenPushFails_DoesNotThrow()
+    {
+        var dispatcher = new NotificationDispatcher(
+            new CapturingNotificationRepository(),
+            new CapturingRealtimeNotificationService { ThrowOnSend = true },
+            NullLogger<NotificationDispatcher>.Instance,
+            TestUnitOfWork.Instance);
+
+        var exception = await Record.ExceptionAsync(() => dispatcher.DispatchAsync(
+            NotificationType.ProjectStatusChanged,
+            new Dictionary<string, string>
+            {
+                ["ProjectName"] = "Cafe ABC",
+                ["Status"] = "PROPOSAL_SELECTED"
+            },
+            [Guid.NewGuid()],
+            Guid.NewGuid(),
+            "PROJECT",
+            Guid.NewGuid()));
+
+        Assert.Null(exception);
+    }
+
     private sealed class CapturingNotificationRepository : INotificationRepository
     {
         public List<Notification> Added { get; } = [];
         public bool DuplicateExists { get; init; }
+        public bool ThrowOnAdd { get; init; }
         public int DuplicateChecks { get; private set; }
 
         public Task<bool> ExistsActiveDuplicateAsync(
@@ -149,6 +289,11 @@ public sealed class NotificationDispatcherTests
 
         public Task AddAsync(Notification entity, CancellationToken cancellationToken = default)
         {
+            if (ThrowOnAdd)
+            {
+                throw new InvalidOperationException("Persist failed.");
+            }
+
             Added.Add(entity);
             return Task.CompletedTask;
         }
@@ -186,10 +331,16 @@ public sealed class NotificationDispatcherTests
     private sealed class CapturingRealtimeNotificationService : IRealtimeNotificationService
     {
         public List<(Guid UserId, string EventName, object Payload)> Sent { get; } = [];
+        public bool ThrowOnSend { get; init; }
 
         public Task SendToUserAsync(
             Guid userId, string eventName, object payload, CancellationToken cancellationToken = default)
         {
+            if (ThrowOnSend)
+            {
+                throw new InvalidOperationException("Realtime failed.");
+            }
+
             Sent.Add((userId, eventName, payload));
             return Task.CompletedTask;
         }

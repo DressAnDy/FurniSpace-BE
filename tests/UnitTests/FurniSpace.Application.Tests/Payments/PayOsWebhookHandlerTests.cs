@@ -4,8 +4,12 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Payments;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Services.Payments;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -23,8 +27,11 @@ public sealed class PayOsWebhookHandlerTests
     {
         var paymentId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
         const long orderCode = 202607080001L;
         var payment = CreatePayment(paymentId, projectId, 10000m);
+        payment.PaidBy = customerId;
         var transaction = CreatePendingTransaction(paymentId, projectId, orderCode, 10000m);
         var repository = new FakePayOsPaymentRepository
         {
@@ -45,7 +52,8 @@ public sealed class PayOsWebhookHandlerTests
                     PaymentLinkId = "plink-001"
                 }
             },
-            realtime);
+            realtime,
+            stakeholders: new FakeStakeholderResolver(projectId, salesId));
 
         var result = await handler.ProcessAsync("{}");
 
@@ -55,6 +63,45 @@ public sealed class PayOsWebhookHandlerTests
         Assert.Equal(10000m, repository.Payment.Amount);
         Assert.NotNull(realtime.LastPayload);
         Assert.Equal(PaymentStatus.PAID, realtime.LastPayload!.Status);
+        Assert.Contains(customerId, realtime.LastStakeholderUserIds!);
+        Assert.Contains(salesId, realtime.LastStakeholderUserIds!);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_WithFailedWebhook_NotifiesPayer()
+    {
+        var paymentId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var payerId = Guid.NewGuid();
+        const long orderCode = 202607080011L;
+        var payment = CreatePayment(paymentId, projectId, 10000m);
+        payment.PaidBy = payerId;
+        var transaction = CreatePendingTransaction(paymentId, projectId, orderCode, 10000m);
+        var repository = new FakePayOsPaymentRepository
+        {
+            Payment = payment,
+            Transaction = transaction
+        };
+        var dispatcher = new CapturingNotificationDispatcher();
+        var handler = CreateHandler(
+            repository,
+            new FakePayOsClient
+            {
+                VerifiedWebhook = new PayOsVerifiedWebhookData
+                {
+                    OrderCode = orderCode,
+                    Amount = 10000,
+                    Code = "01"
+                }
+            },
+            new FakePaymentRealtimeService(),
+            notifications: dispatcher);
+
+        var result = await handler.ProcessAsync("{}");
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(PaymentTransactionStatus.FAILED, repository.Transaction!.Status);
+        Assert.Equal(NotificationType.PaymentTransactionFailed, Assert.Single(dispatcher.Types));
     }
 
     [Fact]
@@ -257,7 +304,9 @@ public sealed class PayOsWebhookHandlerTests
     private static PayOsWebhookHandler CreateHandler(
         FakePayOsPaymentRepository repository,
         FakePayOsClient payOsClient,
-        FakePaymentRealtimeService realtime)
+        FakePaymentRealtimeService realtime,
+        IProjectStakeholderResolver? stakeholders = null,
+        INotificationDispatcher? notifications = null)
     {
         var unitOfWork = TestUnitOfWork.ForTransaction(
             _ => Task.CompletedTask,
@@ -270,7 +319,9 @@ public sealed class PayOsWebhookHandlerTests
             unitOfWork,
             payOsClient,
             realtime,
-            new NoOpPaymentBusinessEffectService());
+            new NoOpPaymentBusinessEffectService(),
+            notifications,
+            stakeholders);
     }
 
     private sealed class NoOpPaymentBusinessEffectService : IPaymentBusinessEffectService
@@ -515,6 +566,7 @@ public sealed class PayOsWebhookHandlerTests
     private sealed class FakePaymentRealtimeService : IPaymentRealtimeService
     {
         public PaymentUpdatedRealtimeDto? LastPayload { get; private set; }
+        public IReadOnlyCollection<Guid>? LastStakeholderUserIds { get; private set; }
 
         public Task SendPaymentUpdatedAsync(
             PaymentUpdatedRealtimeDto payload,
@@ -522,6 +574,45 @@ public sealed class PayOsWebhookHandlerTests
             CancellationToken cancellationToken = default)
         {
             LastPayload = payload;
+            LastStakeholderUserIds = stakeholderUserIds;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeStakeholderResolver(Guid projectId, Guid salesId) : IProjectStakeholderResolver
+    {
+        public Task<ProjectStakeholders?> ResolveAsync(
+            Guid requestedProjectId,
+            CancellationToken cancellationToken = default)
+        {
+            if (requestedProjectId != projectId)
+            {
+                return Task.FromResult<ProjectStakeholders?>(null);
+            }
+
+            return Task.FromResult<ProjectStakeholders?>(new ProjectStakeholders
+            {
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = salesId
+            });
+        }
+    }
+
+    private sealed class CapturingNotificationDispatcher : INotificationDispatcher
+    {
+        public List<NotificationType> Types { get; } = [];
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            Guid? projectId = null,
+            string? referenceType = null,
+            Guid? referenceId = null,
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
+        {
+            Types.Add(type);
             return Task.CompletedTask;
         }
     }

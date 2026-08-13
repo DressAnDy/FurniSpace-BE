@@ -80,11 +80,13 @@ public sealed class PaymentServiceTests
     public async Task CreateDepositPaymentForOrderAsync_WhenValid_CreatesPayment()
     {
         var repository = new PaymentServiceFakeRepository();
+        var dispatcher = new PaymentServiceFakeNotificationDispatcher();
         var service = BuildService(new PaymentServiceTestOptions
         {
             Role = "CUSTOMER",
             OrderDetail = CreateOrderDetail(OrderStatus.DEPOSIT_PENDING),
-            Payments = repository
+            Payments = repository,
+            Notifications = dispatcher
         });
 
         var result = await service.CreateDepositPaymentForOrderAsync(
@@ -97,6 +99,7 @@ public sealed class PaymentServiceTests
         Assert.Equal(PaymentType.DEPOSIT, result.Data!.PaymentType);
         Assert.Equal(30m, result.Data.Amount);
         Assert.Single(repository.NewPayments);
+        Assert.Equal(NotificationType.PaymentCreated, Assert.Single(dispatcher.Dispatched));
     }
 
     [Fact]
@@ -132,11 +135,13 @@ public sealed class PaymentServiceTests
     public async Task CreateRemainingPaymentForOrderAsync_WhenValid_CreatesPayment()
     {
         var repository = new PaymentServiceFakeRepository();
+        var dispatcher = new PaymentServiceFakeNotificationDispatcher();
         var service = BuildService(new PaymentServiceTestOptions
         {
             Role = "SALES",
             OrderDetail = CreateOrderDetail(OrderStatus.FINAL_PAYMENT_PENDING, remainingAmount: 70m),
-            Payments = repository
+            Payments = repository,
+            Notifications = dispatcher
         });
 
         var result = await service.CreateRemainingPaymentForOrderAsync(
@@ -147,6 +152,7 @@ public sealed class PaymentServiceTests
         Assert.Equal(201, result.Status);
         Assert.Equal(PaymentType.REMAINING_PAYMENT, result.Data!.PaymentType);
         Assert.Equal(70m, result.Data.Amount);
+        Assert.Equal(NotificationType.PaymentCreated, Assert.Single(dispatcher.Dispatched));
     }
 
     [Fact]
@@ -241,12 +247,14 @@ public sealed class PaymentServiceTests
     public async Task CreateProjectStartFeePaymentAsync_WhenValid_CreatesPayment()
     {
         var repository = new PaymentServiceFakeRepository();
+        var dispatcher = new PaymentServiceFakeNotificationDispatcher();
         var service = BuildService(new PaymentServiceTestOptions
         {
             Role = "SALES",
             ProjectDetail = CreateProjectDetail(),
             Payments = repository,
-            DefaultProjectStartFeeAmount = 500000m
+            DefaultProjectStartFeeAmount = 500000m,
+            Notifications = dispatcher
         });
 
         var result = await service.CreateProjectStartFeePaymentAsync(
@@ -257,6 +265,7 @@ public sealed class PaymentServiceTests
         Assert.Equal(201, result.Status);
         Assert.Equal(PaymentType.PROJECT_START_FEE, result.Data!.PaymentType);
         Assert.Equal(500000m, result.Data.Amount);
+        Assert.Equal(NotificationType.PaymentCreated, Assert.Single(dispatcher.Dispatched));
     }
 
     [Fact]

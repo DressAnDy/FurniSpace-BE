@@ -3278,7 +3278,8 @@ public sealed class ProjectServiceTests
             Guid? projectId = null,
             string? referenceType = null,
             Guid? referenceId = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
         {
             DispatchCallCount++;
             LastType = type;

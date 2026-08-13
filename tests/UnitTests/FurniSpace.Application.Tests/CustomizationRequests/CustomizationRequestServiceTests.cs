@@ -3060,7 +3060,8 @@ public sealed class CustomizationRequestServiceTests
             Guid? projectId = null,
             string? referenceType = null,
             Guid? referenceId = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
         {
             LastType = type;
             LastReceivers = receiverIds.ToList();

@@ -879,6 +879,7 @@ public sealed class ProposalService : IProposalService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
             await DispatchProposalFinalSelectedNotificationAsync(proposal, cancellationToken);
+            await DispatchProposalSelectedProjectStatusAsync(projectEntity, proposal, cancellationToken);
 
             return ServiceResult<SelectFinalProposalResponseDto>.Success(
                 new SelectFinalProposalResponseDto
@@ -2115,6 +2116,51 @@ public sealed class ProposalService : IProposalService
     private static bool CanRequestRevision(ProposalStatus? status)
     {
         return status is ProposalStatus.PUBLISHED;
+    }
+
+    private async Task DispatchProposalSelectedProjectStatusAsync(
+        Project project,
+        ProposalDetailReadModel proposal,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var receivers = new HashSet<Guid> { proposal.CustomerId };
+        if (proposal.AssignedSalesId.HasValue)
+        {
+            receivers.Add(proposal.AssignedSalesId.Value);
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectStatusChanged,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName,
+                    ["Status"] = project.Status?.ToString() ?? string.Empty
+                },
+                receivers,
+                projectId: project.ProjectId,
+                referenceType: "PROJECT",
+                referenceId: project.ProjectId,
+                cancellationToken,
+                metadata: new Dictionary<string, object?>
+                {
+                    ["newProjectStatus"] = project.Status?.ToString(),
+                    ["proposalId"] = proposal.ProposalId
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(
+                ex,
+                "Failed to dispatch project status changed notification after proposal selected for project {ProjectId}",
+                project.ProjectId);
+        }
     }
 
     private async Task DispatchProposalFinalSelectedNotificationAsync(

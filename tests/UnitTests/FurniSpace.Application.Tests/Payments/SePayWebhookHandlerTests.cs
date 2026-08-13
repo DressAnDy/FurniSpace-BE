@@ -426,6 +426,7 @@ public sealed class SePayWebhookHandlerTests
 
         public Task SendPaymentUpdatedAsync(
             PaymentUpdatedRealtimeDto payload,
+            IReadOnlyCollection<Guid>? stakeholderUserIds = null,
             CancellationToken cancellationToken = default)
         {
             LastPayload = payload;

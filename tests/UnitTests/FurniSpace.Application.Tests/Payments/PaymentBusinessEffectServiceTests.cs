@@ -34,12 +34,13 @@ public sealed class PaymentBusinessEffectServiceTests
             dispatcher);
 
         var payment = CreatePayment(orderId, PaymentType.DEPOSIT, PaymentStatus.PAID);
+        payment.PaidBy = order.CustomerId;
 
         await service.ApplyAsync(payment);
 
         Assert.Equal(OrderStatus.DEPOSIT_PAID, orders.Order!.Status);
         Assert.Single(dispatcher.Dispatched);
-        Assert.Equal(NotificationType.OrderDepositPaid, dispatcher.Dispatched[0].Type);
+        Assert.Equal(NotificationType.PaymentPaid, dispatcher.Dispatched[0].Type);
     }
 
     [Fact]
@@ -441,7 +442,8 @@ public sealed class PaymentBusinessEffectServiceTests
             Guid? projectId = null,
             string? referenceType = null,
             Guid? referenceId = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
         {
             Dispatched.Add((type, parameters));
             return Task.CompletedTask;

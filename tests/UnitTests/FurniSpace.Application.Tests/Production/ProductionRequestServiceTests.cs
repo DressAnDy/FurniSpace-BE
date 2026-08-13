@@ -62,8 +62,17 @@ public sealed class ProductionRequestServiceTests
         Assert.All(context.OrderItemSet, item => Assert.Equal(OrderItemStatus.IN_PRODUCTION, item.Status));
         Assert.Equal("NORMAL", context.ProductionRequestSet.Single().Priority);
         Assert.Equal("Start soon", context.ProductionRequestSet.Single().Note);
-        Assert.Equal(NotificationType.ProductionRequestAssigned, dispatcher.NotificationType);
-        Assert.Equal(_productionId, Assert.Single(dispatcher.ReceiverIds));
+        Assert.Equal(2, dispatcher.Dispatches.Count);
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestCreated &&
+                        dispatch.Receivers.Contains(_salesId) &&
+                        dispatch.Receivers.Contains(_productionId));
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestAssigned &&
+                        dispatch.Receivers.Contains(_salesId) &&
+                        dispatch.Receivers.Contains(_productionId));
     }
 
     [Theory]
@@ -364,7 +373,12 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(_productionId, result.Data!.PreviousAssignedTo);
         Assert.Equal(secondProductionId, result.Data.AssignedTo);
         Assert.Contains("Reassigned due to workload.", context.ProductionRequestSet.Single().Note, StringComparison.Ordinal);
-        Assert.Equal(secondProductionId, Assert.Single(dispatcher.ReceiverIds));
+        var assignedDispatch = Assert.Single(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestAssigned);
+        Assert.Equal(2, assignedDispatch.Receivers.Count);
+        Assert.Contains(secondProductionId, assignedDispatch.Receivers);
+        Assert.Contains(_salesId, assignedDispatch.Receivers);
     }
 
     [Fact]
@@ -1232,6 +1246,7 @@ public sealed class ProductionRequestServiceTests
     {
         public NotificationType? NotificationType { get; private set; }
         public List<Guid> ReceiverIds { get; } = [];
+        public List<(NotificationType Type, IReadOnlyList<Guid> Receivers)> Dispatches { get; } = [];
 
         public Task DispatchAsync(
             NotificationType type,
@@ -1240,10 +1255,13 @@ public sealed class ProductionRequestServiceTests
             Guid? projectId = null,
             string? referenceType = null,
             Guid? referenceId = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
         {
+            var receivers = receiverIds.ToList();
             NotificationType = type;
-            ReceiverIds.AddRange(receiverIds);
+            ReceiverIds.AddRange(receivers);
+            Dispatches.Add((type, receivers));
             return Task.CompletedTask;
         }
     }
@@ -1257,7 +1275,8 @@ public sealed class ProductionRequestServiceTests
             Guid? projectId = null,
             string? referenceType = null,
             Guid? referenceId = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
         {
             throw new InvalidOperationException("Notification failed.");
         }

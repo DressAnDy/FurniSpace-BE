@@ -184,50 +184,51 @@ public sealed class PaymentSupportComponentTests
     }
 
     [Fact]
-    public async Task PaymentCustomerNotificationSupport_TryDispatchAsync_DispatchesToPaidBy()
+    public async Task PaymentNotificationSupport_TryDispatchAsync_DispatchesToReceivers()
     {
         var dispatcher = new PaymentNotificationFakeDispatcher();
         var payment = CreatePayment(PaymentStatus.PENDING);
         payment.PaidBy = Guid.NewGuid();
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+        await PaymentNotificationSupport.TryDispatchAsync(
             dispatcher,
             NullLogger.Instance,
             NotificationType.PaymentProcessing,
-            payment);
+            payment,
+            [payment.PaidBy.Value]);
 
         Assert.Single(dispatcher.Dispatched);
         Assert.Equal(NotificationType.PaymentProcessing, dispatcher.Dispatched[0].Type);
-        Assert.Equal(payment.PaymentCode, dispatcher.Dispatched[0].Parameters[PaymentCustomerNotificationSupport.PaymentCodeParameter]);
+        Assert.Equal(payment.PaymentCode, dispatcher.Dispatched[0].Parameters[PaymentNotificationSupport.PaymentCodeParameter]);
     }
 
     [Fact]
-    public async Task PaymentCustomerNotificationSupport_TryDispatchAsync_SkipsWhenPaidByMissing()
+    public async Task PaymentNotificationSupport_TryDispatchCreatedAsync_SkipsWhenPaidByMissing()
     {
         var dispatcher = new PaymentNotificationFakeDispatcher();
         var payment = CreatePayment(PaymentStatus.PENDING);
         payment.PaidBy = null;
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+        await PaymentNotificationSupport.TryDispatchCreatedAsync(
             dispatcher,
             NullLogger.Instance,
-            NotificationType.PaymentProcessing,
             payment);
 
         Assert.Empty(dispatcher.Dispatched);
     }
 
     [Fact]
-    public async Task PaymentCustomerNotificationSupport_TryDispatchAsync_SwallowsDispatcherExceptions()
+    public async Task PaymentNotificationSupport_TryDispatchAsync_SwallowsDispatcherExceptions()
     {
         var payment = CreatePayment(PaymentStatus.PENDING);
         payment.PaidBy = Guid.NewGuid();
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+        await PaymentNotificationSupport.TryDispatchAsync(
             new ThrowingNotificationDispatcher(),
             NullLogger.Instance,
             NotificationType.PaymentExpired,
-            payment);
+            payment,
+            [payment.PaidBy.Value]);
     }
 
     private static Payment CreatePayment(PaymentStatus status, DateTime? expiredAt = null)
@@ -328,7 +329,8 @@ public sealed class PaymentSupportComponentTests
             Guid? projectId = null,
             string? referenceType = null,
             Guid? referenceId = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
         {
             Dispatched.Add((type, parameters));
             return Task.CompletedTask;
@@ -344,7 +346,8 @@ public sealed class PaymentSupportComponentTests
             Guid? projectId = null,
             string? referenceType = null,
             Guid? referenceId = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
         {
             throw new InvalidOperationException("Dispatch failed.");
         }

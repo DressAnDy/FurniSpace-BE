@@ -12,6 +12,7 @@ public sealed class NoOpNotificationDispatcher : INotificationDispatcher
         Guid? projectId = null,
         string? referenceType = null,
         Guid? referenceId = null,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, object?>? metadata = null) =>
         Task.CompletedTask;
 }

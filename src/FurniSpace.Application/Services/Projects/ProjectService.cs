@@ -316,7 +316,11 @@ public sealed class ProjectService : IProjectService
                 project.ProjectId,
                 ProjectReferenceType,
                 project.ProjectId,
-                cancellationToken);
+                cancellationToken,
+                metadata: new Dictionary<string, object?>
+                {
+                    ["newProjectStatus"] = project.Status?.ToString()
+                });
         }
         catch (Exception exception)
         {

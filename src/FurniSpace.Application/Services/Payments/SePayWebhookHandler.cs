@@ -3,6 +3,7 @@ using System.Text.Json;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
@@ -27,6 +28,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
     private readonly SePayWebhookSignatureVerifier _signatureVerifier;
     private readonly IPaymentRealtimeService _paymentRealtime;
     private readonly IPaymentBusinessEffectService _paymentBusinessEffects;
+    private readonly IProjectStakeholderResolver? _stakeholders;
     private readonly ILogger<SePayWebhookHandler>? _logger;
 
     public SePayWebhookHandler(
@@ -36,6 +38,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
         SePayWebhookSignatureVerifier signatureVerifier,
         IPaymentRealtimeService paymentRealtime,
         IPaymentBusinessEffectService paymentBusinessEffects,
+        IProjectStakeholderResolver? stakeholders = null,
         ILogger<SePayWebhookHandler>? logger = null)
     {
         _payments = payments;
@@ -44,6 +47,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
         _signatureVerifier = signatureVerifier;
         _paymentRealtime = paymentRealtime;
         _paymentBusinessEffects = paymentBusinessEffects;
+        _stakeholders = stakeholders;
         _logger = logger;
     }
 
@@ -295,6 +299,7 @@ public sealed class SePayWebhookHandler : ISePayWebhookService
 
         await PaymentWebhookChargeSupport.PushPaymentUpdatedAsync(
             _paymentRealtime,
+            _stakeholders,
             _logger,
             payment,
             transaction,

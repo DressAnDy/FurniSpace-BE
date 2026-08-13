@@ -2834,7 +2834,8 @@ public sealed class ProposalServiceTests
             Guid? projectId = null,
             string? referenceType = null,
             Guid? referenceId = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
         {
             DispatchCount++;
             DispatchedTypes.Add(type);

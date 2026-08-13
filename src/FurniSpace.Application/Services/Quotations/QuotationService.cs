@@ -703,6 +703,7 @@ public sealed class QuotationService : IQuotationService
         await RecalculateQuotationTotalsAsync(context.Quotation, cancellationToken);
         _quotations.Update(context.Quotation);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await DispatchQuotationRevisedNotificationAsync(context.Detail!, cancellationToken);
 
         return await LoadDetailResultAsync(quotationId, "Quotation revised successfully.", cancellationToken);
     }
@@ -1068,6 +1069,38 @@ public sealed class QuotationService : IQuotationService
         }
 
         return null;
+    }
+
+    private async Task DispatchQuotationRevisedNotificationAsync(
+        QuotationDetailReadModel quotation,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.QuotationRevised,
+                new Dictionary<string, string>
+                {
+                    [QuotationCodeParameter] = quotation.QuotationCode
+                },
+                [quotation.CustomerId],
+                projectId: quotation.ProjectId,
+                referenceType: QuotationReferenceType,
+                referenceId: quotation.QuotationId,
+                cancellationToken: cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch quotation revised notification for quotation {QuotationId}",
+                quotation.QuotationId);
+        }
     }
 
     private async Task DispatchQuotationSentNotificationAsync(

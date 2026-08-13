@@ -3,6 +3,7 @@ using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Projects;
 using static FurniSpace.Application.Constants.Orders.OrderServiceConstants;
 using FurniSpace.Application.DTOs.Orders;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Orders;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -10,6 +11,7 @@ using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Orders;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
+using Microsoft.Extensions.Logging;
 
 namespace FurniSpace.Application.Services.Orders;
 
@@ -20,19 +22,25 @@ public sealed class OrderService : IOrderService
     private readonly IPaymentRepository _payments;
     private readonly IProjectScheduleRepository _schedules;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationDispatcher? _notifications;
+    private readonly ILogger<OrderService>? _logger;
 
     public OrderService(
         IOrderRepository orders,
         IProjectRepository projects,
         IPaymentRepository payments,
         IProjectScheduleRepository schedules,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        INotificationDispatcher? notifications = null,
+        ILogger<OrderService>? logger = null)
     {
         _orders = orders;
         _projects = projects;
         _payments = payments;
         _schedules = schedules;
         _unitOfWork = unitOfWork;
+        _notifications = notifications;
+        _logger = logger;
     }
 
     public async Task<ServiceResult<OrderListResponseDto>> GetByProjectAsync(
@@ -155,6 +163,19 @@ public sealed class OrderService : IOrderService
         _projects.Update(project);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        await OrderNotificationSupport.TryDispatchUpdatedAsync(
+            _notifications,
+            _logger,
+            order,
+            project,
+            cancellationToken);
+        await OrderNotificationSupport.TryDispatchProjectStatusChangedAsync(
+            _notifications,
+            _logger,
+            project,
+            OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
+            cancellationToken);
+
         return ServiceResult<OrderDeliveryStartDto>.Success(
             ToDeliveryStartDto(order, project),
             "Delivery started successfully.");
@@ -228,6 +249,14 @@ public sealed class OrderService : IOrderService
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        await OrderNotificationSupport.TryDispatchItemDeliveryUpdatedAsync(
+            _notifications,
+            _logger,
+            context.Order!,
+            context.Project!,
+            updatedItem,
+            cancellationToken);
+
         return ServiceResult<OrderItemDeliveredQuantityDto>.Success(
             ToDeliveredQuantityDto(updatedItem),
             "Delivered quantity updated successfully.");
@@ -289,6 +318,7 @@ public sealed class OrderService : IOrderService
         context.Item.CustomerConfirmedAt = now;
         _orders.UpdateItem(context.Item);
 
+        var orderDelivered = false;
         if (await AllDeliverableItemsConfirmedAsync(context.Item, cancellationToken))
         {
             context.Order!.Status = OrderStatus.DELIVERED;
@@ -298,9 +328,34 @@ public sealed class OrderService : IOrderService
             context.Project.UpdatedAt = now;
             _orders.Update(context.Order);
             _projects.Update(context.Project);
+            orderDelivered = true;
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await OrderNotificationSupport.TryDispatchItemDeliveryConfirmedAsync(
+            _notifications,
+            _logger,
+            context.Order!,
+            context.Project!,
+            context.Item,
+            cancellationToken);
+
+        if (orderDelivered)
+        {
+            await OrderNotificationSupport.TryDispatchDeliveredAsync(
+                _notifications,
+                _logger,
+                context.Order!,
+                context.Project!,
+                cancellationToken);
+            await OrderNotificationSupport.TryDispatchProjectStatusChangedAsync(
+                _notifications,
+                _logger,
+                context.Project!,
+                OrderNotificationSupport.BuildCustomerAndSalesReceivers(context.Order!, context.Project!),
+                cancellationToken);
+        }
 
         return ServiceResult<OrderItemDeliveryConfirmationDto>.Success(
             ToDeliveryConfirmationDto(context.Item, context.Order!),
@@ -369,6 +424,17 @@ public sealed class OrderService : IOrderService
         order.UpdatedAt = DateTime.UtcNow;
         _orders.Update(order);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is not null)
+        {
+            await OrderNotificationSupport.TryDispatchUpdatedAsync(
+                _notifications,
+                _logger,
+                order,
+                project,
+                cancellationToken);
+        }
 
         var requiresRemainingPayment = remainingAmount > 0m;
         var message = requiresRemainingPayment
@@ -439,6 +505,19 @@ public sealed class OrderService : IOrderService
         _orders.Update(order);
         _projects.Update(project);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await OrderNotificationSupport.TryDispatchCompletedAsync(
+            _notifications,
+            _logger,
+            order,
+            project,
+            cancellationToken);
+        await OrderNotificationSupport.TryDispatchProjectStatusChangedAsync(
+            _notifications,
+            _logger,
+            project,
+            OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
+            cancellationToken);
 
         return ServiceResult<OrderCompletionDto>.Success(
             ToCompletionDto(order, project, now),

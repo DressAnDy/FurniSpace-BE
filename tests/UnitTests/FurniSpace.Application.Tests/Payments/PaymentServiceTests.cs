@@ -1307,7 +1307,8 @@ public sealed class PaymentServiceTests
             Guid? projectId = null,
             string? referenceType = null,
             Guid? referenceId = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IReadOnlyDictionary<string, object?>? metadata = null)
         {
             Dispatched.Add(type);
             return Task.CompletedTask;

@@ -26,7 +26,8 @@ public sealed class CapturingNotificationDispatcher : INotificationDispatcher
         Guid? projectId = null,
         string? referenceType = null,
         Guid? referenceId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, object?>? metadata = null)
     {
         var captured = new CapturedNotification(
             type,
@@ -34,7 +35,8 @@ public sealed class CapturingNotificationDispatcher : INotificationDispatcher
             receiverIds.ToArray(),
             projectId,
             referenceType,
-            referenceId);
+            referenceId,
+            metadata is null ? null : new Dictionary<string, object?>(metadata));
 
         lock (_sync)
         {

@@ -223,10 +223,9 @@ public sealed class PaymentService : IPaymentService
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+        await PaymentNotificationSupport.TryDispatchCreatedAsync(
             _notifications,
             _logger,
-            NotificationType.PaymentCreated,
             payment,
             cancellationToken: cancellationToken);
 
@@ -321,10 +320,9 @@ public sealed class PaymentService : IPaymentService
         await _payments.AddPaymentAsync(payment, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+        await PaymentNotificationSupport.TryDispatchCreatedAsync(
             _notifications,
             _logger,
-            NotificationType.PaymentCreated,
             payment,
             cancellationToken: cancellationToken);
 
@@ -429,10 +427,9 @@ public sealed class PaymentService : IPaymentService
         await _payments.AddPaymentAsync(payment, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+        await PaymentNotificationSupport.TryDispatchCreatedAsync(
             _notifications,
             _logger,
-            NotificationType.PaymentCreated,
             payment,
             cancellationToken: cancellationToken);
 
@@ -1082,12 +1079,16 @@ public sealed class PaymentService : IPaymentService
             };
         }
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentProcessing,
-            payment,
-            cancellationToken: cancellationToken);
+        if (payment.PaidBy is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentProcessing,
+                payment,
+                [payment.PaidBy.Value],
+                cancellationToken: cancellationToken);
+        }
 
         return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
             new PaymentTransactionAttemptResponseDto
@@ -1156,12 +1157,16 @@ public sealed class PaymentService : IPaymentService
         _payments.UpdatePayment(payment);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentProcessing,
-            payment,
-            cancellationToken: cancellationToken);
+        if (payment.PaidBy is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentProcessing,
+                payment,
+                [payment.PaidBy.Value],
+                cancellationToken: cancellationToken);
+        }
 
         var createdTransaction = new PaymentTransactionReadModel
         {
@@ -1340,12 +1345,16 @@ public sealed class PaymentService : IPaymentService
         _payments.UpdateTransaction(transaction);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentTransactionCancelled,
-            payment,
-            cancellationToken: cancellationToken);
+        if (payment.PaidBy is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentTransactionCancelled,
+                payment,
+                [payment.PaidBy.Value],
+                cancellationToken: cancellationToken);
+        }
 
         return ServiceResult<PaymentTransactionDto>.Success(
             transaction.Adapt<PaymentTransactionDto>(),
@@ -1528,12 +1537,16 @@ public sealed class PaymentService : IPaymentService
 
         _payments.UpdatePayment(payment);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentExpired,
-            payment,
-            cancellationToken: cancellationToken);
+        if (payment.PaidBy is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentExpired,
+                payment,
+                [payment.PaidBy.Value],
+                cancellationToken: cancellationToken);
+        }
         return payment;
     }
 
@@ -1559,11 +1572,17 @@ public sealed class PaymentService : IPaymentService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         foreach (var payment in expiredPayments)
         {
-            await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            if (payment.PaidBy is null)
+            {
+                continue;
+            }
+
+            await PaymentNotificationSupport.TryDispatchAsync(
                 _notifications,
                 _logger,
                 NotificationType.PaymentExpired,
                 payment,
+                [payment.PaidBy.Value],
                 cancellationToken: cancellationToken);
         }
     }

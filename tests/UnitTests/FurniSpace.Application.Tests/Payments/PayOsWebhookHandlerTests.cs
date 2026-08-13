@@ -516,7 +516,10 @@ public sealed class PayOsWebhookHandlerTests
     {
         public PaymentUpdatedRealtimeDto? LastPayload { get; private set; }
 
-        public Task SendPaymentUpdatedAsync(PaymentUpdatedRealtimeDto payload, CancellationToken cancellationToken = default)
+        public Task SendPaymentUpdatedAsync(
+            PaymentUpdatedRealtimeDto payload,
+            IReadOnlyCollection<Guid>? stakeholderUserIds = null,
+            CancellationToken cancellationToken = default)
         {
             LastPayload = payload;
             return Task.CompletedTask;

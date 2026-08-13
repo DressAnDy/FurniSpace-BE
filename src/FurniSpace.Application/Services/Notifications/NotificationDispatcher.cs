@@ -1,5 +1,5 @@
-using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.DTOs.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure.Persistence;
@@ -34,35 +34,42 @@ public sealed class NotificationDispatcher : INotificationDispatcher
         Guid? projectId = null,
         string? referenceType = null,
         Guid? referenceId = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<string, object?>? metadata = null)
     {
         var template = NotificationTemplateProvider.Get(type);
         var title = NotificationTemplateProvider.RenderTitle(template, parameters);
         var message = NotificationTemplateProvider.RenderMessage(template, parameters);
         var typeName = type.ToString();
         var now = DateTime.UtcNow;
-        var receivers = receiverIds.ToList();
+        var receivers = receiverIds
+            .Where(receiverId => receiverId != Guid.Empty)
+            .Distinct()
+            .ToList();
+
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        var envelope = new DispatchEnvelope(
+            title,
+            message,
+            typeName,
+            projectId,
+            referenceType,
+            referenceId,
+            now,
+            template.SignalREventName,
+            metadata);
 
         if (template.DeliveryLevel == NotificationDeliveryLevel.InAppRealtime)
         {
-            var envelope = new DispatchEnvelope(
-                title,
-                message,
-                typeName,
-                projectId,
-                referenceType,
-                referenceId,
-                now,
-                template.SignalREventName);
-
-            await DispatchInAppRealtimeAsync(
-                receivers,
-                envelope,
-                cancellationToken);
+            await DispatchInAppRealtimeAsync(receivers, envelope, cancellationToken);
         }
         else
         {
-            await DispatchRealtimeOnlyAsync(receivers, template.SignalREventName, title, message, now);
+            await DispatchRealtimeOnlyAsync(receivers, envelope, cancellationToken);
         }
     }
 
@@ -73,6 +80,25 @@ public sealed class NotificationDispatcher : INotificationDispatcher
     {
         foreach (var receiverId in receivers)
         {
+            if (envelope.ReferenceId.HasValue)
+            {
+                var isDuplicate = await _notifications.ExistsActiveDuplicateAsync(
+                    receiverId,
+                    envelope.TypeName,
+                    envelope.ReferenceType,
+                    envelope.ReferenceId.Value,
+                    cancellationToken);
+                if (isDuplicate)
+                {
+                    _logger.LogInformation(
+                        "Skipped duplicate in-app notification {NotificationType} for receiver {ReceiverId} reference {ReferenceId}",
+                        envelope.TypeName,
+                        receiverId,
+                        envelope.ReferenceId);
+                    continue;
+                }
+            }
+
             var notification = new Notification
             {
                 NotificationId = Guid.NewGuid(),
@@ -102,17 +128,9 @@ public sealed class NotificationDispatcher : INotificationDispatcher
                 continue;
             }
 
-            var payload = new
-            {
-                notificationId = notification.NotificationId,
-                title = envelope.Title,
-                message = envelope.Message,
-                notificationType = envelope.TypeName,
-                projectId = envelope.ProjectId,
-                referenceType = envelope.ReferenceType,
-                referenceId = envelope.ReferenceId,
-                createdAt = envelope.OccurredAt
-            };
+            var payload = BuildPayload(
+                notification.NotificationId,
+                envelope);
 
             try
             {
@@ -131,28 +149,45 @@ public sealed class NotificationDispatcher : INotificationDispatcher
 
     private async Task DispatchRealtimeOnlyAsync(
         IReadOnlyList<Guid> receivers,
-        string eventName,
-        string title,
-        string message,
-        DateTime now)
+        DispatchEnvelope envelope,
+        CancellationToken cancellationToken)
     {
-        var payload = new { title, message, occurredAt = now };
+        var payload = BuildPayload(notificationId: null, envelope);
 
         foreach (var receiverId in receivers)
         {
             try
             {
-                await _realtime.SendToUserAsync(receiverId, eventName, payload);
+                await _realtime.SendToUserAsync(receiverId, envelope.SignalREventName, payload, cancellationToken);
             }
             catch (Exception exception)
             {
                 _logger.LogWarning(
                     exception,
                     "Failed to push realtime-only event {EventName} to user {UserId}",
-                    eventName,
+                    envelope.SignalREventName,
                     receiverId);
             }
         }
+    }
+
+    private static RealtimeNotificationPayloadDto BuildPayload(
+        Guid? notificationId,
+        DispatchEnvelope envelope)
+    {
+        return new RealtimeNotificationPayloadDto
+        {
+            NotificationId = notificationId,
+            Title = envelope.Title,
+            Message = envelope.Message,
+            NotificationType = envelope.TypeName,
+            ProjectId = envelope.ProjectId,
+            ReferenceType = envelope.ReferenceType,
+            ReferenceId = envelope.ReferenceId,
+            CreatedAt = envelope.OccurredAt,
+            OccurredAt = envelope.OccurredAt,
+            Metadata = envelope.Metadata
+        };
     }
 
     private sealed record DispatchEnvelope(
@@ -163,5 +198,6 @@ public sealed class NotificationDispatcher : INotificationDispatcher
         string? ReferenceType,
         Guid? ReferenceId,
         DateTime OccurredAt,
-        string SignalREventName);
+        string SignalREventName,
+        IReadOnlyDictionary<string, object?>? Metadata);
 }

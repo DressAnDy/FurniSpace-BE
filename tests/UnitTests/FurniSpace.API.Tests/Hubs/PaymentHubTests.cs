@@ -67,6 +67,29 @@ public sealed class PaymentHubTests
     }
 
     [Fact]
+    public async Task OnConnectedAsync_WithAccountId_AddsUserGroup()
+    {
+        var accountId = Guid.NewGuid();
+        var groups = new FakeGroupManager();
+        var hub = BuildHub(groups, accountId, canAccess: true);
+
+        await hub.OnConnectedAsync();
+
+        var added = Assert.Single(groups.AddedGroups);
+        Assert.Equal(RealtimeGroupNames.User(accountId), added.GroupName);
+    }
+
+    [Fact]
+    public async Task JoinPayment_WithEmptyPaymentId_ThrowsHubException()
+    {
+        var hub = BuildHub(new FakeGroupManager(), Guid.NewGuid(), canAccess: true);
+
+        var exception = await Assert.ThrowsAsync<HubException>(() => hub.JoinPayment(Guid.Empty));
+
+        Assert.Equal("Payment id is required.", exception.Message);
+    }
+
+    [Fact]
     public async Task LeavePayment_RemovesPaymentGroup()
     {
         var paymentId = Guid.NewGuid();

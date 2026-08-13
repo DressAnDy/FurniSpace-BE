@@ -208,6 +208,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
         services.AddScoped<IProjectService, ProjectService>();
+        services.AddScoped<IProjectStakeholderResolver, ProjectStakeholderResolver>();
         services.AddScoped<ProjectStatusTransitionEvaluator>();
         services.AddScoped<ProjectScheduleServiceDependencies>(sp =>
         {
@@ -266,7 +267,15 @@ public static class DependencyInjection
                 sp.GetRequiredService<IPayOsClient>());
         });
         services.AddScoped<IPaymentBusinessEffectService, PaymentBusinessEffectService>();
-        services.AddScoped<IOrderService, OrderService>();
+        services.AddScoped<IOrderService>(sp => new OrderService(
+            sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IOrderRepository>(),
+            sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectRepository>(),
+            sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IPaymentRepository>(),
+            sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectScheduleRepository>(),
+            sp.GetRequiredService<IUnitOfWork>(),
+            sp.GetService<INotificationDispatcher>(),
+            sp.GetService<ILogger<OrderService>>()));
+        services.AddScoped<PaymentWebhookRuntime>();
         services.AddScoped<ISePayWebhookService, SePayWebhookHandler>();
         services.AddScoped<IPayOsWebhookService, PayOsWebhookHandler>();
         services.AddScoped<IPayOsClient, PayOsClientService>();

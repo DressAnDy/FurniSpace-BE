@@ -63,7 +63,7 @@ public static class NotificationTemplateProvider
                 "Final proposal selected",
                 "Customer selected proposal \"{ProposalName}\" as the final design proposal.",
                 NotificationDeliveryLevel.InAppRealtime,
-                "proposal.final.selected"),
+                "proposal.selected"),
 
             NotificationType.QuotationSent => new NotificationTemplate(
                 "Quotation ready for review",
@@ -81,7 +81,13 @@ public static class NotificationTemplateProvider
                 "Quotation revision requested",
                 "Customer requested revision for quotation \"{QuotationCode}\". Reason: {RevisionReason}",
                 NotificationDeliveryLevel.InAppRealtime,
-                "quotation.revision.requested"),
+                "quotation.revision_requested"),
+
+            NotificationType.QuotationRevised => new NotificationTemplate(
+                "Quotation revised",
+                "Quotation \"{QuotationCode}\" has been revised and is ready for your review.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "quotation.revised"),
 
             NotificationType.QuotationRejected => new NotificationTemplate(
                 "Quotation rejected",
@@ -109,17 +115,20 @@ public static class NotificationTemplateProvider
             NotificationType.ProjectScheduleCreated => new NotificationTemplate(
                 "New project schedule created",
                 "A {ScheduleType} schedule has been created for project \"{ProjectName}\" at {ScheduledStart}.",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.RealtimeOnly,
+                "project_schedule.created"),
 
             NotificationType.ProjectScheduleUpdated => new NotificationTemplate(
                 "Project schedule updated",
                 "The {ScheduleType} schedule for project \"{ProjectName}\" has been updated.",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.RealtimeOnly,
+                "project_schedule.updated"),
 
             NotificationType.ProjectScheduleConfirmed => new NotificationTemplate(
                 "Project schedule confirmed",
                 "The {ScheduleType} schedule for project \"{ProjectName}\" has been confirmed.",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.RealtimeOnly,
+                "project_schedule.confirmed"),
 
             NotificationType.ProjectScheduleCompleted => new NotificationTemplate(
                 "Project schedule completed",
@@ -138,6 +147,36 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "order.deposit.paid"),
 
+            NotificationType.OrderUpdated => new NotificationTemplate(
+                "Order updated",
+                "Order \"{OrderCode}\" status changed to {Status}.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "order.updated"),
+
+            NotificationType.OrderDelivered => new NotificationTemplate(
+                "Order delivered",
+                "Order \"{OrderCode}\" has been fully delivered.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "order.delivered"),
+
+            NotificationType.OrderCompleted => new NotificationTemplate(
+                "Order completed",
+                "Order \"{OrderCode}\" has been completed.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "order.completed"),
+
+            NotificationType.OrderItemDeliveryUpdated => new NotificationTemplate(
+                "Delivery quantity updated",
+                "Delivered quantity was updated for an item in order \"{OrderCode}\".",
+                NotificationDeliveryLevel.RealtimeOnly,
+                "order.item.delivery_updated"),
+
+            NotificationType.OrderItemDeliveryConfirmed => new NotificationTemplate(
+                "Delivery confirmed",
+                "Customer confirmed delivery for an item in order \"{OrderCode}\".",
+                NotificationDeliveryLevel.RealtimeOnly,
+                "order.item.delivery_confirmed"),
+
             NotificationType.PaymentCreated => new NotificationTemplate(
                 "New payment required",
                 "Payment \"{PaymentCode}\" ({PaymentType}) for {Amount} {Currency} is ready for payment.",
@@ -154,7 +193,7 @@ public static class NotificationTemplateProvider
                 "Payment completed",
                 "Payment \"{PaymentCode}\" has been paid successfully.",
                 NotificationDeliveryLevel.InAppRealtime,
-                "payment.paid"),
+                "payment.updated"),
 
             NotificationType.PaymentExpired => new NotificationTemplate(
                 "Payment expired",
@@ -184,7 +223,19 @@ public static class NotificationTemplateProvider
                 "Production request assigned",
                 "Production request \"{ProductionCode}\" for project \"{ProjectName}\" has been assigned to you.",
                 NotificationDeliveryLevel.InAppRealtime,
-                "production_request.assigned"),
+                "production.request.assigned"),
+
+            NotificationType.ProductionRequestCreated => new NotificationTemplate(
+                "Production request created",
+                "Production request \"{ProductionCode}\" has been created for project \"{ProjectName}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "production.request.created"),
+
+            NotificationType.ProductionRequestCompleted => new NotificationTemplate(
+                "Production request completed",
+                "Production request \"{ProductionCode}\" for project \"{ProjectName}\" has been completed.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "production.request.completed"),
 
             NotificationType.ProductionItemCancelled => new NotificationTemplate(
                 "Production item cancelled",

@@ -6,5 +6,6 @@ public interface IPaymentRealtimeService
 {
     Task SendPaymentUpdatedAsync(
         PaymentUpdatedRealtimeDto payload,
+        IReadOnlyCollection<Guid>? stakeholderUserIds = null,
         CancellationToken cancellationToken = default);
 }

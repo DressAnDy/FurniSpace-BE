@@ -879,6 +879,7 @@ public sealed class ProposalService : IProposalService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
             await DispatchProposalFinalSelectedNotificationAsync(proposal, cancellationToken);
+            await DispatchProposalSelectedProjectStatusAsync(projectEntity, proposal, cancellationToken);
 
             return ServiceResult<SelectFinalProposalResponseDto>.Success(
                 new SelectFinalProposalResponseDto
@@ -2117,6 +2118,52 @@ public sealed class ProposalService : IProposalService
         return status is ProposalStatus.PUBLISHED;
     }
 
+    private async Task DispatchProposalSelectedProjectStatusAsync(
+        Project project,
+        ProposalDetailReadModel proposal,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var receivers = new HashSet<Guid> { proposal.CustomerId };
+        if (proposal.AssignedSalesId.HasValue)
+        {
+            receivers.Add(proposal.AssignedSalesId.Value);
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectStatusChanged,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName,
+                    ["Status"] = project.Status?.ToString() ?? string.Empty
+                },
+                receivers,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    "PROJECT",
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["newProjectStatus"] = project.Status?.ToString(),
+                        ["proposalId"] = proposal.ProposalId
+                    }),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(
+                ex,
+                "Failed to dispatch project status changed notification after proposal selected for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
     private async Task DispatchProposalFinalSelectedNotificationAsync(
         ProposalDetailReadModel proposal,
         CancellationToken cancellationToken)
@@ -2141,9 +2188,10 @@ public sealed class ProposalService : IProposalService
                     ["ProposalName"] = proposal.ProposalName
                 },
                 receiverIds,
-                projectId: proposal.ProjectId,
-                referenceType: "PROPOSAL",
-                referenceId: proposal.ProposalId,
+                new NotificationDispatchRequest(
+                    proposal.ProjectId,
+                    "PROPOSAL",
+                    proposal.ProposalId),
                 cancellationToken);
         }
         catch (Exception ex)
@@ -2173,9 +2221,10 @@ public sealed class ProposalService : IProposalService
                     ["ProposalName"] = proposal.ProposalName
                 },
                 [proposal.CustomerId],
-                projectId: proposal.ProjectId,
-                referenceType: "PROPOSAL",
-                referenceId: proposal.ProposalId,
+                new NotificationDispatchRequest(
+                    proposal.ProjectId,
+                    "PROPOSAL",
+                    proposal.ProposalId),
                 cancellationToken);
         }
         catch (Exception ex)
@@ -2211,9 +2260,10 @@ public sealed class ProposalService : IProposalService
                     ["ProposalName"] = proposal.ProposalName
                 },
                 receiverIds,
-                projectId: proposal.ProjectId,
-                referenceType: "PROPOSAL",
-                referenceId: proposal.ProposalId,
+                new NotificationDispatchRequest(
+                    proposal.ProjectId,
+                    "PROPOSAL",
+                    proposal.ProposalId),
                 cancellationToken);
         }
         catch (Exception ex)

@@ -1034,6 +1034,45 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task ReviseAsync_WhenRevisionRequested_NotifiesCustomer()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        var detail = MakeDetail(QuotationStatus.REVISION_REQUESTED);
+        detail.QuotationId = quotation.QuotationId;
+        detail.QuotationCode = quotation.QuotationCode;
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES", Notifications = dispatcher });
+
+        var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(NotificationType.QuotationRevised, dispatcher.LastType);
+        Assert.Contains(_customerId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task ReviseAsync_WhenNotificationFails_StillMarksRevised()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(new()
+        {
+            Quotations = quotations,
+            Role = "SALES",
+            Notifications = new ThrowingNotificationDispatcher()
+        });
+
+        var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.REVISED, quotation.Status);
+    }
+
+    [Fact]
     public async Task ReviseAsync_WhenRevisionRequested_RecalculatesExistingItems()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
@@ -1613,15 +1652,26 @@ public sealed class QuotationServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
+            NotificationDispatchRequest? request = null,
             CancellationToken cancellationToken = default)
         {
             LastType = type;
             LastReceiverIds.Clear();
             LastReceiverIds.AddRange(receiverIds);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingNotificationDispatcher : INotificationDispatcher
+    {
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Notification failed.");
         }
     }
 }

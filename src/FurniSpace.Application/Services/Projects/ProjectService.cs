@@ -145,9 +145,10 @@ public sealed class ProjectService : IProjectService
                     [ProjectNameNotificationKey] = project.ProjectName
                 },
                 receiverIds,
-                project.ProjectId,
-                ProjectReferenceType,
-                project.ProjectId,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -177,9 +178,10 @@ public sealed class ProjectService : IProjectService
                     [ProjectNameNotificationKey] = project.ProjectName
                 },
                 [project.CustomerId],
-                project.ProjectId,
-                ProjectReferenceType,
-                project.ProjectId,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -209,9 +211,10 @@ public sealed class ProjectService : IProjectService
                     [ProjectNameNotificationKey] = project.ProjectName
                 },
                 [project.CustomerId],
-                project.ProjectId,
-                ProjectReferenceType,
-                project.ProjectId,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -241,9 +244,10 @@ public sealed class ProjectService : IProjectService
                     [ProjectNameNotificationKey] = project.ProjectName
                 },
                 [project.AssignedSalesId.Value],
-                project.ProjectId,
-                ProjectReferenceType,
-                project.ProjectId,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -274,9 +278,10 @@ public sealed class ProjectService : IProjectService
                     ["Reason"] = project.RejectionReason ?? string.Empty
                 },
                 [project.CustomerId],
-                project.ProjectId,
-                ProjectReferenceType,
-                project.ProjectId,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -313,9 +318,14 @@ public sealed class ProjectService : IProjectService
                     ["Status"] = project.Status?.ToString() ?? string.Empty
                 },
                 receiverIds,
-                project.ProjectId,
-                ProjectReferenceType,
-                project.ProjectId,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["newProjectStatus"] = project.Status?.ToString()
+                    }),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -346,9 +356,10 @@ public sealed class ProjectService : IProjectService
                     [ProjectNameNotificationKey] = project.ProjectName
                 },
                 [designerId],
-                project.ProjectId,
-                ProjectReferenceType,
-                project.ProjectId,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
                 cancellationToken);
         }
         catch (Exception exception)

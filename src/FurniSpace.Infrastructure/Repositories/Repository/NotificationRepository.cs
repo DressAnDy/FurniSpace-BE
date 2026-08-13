@@ -64,6 +64,22 @@ public sealed class NotificationRepository : GenericRepository<Notification>, IN
                 cancellationToken);
     }
 
+    public Task<bool> ExistsActiveDuplicateAsync(
+        Guid receiverId,
+        string notificationType,
+        string? referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.NotificationSet.AnyAsync(
+            n => n.ReceiverId == receiverId &&
+                 n.DeletedAt == null &&
+                 n.NotificationType == notificationType &&
+                 n.ReferenceType == referenceType &&
+                 n.ReferenceId == referenceId,
+            cancellationToken);
+    }
+
     public Task MarkAllAsReadAsync(
         Guid receiverId,
         DateTime readAt,

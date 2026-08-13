@@ -911,9 +911,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             NotificationType.ProjectScheduleCreated,
             parameters,
             receivers,
-            schedule.ProjectId,
-            ProjectScheduleReferenceType,
-            schedule.ScheduleId,
+            new NotificationDispatchRequest(
+                schedule.ProjectId,
+                ProjectScheduleReferenceType,
+                schedule.ScheduleId),
             cancellationToken);
     }
 
@@ -944,9 +945,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             NotificationType.ProjectScheduleUpdated,
             parameters,
             receivers,
-            schedule.ProjectId,
-            ProjectScheduleReferenceType,
-            schedule.ScheduleId,
+            new NotificationDispatchRequest(
+                schedule.ProjectId,
+                ProjectScheduleReferenceType,
+                schedule.ScheduleId),
             cancellationToken);
     }
 
@@ -967,9 +969,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     NotificationType.ProjectScheduleConfirmed,
                     parameters,
                     receivers,
-                    schedule.ProjectId,
-                    ProjectScheduleReferenceType,
-                    schedule.ScheduleId,
+                    new NotificationDispatchRequest(
+                        schedule.ProjectId,
+                        ProjectScheduleReferenceType,
+                        schedule.ScheduleId),
                     cancellationToken);
                 break;
             }
@@ -980,8 +983,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     NotificationType.ProjectScheduleCompleted,
                     parameters,
                     receivers,
-                    schedule.ProjectId,
-                    cancellationToken: cancellationToken);
+                    new NotificationDispatchRequest(schedule.ProjectId),
+                    cancellationToken);
                 break;
             }
             case ProjectScheduleStatus.CANCELLED:
@@ -991,9 +994,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     NotificationType.ProjectScheduleCancelled,
                     parameters,
                     receivers,
-                    schedule.ProjectId,
-                    ProjectScheduleReferenceType,
-                    schedule.ScheduleId,
+                    new NotificationDispatchRequest(
+                        schedule.ProjectId,
+                        ProjectScheduleReferenceType,
+                        schedule.ScheduleId),
                     cancellationToken);
                 break;
             }

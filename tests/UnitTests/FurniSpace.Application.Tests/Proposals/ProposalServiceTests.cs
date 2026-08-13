@@ -1432,11 +1432,63 @@ public sealed class ProposalServiceTests
         Assert.Equal(ProposalStatus.REJECTED, otherProposal.Status);
         Assert.Equal(1, repository.RejectOtherActiveProposalsCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
-        Assert.Equal(NotificationType.ProposalFinalSelected, dispatcher.LastType);
-        Assert.Equal(projectId, dispatcher.LastProjectId);
-        Assert.Equal(proposalId, dispatcher.LastReferenceId);
-        Assert.Contains(salesId, dispatcher.LastReceiverIds);
-        Assert.Contains(designerId, dispatcher.LastReceiverIds);
+        Assert.Equal(2, dispatcher.DispatchCount);
+        Assert.Contains(NotificationType.ProposalFinalSelected, dispatcher.DispatchedTypes);
+        Assert.Contains(NotificationType.ProjectStatusChanged, dispatcher.DispatchedTypes);
+        var selectedDispatch = Assert.Single(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProposalFinalSelected);
+        Assert.Equal(projectId, selectedDispatch.ProjectId);
+        Assert.Equal("PROPOSAL", selectedDispatch.ReferenceType);
+        Assert.Equal(proposalId, selectedDispatch.ReferenceId);
+        Assert.Contains(salesId, selectedDispatch.ReceiverIds);
+        Assert.Contains(designerId, selectedDispatch.ReceiverIds);
+        var statusDispatch = Assert.Single(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProjectStatusChanged);
+        Assert.Equal(projectId, statusDispatch.ProjectId);
+        Assert.Equal("PROJECT", statusDispatch.ReferenceType);
+        Assert.Contains(customerId, statusDispatch.ReceiverIds);
+        Assert.Contains(salesId, statusDispatch.ReceiverIds);
+    }
+
+    [Fact]
+    public async Task SelectFinalAsync_WhenNotificationFails_StillSelectsProposal()
+    {
+        var customerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var detail = CreateDetail(proposalId, customerId: customerId);
+        detail.ProjectId = projectId;
+        detail.Status = ProposalStatus.PUBLISHED;
+        detail.AssignedSalesId = Guid.NewGuid();
+        var repository = new FakeProposalRepository(detail: detail);
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = proposalId,
+            ProjectId = projectId,
+            ProposalName = "Selected",
+            Status = ProposalStatus.PUBLISHED
+        });
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("CUSTOMER", new Project
+            {
+                ProjectId = projectId,
+                CustomerId = customerId,
+                ProjectName = "Cafe",
+                Status = ProjectStatus.PROPOSAL_CONSULTING
+            }),
+            notifications: new ThrowingNotificationDispatcher());
+
+        var result = await service.SelectFinalAsync(proposalId, customerId, new SelectFinalProposalRequestDto
+        {
+            Note = "I confirm this as the final design proposal."
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProposalStatus.SELECTED, result.Data!.ProposalStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_SELECTED, result.Data.ProjectStatus);
     }
 
     [Fact]
@@ -2826,26 +2878,47 @@ public sealed class ProposalServiceTests
         public Guid? LastReferenceId { get; private set; }
         public int DispatchCount { get; private set; }
         public List<NotificationType> DispatchedTypes { get; } = [];
+        public List<CapturedDispatch> Dispatches { get; } = [];
 
         public Task DispatchAsync(
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
+            NotificationDispatchRequest? request = null,
             CancellationToken cancellationToken = default)
         {
+            var receivers = receiverIds.ToList();
             DispatchCount++;
             DispatchedTypes.Add(type);
+            Dispatches.Add(new CapturedDispatch(type, receivers, request?.ProjectId, request?.ReferenceType, request?.ReferenceId));
             LastType = type;
             LastParameters = parameters;
             LastReceiverIds.Clear();
-            LastReceiverIds.AddRange(receiverIds);
-            LastProjectId = projectId;
-            LastReferenceType = referenceType;
-            LastReferenceId = referenceId;
+            LastReceiverIds.AddRange(receivers);
+            LastProjectId = request?.ProjectId;
+            LastReferenceType = request?.ReferenceType;
+            LastReferenceId = request?.ReferenceId;
             return Task.CompletedTask;
         }
     }
+
+    private sealed class ThrowingNotificationDispatcher : INotificationDispatcher
+    {
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Notification failed.");
+        }
+    }
+
+    private sealed record CapturedDispatch(
+        NotificationType Type,
+        IReadOnlyList<Guid> ReceiverIds,
+        Guid? ProjectId,
+        string? ReferenceType,
+        Guid? ReferenceId);
 }

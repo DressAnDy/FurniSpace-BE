@@ -62,8 +62,17 @@ public sealed class ProductionRequestServiceTests
         Assert.All(context.OrderItemSet, item => Assert.Equal(OrderItemStatus.IN_PRODUCTION, item.Status));
         Assert.Equal("NORMAL", context.ProductionRequestSet.Single().Priority);
         Assert.Equal("Start soon", context.ProductionRequestSet.Single().Note);
-        Assert.Equal(NotificationType.ProductionRequestAssigned, dispatcher.NotificationType);
-        Assert.Equal(_productionId, Assert.Single(dispatcher.ReceiverIds));
+        Assert.Equal(2, dispatcher.Dispatches.Count);
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestCreated &&
+                        dispatch.Receivers.Contains(_salesId) &&
+                        dispatch.Receivers.Contains(_productionId));
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestAssigned &&
+                        dispatch.Receivers.Contains(_salesId) &&
+                        dispatch.Receivers.Contains(_productionId));
     }
 
     [Theory]
@@ -364,7 +373,12 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(_productionId, result.Data!.PreviousAssignedTo);
         Assert.Equal(secondProductionId, result.Data.AssignedTo);
         Assert.Contains("Reassigned due to workload.", context.ProductionRequestSet.Single().Note, StringComparison.Ordinal);
-        Assert.Equal(secondProductionId, Assert.Single(dispatcher.ReceiverIds));
+        var assignedDispatch = Assert.Single(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestAssigned);
+        Assert.Equal(2, assignedDispatch.Receivers.Count);
+        Assert.Contains(secondProductionId, assignedDispatch.Receivers);
+        Assert.Contains(_salesId, assignedDispatch.Receivers);
     }
 
     [Fact]
@@ -759,6 +773,27 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
+    public async Task UpdateItemStatusAsync_WhenCancelledAndNotificationFails_StillCancelsItem()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.IN_PRODUCTION);
+        await context.SaveChangesAsync();
+        var service = BuildService(context, new FailingNotificationDispatcher());
+
+        var result = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto
+            {
+                Status = ProductionItemStatus.CANCELLED,
+                CancellationReason = "Material unavailable."
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductionItemStatus.CANCELLED, context.ProductionItemSet.Single().Status);
+    }
+
+    [Fact]
     public async Task UpdateItemStatusAsync_WhenInvalid_ReturnsExpectedErrors()
     {
         await using var context = CreateContext();
@@ -818,7 +853,8 @@ public sealed class ProductionRequestServiceTests
         await using var context = CreateContext();
         var seeded = SeedCompletionScenario(context);
         await context.SaveChangesAsync();
-        var service = BuildService(context);
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(context, dispatcher);
 
         var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
 
@@ -834,6 +870,29 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(OrderItemStatus.READY, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CompletedOrderItemId).Status);
         Assert.Equal(OrderItemStatus.UNAVAILABLE, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CancelledOrderItemId).Status);
         Assert.Equal(ProjectStatus.READY_FOR_DELIVERY, context.ProjectSet.Single().Status);
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestCompleted &&
+                        dispatch.Receivers.Contains(_salesId));
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.OrderUpdated &&
+                        dispatch.Receivers.Contains(_salesId));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenNotificationFails_DoesNotRollbackCompletion()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        await context.SaveChangesAsync();
+        var service = BuildService(context, new FailingNotificationDispatcher());
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductionRequestStatus.COMPLETED, context.ProductionRequestSet.Single().Status);
+        Assert.Equal(OrderStatus.READY_FOR_DELIVERY, context.OrderSet.Single().Status);
     }
 
     [Fact]
@@ -1232,18 +1291,19 @@ public sealed class ProductionRequestServiceTests
     {
         public NotificationType? NotificationType { get; private set; }
         public List<Guid> ReceiverIds { get; } = [];
+        public List<(NotificationType Type, IReadOnlyList<Guid> Receivers)> Dispatches { get; } = [];
 
         public Task DispatchAsync(
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
+            NotificationDispatchRequest? request = null,
             CancellationToken cancellationToken = default)
         {
+            var receivers = receiverIds.ToList();
             NotificationType = type;
-            ReceiverIds.AddRange(receiverIds);
+            ReceiverIds.AddRange(receivers);
+            Dispatches.Add((type, receivers));
             return Task.CompletedTask;
         }
     }
@@ -1254,9 +1314,7 @@ public sealed class ProductionRequestServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
+            NotificationDispatchRequest? request = null,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Notification failed.");

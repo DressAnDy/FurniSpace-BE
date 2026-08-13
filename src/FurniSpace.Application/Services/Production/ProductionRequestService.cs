@@ -1,8 +1,8 @@
 #nullable enable
 
 using FurniSpace.Application.Common;
-using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Production;
@@ -22,6 +22,8 @@ public sealed class ProductionRequestService : IProductionRequestService
     private const string ProductionRole = "PRODUCTION";
     private const string SalesRole = "SALES";
     private const string OrderReferenceType = "ORDER";
+    private const string ProductionRequestReferenceType = "PRODUCTION_REQUEST";
+    private const string ProductionCodeParameter = "ProductionCode";
     private const string ProductionStaffNotFoundMessage = "Production staff not found.";
     private const string OrderNotFoundMessage = "Order not found.";
     private const string ProjectNotFoundMessage = "Project not found.";
@@ -165,6 +167,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             throw;
         }
 
+        await DispatchCreatedNotificationAsync(productionRequest, order, project, cancellationToken);
         await DispatchAssignedNotificationAsync(productionRequest, project, cancellationToken);
 
         var response = productionRequest.Adapt<ProductionRequestCreatedDto>();
@@ -288,7 +291,11 @@ public sealed class ProductionRequestService : IProductionRequestService
         _productionRequests.Update(productionRequest);
         await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
 
-        await DispatchAssignedNotificationAsync(productionRequest, detail.ProjectName, cancellationToken);
+        await DispatchAssignedNotificationAsync(
+            productionRequest,
+            detail.ProjectName,
+            detail.AssignedSalesId,
+            cancellationToken);
 
         return ServiceResult<ProductionRequestAssignmentDto>.Success(
             new ProductionRequestAssignmentDto
@@ -590,6 +597,10 @@ public sealed class ProductionRequestService : IProductionRequestService
         }
 
         var synchronizedCounts = await CountSynchronizedOrderItemsAsync(order.OrderId, cancellationToken);
+
+        await DispatchCompletedNotificationAsync(productionRequest, order, project, cancellationToken);
+        await DispatchOrderUpdatedNotificationAsync(order, project, cancellationToken);
+
         return ServiceResult<ProductionCompletionDto>.Success(
             ToCompletionDto(
                 productionRequest,
@@ -928,22 +939,157 @@ public sealed class ProductionRequestService : IProductionRequestService
         return null;
     }
 
+    private async Task DispatchCreatedNotificationAsync(
+        ProductionRequest productionRequest,
+        Order order,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_dependencies.Notifications is null)
+        {
+            return;
+        }
+
+        var receivers = new HashSet<Guid>();
+        if (order.SalesId.HasValue)
+        {
+            receivers.Add(order.SalesId.Value);
+        }
+
+        if (productionRequest.AssignedTo.HasValue)
+        {
+            receivers.Add(productionRequest.AssignedTo.Value);
+        }
+
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _dependencies.Notifications.DispatchAsync(
+                NotificationType.ProductionRequestCreated,
+                new Dictionary<string, string>
+                {
+                    [ProductionCodeParameter] = productionRequest.ProductionCode ?? string.Empty,
+                    ["ProjectName"] = project.ProjectName
+                },
+                receivers,
+                new NotificationDispatchRequest(
+                    productionRequest.ProjectId,
+                    ProductionRequestReferenceType,
+                    productionRequest.ProductionRequestId,
+                    new Dictionary<string, object?>
+                    {
+                        ["productionRequestId"] = productionRequest.ProductionRequestId,
+                        ["orderId"] = productionRequest.OrderId,
+                        ["assignedToAccountId"] = productionRequest.AssignedTo
+                    }),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _dependencies.Logger?.LogWarning(
+                exception,
+                "Failed to dispatch production request created notification for request {ProductionRequestId}",
+                productionRequest.ProductionRequestId);
+        }
+    }
+
+    private async Task DispatchCompletedNotificationAsync(
+        ProductionRequest productionRequest,
+        Order order,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_dependencies.Notifications is null)
+        {
+            return;
+        }
+
+        var receivers = new HashSet<Guid>();
+        if (order.SalesId.HasValue)
+        {
+            receivers.Add(order.SalesId.Value);
+        }
+
+        if (project.CustomerId != Guid.Empty)
+        {
+            receivers.Add(project.CustomerId);
+        }
+
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _dependencies.Notifications.DispatchAsync(
+                NotificationType.ProductionRequestCompleted,
+                new Dictionary<string, string>
+                {
+                    [ProductionCodeParameter] = productionRequest.ProductionCode ?? string.Empty,
+                    ["ProjectName"] = project.ProjectName
+                },
+                receivers,
+                new NotificationDispatchRequest(
+                    productionRequest.ProjectId,
+                    ProductionRequestReferenceType,
+                    productionRequest.ProductionRequestId,
+                    new Dictionary<string, object?>
+                    {
+                        ["productionRequestId"] = productionRequest.ProductionRequestId,
+                        ["orderId"] = productionRequest.OrderId
+                    }),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _dependencies.Logger?.LogWarning(
+                exception,
+                "Failed to dispatch production request completed notification for request {ProductionRequestId}",
+                productionRequest.ProductionRequestId);
+        }
+    }
+
+    private async Task DispatchOrderUpdatedNotificationAsync(
+        Order order,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        await OrderNotificationSupport.TryDispatchUpdatedAsync(
+            _dependencies.Notifications,
+            _dependencies.Logger,
+            order,
+            project,
+            cancellationToken);
+    }
+
     private async Task DispatchAssignedNotificationAsync(
         ProductionRequest productionRequest,
         Project project,
         CancellationToken cancellationToken)
     {
-        await DispatchAssignedNotificationAsync(productionRequest, project.ProjectName, cancellationToken);
+        await DispatchAssignedNotificationAsync(productionRequest, project.ProjectName, project.AssignedSalesId, cancellationToken);
     }
 
     private async Task DispatchAssignedNotificationAsync(
         ProductionRequest productionRequest,
         string projectName,
+        Guid? assignedSalesId,
         CancellationToken cancellationToken)
     {
         if (_dependencies.Notifications is null || productionRequest.AssignedTo is null)
         {
             return;
+        }
+
+        var receivers = new HashSet<Guid> { productionRequest.AssignedTo.Value };
+        if (assignedSalesId.HasValue)
+        {
+            receivers.Add(assignedSalesId.Value);
         }
 
         try
@@ -952,13 +1098,19 @@ public sealed class ProductionRequestService : IProductionRequestService
                 NotificationType.ProductionRequestAssigned,
                 new Dictionary<string, string>
                 {
-                    ["ProductionCode"] = productionRequest.ProductionCode ?? string.Empty,
+                    [ProductionCodeParameter] = productionRequest.ProductionCode ?? string.Empty,
                     ["ProjectName"] = projectName
                 },
-                [productionRequest.AssignedTo.Value],
-                productionRequest.ProjectId,
-                OrderReferenceType,
-                productionRequest.OrderId,
+                receivers,
+                new NotificationDispatchRequest(
+                    productionRequest.ProjectId,
+                    ProductionRequestReferenceType,
+                    productionRequest.ProductionRequestId,
+                    new Dictionary<string, object?>
+                    {
+                        ["productionRequestId"] = productionRequest.ProductionRequestId,
+                        ["assignedToAccountId"] = productionRequest.AssignedTo
+                    }),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -987,12 +1139,13 @@ public sealed class ProductionRequestService : IProductionRequestService
                 new Dictionary<string, string>
                 {
                     ["ProductName"] = item.ProductNameSnapshot ?? string.Empty,
-                    ["ProductionCode"] = detail.ProductionCode ?? string.Empty
+                    [ProductionCodeParameter] = detail.ProductionCode ?? string.Empty
                 },
                 [detail.AssignedSalesId.Value],
-                detail.ProjectId,
-                OrderReferenceType,
-                detail.OrderId,
+                new NotificationDispatchRequest(
+                    detail.ProjectId,
+                    OrderReferenceType,
+                    detail.OrderId),
                 cancellationToken);
         }
         catch (Exception exception)

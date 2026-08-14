@@ -717,6 +717,24 @@ internal sealed class FakeProjectQuotationRepository : IQuotationRepository
         Quotation = entity;
     }
 
+    public Task<Quotation?> GetLatestByProjectAndProposalInStatusesAsync(
+        Guid projectId,
+        Guid proposalId,
+        IReadOnlyCollection<QuotationStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        if (Quotation is null ||
+            Quotation.ProjectId != projectId ||
+            Quotation.ProposalId != proposalId ||
+            !Quotation.Status.HasValue ||
+            !statuses.Contains(Quotation.Status.Value))
+        {
+            return Task.FromResult<Quotation?>(null);
+        }
+
+        return Task.FromResult<Quotation?>(Quotation);
+    }
+
     public Task<IReadOnlyList<Infrastructure.ReadModels.Quotations.QuotationReadModel>> GetByProjectAsync(
         Infrastructure.ReadModels.Quotations.QuotationQueryReadModel query,
         CancellationToken cancellationToken = default)

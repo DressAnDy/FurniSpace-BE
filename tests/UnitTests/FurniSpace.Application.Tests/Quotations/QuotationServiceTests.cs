@@ -1464,6 +1464,12 @@ public sealed class QuotationServiceTests
         public void Update(Quotation entity) { }
         public void Remove(Quotation entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<Quotation?> GetLatestByProjectAndProposalInStatusesAsync(
+            Guid projectId,
+            Guid proposalId,
+            IReadOnlyCollection<QuotationStatus> statuses,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Quotation?>(null);
         public Task<IReadOnlyList<QuotationReadModel>> GetByProjectAsync(QuotationQueryReadModel query, CancellationToken cancellationToken = default)
         {
             var items = ProjectQuotations

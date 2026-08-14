@@ -160,7 +160,22 @@ public sealed class ProjectServiceReopenProposalTests
             Status = ProjectStatus.ORDER_CONFIRMED
         };
         var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
-        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            new ProjectServiceFactoryOptions
+            {
+                Proposals = new FakeProjectReopenProposalRepository
+                {
+                    SelectedProposal = new Proposal
+                    {
+                        ProposalId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        Status = ProposalStatus.SELECTED,
+                        SelectedAt = DateTime.UtcNow.AddDays(-1)
+                    }
+                }
+            });
 
         var result = await service.ReopenProposalAsync(projectId, customerId);
 
@@ -209,7 +224,17 @@ public sealed class ProjectServiceReopenProposalTests
                         Status = OrderStatus.DEPOSIT_PENDING
                     }
                 },
-                Payments = payments
+                Payments = payments,
+                Proposals = new FakeProjectReopenProposalRepository
+                {
+                    SelectedProposal = new Proposal
+                    {
+                        ProposalId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        Status = ProposalStatus.SELECTED,
+                        SelectedAt = DateTime.UtcNow.AddDays(-1)
+                    }
+                }
             });
 
         var result = await service.ReopenProposalAsync(projectId, customerId);
@@ -249,6 +274,16 @@ public sealed class ProjectServiceReopenProposalTests
                 ProductionRequests = new FakeProjectProductionRequestRepository
                 {
                     HasProductionRequest = true
+                },
+                Proposals = new FakeProjectReopenProposalRepository
+                {
+                    SelectedProposal = new Proposal
+                    {
+                        ProposalId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        Status = ProposalStatus.SELECTED,
+                        SelectedAt = DateTime.UtcNow.AddDays(-1)
+                    }
                 }
             });
 
@@ -337,7 +372,7 @@ public sealed class ProjectServiceReopenProposalTests
         {
             ProjectId = projectId,
             CustomerId = customerId,
-            Status = ProjectStatus.PROPOSAL_CONSULTING
+            Status = ProjectStatus.IN_PRODUCTION
         };
         var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
         var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
@@ -346,6 +381,297 @@ public sealed class ProjectServiceReopenProposalTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(ProjectReopenProposalErrorCodes.ReopenNotAllowed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReopenProposalAsync_WhenAlreadyReopened_ReturnsStableSuccess()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            Status = ProjectStatus.PROPOSAL_CONSULTING,
+            UpdatedAt = DateTime.UtcNow.AddHours(-2)
+        };
+        var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.ReopenProposalAsync(projectId, customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, result.Data.NewStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, result.Data.OldStatus);
+    }
+
+    [Fact]
+    public async Task ReopenProposalAsync_FromProposalSelected_WithDraftQuotation_Succeeds()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var quotationId = Guid.NewGuid();
+        var selectedProposalId = Guid.NewGuid();
+        var selectedAt = DateTime.UtcNow.AddDays(-1);
+
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            Status = ProjectStatus.PROPOSAL_SELECTED
+        };
+        var quotation = new Quotation
+        {
+            QuotationId = quotationId,
+            ProjectId = projectId,
+            ProposalId = selectedProposalId,
+            Status = QuotationStatus.DRAFT
+        };
+        var selectedProposal = new Proposal
+        {
+            ProposalId = selectedProposalId,
+            ProjectId = projectId,
+            Status = ProposalStatus.SELECTED,
+            SelectedAt = selectedAt
+        };
+
+        var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
+        var quotations = new FakeProjectQuotationRepository { Quotation = quotation };
+        var proposals = new FakeProjectReopenProposalRepository { SelectedProposal = selectedProposal };
+        var unitOfWork = CreateTrackingUnitOfWork(repository.SaveChangesAsync);
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            unitOfWork,
+            new ProjectServiceFactoryOptions
+            {
+                Quotations = quotations,
+                Proposals = proposals
+            });
+
+        var result = await service.ReopenProposalAsync(projectId, customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(result.Data!.OrderId);
+        Assert.Equal(QuotationStatus.CANCELLED, result.Data.QuotationStatus);
+        Assert.Equal(ProposalStatus.PUBLISHED, result.Data.SelectedProposalStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
+        Assert.Equal(QuotationStatus.CANCELLED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task ReopenProposalAsync_FromQuotationSent_Succeeds()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var quotationId = Guid.NewGuid();
+        var selectedProposalId = Guid.NewGuid();
+
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            Status = ProjectStatus.QUOTATION_SENT
+        };
+        var quotation = new Quotation
+        {
+            QuotationId = quotationId,
+            ProjectId = projectId,
+            ProposalId = selectedProposalId,
+            Status = QuotationStatus.SENT
+        };
+        var selectedProposal = new Proposal
+        {
+            ProposalId = selectedProposalId,
+            ProjectId = projectId,
+            Status = ProposalStatus.SELECTED,
+            SelectedAt = DateTime.UtcNow.AddDays(-1)
+        };
+
+        var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            CreateTrackingUnitOfWork(repository.SaveChangesAsync),
+            new ProjectServiceFactoryOptions
+            {
+                Quotations = new FakeProjectQuotationRepository { Quotation = quotation },
+                Proposals = new FakeProjectReopenProposalRepository { SelectedProposal = selectedProposal }
+            });
+
+        var result = await service.ReopenProposalAsync(projectId, customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.CANCELLED, quotation.Status);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
+    }
+
+    [Fact]
+    public async Task ReopenProposalAsync_FromOrderConfirmed_WithCreatedOrder_Succeeds()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var quotationId = Guid.NewGuid();
+        var selectedProposalId = Guid.NewGuid();
+
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            Status = ProjectStatus.ORDER_CONFIRMED
+        };
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = projectId,
+            QuotationId = quotationId,
+            Status = OrderStatus.CREATED
+        };
+        var quotation = new Quotation
+        {
+            QuotationId = quotationId,
+            ProjectId = projectId,
+            Status = QuotationStatus.ACCEPTED
+        };
+        var selectedProposal = new Proposal
+        {
+            ProposalId = selectedProposalId,
+            ProjectId = projectId,
+            Status = ProposalStatus.SELECTED,
+            SelectedAt = DateTime.UtcNow.AddDays(-1)
+        };
+
+        var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            CreateTrackingUnitOfWork(repository.SaveChangesAsync),
+            new ProjectServiceFactoryOptions
+            {
+                Orders = new FakeProjectOrderRepository { Order = order },
+                Quotations = new FakeProjectQuotationRepository { Quotation = quotation },
+                Proposals = new FakeProjectReopenProposalRepository { SelectedProposal = selectedProposal }
+            });
+
+        var result = await service.ReopenProposalAsync(projectId, customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(OrderStatus.CANCELLED, order.Status);
+        Assert.Equal(QuotationStatus.CANCELLED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task ReopenProposalAsync_RestoresOnlyAutoRejectedSiblingProposals()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var selectedProposalId = Guid.NewGuid();
+        var selectedAt = DateTime.UtcNow.AddDays(-1);
+        var historicalRejectedAt = selectedAt.AddDays(-5);
+
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            Status = ProjectStatus.PROPOSAL_SELECTED
+        };
+        var selectedProposal = new Proposal
+        {
+            ProposalId = selectedProposalId,
+            ProjectId = projectId,
+            Status = ProposalStatus.SELECTED,
+            SelectedAt = selectedAt
+        };
+        var autoRejectedSibling = new Proposal
+        {
+            ProposalId = Guid.NewGuid(),
+            ProjectId = projectId,
+            Status = ProposalStatus.REJECTED,
+            RejectedAt = selectedAt
+        };
+        var historicalRejected = new Proposal
+        {
+            ProposalId = Guid.NewGuid(),
+            ProjectId = projectId,
+            Status = ProposalStatus.REJECTED,
+            RejectedAt = historicalRejectedAt
+        };
+        var archivedProposal = new Proposal
+        {
+            ProposalId = Guid.NewGuid(),
+            ProjectId = projectId,
+            Status = ProposalStatus.ARCHIVED
+        };
+
+        var proposals = new FakeProjectReopenProposalRepository
+        {
+            SelectedProposal = selectedProposal,
+            AutoRejectedProposals = { autoRejectedSibling, historicalRejected, archivedProposal }
+        };
+        var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            CreateTrackingUnitOfWork(repository.SaveChangesAsync),
+            new ProjectServiceFactoryOptions
+            {
+                Quotations = new FakeProjectQuotationRepository
+                {
+                    Quotation = new Quotation
+                    {
+                        QuotationId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        ProposalId = selectedProposalId,
+                        Status = QuotationStatus.DRAFT
+                    }
+                },
+                Proposals = proposals
+            });
+
+        var result = await service.ReopenProposalAsync(projectId, customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, result.Data!.RestoredProposalCount);
+        Assert.Equal(ProposalStatus.PUBLISHED, autoRejectedSibling.Status);
+        Assert.Equal(ProposalStatus.REJECTED, historicalRejected.Status);
+        Assert.Equal(ProposalStatus.ARCHIVED, archivedProposal.Status);
+    }
+
+    [Fact]
+    public async Task ReopenProposalAsync_CustomerOutsideProject_ReturnsForbidden()
+    {
+        var outsiderId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            Status = ProjectStatus.PROPOSAL_SELECTED
+        };
+        var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.ReopenProposalAsync(projectId, outsiderId);
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task ReopenProposalAsync_WithoutSelectedProposal_ReturnsSelectedProposalNotFound()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            Status = ProjectStatus.PROPOSAL_SELECTED
+        };
+        var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.ReopenProposalAsync(projectId, customerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectReopenProposalErrorCodes.SelectedProposalNotFound, result.ErrorCode);
     }
 
     [Fact]

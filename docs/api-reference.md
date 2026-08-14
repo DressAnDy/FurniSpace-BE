@@ -712,7 +712,7 @@ Preview reorder/delete controller uses `[Route("ProductVersions")]` (no `/api` p
 | PATCH | `/api/ProductVersions/product-versions/{id}/deactivate` | ADMIN |
 | PATCH | `/api/ProductVersions/product-versions/{id}/archive` | ADMIN |
 | PATCH | `/api/ProductVersions/product-versions/{id}/restore` | ADMIN |
-| POST | `/api/ProductVersions/product-versions/{id}/files` | ADMIN · multipart |
+| POST | `/api/ProductVersions/product-versions/{id}/files` | DESIGNER, ADMIN · multipart |
 | PATCH | `/ProductVersions/product-versions/{id}/preview-files/reorder` | ADMIN |
 | DELETE | `/ProductVersions/product-versions/{id}/preview-files/{fileId}` | ADMIN |
 

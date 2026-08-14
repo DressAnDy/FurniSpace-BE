@@ -14,6 +14,24 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
     {
     }
 
+    public Task<Quotation?> GetLatestByProjectAndProposalInStatusesAsync(
+        Guid projectId,
+        Guid proposalId,
+        IReadOnlyCollection<QuotationStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.QuotationSet
+            .Where(quotation =>
+                quotation.ProjectId == projectId &&
+                quotation.ProposalId == proposalId &&
+                quotation.Status.HasValue &&
+                statuses.Contains(quotation.Status.Value))
+            .OrderByDescending(quotation => quotation.VersionNo)
+            .ThenByDescending(quotation => quotation.CreatedAt)
+            .ThenByDescending(quotation => quotation.QuotationId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<QuotationReadModel>> GetByProjectAsync(
         QuotationQueryReadModel query,
         CancellationToken cancellationToken = default)

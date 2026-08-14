@@ -942,18 +942,26 @@ Customers cannot use this endpoint. Designer target statuses are restricted (`Pr
 
 No request body.
 
-Rolls back a project from `ORDER_CONFIRMED` to `PROPOSAL_CONSULTING` **before deposit is paid** and **before production is created**. In one transaction the backend:
+Rolls back a project to `PROPOSAL_CONSULTING` **before deposit is paid** and **before production is created**. Supported source project statuses:
 
-- Cancels or expires active `DEPOSIT` payments (if any)
-- Sets the latest order (`CREATED` or `DEPOSIT_PENDING`) → `CANCELLED`
-- Sets the accepted quotation → `CANCELLED`
+- `PROPOSAL_SELECTED` (active quotation typically `DRAFT`, no order required)
+- `QUOTATION_SENT` (active quotation typically `SENT`, no order required)
+- `ORDER_CONFIRMED` (order `CREATED` or `DEPOSIT_PENDING`, quotation `ACCEPTED`)
+
+In one transaction the backend:
+
+- Cancels or expires active `DEPOSIT` payments when an order exists
+- Sets an eligible order (`CREATED` or `DEPOSIT_PENDING`) → `CANCELLED` when present
+- Sets the active quotation (`DRAFT`, `SENT`, or `ACCEPTED`) → `CANCELLED`
 - Demotes the selected proposal → `PUBLISHED` (clears `selectedAt`)
 - Restores auto-rejected sibling proposals when applicable
 - Moves project → `PROPOSAL_CONSULTING`
 
 **Response** (`ReopenProposalResponseDto`): `projectId`, `oldStatus?`, `newStatus?`, `orderId?`, `orderStatus?`, `quotationId?`, `quotationStatus?`, `selectedProposalId?`, `selectedProposalStatus?`, `restoredProposalCount`, `updatedAt?`
 
-**Common error codes:** `PROJECT_REOPEN_NOT_ALLOWED`, `PROJECT_NO_ACCEPTED_ORDER`, `PROJECT_DEPOSIT_ALREADY_PAID`, `PROJECT_PRODUCTION_ALREADY_CREATED`, `ACTIVE_DEPOSIT_CANNOT_BE_CANCELLED`
+**Common error codes:** `PROJECT_REOPEN_NOT_ALLOWED`, `PROJECT_NO_ACCEPTED_ORDER`, `PROJECT_SELECTED_PROPOSAL_NOT_FOUND`, `PROJECT_ACTIVE_QUOTATION_NOT_FOUND`, `PROJECT_DEPOSIT_ALREADY_PAID`, `PROJECT_PRODUCTION_ALREADY_CREATED`, `ACTIVE_DEPOSIT_CANNOT_BE_CANCELLED`
+
+**Idempotency:** If project is already `PROPOSAL_CONSULTING`, returns `200` with stable state (no duplicate side effects).
 
 **Access:** customer (own project), assigned sales, or admin.
 

@@ -937,6 +937,13 @@ public sealed class ProjectService : IProjectService
                 "You do not have access to reopen proposals for this project.");
         }
 
+        if (project.Status == ProjectStatus.PROPOSAL_CONSULTING)
+        {
+            return ServiceResult<ReopenProposalResponseDto>.Success(
+                BuildIdempotentReopenResponse(project),
+                "Proposal consultation is already reopened.");
+        }
+
         if (!CanReopenFromProjectStatus(project.Status))
         {
             return ReopenProposalFailure(
@@ -944,58 +951,51 @@ public sealed class ProjectService : IProjectService
                 "Project cannot reopen proposal consultation from its current status.");
         }
 
-        var order = await _orders.GetLatestByProjectInStatusesAsync(
-            projectId,
-            ReopenEligibleOrderStatuses,
-            cancellationToken);
-        if (order is null)
-        {
-            return ReopenProposalFailure(
-                ProjectReopenProposalErrorCodes.NoAcceptedOrder,
-                "Project does not have an accepted order eligible for reopening.");
-        }
-
-        if (order.Status == OrderStatus.DEPOSIT_PAID)
-        {
-            return ReopenProposalFailure(
-                ProjectReopenProposalErrorCodes.DepositAlreadyPaid,
-                "Deposit payment has already been paid for this project.");
-        }
-
-        var depositPayments = await _payments.GetAllByOrderAndTypeAsync(
-            order.OrderId,
-            PaymentType.DEPOSIT,
-            cancellationToken);
-        if (depositPayments.Any(payment => payment.Status == PaymentStatus.PAID))
-        {
-            return ReopenProposalFailure(
-                ProjectReopenProposalErrorCodes.DepositAlreadyPaid,
-                "Deposit payment has already been paid for this project.");
-        }
-
-        if (await _productionRequests.ExistsForOrderAsync(order.OrderId, cancellationToken))
-        {
-            return ReopenProposalFailure(
-                ProjectReopenProposalErrorCodes.ProductionAlreadyCreated,
-                "Production has already been created for this project order.");
-        }
-
-        var quotation = await _quotations.GetByIdAsync(order.QuotationId, cancellationToken);
-        if (quotation is null || quotation.Status != QuotationStatus.ACCEPTED)
-        {
-            return ReopenProposalFailure(
-                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
-                "Project does not have an accepted quotation eligible for reopening.");
-        }
-
         var selectedProposal = await _proposals.GetSelectedProposalByProjectAsync(projectId, cancellationToken);
         if (selectedProposal is null)
         {
             return ReopenProposalFailure(
-                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                ProjectReopenProposalErrorCodes.SelectedProposalNotFound,
                 "Project does not have a selected proposal to reopen.");
         }
 
+        var order = await _orders.GetLatestByProjectInStatusesAsync(
+            projectId,
+            ReopenEligibleOrderStatuses,
+            cancellationToken);
+
+        var orderGuardError = await ValidateReopenOrderGuardsAsync(order, cancellationToken);
+        if (orderGuardError is not null)
+        {
+            return orderGuardError;
+        }
+
+        var quotationResolution = await ResolveReopenQuotationAsync(
+            project,
+            selectedProposal,
+            order,
+            cancellationToken);
+        if (quotationResolution.Error is not null)
+        {
+            return quotationResolution.Error;
+        }
+
+        var quotation = quotationResolution.Quotation!;
+        return await CommitReopenProposalAsync(
+            project,
+            selectedProposal,
+            order,
+            quotation,
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<ReopenProposalResponseDto>> CommitReopenProposalAsync(
+        Project project,
+        Proposal selectedProposal,
+        Order? order,
+        Quotation quotation,
+        CancellationToken cancellationToken)
+    {
         var oldStatus = project.Status;
         var autoRejectedAt = selectedProposal.SelectedAt;
         var now = DateTime.UtcNow;
@@ -1003,33 +1003,28 @@ public sealed class ProjectService : IProjectService
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
-            var paymentCancellationError = await ProjectReopenDepositPaymentSupport.TryCancelOrExpireActiveDepositPaymentsAsync(
-                _payments,
-                order.OrderId,
-                now,
-                cancellationToken);
-            if (paymentCancellationError is not null)
+            if (order is not null)
             {
-                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-                return ReopenProposalFailure(
-                    paymentCancellationError,
-                    paymentCancellationError switch
-                    {
-                        ProjectReopenProposalErrorCodes.DepositAlreadyPaid =>
-                            "Deposit payment has already been paid for this project.",
-                        ProjectReopenProposalErrorCodes.ActiveDepositCannotBeCancelled =>
-                            "Active deposit payment cannot be cancelled.",
-                        _ => "Project cannot reopen proposal consultation."
-                    });
+                var paymentCancellationError = await ProjectReopenDepositPaymentSupport.TryCancelOrExpireActiveDepositPaymentsAsync(
+                    _payments,
+                    order.OrderId,
+                    now,
+                    cancellationToken);
+                if (paymentCancellationError is not null)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                    return ReopenProposalFailure(
+                        paymentCancellationError,
+                        MapReopenPaymentCancellationMessage(paymentCancellationError));
+                }
+
+                order.Status = OrderStatus.CANCELLED;
+                order.CancelledAt = now;
+                order.UpdatedAt = now;
+                _orders.Update(order);
             }
 
-            order.Status = OrderStatus.CANCELLED;
-            order.CancelledAt = now;
-            order.UpdatedAt = now;
-            _orders.Update(order);
-
-            quotation.Status = QuotationStatus.CANCELLED;
-            quotation.UpdatedAt = now;
+            ProjectReopenQuotationSupport.CancelForReopen(quotation, now);
             _quotations.Update(quotation);
 
             selectedProposal.Status = ProposalStatus.PUBLISHED;
@@ -1039,7 +1034,7 @@ public sealed class ProjectService : IProjectService
 
             var restoredProposalCount = autoRejectedAt.HasValue
                 ? await _proposals.RestoreAutoRejectedProposalsAsync(
-                    projectId,
+                    project.ProjectId,
                     autoRejectedAt.Value,
                     now,
                     cancellationToken)
@@ -1054,20 +1049,13 @@ public sealed class ProjectService : IProjectService
             await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
 
             return ServiceResult<ReopenProposalResponseDto>.Success(
-                new ReopenProposalResponseDto
-                {
-                    ProjectId = project.ProjectId,
-                    OldStatus = oldStatus,
-                    NewStatus = project.Status,
-                    OrderId = order.OrderId,
-                    OrderStatus = order.Status,
-                    QuotationId = quotation.QuotationId,
-                    QuotationStatus = quotation.Status,
-                    SelectedProposalId = selectedProposal.ProposalId,
-                    SelectedProposalStatus = selectedProposal.Status,
-                    RestoredProposalCount = restoredProposalCount,
-                    UpdatedAt = project.UpdatedAt
-                },
+                BuildReopenSuccessResponse(
+                    project,
+                    oldStatus,
+                    order,
+                    quotation,
+                    selectedProposal,
+                    restoredProposalCount),
                 "Proposal consultation reopened successfully.");
         }
         catch
@@ -1075,6 +1063,18 @@ public sealed class ProjectService : IProjectService
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
             throw;
         }
+    }
+
+    private static string MapReopenPaymentCancellationMessage(string paymentCancellationError)
+    {
+        return paymentCancellationError switch
+        {
+            ProjectReopenProposalErrorCodes.DepositAlreadyPaid =>
+                "Deposit payment has already been paid for this project.",
+            ProjectReopenProposalErrorCodes.ActiveDepositCannotBeCancelled =>
+                "Active deposit payment cannot be cancelled.",
+            _ => "Project cannot reopen proposal consultation."
+        };
     }
 
     public async Task<ServiceResult<ProjectDesignerAssignmentDto>> AssignDesignerAsync(
@@ -1523,7 +1523,154 @@ public sealed class ProjectService : IProjectService
 
     private static bool CanReopenFromProjectStatus(ProjectStatus? status)
     {
-        return status == ProjectStatus.ORDER_CONFIRMED;
+        return status.HasValue && ReopenEligibleProjectStatuses.Contains(status.Value);
+    }
+
+    private async Task<ServiceResult<ReopenProposalResponseDto>?> ValidateReopenOrderGuardsAsync(
+        Order? order,
+        CancellationToken cancellationToken)
+    {
+        if (order is null)
+        {
+            return null;
+        }
+
+        if (order.Status == OrderStatus.DEPOSIT_PAID)
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.DepositAlreadyPaid,
+                "Deposit payment has already been paid for this project.");
+        }
+
+        var depositPayments = await _payments.GetAllByOrderAndTypeAsync(
+            order.OrderId,
+            PaymentType.DEPOSIT,
+            cancellationToken);
+        if (depositPayments.Any(payment => payment.Status == PaymentStatus.PAID))
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.DepositAlreadyPaid,
+                "Deposit payment has already been paid for this project.");
+        }
+
+        if (await _productionRequests.ExistsForOrderAsync(order.OrderId, cancellationToken))
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ProductionAlreadyCreated,
+                "Production has already been created for this project order.");
+        }
+
+        return null;
+    }
+
+    private async Task<(Quotation? Quotation, ServiceResult<ReopenProposalResponseDto>? Error)> ResolveReopenQuotationAsync(
+        Project project,
+        Proposal selectedProposal,
+        Order? order,
+        CancellationToken cancellationToken)
+    {
+        return project.Status switch
+        {
+            ProjectStatus.PROPOSAL_SELECTED => await ResolvePreOrderQuotationAsync(
+                project.ProjectId,
+                selectedProposal.ProposalId,
+                [QuotationStatus.DRAFT],
+                cancellationToken),
+            ProjectStatus.QUOTATION_SENT => await ResolvePreOrderQuotationAsync(
+                project.ProjectId,
+                selectedProposal.ProposalId,
+                [QuotationStatus.SENT],
+                cancellationToken),
+            ProjectStatus.ORDER_CONFIRMED => await ResolveOrderConfirmedQuotationAsync(order, cancellationToken),
+            _ => (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project cannot reopen proposal consultation from its current status."))
+        };
+    }
+
+    private async Task<(Quotation? Quotation, ServiceResult<ReopenProposalResponseDto>? Error)> ResolvePreOrderQuotationAsync(
+        Guid projectId,
+        Guid proposalId,
+        IReadOnlyCollection<QuotationStatus> expectedStatuses,
+        CancellationToken cancellationToken)
+    {
+        var quotation = await _quotations.GetLatestByProjectAndProposalInStatusesAsync(
+            projectId,
+            proposalId,
+            expectedStatuses,
+            cancellationToken);
+        if (quotation is null)
+        {
+            return (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ActiveQuotationNotFound,
+                "Project does not have an active quotation eligible for reopening."));
+        }
+
+        if (!ProjectReopenQuotationSupport.CanCancelForReopen(quotation.Status))
+        {
+            return (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project does not have an active quotation eligible for reopening."));
+        }
+
+        return (quotation, null);
+    }
+
+    private async Task<(Quotation? Quotation, ServiceResult<ReopenProposalResponseDto>? Error)> ResolveOrderConfirmedQuotationAsync(
+        Order? order,
+        CancellationToken cancellationToken)
+    {
+        if (order is null)
+        {
+            return (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.NoAcceptedOrder,
+                "Project does not have an accepted order eligible for reopening."));
+        }
+
+        var quotation = await _quotations.GetByIdAsync(order.QuotationId, cancellationToken);
+        if (quotation is null || quotation.Status != QuotationStatus.ACCEPTED)
+        {
+            return (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project does not have an accepted quotation eligible for reopening."));
+        }
+
+        return (quotation, null);
+    }
+
+    private static ReopenProposalResponseDto BuildReopenSuccessResponse(
+        Project project,
+        ProjectStatus? oldStatus,
+        Order? order,
+        Quotation quotation,
+        Proposal selectedProposal,
+        int restoredProposalCount)
+    {
+        return new ReopenProposalResponseDto
+        {
+            ProjectId = project.ProjectId,
+            OldStatus = oldStatus,
+            NewStatus = project.Status,
+            OrderId = order?.OrderId,
+            OrderStatus = order?.Status,
+            QuotationId = quotation.QuotationId,
+            QuotationStatus = quotation.Status,
+            SelectedProposalId = selectedProposal.ProposalId,
+            SelectedProposalStatus = selectedProposal.Status,
+            RestoredProposalCount = restoredProposalCount,
+            UpdatedAt = project.UpdatedAt
+        };
+    }
+
+    private static ReopenProposalResponseDto BuildIdempotentReopenResponse(Project project)
+    {
+        return new ReopenProposalResponseDto
+        {
+            ProjectId = project.ProjectId,
+            OldStatus = project.Status,
+            NewStatus = project.Status,
+            UpdatedAt = project.UpdatedAt
+        };
     }
 
     private static bool CanReopenProposal(Project project, Guid currentUserId, string? roleName)

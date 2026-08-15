@@ -1,4 +1,5 @@
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.ProjectChatMessages;
 using FurniSpace.Infrastructure.Interfaces;
@@ -13,4 +14,5 @@ public sealed record ProjectChatMessageServiceDependencies(
     ProjectChatFileUploadDependencies FileUpload,
     ILogger<ProjectChatMessageServiceDependencies> Logger,
     ISearchIndexService? Search,
-    IChatMessageSearchIndexer? ChatMessageSearchIndexer);
+    IChatMessageSearchIndexer? ChatMessageSearchIndexer,
+    INotificationDispatcher? Notifications);

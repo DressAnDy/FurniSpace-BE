@@ -173,7 +173,8 @@ public static class DependencyInjection
                 sp.GetRequiredService<ProjectChatFileUploadDependencies>(),
                 sp.GetRequiredService<ILogger<ProjectChatMessageServiceDependencies>>(),
                 sp.GetService<ISearchIndexService>(),
-                sp.GetService<IChatMessageSearchIndexer>());
+                sp.GetService<IChatMessageSearchIndexer>(),
+                sp.GetService<INotificationDispatcher>());
         });
         services.AddScoped<ProductServiceDependencies>(sp =>
         {

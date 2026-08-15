@@ -1824,7 +1824,12 @@ Route: `project-schedules` (+ absolute create alias)
 }
 ```
 
-Realtime: join chat via SignalR `ProjectChatHub` (see §22).
+Realtime:
+
+- Chat stream: join chat via SignalR `ProjectChatHub` (see §22). Server pushes `project_chat.message_sent` to `project:{projectId}` and `project_chat:{chatId}` groups after DB save.
+- In-app notification: after a text/file message is saved, the backend also creates a notification for other chat participants and pushes `project_chat.message_sent` through `NotificationsHub` to each `user:{accountId}` receiver.
+- Notification `referenceType`: `PROJECT_CHAT_MESSAGE`; `referenceId`: `messageId`.
+- Notification metadata includes `chatId`, `chatType`, `messageId`, `messageType`, `senderId`, `senderName`, `projectName`, `contentPreview`.
 
 ---
 
@@ -2688,6 +2693,18 @@ GET /hubs/notifications/negotiate?negotiateVersion=1
 ```
 
 Details: `docs/signalr-notification-guide.md`.
+
+### Chat notification event
+
+`project_chat.message_sent` is emitted on both hubs with different purposes:
+
+| Hub | Receiver | Purpose |
+| --- | --- | --- |
+| `/hubs/project-chat` | joined `project:{projectId}` / `project_chat:{chatId}` groups | live chat thread refresh |
+| `/hubs/notifications` | direct `user:{accountId}` groups | notification bell / unread notification UI |
+
+Notification title: `New chat message`  
+Notification message: `{SenderName} sent a new message in "{ChatTitle}".`
 
 ### Payment realtime payload (typical)
 

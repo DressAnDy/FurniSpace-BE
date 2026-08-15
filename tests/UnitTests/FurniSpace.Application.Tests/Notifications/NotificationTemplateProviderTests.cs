@@ -174,6 +174,16 @@ public sealed class NotificationTemplateProviderTests
     }
 
     [Fact]
+    public void Get_ProjectChatMessageSent_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProjectChatMessageSent);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("project_chat.message_sent", template.SignalREventName);
+        Assert.Equal("New chat message", template.TitleTemplate);
+    }
+
+    [Fact]
     public void Get_FeCatalogEvents_MatchFrontendContract()
     {
         var catalog = new Dictionary<NotificationType, string>
@@ -204,7 +214,8 @@ public sealed class NotificationTemplateProviderTests
             [NotificationType.ProjectScheduleConfirmed] = "project_schedule.confirmed",
             [NotificationType.ProjectScheduleCompleted] = "project_schedule.completed",
             [NotificationType.OrderItemDeliveryUpdated] = "order.item.delivery_updated",
-            [NotificationType.OrderItemDeliveryConfirmed] = "order.item.delivery_confirmed"
+            [NotificationType.OrderItemDeliveryConfirmed] = "order.item.delivery_confirmed",
+            [NotificationType.ProjectChatMessageSent] = "project_chat.message_sent"
         };
 
         foreach (var (type, expectedEvent) in catalog)

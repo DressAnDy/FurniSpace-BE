@@ -25,6 +25,7 @@ public enum NotificationType
     ProjectScheduleConfirmed,
     ProjectScheduleCompleted,
     ProjectScheduleCancelled,
+    ProjectChatMessageSent,
     OrderDepositPaid,
     PaymentCreated,
     PaymentProcessing,

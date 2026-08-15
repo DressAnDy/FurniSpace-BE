@@ -290,6 +290,12 @@ internal sealed class FakeProjectScheduleRepository : IProjectScheduleRepository
 {
     public bool HasCompletedMeasurement { get; set; }
     public bool HasAssignedSchedule { get; set; }
+    public DateOnly? MaxOperationalScheduleDate { get; set; }
+
+    public Task<DateOnly?> GetMaxOperationalScheduleDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(MaxOperationalScheduleDate);
 
     public Task<bool> HasCompletedMeasurementScheduleAsync(
         Guid projectId,
@@ -884,6 +890,12 @@ internal sealed class FakeProjectReopenProposalRepository : IProposalRepository
 internal sealed class FakeProjectProductionRequestRepository : IProductionRequestRepository
 {
     public bool HasProductionRequest { get; set; }
+    public DateOnly? MaxOperationalProductionDate { get; set; }
+
+    public Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(MaxOperationalProductionDate);
 
     public Task<bool> ExistsForOrderAsync(Guid orderId, CancellationToken cancellationToken = default)
         => Task.FromResult(HasProductionRequest);

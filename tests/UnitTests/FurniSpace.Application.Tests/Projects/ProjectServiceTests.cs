@@ -1557,6 +1557,37 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task UpdateBasicInformationAsync_WhenTargetConflictsWithScheduleDates_ReturnsConflict()
+    {
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.NEED_BASIC_INFORMATION
+        };
+        var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
+        var schedules = new FakeProjectScheduleRepository
+        {
+            MaxOperationalScheduleDate = new DateOnly(2026, 10, 15)
+        };
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            new ProjectServiceFactoryOptions { Schedules = schedules });
+        var request = ValidBasicInformationRequest();
+        request.TargetCompletionDate = new DateOnly(2026, 10, 1);
+
+        var result = await service.UpdateBasicInformationAsync(projectId, customerId, request);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectErrorCodes.TargetDateConflictsWithOperationalDates, result.ErrorCode);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
     public async Task RequestInformationAsync_WithAssignedSales_UpdatesProjectStatus()
     {
         var projectId = Guid.NewGuid();

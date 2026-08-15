@@ -280,6 +280,55 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(ProjectScheduleErrorCodes.OrderNotReadyForDelivery, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task CreateAsync_WhenScheduleDateExceedsTarget_ReturnsValidationError()
+    {
+        var salesId = Guid.NewGuid();
+        var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5));
+        var project = CreateProject(assignedSalesId: salesId, status: ProjectStatus.MEASUREMENT_REQUIRED);
+        project.TargetCompletionDate = targetDate;
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            ProjectDetail = project
+        });
+
+        var result = await service.CreateAsync(
+            project.ProjectId,
+            salesId,
+            new CreateProjectScheduleRequestDto
+            {
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Late measurement",
+                AssignedStaffId = Guid.NewGuid(),
+                ScheduledStart = DateTime.UtcNow.AddDays(10),
+                Location = "Site"
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.ScheduleDateExceedsTarget, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_DeliverySchedule_WhenDeliveryAlreadyCompleted_ReturnsConflict()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId, status: ProjectStatus.DELIVERING);
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            ProjectDetail = project,
+            OrderRepo = new FakeOrderRepository(
+                hasProjectOrderInStatuses: true,
+                hasCompletedDeliveryFlow: true)
+        });
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, ValidDeliveryCreateRequest());
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.DeliveryScheduleNotAllowedAfterCompletion, result.ErrorCode);
+    }
+
     // ── SCH-02: GetList ─────────────────────────────────────────────────────────
 
     [Fact]

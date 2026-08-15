@@ -145,6 +145,68 @@ public sealed class OrderRepositoryTests
         Assert.False(completed);
     }
 
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_WhenItemStillReady_ReturnsFalse()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new OrderRepository(context);
+
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(data.OrderId);
+
+        Assert.False(delivered);
+    }
+
+    [Fact]
+    public async Task HasCompletedDeliveryFlowAsync_WhenCustomerConfirmed_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var order = await context.OrderSet.SingleAsync(order => order.OrderId == data.OrderId);
+        order.CustomerConfirmedDeliveryAt = DateTime.UtcNow;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var completed = await repository.HasCompletedDeliveryFlowAsync(data.ProjectId);
+
+        Assert.True(completed);
+    }
+
+    [Fact]
+    public async Task HasCompletedDeliveryFlowAsync_WhenDeliverableItemDelivered_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        item.Status = OrderItemStatus.DELIVERED;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var completed = await repository.HasCompletedDeliveryFlowAsync(data.ProjectId);
+
+        Assert.True(completed);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsReadyAsync_DefaultInterfaceImplementation_ReturnsFalse()
+    {
+        IOrderRepository repository = new MinimalOrderRepository();
+
+        var ready = await repository.AllDeliverableItemsReadyAsync(Guid.NewGuid());
+
+        Assert.False(ready);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_DefaultInterfaceImplementation_ReturnsFalse()
+    {
+        IOrderRepository repository = new MinimalOrderRepository();
+
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(Guid.NewGuid());
+
+        Assert.False(delivered);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

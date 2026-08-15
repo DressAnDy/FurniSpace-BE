@@ -128,6 +128,41 @@ public sealed class ProductionRequestRepositoryTests
         Assert.False(hasAccess);
     }
 
+    [Fact]
+    public async Task GetMaxOperationalProductionDateAsync_ReturnsLatestOperationalDate()
+    {
+        await using var context = CreateContext();
+        var productionRole = new Role { RoleId = Guid.NewGuid(), RoleName = "PRODUCTION" };
+        var staffId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        context.RoleSet.Add(productionRole);
+        context.AccountSet.Add(CreateAccount(staffId, productionRole.RoleId, "maker@example.com", AccountStatus.ACTIVE, "Maker"));
+        context.ProjectSet.Add(CreateProject(projectId, salesId));
+        context.OrderSet.Add(CreateOrder(orderId, projectId, salesId));
+        context.ProductionRequestSet.AddRange(
+            CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.IN_PRODUCTION),
+            new ProductionRequest
+            {
+                ProductionRequestId = Guid.NewGuid(),
+                OrderId = orderId,
+                ProjectId = projectId,
+                ProductionCode = "PRD-LATER",
+                AssignedTo = staffId,
+                Status = ProductionRequestStatus.COMPLETED,
+                EstimatedCompletionDate = new DateOnly(2026, 12, 31),
+                ActualCompletionDate = new DateOnly(2026, 11, 15),
+                CreatedAt = DateTime.UtcNow
+            });
+        await context.SaveChangesAsync();
+        var repository = new ProductionRequestRepository(context);
+
+        var maxDate = await repository.GetMaxOperationalProductionDateAsync(projectId);
+
+        Assert.Equal(new DateOnly(2026, 12, 31), maxDate);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

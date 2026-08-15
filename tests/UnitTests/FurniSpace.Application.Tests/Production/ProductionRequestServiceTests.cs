@@ -99,6 +99,59 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_WhenEstimatedDatesExceedTarget_ReturnsValidationError()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        await context.SaveChangesAsync();
+        var project = context.ProjectSet.Single();
+        project.TargetCompletionDate = new DateOnly(2026, 8, 1);
+        context.OrderItemSet.Add(CreateOrderItem(data.OrderId, true, "Counter"));
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CreateAsync(
+            data.OrderId,
+            _salesId,
+            new CreateProductionRequestDto
+            {
+                AssignedTo = _productionId,
+                EstimatedCompletionDate = new DateOnly(2026, 9, 1)
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionDateExceedsTarget, result.ErrorCode);
+        Assert.Empty(context.ProductionRequestSet);
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenActualStartExceedsTarget_ReturnsValidationError()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        await context.SaveChangesAsync();
+        var project = context.ProjectSet.Single();
+        project.TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.FEASIBLE);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.StartAsync(
+            productionRequest.ProductionRequestId,
+            _productionId,
+            new StartProductionRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionDateExceedsTarget, result.ErrorCode);
+        Assert.Equal(ProductionRequestStatus.FEASIBLE, context.ProductionRequestSet.Single().Status);
+    }
+
+    [Fact]
     public async Task CreateAsync_WhenActiveRequestExists_ReturnsConflict()
     {
         await using var context = CreateContext();

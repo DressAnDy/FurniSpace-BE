@@ -676,7 +676,7 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         }
     }
 
-    private static IReadOnlyList<Guid> GetNotificationReceivers(
+    private static List<Guid> GetNotificationReceivers(
         ProjectChatMessageAccessReadModel access,
         Guid senderId)
     {
@@ -696,7 +696,7 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             .ToList();
     }
 
-    private static IReadOnlyDictionary<string, object?> BuildChatNotificationMetadata(
+    private static Dictionary<string, object?> BuildChatNotificationMetadata(
         ProjectChatMessageAccessReadModel access,
         ProjectChatMessage message,
         ProjectChatMessageDto response)

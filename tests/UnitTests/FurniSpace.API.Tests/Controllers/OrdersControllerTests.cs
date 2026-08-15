@@ -88,18 +88,18 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
-    public void UpdateDeliveredQuantity_RequiresSalesProductionOrAdmin()
+    public void CompleteDelivery_RequiresSalesProductionOrAdmin()
     {
-        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.UpdateDeliveredQuantity));
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.CompleteDelivery));
 
         Assert.NotNull(authorize);
         Assert.Equal("SALES,PRODUCTION,ADMIN", authorize.Roles);
     }
 
     [Fact]
-    public void ConfirmItemDelivery_RequiresCustomer()
+    public void ConfirmDelivery_RequiresCustomer()
     {
-        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.ConfirmItemDelivery));
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.ConfirmDelivery));
 
         Assert.NotNull(authorize);
         Assert.Equal("CUSTOMER", authorize.Roles);
@@ -334,28 +334,26 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
-    public async Task UpdateDeliveredQuantity_ReturnsServiceResult()
+    public async Task CompleteDelivery_ReturnsServiceResult()
     {
         var userId = Guid.NewGuid();
-        var itemId = Guid.NewGuid();
-        var request = new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = 2 };
+        var orderId = Guid.NewGuid();
         var orderService = new FakeOrderService(
-            updateDeliveredQuantityResult: ServiceResult<OrderItemDeliveredQuantityDto>.Success(
-                new OrderItemDeliveredQuantityDto { OrderItemId = itemId, DeliveredQuantity = 2 },
-                "updated"));
+            completeDeliveryResult: ServiceResult<OrderDeliveryCompletionDto>.Success(
+                new OrderDeliveryCompletionDto { OrderId = orderId, DeliveredItemCount = 2 },
+                "completed"));
         var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
 
-        var result = await controller.UpdateDeliveredQuantity(itemId, request);
+        var result = await controller.CompleteDelivery(orderId);
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(itemId, orderService.OrderItemId);
+        Assert.Equal(orderId, orderService.OrderId);
         Assert.Equal(userId, orderService.CurrentUserId);
-        Assert.Same(request, orderService.UpdateDeliveredQuantityRequest);
     }
 
     [Fact]
-    public async Task UpdateDeliveredQuantity_WithoutUser_ReturnsUnauthorized()
+    public async Task CompleteDelivery_WithoutUser_ReturnsUnauthorized()
     {
         var controller = CreateController(
             new FakeOrderService(),
@@ -363,34 +361,32 @@ public sealed class OrdersControllerTests
             new FakeProductionRequestService(),
             userId: null);
 
-        var result = await controller.UpdateDeliveredQuantity(
-            Guid.NewGuid(),
-            new UpdateDeliveredQuantityRequestDto());
+        var result = await controller.CompleteDelivery(Guid.NewGuid());
 
         Assert.IsType<UnauthorizedResult>(result);
     }
 
     [Fact]
-    public async Task ConfirmItemDelivery_ReturnsServiceResult()
+    public async Task ConfirmDelivery_ReturnsServiceResult()
     {
         var userId = Guid.NewGuid();
-        var itemId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
         var orderService = new FakeOrderService(
-            confirmItemDeliveryResult: ServiceResult<OrderItemDeliveryConfirmationDto>.Success(
-                new OrderItemDeliveryConfirmationDto { OrderItemId = itemId },
+            confirmDeliveryResult: ServiceResult<OrderDeliveryConfirmationDto>.Success(
+                new OrderDeliveryConfirmationDto { OrderId = orderId },
                 "confirmed"));
         var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
 
-        var result = await controller.ConfirmItemDelivery(itemId);
+        var result = await controller.ConfirmDelivery(orderId);
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(itemId, orderService.OrderItemId);
+        Assert.Equal(orderId, orderService.OrderId);
         Assert.Equal(userId, orderService.CurrentUserId);
     }
 
     [Fact]
-    public async Task ConfirmItemDelivery_WithoutUser_ReturnsUnauthorized()
+    public async Task ConfirmDelivery_WithoutUser_ReturnsUnauthorized()
     {
         var controller = CreateController(
             new FakeOrderService(),
@@ -398,7 +394,7 @@ public sealed class OrdersControllerTests
             new FakeProductionRequestService(),
             userId: null);
 
-        var result = await controller.ConfirmItemDelivery(Guid.NewGuid());
+        var result = await controller.ConfirmDelivery(Guid.NewGuid());
 
         Assert.IsType<UnauthorizedResult>(result);
     }
@@ -530,8 +526,8 @@ public sealed class OrdersControllerTests
         private readonly ServiceResult<OrderListResponseDto>? _getByProjectResult;
         private readonly ServiceResult<OrderDetailDto>? _getDetailResult;
         private readonly ServiceResult<OrderDeliveryStartDto>? _startDeliveryResult;
-        private readonly ServiceResult<OrderItemDeliveredQuantityDto>? _updateDeliveredQuantityResult;
-        private readonly ServiceResult<OrderItemDeliveryConfirmationDto>? _confirmItemDeliveryResult;
+        private readonly ServiceResult<OrderDeliveryCompletionDto>? _completeDeliveryResult;
+        private readonly ServiceResult<OrderDeliveryConfirmationDto>? _confirmDeliveryResult;
         private readonly ServiceResult<OrderFinalPaymentPreparationDto>? _prepareFinalPaymentResult;
         private readonly ServiceResult<OrderCompletionDto>? _completeResult;
 
@@ -539,24 +535,22 @@ public sealed class OrdersControllerTests
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
             ServiceResult<OrderDetailDto>? getDetailResult = null,
             ServiceResult<OrderDeliveryStartDto>? startDeliveryResult = null,
-            ServiceResult<OrderItemDeliveredQuantityDto>? updateDeliveredQuantityResult = null,
-            ServiceResult<OrderItemDeliveryConfirmationDto>? confirmItemDeliveryResult = null,
+            ServiceResult<OrderDeliveryCompletionDto>? completeDeliveryResult = null,
+            ServiceResult<OrderDeliveryConfirmationDto>? confirmDeliveryResult = null,
             ServiceResult<OrderFinalPaymentPreparationDto>? prepareFinalPaymentResult = null,
             ServiceResult<OrderCompletionDto>? completeResult = null)
         {
             _getByProjectResult = getByProjectResult;
             _getDetailResult = getDetailResult;
             _startDeliveryResult = startDeliveryResult;
-            _updateDeliveredQuantityResult = updateDeliveredQuantityResult;
-            _confirmItemDeliveryResult = confirmItemDeliveryResult;
+            _completeDeliveryResult = completeDeliveryResult;
+            _confirmDeliveryResult = confirmDeliveryResult;
             _prepareFinalPaymentResult = prepareFinalPaymentResult;
             _completeResult = completeResult;
         }
 
         public Guid OrderId { get; private set; }
         public Guid CurrentUserId { get; private set; }
-        public Guid OrderItemId { get; private set; }
-        public UpdateDeliveredQuantityRequestDto? UpdateDeliveredQuantityRequest { get; private set; }
 
         public Task<ServiceResult<OrderListResponseDto>> GetByProjectAsync(
             Guid projectId,
@@ -587,28 +581,26 @@ public sealed class OrdersControllerTests
                 _startDeliveryResult ?? ServiceResult<OrderDeliveryStartDto>.Unauthorized());
         }
 
-        public Task<ServiceResult<OrderItemDeliveredQuantityDto>> UpdateDeliveredQuantityAsync(
-            Guid orderItemId,
+        public Task<ServiceResult<OrderDeliveryCompletionDto>> CompleteDeliveryAsync(
+            Guid orderId,
             Guid currentUserId,
-            UpdateDeliveredQuantityRequestDto request,
             CancellationToken cancellationToken = default)
         {
-            OrderItemId = orderItemId;
+            OrderId = orderId;
             CurrentUserId = currentUserId;
-            UpdateDeliveredQuantityRequest = request;
             return Task.FromResult(
-                _updateDeliveredQuantityResult ?? ServiceResult<OrderItemDeliveredQuantityDto>.Unauthorized());
+                _completeDeliveryResult ?? ServiceResult<OrderDeliveryCompletionDto>.Unauthorized());
         }
 
-        public Task<ServiceResult<OrderItemDeliveryConfirmationDto>> ConfirmItemDeliveryAsync(
-            Guid orderItemId,
+        public Task<ServiceResult<OrderDeliveryConfirmationDto>> ConfirmDeliveryAsync(
+            Guid orderId,
             Guid currentUserId,
             CancellationToken cancellationToken = default)
         {
-            OrderItemId = orderItemId;
+            OrderId = orderId;
             CurrentUserId = currentUserId;
             return Task.FromResult(
-                _confirmItemDeliveryResult ?? ServiceResult<OrderItemDeliveryConfirmationDto>.Unauthorized());
+                _confirmDeliveryResult ?? ServiceResult<OrderDeliveryConfirmationDto>.Unauthorized());
         }
 
         public Task<ServiceResult<OrderFinalPaymentPreparationDto>> PrepareFinalPaymentAsync(

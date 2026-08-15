@@ -1410,8 +1410,18 @@ Absolute routes on `OrdersController`.
 | PATCH | `/orders/{orderId}/complete` | SALES, ADMIN |
 | POST | `/orders/{orderId}/production-request` | SALES, ADMIN |
 | PATCH | `/orders/{orderId}/start-delivery` | SALES, PRODUCTION, ADMIN |
-| PATCH | `/order-items/{id}/delivered-quantity` | SALES, PRODUCTION, ADMIN |
-| PATCH | `/order-items/{id}/confirm-delivery` | CUSTOMER |
+| PATCH | `/orders/{orderId}/complete-delivery` | SALES, PRODUCTION, ADMIN |
+| PATCH | `/orders/{orderId}/confirm-delivery` | CUSTOMER |
+
+**Delivery flow (single full delivery per order):**
+
+1. All deliverable order items must be `READY` before `start-delivery`.
+2. Staff calls `complete-delivery` once while order is `DELIVERING` — every deliverable `READY` item becomes `DELIVERED` with backend-set `deliveredAt` / `deliveredBy`.
+3. Customer calls `confirm-delivery` once at order level — sets `customerConfirmedDeliveryAt` and moves order/project to `DELIVERED`.
+
+At most **one active** `DELIVERY` schedule (`PENDING_CONFIRMATION` or `CONFIRMED`) per project. Partial / incremental delivery is not supported.
+
+**Target completion date:** operational schedule and production dates must be `<= project.targetCompletionDate`. Shortening target below existing schedule/production dates returns `409 TARGET_DATE_CONFLICTS_WITH_OPERATIONAL_DATES`.
 
 `PaidAmount` / `RemainingAmount` live on **Order**, not on Payment.
 
@@ -1440,14 +1450,15 @@ Eligible order statuses: **`CREATED`** (creates payment and moves order → `DEP
 }
 ```
 
-### Delivered quantity
+Estimated production dates must satisfy `estimatedStartDate <= estimatedCompletionDate <= project.targetCompletionDate`.
 
-```json
-{
-  "deliveredQuantityIncrement": 2,
-  "deliveryNote": "First batch"
-}
-```
+### Complete delivery
+
+No request body. Marks every deliverable order item `READY → DELIVERED`.
+
+### Confirm delivery (customer)
+
+No request body. Requires all deliverable items `DELIVERED` and order `DELIVERING`.
 
 ### Response — order detail
 

@@ -23,21 +23,20 @@ public interface IOrderService
         return Task.FromResult(ServiceResult<OrderDeliveryStartDto>.Unauthorized());
     }
 
-    Task<ServiceResult<OrderItemDeliveredQuantityDto>> UpdateDeliveredQuantityAsync(
-        Guid orderItemId,
+    Task<ServiceResult<OrderDeliveryCompletionDto>> CompleteDeliveryAsync(
+        Guid orderId,
         Guid currentUserId,
-        UpdateDeliveredQuantityRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(ServiceResult<OrderItemDeliveredQuantityDto>.Unauthorized());
+        return Task.FromResult(ServiceResult<OrderDeliveryCompletionDto>.Unauthorized());
     }
 
-    Task<ServiceResult<OrderItemDeliveryConfirmationDto>> ConfirmItemDeliveryAsync(
-        Guid orderItemId,
+    Task<ServiceResult<OrderDeliveryConfirmationDto>> ConfirmDeliveryAsync(
+        Guid orderId,
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(ServiceResult<OrderItemDeliveryConfirmationDto>.Unauthorized());
+        return Task.FromResult(ServiceResult<OrderDeliveryConfirmationDto>.Unauthorized());
     }
 
     Task<ServiceResult<OrderFinalPaymentPreparationDto>> PrepareFinalPaymentAsync(

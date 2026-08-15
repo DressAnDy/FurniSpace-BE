@@ -350,13 +350,12 @@ public sealed class AdminReportRepository : IAdminReportRepository
                     .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                     .OrderBy(item => item.Key)
                     .ToList(),
-                CustomerConfirmedInRange = orderItems.Count(item => InRange(item.CustomerConfirmedAt, from, to))
+                CustomerConfirmedInRange = deliveryOrders.Count(order =>
+                    InRange(order.CustomerConfirmedDeliveryAt, from, to))
             },
             OrderItems = new DeliveryOrderItemsDto
             {
-                PartialDeliveryCount = orderItems.Count(item =>
-                    (item.DeliveredQuantity ?? 0) > 0 &&
-                    (item.Quantity ?? 0) > (item.DeliveredQuantity ?? 0))
+                PartialDeliveryCount = 0
             },
             Schedules = new DeliverySchedulesDto
             {

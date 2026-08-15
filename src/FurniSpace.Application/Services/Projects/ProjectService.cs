@@ -41,6 +41,7 @@ public sealed class ProjectService : IProjectService
     private readonly IQuotationRepository _quotations;
     private readonly IProposalRepository _proposals;
     private readonly IProductionRequestRepository _productionRequests;
+    private readonly IProjectScheduleRepository _schedules;
 
     public ProjectService(
         IProjectRepository projects,
@@ -59,6 +60,7 @@ public sealed class ProjectService : IProjectService
         _quotations = dependencies.Quotations;
         _proposals = dependencies.Proposals;
         _productionRequests = dependencies.ProductionRequests;
+        _schedules = dependencies.Schedules;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(
@@ -739,6 +741,17 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectBasicInformationDto>.NotFound(ProjectNotFoundMessage);
         }
 
+        var targetConflictError = await ProjectTimelineDateValidator.ValidateTargetNotBeforeCommittedDatesAsync(
+            projectId,
+            request.TargetCompletionDate,
+            _schedules,
+            _productionRequests,
+            cancellationToken);
+        if (targetConflictError is not null)
+        {
+            return ServiceResult<ProjectBasicInformationDto>.Failure(targetConflictError);
+        }
+
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (!CanUpdateBasicInformation(project, currentUserId, roleName))
         {
@@ -1239,10 +1252,12 @@ public sealed class ProjectService : IProjectService
             errors.Add("Minimum budget must be less than or equal to maximum budget.");
         }
 
-        if (request.TargetCompletionDate.HasValue &&
-            request.TargetCompletionDate.Value < DateOnly.FromDateTime(DateTime.UtcNow.Date))
+        var pastTargetError = ProjectTimelineDateValidator.ValidateTargetNotInPast(
+            request.TargetCompletionDate,
+            DateOnly.FromDateTime(DateTime.UtcNow.Date));
+        if (pastTargetError is not null)
         {
-            errors.Add("Target completion date must not be in the past.");
+            errors.Add(pastTargetError.Message);
         }
 
         return errors;

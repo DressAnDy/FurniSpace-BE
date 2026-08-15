@@ -41,4 +41,18 @@ public interface IProjectScheduleRepository : IGenericRepository<ProjectSchedule
     {
         return Task.FromResult(false);
     }
+
+    Task<bool> HasActiveDeliveryScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
+    Task<DateOnly?> GetMaxOperationalScheduleDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<DateOnly?>(null);
+    }
 }

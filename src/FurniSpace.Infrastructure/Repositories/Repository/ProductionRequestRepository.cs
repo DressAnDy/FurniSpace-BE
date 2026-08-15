@@ -386,4 +386,44 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             assignee.Status == AccountStatus.ACTIVE &&
             assignee.DeletedAt is null;
     }
+
+    public async Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var requests = await DbContext.ProductionRequestSet
+            .AsNoTracking()
+            .Where(request => request.ProjectId == projectId)
+            .Select(request => new
+            {
+                request.EstimatedStartDate,
+                request.EstimatedCompletionDate,
+                request.ActualStartDate,
+                request.ActualCompletionDate
+            })
+            .ToListAsync(cancellationToken);
+
+        DateOnly? maxDate = null;
+        foreach (var request in requests)
+        {
+            maxDate = MaxDateOnly(maxDate, request.EstimatedStartDate);
+            maxDate = MaxDateOnly(maxDate, request.EstimatedCompletionDate);
+            maxDate = MaxDateOnly(maxDate, request.ActualStartDate);
+            maxDate = MaxDateOnly(maxDate, request.ActualCompletionDate);
+        }
+
+        return maxDate;
+    }
+
+    private static DateOnly? MaxDateOnly(DateOnly? current, DateOnly? candidate)
+    {
+        if (!candidate.HasValue)
+        {
+            return current;
+        }
+
+        return !current.HasValue || candidate.Value > current.Value
+            ? candidate
+            : current;
+    }
 }

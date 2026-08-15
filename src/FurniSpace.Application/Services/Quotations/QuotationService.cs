@@ -919,7 +919,6 @@ public sealed class QuotationService : IQuotationService
             ProductVersionNameSnapshot = quotationItem.ProductVersionNameSnapshot,
             ProductVersionCodeSnapshot = quotationItem.ProductVersionCodeSnapshot,
             Quantity = quotationItem.Quantity,
-            DeliveredQuantity = 0,
             Status = OrderItemStatus.PENDING,
             UnitPrice = quotationItem.UnitPrice,
             DiscountAmount = quotationItem.DiscountAmount,

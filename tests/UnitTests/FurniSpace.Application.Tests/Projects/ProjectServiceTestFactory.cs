@@ -43,6 +43,8 @@ internal sealed class ProjectServiceFactoryOptions
     public IProposalRepository? Proposals { get; init; }
 
     public IProductionRequestRepository? ProductionRequests { get; init; }
+
+    public IProjectScheduleRepository? Schedules { get; init; }
 }
 
 internal static class ProjectServiceTestFactory
@@ -74,7 +76,8 @@ internal static class ProjectServiceTestFactory
                 options.Orders ?? new FakeProjectOrderRepository(),
                 options.Quotations ?? new FakeProjectQuotationRepository(),
                 options.Proposals ?? new FakeProjectReopenProposalRepository(),
-                options.ProductionRequests ?? new FakeProjectProductionRequestRepository()));
+                options.ProductionRequests ?? new FakeProjectProductionRequestRepository(),
+                options.Schedules ?? transitionFakes.Schedules));
     }
 }
 

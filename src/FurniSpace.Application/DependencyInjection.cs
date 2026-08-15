@@ -231,7 +231,8 @@ public static class DependencyInjection
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IOrderRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IQuotationRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProposalRepository>(),
-                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProductionRequestRepository>());
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProductionRequestRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectScheduleRepository>());
         });
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped(static sp => new IdentityVerificationStores(

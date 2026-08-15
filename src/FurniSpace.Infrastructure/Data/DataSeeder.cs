@@ -495,15 +495,14 @@ public static class DataSeeder
             """
             INSERT INTO order_items (
                 order_item_id, order_id, quotation_item_id, product_version_id, product_name_snapshot,
-                product_version_name_snapshot, product_version_code_snapshot, quantity, delivered_quantity,
+                product_version_name_snapshot, product_version_code_snapshot, quantity,
                 status, unit_price, discount_amount, subtotal_amount, adjustment_amount,
-                unavailable_reason, production_note, delivery_note, last_delivered_at, last_delivered_by,
-                customer_confirmed_at
+                unavailable_reason, production_note, delivery_note, delivered_at, delivered_by
             )
             VALUES
-                ('71000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001', '61000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000002', 'Sliding Door Wardrobe', 'Sliding Door Wardrobe - White Oak', 'WARD-STD-001-A', 3, 0, 'PENDING'::order_item_status, 22500000.00, 0.00, 67500000.00, 0.00, null, 'Pending production start.', null, null, null, null),
-                ('71000000-0000-0000-0000-000000000002', '70000000-0000-0000-0000-000000000002', '61000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000006', 'Luxe Modular Sofa', 'Showroom Modular Sofa - Premium Fabric', 'SOFA-LUX-001-CUSTOM-001', 2, 0, 'IN_PRODUCTION'::order_item_status, 24500000.00, 0.00, 49000000.00, 0.00, null, 'Premium fabric in cutting stage.', null, null, null, null),
-                ('71000000-0000-0000-0000-000000000003', '70000000-0000-0000-0000-000000000003', '61000000-0000-0000-0000-000000000008', '30000000-0000-0000-0000-000000000004', 'Oak Work Desk', 'Oak Work Desk - Natural', 'DESK-OAK-001-A', 8, 8, 'DELIVERED'::order_item_status, 8900000.00, 0.00, 71200000.00, 0.00, null, 'Completed.', 'Delivered and installed.', now() - INTERVAL '2 days', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', now() - INTERVAL '1 day')
+                ('71000000-0000-0000-0000-000000000001', '70000000-0000-0000-0000-000000000001', '61000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000002', 'Sliding Door Wardrobe', 'Sliding Door Wardrobe - White Oak', 'WARD-STD-001-A', 3, 'PENDING'::order_item_status, 22500000.00, 0.00, 67500000.00, 0.00, null, 'Pending production start.', null, null, null),
+                ('71000000-0000-0000-0000-000000000002', '70000000-0000-0000-0000-000000000002', '61000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000006', 'Luxe Modular Sofa', 'Showroom Modular Sofa - Premium Fabric', 'SOFA-LUX-001-CUSTOM-001', 2, 'IN_PRODUCTION'::order_item_status, 24500000.00, 0.00, 49000000.00, 0.00, null, 'Premium fabric in cutting stage.', null, null, null),
+                ('71000000-0000-0000-0000-000000000003', '70000000-0000-0000-0000-000000000003', '61000000-0000-0000-0000-000000000008', '30000000-0000-0000-0000-000000000004', 'Oak Work Desk', 'Oak Work Desk - Natural', 'DESK-OAK-001-A', 8, 'DELIVERED'::order_item_status, 8900000.00, 0.00, 71200000.00, 0.00, null, 'Completed.', 'Delivered and installed.', now() - INTERVAL '2 days', 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee')
             ON CONFLICT (order_item_id) DO NOTHING;
             """,
             cancellationToken);

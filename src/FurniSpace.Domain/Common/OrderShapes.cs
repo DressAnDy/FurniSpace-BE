@@ -10,8 +10,8 @@ public abstract class OrderItemShape
     public string? ItemName { get; set; }
     public int? Quantity { get; set; }
     public OrderItemStatus? Status { get; set; }
-    public int? DeliveredQuantity { get; set; }
-    public DateTime? CustomerConfirmedAt { get; set; }
+    public DateTime? DeliveredAt { get; set; }
+    public Guid? DeliveredBy { get; set; }
     public decimal? UnitPrice { get; set; }
     public decimal? DiscountAmount { get; set; }
     public decimal? SubtotalAmount { get; set; }

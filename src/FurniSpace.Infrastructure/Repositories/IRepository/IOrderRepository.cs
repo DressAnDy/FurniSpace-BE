@@ -61,14 +61,26 @@ public interface IOrderRepository : IGenericRepository<Order>
     {
     }
 
-    Task<OrderItem?> TryIncrementDeliveredQuantityAsync(
-        Guid orderItemId,
-        int increment,
-        string? deliveryNote,
-        Guid deliveredBy,
-        DateTime deliveredAt,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult<OrderItem?>(null);
+    Task<bool> HasCompletedDeliveryFlowAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
+    Task<bool> AllDeliverableItemsReadyAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
+    Task<bool> AllDeliverableItemsDeliveredAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
 
     new void Update(Order order);
 }

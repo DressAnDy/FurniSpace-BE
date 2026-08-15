@@ -203,4 +203,51 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
                 schedule.Status == ProjectScheduleStatus.CONFIRMED,
             cancellationToken);
     }
+
+    public Task<bool> HasActiveDeliveryScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProjectScheduleSet.AnyAsync(
+            schedule =>
+                schedule.ProjectId == projectId &&
+                schedule.ScheduleType == ProjectScheduleType.DELIVERY &&
+                (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
+                 schedule.Status == ProjectScheduleStatus.CONFIRMED),
+            cancellationToken);
+    }
+
+    public async Task<DateOnly?> GetMaxOperationalScheduleDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var schedules = await DbContext.ProjectScheduleSet
+            .AsNoTracking()
+            .Where(schedule =>
+                schedule.ProjectId == projectId &&
+                schedule.Status != ProjectScheduleStatus.CANCELLED)
+            .Select(schedule => new { schedule.ScheduledStart, schedule.ScheduledEnd })
+            .ToListAsync(cancellationToken);
+
+        DateOnly? maxDate = null;
+        foreach (var schedule in schedules)
+        {
+            maxDate = MaxDateOnly(maxDate, DateOnly.FromDateTime(schedule.ScheduledStart.ToUniversalTime()));
+            if (schedule.ScheduledEnd.HasValue)
+            {
+                maxDate = MaxDateOnly(
+                    maxDate,
+                    DateOnly.FromDateTime(schedule.ScheduledEnd.Value.ToUniversalTime()));
+            }
+        }
+
+        return maxDate;
+    }
+
+    private static DateOnly? MaxDateOnly(DateOnly? current, DateOnly candidate)
+    {
+        return !current.HasValue || candidate > current.Value
+            ? candidate
+            : current;
+    }
 }

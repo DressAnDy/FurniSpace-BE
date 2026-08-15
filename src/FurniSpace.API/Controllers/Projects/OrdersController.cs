@@ -175,10 +175,9 @@ public sealed class OrdersController : BaseApiController
     }
 
     [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
-    [HttpPatch("order-items/{orderItemId:guid}/delivered-quantity")]
-    public async Task<IActionResult> UpdateDeliveredQuantity(
-        Guid orderItemId,
-        [FromBody] UpdateDeliveredQuantityRequestDto request,
+    [HttpPatch("orders/{orderId:guid}/complete-delivery")]
+    public async Task<IActionResult> CompleteDelivery(
+        Guid orderId,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -186,18 +185,17 @@ public sealed class OrdersController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _orders.UpdateDeliveredQuantityAsync(
-            orderItemId,
+        var result = await _orders.CompleteDeliveryAsync(
+            orderId,
             currentUserId,
-            request,
             cancellationToken);
         return ToActionResult(result);
     }
 
     [Authorize(Roles = "CUSTOMER")]
-    [HttpPatch("order-items/{orderItemId:guid}/confirm-delivery")]
-    public async Task<IActionResult> ConfirmItemDelivery(
-        Guid orderItemId,
+    [HttpPatch("orders/{orderId:guid}/confirm-delivery")]
+    public async Task<IActionResult> ConfirmDelivery(
+        Guid orderId,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -205,8 +203,8 @@ public sealed class OrdersController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _orders.ConfirmItemDeliveryAsync(
-            orderItemId,
+        var result = await _orders.ConfirmDeliveryAsync(
+            orderId,
             currentUserId,
             cancellationToken);
         return ToActionResult(result);

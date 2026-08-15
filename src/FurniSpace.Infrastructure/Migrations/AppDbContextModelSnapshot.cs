@@ -752,15 +752,13 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDefaultValue(0m)
                         .HasColumnName("adjustment_amount");
 
-                    b.Property<DateTime?>("CustomerConfirmedAt")
+                    b.Property<DateTime?>("DeliveredAt")
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("customer_confirmed_at");
+                        .HasColumnName("delivered_at");
 
-                    b.Property<int?>("DeliveredQuantity")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("delivered_quantity");
+                    b.Property<Guid?>("DeliveredBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("delivered_by");
 
                     b.Property<string>("DeliveryNote")
                         .HasColumnType("text")
@@ -772,14 +770,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("numeric(14,2)")
                         .HasDefaultValue(0m)
                         .HasColumnName("discount_amount");
-
-                    b.Property<DateTime?>("LastDeliveredAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_delivered_at");
-
-                    b.Property<Guid?>("LastDeliveredBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("last_delivered_by");
 
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid")
@@ -850,7 +840,7 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasKey("OrderItemId");
 
-                    b.HasIndex("LastDeliveredBy");
+                    b.HasIndex("DeliveredBy");
 
                     b.HasIndex("OrderId");
 
@@ -2812,7 +2802,7 @@ namespace FurniSpace.Infrastructure.Migrations
                 {
                     b.HasOne("FurniSpace.Domain.Entities.Account", null)
                         .WithMany()
-                        .HasForeignKey("LastDeliveredBy")
+                        .HasForeignKey("DeliveredBy")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("FurniSpace.Domain.Entities.Order", null)

@@ -139,6 +139,16 @@ public sealed class OrderService : IOrderService
                 "Delivery started successfully.");
         }
 
+        if (order.Status == OrderStatus.DELIVERED ||
+            order.Status == OrderStatus.FINAL_PAYMENT_PENDING ||
+            order.Status == OrderStatus.COMPLETED)
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.OrderAlreadyDelivered,
+                    "Delivered orders cannot start delivery again."));
+        }
+
         if (order.Status != OrderStatus.READY_FOR_DELIVERY)
         {
             return BadRequest<OrderDeliveryStartDto>(
@@ -151,6 +161,14 @@ public sealed class OrderService : IOrderService
             return BadRequest<OrderDeliveryStartDto>(
                 OrderErrorCodes.DeliveryScheduleNotConfirmed,
                 "At least one delivery schedule must be confirmed before delivery can start.");
+        }
+
+        if (!await _orders.AllDeliverableItemsReadyAsync(order.OrderId, cancellationToken))
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliverableItemsNotReady,
+                    "All deliverable order items must be READY before delivery can start."));
         }
 
         var now = DateTime.UtcNow;
@@ -181,185 +199,164 @@ public sealed class OrderService : IOrderService
             "Delivery started successfully.");
     }
 
-    public async Task<ServiceResult<OrderItemDeliveredQuantityDto>> UpdateDeliveredQuantityAsync(
-        Guid orderItemId,
+    public async Task<ServiceResult<OrderDeliveryCompletionDto>> CompleteDeliveryAsync(
+        Guid orderId,
         Guid currentUserId,
-        UpdateDeliveredQuantityRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<OrderItemDeliveredQuantityDto>.Unauthorized();
+            return ServiceResult<OrderDeliveryCompletionDto>.Unauthorized();
         }
 
-        var increment = request.DeliveredQuantityIncrement ?? 0;
-        if (increment <= 0)
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null)
         {
-            return BadRequest<OrderItemDeliveredQuantityDto>(
-                OrderErrorCodes.InvalidDeliveredQuantity,
-                "Delivered quantity increment must be greater than zero.");
+            return NotFound<OrderDeliveryCompletionDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
         }
 
-        var context = await ValidateOrderItemDeliveryContextAsync<OrderItemDeliveredQuantityDto>(
-            orderItemId,
-            currentUserId,
-            requireCustomerOwner: false,
-            cancellationToken);
-        if (context.Error is not null)
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is null)
         {
-            return context.Error;
+            return NotFound<OrderDeliveryCompletionDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
-        var readyError = ValidateReadyOrderItem<OrderItemDeliveredQuantityDto>(context.Item!);
-        if (readyError is not null)
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanStartDelivery(role, project.AssignedSalesId, currentUserId))
         {
-            return readyError;
+            return ServiceResult<OrderDeliveryCompletionDto>.Forbidden(ForbiddenMessage);
         }
 
-        var quantity = context.Item!.Quantity ?? 0;
-        var deliveredQuantity = context.Item.DeliveredQuantity ?? 0;
-        if (quantity <= 0)
+        if (order.Status != OrderStatus.DELIVERING)
         {
-            return BadRequest<OrderItemDeliveredQuantityDto>(
-                OrderErrorCodes.InvalidDeliveredQuantity,
-                "Order item quantity must be greater than zero.");
+            return BadRequest<OrderDeliveryCompletionDto>(
+                OrderErrorCodes.OrderNotDelivering,
+                "Order must be DELIVERING before delivery can be completed.");
         }
 
-        if (deliveredQuantity + increment > quantity)
+        if (await _orders.AllDeliverableItemsDeliveredAsync(order.OrderId, cancellationToken))
         {
-            return BadRequest<OrderItemDeliveredQuantityDto>(
-                OrderErrorCodes.DeliveredQuantityExceeded,
-                "Delivered quantity cannot exceed ordered quantity.");
+            return ServiceResult<OrderDeliveryCompletionDto>.Success(
+                ToDeliveryCompletionDto(order, project, 0),
+                "Delivery already completed for all deliverable items.");
+        }
+
+        if (!await _orders.AllDeliverableItemsReadyAsync(order.OrderId, cancellationToken))
+        {
+            return ServiceResult<OrderDeliveryCompletionDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliverableItemsNotReady,
+                    "All deliverable order items must be READY before delivery can be completed."));
         }
 
         var now = DateTime.UtcNow;
-        var updatedItem = await _orders.TryIncrementDeliveredQuantityAsync(
-            context.Item.OrderItemId,
-            increment,
-            request.DeliveryNote?.Trim(),
-            currentUserId,
-            now,
-            cancellationToken);
-        if (updatedItem is null)
+        var items = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+        var deliveredCount = 0;
+        foreach (var item in items.Where(IsActiveDeliveryItem))
         {
-            return BadRequest<OrderItemDeliveredQuantityDto>(
-                OrderErrorCodes.DeliveredQuantityExceeded,
-                "Delivered quantity cannot exceed ordered quantity.");
+            item.Status = OrderItemStatus.DELIVERED;
+            item.DeliveredAt = now;
+            item.DeliveredBy = currentUserId;
+            _orders.UpdateItem(item);
+            deliveredCount++;
         }
 
+        order.UpdatedAt = now;
+        _orders.Update(order);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await OrderNotificationSupport.TryDispatchItemDeliveryUpdatedAsync(
+        await OrderNotificationSupport.TryDispatchUpdatedAsync(
             _notifications,
             _logger,
-            context.Order!,
-            context.Project!,
-            updatedItem,
+            order,
+            project,
             cancellationToken);
 
-        return ServiceResult<OrderItemDeliveredQuantityDto>.Success(
-            ToDeliveredQuantityDto(updatedItem),
-            "Delivered quantity updated successfully.");
+        return ServiceResult<OrderDeliveryCompletionDto>.Success(
+            ToDeliveryCompletionDto(order, project, deliveredCount),
+            "Delivery completed successfully.");
     }
 
-    public async Task<ServiceResult<OrderItemDeliveryConfirmationDto>> ConfirmItemDeliveryAsync(
-        Guid orderItemId,
+    public async Task<ServiceResult<OrderDeliveryConfirmationDto>> ConfirmDeliveryAsync(
+        Guid orderId,
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<OrderItemDeliveryConfirmationDto>.Unauthorized();
+            return ServiceResult<OrderDeliveryConfirmationDto>.Unauthorized();
         }
 
-        var context = await ValidateOrderItemDeliveryContextAsync<OrderItemDeliveryConfirmationDto>(
-            orderItemId,
-            currentUserId,
-            requireCustomerOwner: true,
-            cancellationToken);
-        if (context.Error is not null)
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null)
         {
-            return context.Error;
+            return NotFound<OrderDeliveryConfirmationDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
         }
 
-        if (context.Item!.Status == OrderItemStatus.DELIVERED)
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is null)
         {
-            return ServiceResult<OrderItemDeliveryConfirmationDto>.Success(
-                ToDeliveryConfirmationDto(context.Item, context.Order!),
-                "Order item delivery confirmed successfully.");
+            return NotFound<OrderDeliveryConfirmationDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
-        var readyError = ValidateReadyOrderItem<OrderItemDeliveryConfirmationDto>(context.Item);
-        if (readyError is not null)
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        var accessError = ValidateCustomerDeliveryAccess<OrderDeliveryConfirmationDto>(
+            role,
+            project.CustomerId,
+            currentUserId);
+        if (accessError is not null)
         {
-            return readyError;
+            return accessError;
         }
 
-        if (!IsFullyDelivered(context.Item))
+        if (order.Status == OrderStatus.DELIVERED && order.CustomerConfirmedDeliveryAt.HasValue)
         {
-            return BadRequest<OrderItemDeliveryConfirmationDto>(
-                OrderErrorCodes.ItemNotFullyDelivered,
-                "Order item must be fully delivered before confirmation.");
+            return ServiceResult<OrderDeliveryConfirmationDto>.Success(
+                ToOrderDeliveryConfirmationDto(order, project),
+                "Order delivery confirmed successfully.");
         }
 
-        var transitionError = OrderItemStatusTransitionService.Validate(
-            context.Item.Status,
-            OrderItemStatus.DELIVERED,
-            OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation);
-        if (transitionError is not null)
+        if (order.Status != OrderStatus.DELIVERING)
         {
-            return BadRequest<OrderItemDeliveryConfirmationDto>(
-                transitionError.ErrorCode,
-                transitionError.Message);
+            return BadRequest<OrderDeliveryConfirmationDto>(
+                OrderErrorCodes.OrderNotDelivering,
+                "Order must be DELIVERING before delivery can be confirmed.");
+        }
+
+        if (!await _orders.AllDeliverableItemsDeliveredAsync(order.OrderId, cancellationToken))
+        {
+            return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliverableItemsNotDelivered,
+                    "All deliverable order items must be delivered before confirmation."));
         }
 
         var now = DateTime.UtcNow;
-        context.Item.Status = OrderItemStatus.DELIVERED;
-        context.Item.CustomerConfirmedAt = now;
-        _orders.UpdateItem(context.Item);
-
-        var orderDelivered = false;
-        if (await AllDeliverableItemsConfirmedAsync(context.Item, cancellationToken))
-        {
-            context.Order!.Status = OrderStatus.DELIVERED;
-            context.Order.CustomerConfirmedDeliveryAt = now;
-            context.Order.UpdatedAt = now;
-            context.Project!.Status = ProjectStatus.DELIVERED;
-            context.Project.UpdatedAt = now;
-            _orders.Update(context.Order);
-            _projects.Update(context.Project);
-            orderDelivered = true;
-        }
-
+        order.Status = OrderStatus.DELIVERED;
+        order.CustomerConfirmedDeliveryAt = now;
+        order.UpdatedAt = now;
+        project.Status = ProjectStatus.DELIVERED;
+        project.UpdatedAt = now;
+        _orders.Update(order);
+        _projects.Update(project);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await OrderNotificationSupport.TryDispatchItemDeliveryConfirmedAsync(
+        await OrderNotificationSupport.TryDispatchDeliveredAsync(
             _notifications,
             _logger,
-            context.Order!,
-            context.Project!,
-            context.Item,
+            order,
+            project,
+            cancellationToken);
+        await OrderNotificationSupport.TryDispatchProjectStatusChangedAsync(
+            _notifications,
+            _logger,
+            project,
+            OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
             cancellationToken);
 
-        if (orderDelivered)
-        {
-            await OrderNotificationSupport.TryDispatchDeliveredAsync(
-                _notifications,
-                _logger,
-                context.Order!,
-                context.Project!,
-                cancellationToken);
-            await OrderNotificationSupport.TryDispatchProjectStatusChangedAsync(
-                _notifications,
-                _logger,
-                context.Project!,
-                OrderNotificationSupport.BuildCustomerAndSalesReceivers(context.Order!, context.Project!),
-                cancellationToken);
-        }
-
-        return ServiceResult<OrderItemDeliveryConfirmationDto>.Success(
-            ToDeliveryConfirmationDto(context.Item, context.Order!),
-            "Order item delivery confirmed successfully.");
+        return ServiceResult<OrderDeliveryConfirmationDto>.Success(
+            ToOrderDeliveryConfirmationDto(order, project),
+            "Order delivery confirmed successfully.");
     }
 
     public async Task<ServiceResult<OrderFinalPaymentPreparationDto>> PrepareFinalPaymentAsync(
@@ -582,71 +579,6 @@ public sealed class OrderService : IOrderService
             .ToList();
     }
 
-    private async Task<OrderItemDeliveryContext<T>> ValidateOrderItemDeliveryContextAsync<T>(
-        Guid orderItemId,
-        Guid currentUserId,
-        bool requireCustomerOwner,
-        CancellationToken cancellationToken)
-    {
-        var item = await _orders.GetItemByIdAsync(orderItemId, cancellationToken);
-        if (item is null)
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                NotFound<T>(OrderErrorCodes.OrderItemNotFound, "Order item not found."));
-        }
-
-        var order = await _orders.GetByIdAsync(item.OrderId, cancellationToken);
-        if (order is null)
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                NotFound<T>(OrderErrorCodes.OrderItemNotFound, "Order item not found."));
-        }
-
-        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
-        if (project is null)
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                NotFound<T>(OrderErrorCodes.OrderItemNotFound, "Order item not found."));
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        var accessError = requireCustomerOwner
-            ? ValidateCustomerDeliveryAccess<T>(role, project.CustomerId, currentUserId)
-            : ValidateStaffDeliveryAccess<T>(role, project.AssignedSalesId, currentUserId);
-        if (accessError is not null)
-        {
-            return OrderItemDeliveryContext<T>.WithError(accessError);
-        }
-
-        if (order.Status != OrderStatus.DELIVERING)
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                BadRequest<T>(
-                    OrderErrorCodes.OrderNotDelivering,
-                    "Order must be DELIVERING before item delivery can be updated."));
-        }
-
-        if (!IsProductLineItem(item))
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                BadRequest<T>(
-                    OrderErrorCodes.ItemNotDeliverable,
-                    "Order item is not deliverable."));
-        }
-
-        return new OrderItemDeliveryContext<T>(item, order, project, null);
-    }
-
-    private static ServiceResult<T>? ValidateStaffDeliveryAccess<T>(
-        string? role,
-        Guid? assignedSalesId,
-        Guid currentUserId)
-    {
-        return CanStartDelivery(role, assignedSalesId, currentUserId)
-            ? null
-            : ServiceResult<T>.Forbidden(ForbiddenMessage);
-    }
-
     private static ServiceResult<T>? ValidateCustomerDeliveryAccess<T>(
         string? role,
         Guid customerId,
@@ -668,32 +600,6 @@ public sealed class OrderService : IOrderService
     {
         return IsProductLineItem(item) &&
             item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED;
-    }
-
-    private static ServiceResult<T>? ValidateReadyOrderItem<T>(OrderItem item)
-    {
-        return item.Status == OrderItemStatus.READY
-            ? null
-            : BadRequest<T>(
-                OrderErrorCodes.OrderItemNotReady,
-                "Order item must be READY before delivery can be updated.");
-    }
-
-    private static bool IsFullyDelivered(OrderItem item)
-    {
-        return (item.DeliveredQuantity ?? 0) >= (item.Quantity ?? 0) && (item.Quantity ?? 0) > 0;
-    }
-
-    private async Task<bool> AllDeliverableItemsConfirmedAsync(
-        OrderItem currentItem,
-        CancellationToken cancellationToken)
-    {
-        var items = await _orders.GetItemsByOrderAsync(currentItem.OrderId, cancellationToken);
-        return items
-            .Where(IsActiveDeliveryItem)
-            .All(item =>
-                item.OrderItemId == currentItem.OrderItemId ||
-                item.Status == OrderItemStatus.DELIVERED);
     }
 
     private static ServiceResult<OrderListResponseDto> NotFoundList(string errorCode, string message)
@@ -718,26 +624,30 @@ public sealed class OrderService : IOrderService
         };
     }
 
-    private static OrderItemDeliveredQuantityDto ToDeliveredQuantityDto(OrderItem item)
+    private static OrderDeliveryCompletionDto ToDeliveryCompletionDto(
+        Order order,
+        Project project,
+        int deliveredItemCount)
     {
-        return new OrderItemDeliveredQuantityDto
+        return new OrderDeliveryCompletionDto
         {
-            OrderItemId = item.OrderItemId,
-            Quantity = item.Quantity ?? 0,
-            DeliveredQuantity = item.DeliveredQuantity ?? 0,
-            LastDeliveredAt = item.LastDeliveredAt,
-            LastDeliveredBy = item.LastDeliveredBy
+            OrderId = order.OrderId,
+            ProjectId = project.ProjectId,
+            OrderStatus = order.Status.ToString() ?? string.Empty,
+            DeliveredItemCount = deliveredItemCount,
+            UpdatedAt = order.UpdatedAt
         };
     }
 
-    private static OrderItemDeliveryConfirmationDto ToDeliveryConfirmationDto(OrderItem item, Order order)
+    private static OrderDeliveryConfirmationDto ToOrderDeliveryConfirmationDto(Order order, Project project)
     {
-        return new OrderItemDeliveryConfirmationDto
+        return new OrderDeliveryConfirmationDto
         {
-            OrderItemId = item.OrderItemId,
-            Status = item.Status.ToString() ?? string.Empty,
-            CustomerConfirmedAt = item.CustomerConfirmedAt,
-            OrderStatus = order.Status.ToString() ?? string.Empty
+            OrderId = order.OrderId,
+            ProjectId = project.ProjectId,
+            OrderStatus = order.Status.ToString() ?? string.Empty,
+            ProjectStatus = project.Status.ToString() ?? string.Empty,
+            CustomerConfirmedDeliveryAt = order.CustomerConfirmedDeliveryAt
         };
     }
 
@@ -788,17 +698,5 @@ public sealed class OrderService : IOrderService
     private static ServiceResult<T> NotFound<T>(string errorCode, string message)
     {
         return ServiceResult<T>.Failure(Error.NotFound(errorCode, message));
-    }
-
-    private sealed record OrderItemDeliveryContext<T>(
-        OrderItem? Item,
-        Order? Order,
-        Project? Project,
-        ServiceResult<T>? Error)
-    {
-        public static OrderItemDeliveryContext<T> WithError(ServiceResult<T> error)
-        {
-            return new OrderItemDeliveryContext<T>(null, null, null, error);
-        }
     }
 }

@@ -21,4 +21,5 @@ public sealed record ProjectServiceDependencies(
     IOrderRepository Orders,
     IQuotationRepository Quotations,
     IProposalRepository Proposals,
-    IProductionRequestRepository ProductionRequests);
+    IProductionRequestRepository ProductionRequests,
+    IProjectScheduleRepository Schedules);

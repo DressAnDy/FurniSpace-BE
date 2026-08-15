@@ -127,9 +127,9 @@ public sealed class OrderServiceTests
                 OrderItemId = Guid.NewGuid(),
                 ItemName = "Counter",
                 Quantity = 1,
-                Status = OrderItemStatus.READY,
-                DeliveredQuantity = 1,
-                CustomerConfirmedAt = null,
+                Status = OrderItemStatus.DELIVERED,
+                DeliveredAt = DateTime.UtcNow,
+                DeliveredBy = _salesId,
                 UnitPrice = 100m,
                 SubtotalAmount = 100m
             }
@@ -148,55 +148,65 @@ public sealed class OrderServiceTests
         Assert.Equal("ORD-001", result.Data.OrderCode);
         Assert.Single(result.Data.Items);
         Assert.Equal("Counter", result.Data.Items[0].ItemName);
-        Assert.Equal(OrderItemStatus.READY, result.Data.Items[0].Status);
-        Assert.Equal(1, result.Data.Items[0].DeliveredQuantity);
-        Assert.Null(result.Data.Items[0].CustomerConfirmedAt);
+        Assert.Equal(OrderItemStatus.DELIVERED, result.Data.Items[0].Status);
+        Assert.NotNull(result.Data.Items[0].DeliveredAt);
     }
 
     [Fact]
-    public async Task UpdateDeliveredQuantityAsync_WhenAtomicIncrementFails_ReturnsExceeded()
+    public async Task StartDeliveryAsync_WhenAnyDeliverableItemNotReady_ReturnsConflict()
     {
         var orderId = Guid.NewGuid();
-        var orderItemId = Guid.NewGuid();
         var order = new Order
         {
             OrderId = orderId,
             ProjectId = _projectId,
             CustomerId = _customerId,
             SalesId = _salesId,
-            Status = OrderStatus.DELIVERING
+            Status = OrderStatus.READY_FOR_DELIVERY
         };
-        var item = new OrderItem
+        var readyItem = new OrderItem
         {
-            OrderItemId = orderItemId,
+            OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
             ProductVersionId = Guid.NewGuid(),
             Status = OrderItemStatus.READY,
-            Quantity = 2,
-            DeliveredQuantity = 1
+            Quantity = 1
+        };
+        var notReadyDeliverableItem = new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.DELIVERED,
+            Quantity = 1
+        };
+        var pendingFeeItem = new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.PENDING,
+            Quantity = 1
         };
         var service = BuildService(new OrderServiceTestOptions
         {
             Role = "SALES",
+            Order = order,
             Project = new Project
             {
                 ProjectId = _projectId,
                 CustomerId = _customerId,
                 AssignedSalesId = _salesId,
-                Status = ProjectStatus.DELIVERING
+                Status = ProjectStatus.READY_FOR_DELIVERY
             },
-            Order = order,
-            OrderItem = item,
-            AtomicDeliveredQuantityResult = null
+            OrderItems = [readyItem, notReadyDeliverableItem, pendingFeeItem],
+            HasConfirmedDeliverySchedule = true
         });
 
-        var result = await service.UpdateDeliveredQuantityAsync(
-            orderItemId,
-            _salesId,
-            new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = 1 });
+        var result = await service.StartDeliveryAsync(orderId, _salesId);
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(OrderErrorCodes.DeliveredQuantityExceeded, result.ErrorCode);
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliverableItemsNotReady, result.ErrorCode);
     }
 
     [Fact]
@@ -220,12 +230,21 @@ public sealed class OrderServiceTests
             ProjectName = "Cafe",
             Status = ProjectStatus.READY_FOR_DELIVERY
         };
+        var readyItem = new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.READY,
+            Quantity = 1
+        };
         var dispatcher = new CapturingNotificationDispatcher();
         var service = BuildService(new OrderServiceTestOptions
         {
             Role = "SALES",
             Order = order,
             Project = project,
+            OrderItems = [readyItem],
             HasConfirmedDeliverySchedule = true,
             Notifications = dispatcher
         });
@@ -240,10 +259,9 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
-    public async Task UpdateDeliveredQuantityAsync_WhenValid_NotifiesCustomer()
+    public async Task CompleteDeliveryAsync_WhenValid_MarksAllReadyItemsDelivered()
     {
         var orderId = Guid.NewGuid();
-        var orderItemId = Guid.NewGuid();
         var order = new Order
         {
             OrderId = orderId,
@@ -255,21 +273,11 @@ public sealed class OrderServiceTests
         };
         var item = new OrderItem
         {
-            OrderItemId = orderItemId,
+            OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
             ProductVersionId = Guid.NewGuid(),
             Status = OrderItemStatus.READY,
-            Quantity = 2,
-            DeliveredQuantity = 1
-        };
-        var updated = new OrderItem
-        {
-            OrderItemId = orderItemId,
-            OrderId = orderId,
-            ProductVersionId = item.ProductVersionId,
-            Status = OrderItemStatus.READY,
-            Quantity = 2,
-            DeliveredQuantity = 2
+            Quantity = 2
         };
         var dispatcher = new CapturingNotificationDispatcher();
         var service = BuildService(new OrderServiceTestOptions
@@ -284,26 +292,24 @@ public sealed class OrderServiceTests
                 Status = ProjectStatus.DELIVERING
             },
             Order = order,
-            OrderItem = item,
-            AtomicDeliveredQuantityResult = updated,
+            OrderItems = [item],
             Notifications = dispatcher
         });
 
-        var result = await service.UpdateDeliveredQuantityAsync(
-            orderItemId,
-            _salesId,
-            new UpdateDeliveredQuantityRequestDto { DeliveredQuantityIncrement = 1 });
+        var result = await service.CompleteDeliveryAsync(orderId, _salesId);
 
         Assert.Equal(200, result.Status);
-        Assert.Equal(NotificationType.OrderItemDeliveryUpdated, Assert.Single(dispatcher.Types));
-        Assert.Contains(_customerId, dispatcher.LastReceivers);
+        Assert.Equal(OrderItemStatus.DELIVERED, item.Status);
+        Assert.Equal(_salesId, item.DeliveredBy);
+        Assert.NotNull(item.DeliveredAt);
+        Assert.Equal(1, result.Data!.DeliveredItemCount);
+        Assert.Contains(NotificationType.OrderUpdated, dispatcher.Types);
     }
 
     [Fact]
-    public async Task ConfirmItemDeliveryAsync_WhenLastItem_MarksOrderDeliveredAndNotifies()
+    public async Task ConfirmDeliveryAsync_WhenAllItemsDelivered_MarksOrderDeliveredAndNotifies()
     {
         var orderId = Guid.NewGuid();
-        var orderItemId = Guid.NewGuid();
         var order = new Order
         {
             OrderId = orderId,
@@ -315,12 +321,13 @@ public sealed class OrderServiceTests
         };
         var item = new OrderItem
         {
-            OrderItemId = orderItemId,
+            OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
             ProductVersionId = Guid.NewGuid(),
-            Status = OrderItemStatus.READY,
+            Status = OrderItemStatus.DELIVERED,
             Quantity = 1,
-            DeliveredQuantity = 1
+            DeliveredAt = DateTime.UtcNow,
+            DeliveredBy = _salesId
         };
         var dispatcher = new CapturingNotificationDispatcher();
         var service = BuildService(new OrderServiceTestOptions
@@ -335,19 +342,400 @@ public sealed class OrderServiceTests
                 Status = ProjectStatus.DELIVERING
             },
             Order = order,
-            OrderItem = item,
             OrderItems = [item],
             Notifications = dispatcher
         });
 
-        var result = await service.ConfirmItemDeliveryAsync(orderItemId, _customerId);
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
 
         Assert.Equal(200, result.Status);
-        Assert.Equal(OrderItemStatus.DELIVERED, item.Status);
         Assert.Equal(OrderStatus.DELIVERED, order.Status);
-        Assert.Contains(NotificationType.OrderItemDeliveryConfirmed, dispatcher.Types);
         Assert.Contains(NotificationType.OrderDelivered, dispatcher.Types);
         Assert.Contains(NotificationType.ProjectStatusChanged, dispatcher.Types);
+    }
+
+    [Fact]
+    public async Task StartDeliveryAsync_WhenAlreadyDelivering_ReturnsSuccessWithoutChangingStatus()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            OrderCode = "ORD-001",
+            Status = OrderStatus.DELIVERING
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            }
+        });
+
+        var result = await service.StartDeliveryAsync(orderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(OrderStatus.DELIVERING, order.Status);
+    }
+
+    [Fact]
+    public async Task StartDeliveryAsync_WhenAlreadyDelivered_ReturnsConflict()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.DELIVERED
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERED
+            }
+        });
+
+        var result = await service.StartDeliveryAsync(orderId, _salesId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.OrderAlreadyDelivered, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task StartDeliveryAsync_WhenDeliveryScheduleNotConfirmed_ReturnsBadRequest()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.READY_FOR_DELIVERY
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.READY_FOR_DELIVERY
+            },
+            HasConfirmedDeliverySchedule = false
+        });
+
+        var result = await service.StartDeliveryAsync(orderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliveryScheduleNotConfirmed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task StartDeliveryAsync_WhenForbidden_ReturnsForbidden()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.READY_FOR_DELIVERY
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.READY_FOR_DELIVERY
+            },
+            HasConfirmedDeliverySchedule = true
+        });
+
+        var result = await service.StartDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CompleteDeliveryAsync_WhenOrderNotDelivering_ReturnsBadRequest()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.READY_FOR_DELIVERY
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.READY_FOR_DELIVERY
+            }
+        });
+
+        var result = await service.CompleteDeliveryAsync(orderId, _salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.OrderNotDelivering, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteDeliveryAsync_WhenAlreadyDelivered_ReturnsSuccessWithZeroCount()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.DELIVERING
+        };
+        var item = new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.DELIVERED,
+            Quantity = 1,
+            DeliveredAt = DateTime.UtcNow,
+            DeliveredBy = _salesId
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Order = order,
+            OrderItems = [item],
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            }
+        });
+
+        var result = await service.CompleteDeliveryAsync(orderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(0, result.Data!.DeliveredItemCount);
+    }
+
+    [Fact]
+    public async Task CompleteDeliveryAsync_WhenItemsNotReady_ReturnsConflict()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.DELIVERING
+        };
+        var readyItem = new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.READY,
+            Quantity = 1
+        };
+        var deliveredItem = new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.DELIVERED,
+            Quantity = 1,
+            DeliveredAt = DateTime.UtcNow,
+            DeliveredBy = _salesId
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Order = order,
+            OrderItems = [readyItem, deliveredItem],
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            }
+        });
+
+        var result = await service.CompleteDeliveryAsync(orderId, _salesId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliverableItemsNotReady, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenItemsNotDelivered_ReturnsConflict()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.DELIVERING
+        };
+        var item = new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.READY,
+            Quantity = 1
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order,
+            OrderItems = [item],
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            }
+        });
+
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliverableItemsNotDelivered, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenAlreadyConfirmed_ReturnsSuccess()
+    {
+        var orderId = Guid.NewGuid();
+        var confirmedAt = DateTime.UtcNow.AddHours(-1);
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            OrderCode = "ORD-001",
+            Status = OrderStatus.DELIVERED,
+            CustomerConfirmedDeliveryAt = confirmedAt
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERED
+            }
+        });
+
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(confirmedAt, order.CustomerConfirmedDeliveryAt);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenNotDelivering_ReturnsBadRequest()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.READY_FOR_DELIVERY
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.READY_FOR_DELIVERY
+            }
+        });
+
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.OrderNotDelivering, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenForbidden_ReturnsForbidden()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.DELIVERING
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            }
+        });
+
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(403, result.Status);
     }
 
     [Fact]
@@ -412,7 +800,7 @@ public sealed class OrderServiceTests
             ProductVersionId = Guid.NewGuid(),
             Status = OrderItemStatus.DELIVERED,
             Quantity = 1,
-            DeliveredQuantity = 1
+            DeliveredAt = DateTime.UtcNow
         };
         var project = new Project
         {
@@ -453,7 +841,6 @@ public sealed class OrderServiceTests
                 options.OrderDetail,
                 options.Order,
                 options.OrderItem,
-                options.AtomicDeliveredQuantityResult,
                 options.OrderItems),
             new FakeProjectRepository(options.ProjectDetail, options.Role, options.Project),
             payments,
@@ -529,8 +916,6 @@ public sealed class OrderServiceTests
 
         public OrderItem? OrderItem { get; init; }
 
-        public OrderItem? AtomicDeliveredQuantityResult { get; init; }
-
         public IReadOnlyList<OrderItem> OrderItems { get; init; } = [];
 
         public Project? Project { get; init; }
@@ -547,7 +932,6 @@ public sealed class OrderServiceTests
         OrderDetailReadModel? orderDetail,
         Order? order = null,
         OrderItem? orderItem = null,
-        OrderItem? atomicDeliveredQuantityResult = null,
         IReadOnlyList<OrderItem>? orderItems = null) : IOrderRepository
     {
         public Task<IReadOnlyList<OrderListItemReadModel>> GetByProjectAsync(
@@ -587,14 +971,32 @@ public sealed class OrderServiceTests
         {
         }
 
-        public Task<OrderItem?> TryIncrementDeliveredQuantityAsync(
-            Guid orderItemId,
-            int increment,
-            string? deliveryNote,
-            Guid deliveredBy,
-            DateTime deliveredAt,
+        public Task<bool> AllDeliverableItemsReadyAsync(
+            Guid orderId,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(atomicDeliveredQuantityResult);
+        {
+            var items = GetDeliverableItems(orderId);
+            return Task.FromResult(items.Count > 0 && items.All(item => item.Status == OrderItemStatus.READY));
+        }
+
+        public Task<bool> AllDeliverableItemsDeliveredAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+        {
+            var items = GetDeliverableItems(orderId);
+            return Task.FromResult(items.Count > 0 && items.All(item => item.Status == OrderItemStatus.DELIVERED));
+        }
+
+        private List<OrderItem> GetDeliverableItems(Guid orderId)
+        {
+            return (orderItems ?? [])
+                .Where(item =>
+                    item.OrderId == orderId &&
+                    item.ProductVersionId.HasValue &&
+                    (item.Quantity ?? 0) > 0 &&
+                    item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED)
+                .ToList();
+        }
 
         public Task<bool> ExistsForQuotationAsync(Guid quotationId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);

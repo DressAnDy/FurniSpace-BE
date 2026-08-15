@@ -49,6 +49,8 @@ public sealed class OrdersMappingConfigTests
     public void Adapt_OrderDetailReadModel_MapsItemsToOrderItemDto()
     {
         var itemId = Guid.NewGuid();
+        var deliveredAt = DateTime.UtcNow;
+        var deliveredBy = Guid.NewGuid();
         var source = new OrderDetailReadModel
         {
             OrderId = Guid.NewGuid(),
@@ -66,8 +68,8 @@ public sealed class OrdersMappingConfigTests
                     ItemName = "Counter",
                     Quantity = 2,
                     Status = OrderItemStatus.READY,
-                    DeliveredQuantity = 1,
-                    CustomerConfirmedAt = null,
+                    DeliveredAt = deliveredAt,
+                    DeliveredBy = deliveredBy,
                     UnitPrice = 50m,
                     DiscountAmount = 10m,
                     SubtotalAmount = 90m
@@ -82,8 +84,8 @@ public sealed class OrdersMappingConfigTests
         Assert.Equal(itemId, item.OrderItemId);
         Assert.Equal("Counter", item.ItemName);
         Assert.Equal(OrderItemStatus.READY, item.Status);
-        Assert.Equal(1, item.DeliveredQuantity);
-        Assert.Null(item.CustomerConfirmedAt);
+        Assert.Equal(deliveredAt, item.DeliveredAt);
+        Assert.Equal(deliveredBy, item.DeliveredBy);
         Assert.Equal(50m, item.UnitPrice);
         Assert.Equal(10m, item.DiscountAmount);
         Assert.Equal(90m, item.SubtotalAmount);

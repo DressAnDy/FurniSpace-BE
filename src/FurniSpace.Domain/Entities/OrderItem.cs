@@ -13,7 +13,6 @@ public class OrderItem
     public string? ProductVersionNameSnapshot { get; set; }
     public string? ProductVersionCodeSnapshot { get; set; }
     public int? Quantity { get; set; }
-    public int? DeliveredQuantity { get; set; }
     public OrderItemStatus? Status { get; set; }
     public decimal? UnitPrice { get; set; }
     public decimal? DiscountAmount { get; set; }
@@ -24,7 +23,6 @@ public class OrderItem
     public DateTime? UnavailableConfirmedAt { get; set; }
     public string? ProductionNote { get; set; }
     public string? DeliveryNote { get; set; }
-    public DateTime? LastDeliveredAt { get; set; }
-    public Guid? LastDeliveredBy { get; set; }
-    public DateTime? CustomerConfirmedAt { get; set; }
+    public DateTime? DeliveredAt { get; set; }
+    public Guid? DeliveredBy { get; set; }
 }

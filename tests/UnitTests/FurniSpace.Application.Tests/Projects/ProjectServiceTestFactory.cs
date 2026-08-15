@@ -43,6 +43,8 @@ internal sealed class ProjectServiceFactoryOptions
     public IProposalRepository? Proposals { get; init; }
 
     public IProductionRequestRepository? ProductionRequests { get; init; }
+
+    public IProjectScheduleRepository? Schedules { get; init; }
 }
 
 internal static class ProjectServiceTestFactory
@@ -74,7 +76,8 @@ internal static class ProjectServiceTestFactory
                 options.Orders ?? new FakeProjectOrderRepository(),
                 options.Quotations ?? new FakeProjectQuotationRepository(),
                 options.Proposals ?? new FakeProjectReopenProposalRepository(),
-                options.ProductionRequests ?? new FakeProjectProductionRequestRepository()));
+                options.ProductionRequests ?? new FakeProjectProductionRequestRepository(),
+                options.Schedules ?? transitionFakes.Schedules));
     }
 }
 
@@ -287,6 +290,12 @@ internal sealed class FakeProjectScheduleRepository : IProjectScheduleRepository
 {
     public bool HasCompletedMeasurement { get; set; }
     public bool HasAssignedSchedule { get; set; }
+    public DateOnly? MaxOperationalScheduleDate { get; set; }
+
+    public Task<DateOnly?> GetMaxOperationalScheduleDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(MaxOperationalScheduleDate);
 
     public Task<bool> HasCompletedMeasurementScheduleAsync(
         Guid projectId,
@@ -881,6 +890,12 @@ internal sealed class FakeProjectReopenProposalRepository : IProposalRepository
 internal sealed class FakeProjectProductionRequestRepository : IProductionRequestRepository
 {
     public bool HasProductionRequest { get; set; }
+    public DateOnly? MaxOperationalProductionDate { get; set; }
+
+    public Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(MaxOperationalProductionDate);
 
     public Task<bool> ExistsForOrderAsync(Guid orderId, CancellationToken cancellationToken = default)
         => Task.FromResult(HasProductionRequest);

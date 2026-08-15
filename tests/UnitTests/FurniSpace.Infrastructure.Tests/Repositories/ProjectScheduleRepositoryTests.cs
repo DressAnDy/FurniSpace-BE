@@ -1,11 +1,15 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
+using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -129,6 +133,141 @@ public sealed class ProjectScheduleRepositoryTests
         Assert.False(existsAnyMeasurement);
     }
 
+    [Fact]
+    public async Task HasActiveDeliveryScheduleAsync_ReturnsTrueForPendingOrConfirmedDelivery()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+
+        var hasActive = await repository.HasActiveDeliveryScheduleAsync(data.ProjectId);
+
+        Assert.True(hasActive);
+    }
+
+    [Fact]
+    public async Task HasActiveDeliveryScheduleAsync_ReturnsFalseWhenOnlyCancelledDeliveryExists()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Cancelled delivery project",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Tables",
+            Status = ProjectStatus.READY_FOR_DELIVERY
+        });
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = Guid.NewGuid(),
+            ProjectId = projectId,
+            ScheduleType = ProjectScheduleType.DELIVERY,
+            Title = "Cancelled delivery",
+            ScheduledStart = DateTime.UtcNow.AddDays(1),
+            Status = ProjectScheduleStatus.CANCELLED,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new ProjectScheduleRepository(context);
+
+        var hasActive = await repository.HasActiveDeliveryScheduleAsync(projectId);
+
+        Assert.False(hasActive);
+    }
+
+    [Fact]
+    public async Task HasConfirmedDeliveryScheduleAsync_ReturnsTrueWhenConfirmedDeliveryExists()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+
+        var hasConfirmed = await repository.HasConfirmedDeliveryScheduleAsync(data.ProjectId);
+
+        Assert.True(hasConfirmed);
+    }
+
+    [Fact]
+    public async Task GetMaxOperationalScheduleDateAsync_ReturnsLatestNonCancelledScheduleDate()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var laterEnd = DateTime.UtcNow.AddDays(10);
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = Guid.NewGuid(),
+            ProjectId = data.ProjectId,
+            ScheduleType = ProjectScheduleType.OTHER,
+            Title = "Handover",
+            ScheduledStart = DateTime.UtcNow.AddDays(8),
+            ScheduledEnd = laterEnd,
+            Status = ProjectScheduleStatus.CONFIRMED,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new ProjectScheduleRepository(context);
+
+        var maxDate = await repository.GetMaxOperationalScheduleDateAsync(data.ProjectId);
+
+        Assert.Equal(DateOnly.FromDateTime(laterEnd.ToUniversalTime()), maxDate);
+    }
+
+    [Fact]
+    public async Task GetMaxOperationalScheduleDateAsync_IgnoresCancelledSchedules()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        var activeStart = DateTime.UtcNow.AddDays(3);
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Schedule max project",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Tables",
+            Status = ProjectStatus.PROPOSAL_CONSULTING
+        });
+        context.ProjectScheduleSet.AddRange(
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Active",
+                ScheduledStart = activeStart,
+                Status = ProjectScheduleStatus.CONFIRMED,
+                CreatedAt = DateTime.UtcNow
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Cancelled later",
+                ScheduledStart = DateTime.UtcNow.AddDays(30),
+                Status = ProjectScheduleStatus.CANCELLED,
+                CreatedAt = DateTime.UtcNow
+            });
+        await context.SaveChangesAsync();
+        var repository = new ProjectScheduleRepository(context);
+
+        var maxDate = await repository.GetMaxOperationalScheduleDateAsync(projectId);
+
+        Assert.Equal(DateOnly.FromDateTime(activeStart.ToUniversalTime()), maxDate);
+    }
+
+    [Fact]
+    public async Task HasActiveDeliveryScheduleAsync_DefaultInterfaceImplementation_ReturnsFalse()
+    {
+        IProjectScheduleRepository repository = new MinimalProjectScheduleRepository();
+
+        var hasActive = await repository.HasActiveDeliveryScheduleAsync(Guid.NewGuid());
+
+        Assert.False(hasActive);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -199,4 +338,67 @@ public sealed class ProjectScheduleRepositoryTests
     }
 
     private sealed record SeededData(Guid ProjectId, Guid ProductionId, Guid DeliveryScheduleId);
+
+    private sealed class MinimalProjectScheduleRepository : IProjectScheduleRepository
+    {
+        public Task<ProjectSchedule?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<ProjectSchedule?>(null);
+
+        public Task AddAsync(ProjectSchedule entity, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task AddRangeAsync(IEnumerable<ProjectSchedule> entities, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public void Update(ProjectSchedule entity)
+        {
+        }
+
+        public void Remove(ProjectSchedule entity)
+        {
+        }
+
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public IQueryable<ProjectSchedule> Query()
+            => Enumerable.Empty<ProjectSchedule>().AsQueryable();
+
+        public Task<IReadOnlyList<ProjectSchedule>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProjectSchedule>>([]);
+
+        public Task<ProjectScheduleDetailReadModel?> GetDetailAsync(
+            Guid scheduleId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProjectScheduleDetailReadModel?>(null);
+
+        public Task<(IReadOnlyList<ProjectScheduleListItemReadModel> Items, int Total)> GetListByProjectAsync(
+            Guid projectId,
+            ProjectScheduleListQueryReadModel query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<(IReadOnlyList<ProjectScheduleListItemReadModel>, int)>(([], 0));
+
+        public Task<(IReadOnlyList<ProjectScheduleListItemReadModel> Items, int Total)> GetMyAssignedAsync(
+            Guid? staffId,
+            ProjectScheduleListQueryReadModel query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<(IReadOnlyList<ProjectScheduleListItemReadModel>, int)>(([], 0));
+
+        public Task<bool> HasCompletedMeasurementScheduleAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> ExistsMeasurementScheduleAsync(
+            Guid projectId,
+            ProjectScheduleStatus? status,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> HasAssignedScheduleAsync(
+            Guid projectId,
+            Guid staffId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+    }
 }

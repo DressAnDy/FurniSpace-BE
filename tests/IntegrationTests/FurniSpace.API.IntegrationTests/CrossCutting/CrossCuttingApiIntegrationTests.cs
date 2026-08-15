@@ -61,7 +61,7 @@ public sealed class CrossCuttingApiIntegrationTests : IAsyncLifetime
 
         using var wrongOwnerRequest = IntegrationHttp.Authenticated(
             HttpMethod.Patch,
-            $"/order-items/{delivery.FirstOrderItemId}/confirm-delivery",
+            $"/orders/{delivery.OrderId}/confirm-delivery",
             otherCustomerId,
             CoreRoles.Customer);
         var wrongOwnerResponse = await _fixture.Client.SendAsync(wrongOwnerRequest);
@@ -218,7 +218,9 @@ public sealed class CrossCuttingApiIntegrationTests : IAsyncLifetime
         var orderItem = await context.OrderItemSet.SingleAsync(item => item.OrderItemId == delivery.FirstOrderItemId);
         order.Status = OrderStatus.DELIVERING;
         project.Status = ProjectStatus.DELIVERING;
-        orderItem.DeliveredQuantity = orderItem.Quantity;
+        orderItem.Status = OrderItemStatus.DELIVERED;
+        orderItem.DeliveredAt = CoreAccountSeeder.FixedTimestamp;
+        orderItem.DeliveredBy = delivery.SalesAccountId;
         await context.SaveChangesAsync();
 
         return (delivery, otherCustomer.AccountId);

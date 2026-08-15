@@ -957,7 +957,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductVersionNameSnapshot).HasColumnName(ProductVersionNameSnapshotColumnName).HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.ProductVersionCodeSnapshot).HasColumnName("product_version_code_snapshot").HasColumnType(Varchar50ColumnType);
             entity.Property(e => e.Quantity).HasColumnName(QuantityColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1).IsRequired();
-            entity.Property(e => e.DeliveredQuantity).HasColumnName("delivered_quantity").HasColumnType(IntegerColumnType).HasDefaultValue(0);
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(OrderItemStatusColumnType).HasDefaultValueSql("'PENDING'::order_item_status");
             entity.Property(e => e.UnitPrice).HasColumnName("unit_price").HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.DiscountAmount).HasColumnName(DiscountAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
@@ -968,13 +967,12 @@ public class AppDbContext : DbContext
             entity.Property(e => e.UnavailableConfirmedAt).HasColumnName("unavailable_confirmed_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.ProductionNote).HasColumnName("production_note").HasColumnType(TextColumnType);
             entity.Property(e => e.DeliveryNote).HasColumnName("delivery_note").HasColumnType(TextColumnType);
-            entity.Property(e => e.LastDeliveredAt).HasColumnName("last_delivered_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.LastDeliveredBy).HasColumnName("last_delivered_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.CustomerConfirmedAt).HasColumnName("customer_confirmed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.DeliveredAt).HasColumnName("delivered_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.DeliveredBy).HasColumnName("delivered_by").HasColumnType(UuidColumnType);
             entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<QuotationItem>().WithMany().HasForeignKey(e => e.QuotationItemId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.LastDeliveredBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.DeliveredBy).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UnavailableConfirmedBy).OnDelete(DeleteBehavior.Restrict);
         });
     }

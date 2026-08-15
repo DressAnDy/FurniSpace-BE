@@ -230,7 +230,6 @@ public sealed class OrderNotificationSupportTests
             OrderId = orderId,
             ProductVersionId = Guid.NewGuid(),
             Quantity = 2,
-            DeliveredQuantity = 1,
             Status = OrderItemStatus.READY
         };
     }

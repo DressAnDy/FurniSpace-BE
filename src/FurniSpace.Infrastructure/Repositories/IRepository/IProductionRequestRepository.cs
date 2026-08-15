@@ -71,5 +71,12 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         Guid productionItemId,
         CancellationToken cancellationToken = default);
 
+    Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<DateOnly?>(null);
+    }
+
     void UpdateItem(ProductionItem item);
 }

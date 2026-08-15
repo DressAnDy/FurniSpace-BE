@@ -3,6 +3,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Production;
@@ -123,6 +124,15 @@ public sealed class ProductionRequestService : IProductionRequestService
             return NotFound<ProductionRequestCreatedDto>(
                 ProductionErrorCodes.ProjectNotFound,
                 ProjectNotFoundMessage);
+        }
+
+        var targetDateError = ProjectTimelineDateValidator.ValidateProductionEstimatedDatesWithinTarget(
+            request.EstimatedStartDate,
+            request.EstimatedCompletionDate,
+            project.TargetCompletionDate);
+        if (targetDateError is not null)
+        {
+            return ServiceResult<ProductionRequestCreatedDto>.Failure(targetDateError);
         }
 
         var productOrderItems = await _productionRequests.GetProductOrderItemsAsync(orderId, cancellationToken);
@@ -441,9 +451,28 @@ public sealed class ProductionRequestService : IProductionRequestService
             return InvalidRequestTransition<ProductionRequestStatusDto>();
         }
 
+        var project = await _projects.GetByIdAsync(productionRequest.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound<ProductionRequestStatusDto>(
+                ProductionErrorCodes.ProjectNotFound,
+                ProjectNotFoundMessage);
+        }
+
         var now = DateTime.UtcNow;
+        var actualStartDate = DateOnly.FromDateTime(now);
+        var targetStartError = ProjectTimelineDateValidator.ValidateDateOnlyWithinTarget(
+            actualStartDate,
+            project.TargetCompletionDate,
+            ProductionErrorCodes.ProductionDateExceedsTarget,
+            "Actual start date must not exceed project target completion date.");
+        if (targetStartError is not null)
+        {
+            return ServiceResult<ProductionRequestStatusDto>.Failure(targetStartError);
+        }
+
         productionRequest.Status = ProductionRequestStatus.IN_PRODUCTION;
-        productionRequest.ActualStartDate = DateOnly.FromDateTime(now);
+        productionRequest.ActualStartDate = actualStartDate;
         productionRequest.UpdatedAt = now;
         _productionRequests.Update(productionRequest);
         await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
@@ -578,6 +607,17 @@ public sealed class ProductionRequestService : IProductionRequestService
         }
 
         var now = DateTime.UtcNow;
+        var actualCompletionDate = DateOnly.FromDateTime(now);
+        var targetCompletionError = ProjectTimelineDateValidator.ValidateDateOnlyWithinTarget(
+            actualCompletionDate,
+            project.TargetCompletionDate,
+            ProductionErrorCodes.ProductionDateExceedsTarget,
+            "Actual completion date must not exceed project target completion date.");
+        if (targetCompletionError is not null)
+        {
+            return ServiceResult<ProductionCompletionDto>.Failure(targetCompletionError);
+        }
+
         try
         {
             await _dependencies.UnitOfWork.BeginTransactionAsync(cancellationToken);
@@ -1441,4 +1481,5 @@ public static class ProductionErrorCodes
     public const string ProductionCancellationReasonRequired = "PRODUCTION_CANCELLATION_REASON_REQUIRED";
     public const string ProductionStaffNotFound = "PRODUCTION_STAFF_NOT_FOUND";
     public const string ProjectNotFound = "PROJECT_NOT_FOUND";
+    public const string ProductionDateExceedsTarget = "PRODUCTION_DATE_EXCEEDS_TARGET";
 }

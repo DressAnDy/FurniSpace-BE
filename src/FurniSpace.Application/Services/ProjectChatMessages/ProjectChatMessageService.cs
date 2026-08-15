@@ -1,8 +1,10 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.ProjectChatMessages.ProjectChatMessageServiceConstants;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Search;
@@ -22,6 +24,8 @@ namespace FurniSpace.Application.Services.ProjectChatMessages;
 
 public sealed class ProjectChatMessageService : IProjectChatMessageService
 {
+    private const string ChatMessageReferenceType = "PROJECT_CHAT_MESSAGE";
+    private const string UnknownChatTitle = "Project chat";
     private readonly IProjectChatMessageRepository _messages;
     private readonly IProjectFileRepository _projectFiles;
     private readonly IProjectChatRealtimeService _realtime;
@@ -30,6 +34,7 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
     private readonly ILogger<ProjectChatMessageServiceDependencies> _logger;
     private readonly ISearchIndexService? _search;
     private readonly IChatMessageSearchIndexer? _chatMessageSearchIndexer;
+    private readonly INotificationDispatcher? _notifications;
 
     public ProjectChatMessageService(
         IProjectChatMessageRepository messages,
@@ -44,6 +49,7 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         _logger = dependencies.Logger;
         _search = dependencies.Search;
         _chatMessageSearchIndexer = dependencies.ChatMessageSearchIndexer;
+        _notifications = dependencies.Notifications;
     }
 
     public async Task<bool> CanAccessChatAsync(
@@ -251,6 +257,8 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
                 chatId);
         }
 
+        await DispatchChatNotificationAsync(access, message, response, cancellationToken);
+
         return ServiceResult<ProjectChatMessageDto>.Created(
             response,
             "Message sent successfully.");
@@ -381,6 +389,8 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
                 message.MessageId,
                 chatId);
         }
+
+        await DispatchChatNotificationAsync(access, message, response, cancellationToken);
 
         return ServiceResult<ProjectChatMessageDto>.Created(
             response,
@@ -612,6 +622,108 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
     private Task SyncChatMessageIndexAsync(Guid messageId, CancellationToken cancellationToken)
     {
         return _chatMessageSearchIndexer?.SyncMessageAsync(messageId, cancellationToken) ?? Task.CompletedTask;
+    }
+
+    private async Task DispatchChatNotificationAsync(
+        ProjectChatMessageAccessReadModel access,
+        ProjectChatMessage message,
+        ProjectChatMessageDto response,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var senderId = message.SenderId.GetValueOrDefault();
+        var receiverIds = GetNotificationReceivers(access, senderId);
+        if (receiverIds.Count == 0)
+        {
+            return;
+        }
+
+        var chatTitle = string.IsNullOrWhiteSpace(access.ChatTitle)
+            ? UnknownChatTitle
+            : access.ChatTitle.Trim();
+        var senderName = string.IsNullOrWhiteSpace(response.SenderName)
+            ? "Project participant"
+            : response.SenderName.Trim();
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectChatMessageSent,
+                new Dictionary<string, string>
+                {
+                    ["SenderName"] = senderName,
+                    ["ChatTitle"] = chatTitle
+                },
+                receiverIds,
+                new NotificationDispatchRequest(
+                    access.ProjectId,
+                    ChatMessageReferenceType,
+                    message.MessageId,
+                    BuildChatNotificationMetadata(access, message, response)),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Failed to dispatch chat notification for message {MessageId} in chat {ChatId}",
+                message.MessageId,
+                message.ChatId);
+        }
+    }
+
+    private static IReadOnlyList<Guid> GetNotificationReceivers(
+        ProjectChatMessageAccessReadModel access,
+        Guid senderId)
+    {
+        var receiverIds = access.ChatType switch
+        {
+            ProjectChatType.SALES => new[] { access.CustomerId, access.AssignedSalesId },
+            ProjectChatType.DESIGNER => new[] { access.CustomerId, access.AssignedSalesId, access.AssignedDesignerId },
+            ProjectChatType.INTERNAL => new[] { access.AssignedSalesId, access.AssignedDesignerId, access.ChatStaffId },
+            _ => new[] { access.CustomerId, access.AssignedSalesId, access.AssignedDesignerId, access.ChatStaffId }
+        };
+
+        return receiverIds
+            .Where(receiverId => receiverId.HasValue && receiverId.Value != senderId)
+            .Select(receiverId => receiverId.GetValueOrDefault())
+            .Where(receiverId => receiverId != Guid.Empty)
+            .Distinct()
+            .ToList();
+    }
+
+    private static IReadOnlyDictionary<string, object?> BuildChatNotificationMetadata(
+        ProjectChatMessageAccessReadModel access,
+        ProjectChatMessage message,
+        ProjectChatMessageDto response)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["chatId"] = message.ChatId,
+            ["chatType"] = access.ChatType.ToString(),
+            ["messageId"] = message.MessageId,
+            ["messageType"] = response.MessageType,
+            ["senderId"] = message.SenderId,
+            ["senderName"] = response.SenderName,
+            ["projectName"] = access.ProjectName,
+            ["contentPreview"] = BuildContentPreview(response)
+        };
+    }
+
+    private static string? BuildContentPreview(ProjectChatMessageDto response)
+    {
+        if (!string.IsNullOrWhiteSpace(response.Content))
+        {
+            return response.Content.Length <= 120
+                ? response.Content
+                : response.Content[..120];
+        }
+
+        return response.Attachment?.OriginalFileName;
     }
 
     private static bool CanAccessProject(

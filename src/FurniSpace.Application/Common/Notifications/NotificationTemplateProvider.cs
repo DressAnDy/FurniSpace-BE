@@ -141,6 +141,12 @@ public static class NotificationTemplateProvider
                 "The {ScheduleType} schedule for project \"{ProjectName}\" has been cancelled.",
                 NotificationDeliveryLevel.InAppRealtime),
 
+            NotificationType.ProjectChatMessageSent => new NotificationTemplate(
+                "New chat message",
+                "{SenderName} sent a new message in \"{ChatTitle}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "project_chat.message_sent"),
+
             NotificationType.OrderDepositPaid => new NotificationTemplate(
                 "Order deposit paid",
                 "Deposit for order \"{OrderCode}\" has been paid.",

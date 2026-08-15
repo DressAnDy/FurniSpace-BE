@@ -29,7 +29,10 @@ public sealed class ProjectChatMessageRepository
                 {
                     ChatId = chat.ChatId,
                     ProjectId = project.ProjectId,
+                    ProjectName = project.ProjectName,
                     ChatType = chat.ChatType,
+                    ChatTitle = chat.Title,
+                    ChatStaffId = chat.StaffId,
                     ChatStatus = chat.Status,
                     CustomerId = project.CustomerId,
                     AssignedSalesId = project.AssignedSalesId,

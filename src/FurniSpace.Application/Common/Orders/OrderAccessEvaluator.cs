@@ -52,15 +52,4 @@ internal static class OrderAccessEvaluator
             _ => false
         };
     }
-
-    public static bool CanManageFinancialAdjustment(
-        string? role,
-        Guid? assignedSalesId,
-        Guid currentUserId)
-    {
-        return ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
-            role,
-            assignedSalesId,
-            currentUserId);
-    }
 }

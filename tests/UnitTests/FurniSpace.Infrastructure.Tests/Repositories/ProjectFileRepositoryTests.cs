@@ -27,6 +27,7 @@ public sealed class ProjectFileRepositoryTests
         var proposalAccess = await repository.GetReferenceProjectAccessAsync("PROPOSAL", data.ProposalId);
         var quotationAccess = await repository.GetReferenceProjectAccessAsync("QUOTATION", data.QuotationId);
         var orderAccess = await repository.GetReferenceProjectAccessAsync("ORDER", data.OrderId);
+        var productVersionAccess = await repository.GetReferenceProjectAccessAsync("PRODUCT_VERSION", data.ProductVersionId);
         var unknownAccess = await repository.GetReferenceProjectAccessAsync("UNKNOWN", Guid.NewGuid());
         var role = await repository.GetAccountRoleNameAsync(data.CustomerId);
 
@@ -35,6 +36,7 @@ public sealed class ProjectFileRepositoryTests
         Assert.Equal(data.ProjectId, proposalAccess?.ProjectId);
         Assert.Equal(data.ProjectId, quotationAccess?.ProjectId);
         Assert.Equal(data.ProjectId, orderAccess?.ProjectId);
+        Assert.Equal(data.ProjectId, productVersionAccess?.ProjectId);
         Assert.Null(unknownAccess);
         Assert.Equal("CUSTOMER", role);
     }
@@ -192,6 +194,7 @@ public sealed class ProjectFileRepositoryTests
             VatRate = 0.08m,
             VatAmount = 8m,
             TotalAmount = 108m,
+            DepositAmount = 32m,
             Currency = "VND"
         });
         context.OrderSet.Add(new Order
@@ -203,6 +206,24 @@ public sealed class ProjectFileRepositoryTests
             CustomerId = customerId,
             OriginalTotalAmount = 100,
             FinalTotalAmount = 100
+        });
+        context.ProductSet.Add(new Product
+        {
+            ProductId = productId,
+            ProductCode = "P-001",
+            ProductName = "Chair",
+            Status = ProductStatus.ACTIVE
+        });
+        context.ProductVersionSet.Add(new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = productId,
+            ProjectId = projectId,
+            VersionCode = "PV-001",
+            VersionName = "Project Custom",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            IsProjectSpecific = true,
+            Status = ProductStatus.ACTIVE
         });
         context.StoredFileSet.AddRange(
             CreateFile(fileId, customerId, "floor-plan.pdf", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-5)),

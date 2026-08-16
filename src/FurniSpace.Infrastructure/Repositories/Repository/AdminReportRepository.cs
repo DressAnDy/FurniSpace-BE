@@ -42,8 +42,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
     [
         ProductionRequestStatus.PENDING_REVIEW,
         ProductionRequestStatus.FEASIBLE,
-        ProductionRequestStatus.IN_PRODUCTION,
-        ProductionRequestStatus.BLOCKED
+        ProductionRequestStatus.IN_PRODUCTION
     ];
 
     private readonly AppDbContext _db;
@@ -302,7 +301,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
                 .OrderBy(item => item.Key)
                 .ToList(),
             OpenRequestCount = open.Count,
-            BlockedCount = requests.Count(item => item.Status == ProductionRequestStatus.BLOCKED),
+            BlockedCount = 0,
             PendingReviewCount = requests.Count(item => item.Status == ProductionRequestStatus.PENDING_REVIEW),
             UnassignedCount = open.Count(item => item.AssignedTo == null),
             OverdueCount = requests.Count(IsOverdue),
@@ -351,13 +350,12 @@ public sealed class AdminReportRepository : IAdminReportRepository
                     .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                     .OrderBy(item => item.Key)
                     .ToList(),
-                CustomerConfirmedInRange = orderItems.Count(item => InRange(item.CustomerConfirmedAt, from, to))
+                CustomerConfirmedInRange = deliveryOrders.Count(order =>
+                    InRange(order.CustomerConfirmedDeliveryAt, from, to))
             },
             OrderItems = new DeliveryOrderItemsDto
             {
-                PartialDeliveryCount = orderItems.Count(item =>
-                    (item.DeliveredQuantity ?? 0) > 0 &&
-                    (item.Quantity ?? 0) > (item.DeliveredQuantity ?? 0))
+                PartialDeliveryCount = 0
             },
             Schedules = new DeliverySchedulesDto
             {
@@ -853,7 +851,6 @@ public sealed class AdminReportRepository : IAdminReportRepository
         {
             var assigned = requests.Where(request => request.AssignedTo == account.AccountId).ToList();
             var openCount = assigned.Count(IsOpen);
-            var blockedCount = assigned.Count(request => request.Status == ProductionRequestStatus.BLOCKED);
             var overdueCount = assigned.Count(IsOverdue);
             var availableSlot = maxActiveRequests - openCount;
             var state = ResolveCapacityState(openCount, maxActiveRequests);
@@ -864,7 +861,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
                 FullName = account.FullName,
                 Email = account.Email,
                 OpenRequestCount = openCount,
-                BlockedCount = blockedCount,
+                BlockedCount = 0,
                 OverdueCount = overdueCount,
                 MaxActiveRequests = maxActiveRequests,
                 AvailableSlot = availableSlot,

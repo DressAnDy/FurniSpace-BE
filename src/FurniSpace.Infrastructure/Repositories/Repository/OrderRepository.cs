@@ -95,6 +95,21 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
             cancellationToken);
     }
 
+    public Task<Order?> GetLatestByProjectInStatusesAsync(
+        Guid projectId,
+        IReadOnlyCollection<OrderStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.OrderSet
+            .Where(order =>
+                order.ProjectId == projectId &&
+                order.Status.HasValue &&
+                statuses.Contains(order.Status.Value))
+            .OrderByDescending(order => order.CreatedAt)
+            .ThenByDescending(order => order.OrderId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default)
     {
         return DbContext.OrderItemSet.AddAsync(item, cancellationToken).AsTask();
@@ -118,180 +133,68 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
             .ToListAsync(cancellationToken);
     }
 
-    public Task<OrderAdjustment?> GetAdjustmentByIdAsync(
-        Guid orderAdjustmentId,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.OrderAdjustmentSet.FirstOrDefaultAsync(
-            adjustment => adjustment.OrderAdjustmentId == orderAdjustmentId,
-            cancellationToken);
-    }
-
-    public Task<OrderAdjustmentItem?> GetAdjustmentItemByIdAsync(
-        Guid orderAdjustmentItemId,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.OrderAdjustmentItemSet.FirstOrDefaultAsync(
-            item => item.OrderAdjustmentItemId == orderAdjustmentItemId,
-            cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsAsync(
-        Guid orderAdjustmentId,
-        CancellationToken cancellationToken = default)
-    {
-        return await DbContext.OrderAdjustmentItemSet
-            .Where(item => item.OrderAdjustmentId == orderAdjustmentId)
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<OrderAdjustment>> GetAdjustmentsByOrderAsync(
-        Guid orderId,
-        CancellationToken cancellationToken = default)
-    {
-        return await DbContext.OrderAdjustmentSet
-            .Where(adjustment => adjustment.OrderId == orderId)
-            .ToListAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsByOrderAsync(
-        Guid orderId,
-        CancellationToken cancellationToken = default)
-    {
-        return await (
-                from item in DbContext.OrderAdjustmentItemSet
-                join adjustment in DbContext.OrderAdjustmentSet
-                    on item.OrderAdjustmentId equals adjustment.OrderAdjustmentId
-                where adjustment.OrderId == orderId
-                select item)
-            .ToListAsync(cancellationToken);
-    }
-
-    public Task<bool> HasCancelledProductionItemAsync(
-        Guid orderItemId,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.ProductionItemSet.AnyAsync(
-            item => item.OrderItemId == orderItemId && item.Status == ProductionItemStatus.CANCELLED,
-            cancellationToken);
-    }
-
-    public Task AddAdjustmentAsync(
-        OrderAdjustment adjustment,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.OrderAdjustmentSet.AddAsync(adjustment, cancellationToken).AsTask();
-    }
-
-    public Task AddAdjustmentItemAsync(
-        OrderAdjustmentItem item,
-        CancellationToken cancellationToken = default)
-    {
-        return DbContext.OrderAdjustmentItemSet.AddAsync(item, cancellationToken).AsTask();
-    }
-
-    public void UpdateAdjustment(OrderAdjustment adjustment)
-    {
-        DbContext.OrderAdjustmentSet.Update(adjustment);
-    }
-
-    public void UpdateAdjustmentItem(OrderAdjustmentItem item)
-    {
-        DbContext.OrderAdjustmentItemSet.Update(item);
-    }
-
     public void UpdateItem(OrderItem item)
     {
         DbContext.OrderItemSet.Update(item);
     }
 
-    public async Task<OrderItem?> TryIncrementDeliveredQuantityAsync(
-        Guid orderItemId,
-        int increment,
-        string? deliveryNote,
-        Guid deliveredBy,
-        DateTime deliveredAt,
+    public async Task<bool> HasCompletedDeliveryFlowAsync(
+        Guid projectId,
         CancellationToken cancellationToken = default)
     {
-        if (!DbContext.Database.IsRelational())
+        var orders = await DbContext.OrderSet
+            .AsNoTracking()
+            .Where(order => order.ProjectId == projectId)
+            .Select(order => new { order.OrderId, order.Status, order.CustomerConfirmedDeliveryAt })
+            .ToListAsync(cancellationToken);
+
+        if (orders.Any(order =>
+                order.Status is OrderStatus.DELIVERED or OrderStatus.FINAL_PAYMENT_PENDING or OrderStatus.COMPLETED ||
+                order.CustomerConfirmedDeliveryAt.HasValue))
         {
-            return await TryIncrementDeliveredQuantityInMemoryAsync(
-                orderItemId,
-                increment,
-                deliveryNote,
-                deliveredBy,
-                deliveredAt,
-                cancellationToken);
+            return true;
         }
 
-        return await TryIncrementDeliveredQuantityRelationalAsync(
-            orderItemId,
-            increment,
-            deliveryNote,
-            deliveredBy,
-            deliveredAt,
+        var orderIds = orders.Select(order => order.OrderId).ToList();
+        if (orderIds.Count == 0)
+        {
+            return false;
+        }
+
+        return await DbContext.OrderItemSet.AnyAsync(
+            item =>
+                orderIds.Contains(item.OrderId) &&
+                item.ProductVersionId.HasValue &&
+                (item.Quantity ?? 0) > 0 &&
+                item.Status == OrderItemStatus.DELIVERED,
             cancellationToken);
     }
 
-    [ExcludeFromCodeCoverage(Justification = "Provider-specific atomic SQL update is covered by API integration tests.")]
-    private async Task<OrderItem?> TryIncrementDeliveredQuantityRelationalAsync(
-        Guid orderItemId,
-        int increment,
-        string? deliveryNote,
-        Guid deliveredBy,
-        DateTime deliveredAt,
-        CancellationToken cancellationToken)
+    public async Task<bool> AllDeliverableItemsReadyAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
     {
-        var updated = await DbContext.OrderItemSet
-            .Where(item =>
-                item.OrderItemId == orderItemId &&
-                item.Status == OrderItemStatus.READY &&
-                (item.Quantity ?? 0) > 0 &&
-                (item.DeliveredQuantity ?? 0) + increment <= (item.Quantity ?? 0))
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(item => item.DeliveredQuantity, item => (item.DeliveredQuantity ?? 0) + increment)
-                .SetProperty(item => item.DeliveryNote, deliveryNote)
-                .SetProperty(item => item.LastDeliveredAt, deliveredAt)
-                .SetProperty(item => item.LastDeliveredBy, deliveredBy),
-                cancellationToken);
-
-        return updated == 0
-            ? null
-            : await GetItemByIdAsync(orderItemId, cancellationToken);
+        var items = await GetItemsByOrderAsync(orderId, cancellationToken);
+        var deliverableItems = items.Where(IsDeliverableItem).ToList();
+        return deliverableItems.Count > 0 &&
+            deliverableItems.All(item => item.Status == OrderItemStatus.READY);
     }
 
-    private async Task<OrderItem?> TryIncrementDeliveredQuantityInMemoryAsync(
-        Guid orderItemId,
-        int increment,
-        string? deliveryNote,
-        Guid deliveredBy,
-        DateTime deliveredAt,
-        CancellationToken cancellationToken)
+    public async Task<bool> AllDeliverableItemsDeliveredAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
     {
-        var item = await GetItemByIdAsync(orderItemId, cancellationToken);
-        if (item is null || item.Status != OrderItemStatus.READY)
-        {
-            return null;
-        }
-
-        var quantity = item.Quantity ?? 0;
-        var deliveredQuantity = item.DeliveredQuantity ?? 0;
-        if (quantity <= 0 || deliveredQuantity + increment > quantity)
-        {
-            return null;
-        }
-
-        item.DeliveredQuantity = deliveredQuantity + increment;
-        item.DeliveryNote = deliveryNote;
-        item.LastDeliveredAt = deliveredAt;
-        item.LastDeliveredBy = deliveredBy;
-        UpdateItem(item);
-        return item;
+        var items = await GetItemsByOrderAsync(orderId, cancellationToken);
+        var deliverableItems = items.Where(IsDeliverableItem).ToList();
+        return deliverableItems.Count > 0 &&
+            deliverableItems.All(item => item.Status == OrderItemStatus.DELIVERED);
     }
 
-    public void RemoveAdjustmentItem(OrderAdjustmentItem item)
+    private static bool IsDeliverableItem(OrderItem item)
     {
-        DbContext.OrderAdjustmentItemSet.Remove(item);
+        return item.ProductVersionId.HasValue &&
+            (item.Quantity ?? 0) > 0 &&
+            item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED;
     }
 
     public new void Update(Order order)
@@ -344,8 +247,8 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                     ItemName = quotationItem != null ? quotationItem.ItemName : pair.orderItem.ProductNameSnapshot,
                     Quantity = pair.orderItem.Quantity,
                     Status = pair.orderItem.Status,
-                    DeliveredQuantity = pair.orderItem.DeliveredQuantity,
-                    CustomerConfirmedAt = pair.orderItem.CustomerConfirmedAt,
+                    DeliveredAt = pair.orderItem.DeliveredAt,
+                    DeliveredBy = pair.orderItem.DeliveredBy,
                     UnitPrice = pair.orderItem.UnitPrice,
                     DiscountAmount = pair.orderItem.DiscountAmount,
                     SubtotalAmount = pair.orderItem.SubtotalAmount,

@@ -6,9 +6,10 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.DTOs.Catalog;
+using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
-using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.Services.ProductVersions;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -18,6 +19,7 @@ using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace FurniSpace.Application.Tests.ProductVersions;
@@ -577,7 +579,7 @@ public sealed class ProductVersionServiceTests
         var adminId = Guid.NewGuid();
         var productVersionId = Guid.NewGuid();
         var productId = Guid.NewGuid();
-        var repository = new VersionUploadFileRepository();
+        var repository = new VersionUploadFileRepository { RoleName = "ADMIN" };
         var storage = new VersionUploadFileStorage();
         var versionRepository = new FakeProductVersionRepository(
             versions:
@@ -611,7 +613,7 @@ public sealed class ProductVersionServiceTests
     [Fact]
     public async Task UploadFileAsync_WithMissingVersion_ReturnsNotFound()
     {
-        var repository = new VersionUploadFileRepository();
+        var repository = new VersionUploadFileRepository { RoleName = "ADMIN" };
         var service = CatalogServiceTestHelper.CreateProductVersionService(
             new FakeProductVersionRepository(),
             repository);
@@ -623,6 +625,343 @@ public sealed class ProductVersionServiceTests
 
         Assert.Equal(404, result.Status);
         Assert.Equal(ProductVersionPreviewErrorCodes.ProductVersionNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_Admin_AllowedOnStandardProductVersion()
+    {
+        var adminId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository { RoleName = "ADMIN" };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(
+                versions:
+                [
+                    new ProductVersion
+                    {
+                        ProductVersionId = productVersionId,
+                        ProductId = Guid.NewGuid(),
+                        VersionCode = "PV-001",
+                        VersionName = "Standard",
+                        VersionType = ProductVersionType.STANDARD,
+                        Status = ProductStatus.ACTIVE
+                    }
+                ]),
+            repository,
+            new VersionUploadFileStorage());
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            adminId,
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(201, result.Status);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_AssignedDesigner_AllowedOnProjectSpecificVersion()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository
+        {
+            RoleName = "DESIGNER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = Guid.NewGuid(),
+                AssignedDesignerId = designerId
+            }
+        };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(
+                versions:
+                [
+                    new ProductVersion
+                    {
+                        ProductVersionId = productVersionId,
+                        ProductId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        VersionCode = "CUSTOM-001",
+                        VersionName = "Custom",
+                        VersionType = ProductVersionType.PROJECT_SPECIFIC,
+                        IsProjectSpecific = true,
+                        Status = ProductStatus.ACTIVE
+                    }
+                ]),
+            repository,
+            new VersionUploadFileStorage());
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            designerId,
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(201, result.Status);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_UnassignedDesigner_ReturnsForbidden()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository
+        {
+            RoleName = "DESIGNER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = Guid.NewGuid(),
+                AssignedDesignerId = Guid.NewGuid()
+            }
+        };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(
+                versions:
+                [
+                    new ProductVersion
+                    {
+                        ProductVersionId = productVersionId,
+                        ProductId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        VersionCode = "CUSTOM-001",
+                        VersionName = "Custom",
+                        VersionType = ProductVersionType.PROJECT_SPECIFIC,
+                        IsProjectSpecific = true,
+                        Status = ProductStatus.ACTIVE
+                    }
+                ]),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            designerId,
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductVersionAccessDenied, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_DesignerOnStandardVersion_ReturnsForbidden()
+    {
+        var designerId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository { RoleName = "DESIGNER" };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(
+                versions:
+                [
+                    new ProductVersion
+                    {
+                        ProductVersionId = productVersionId,
+                        ProductId = Guid.NewGuid(),
+                        VersionCode = "PV-001",
+                        VersionName = "Standard",
+                        VersionType = ProductVersionType.STANDARD,
+                        Status = ProductStatus.ACTIVE
+                    }
+                ]),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            designerId,
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductVersionAccessDenied, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithMissingRole_ReturnsForbidden()
+    {
+        var repository = new VersionUploadFileRepository { RoleName = null };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductVersionAccessDenied, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithSalesRole_ReturnsForbidden()
+    {
+        var repository = new VersionUploadFileRepository { RoleName = "SALES" };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductVersionAccessDenied, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_DesignerWithMissingProductVersion_ReturnsNotFound()
+    {
+        var designerId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository { RoleName = "DESIGNER" };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            Guid.NewGuid(),
+            designerId,
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductVersionNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_DesignerWithProjectSpecificWithoutProjectId_ReturnsForbidden()
+    {
+        var designerId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository { RoleName = "DESIGNER" };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(
+                versions:
+                [
+                    new ProductVersion
+                    {
+                        ProductVersionId = productVersionId,
+                        ProductId = Guid.NewGuid(),
+                        VersionCode = "CUSTOM-001",
+                        VersionName = "Custom",
+                        VersionType = ProductVersionType.PROJECT_SPECIFIC,
+                        IsProjectSpecific = true,
+                        Status = ProductStatus.ACTIVE
+                    }
+                ]),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            designerId,
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductVersionAccessDenied, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_DesignerWithMissingProjectAccess_ReturnsNotFound()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository { RoleName = "DESIGNER" };
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(
+                versions:
+                [
+                    new ProductVersion
+                    {
+                        ProductVersionId = productVersionId,
+                        ProductId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        VersionCode = "CUSTOM-001",
+                        VersionName = "Custom",
+                        VersionType = ProductVersionType.PROJECT_SPECIFIC,
+                        IsProjectSpecific = true,
+                        Status = ProductStatus.ACTIVE
+                    }
+                ]),
+            repository);
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            designerId,
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(CatalogErrorCodes.ProductVersionNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_DuplicateModelFileLink_ReturnsConflictAndDeletesStorage()
+    {
+        var adminId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository { RoleName = "ADMIN" };
+        var storage = new VersionUploadFileStorage();
+        var unitOfWork = TestUnitOfWork.ForSaveChanges(_ => throw CreateFileLinkDuplicateException());
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(
+                versions:
+                [
+                    new ProductVersion
+                    {
+                        ProductVersionId = productVersionId,
+                        ProductId = Guid.NewGuid(),
+                        VersionCode = "PV-001",
+                        VersionName = "Standard",
+                        Status = ProductStatus.ACTIVE
+                    }
+                ]),
+            repository,
+            storage,
+            unitOfWork: unitOfWork);
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            adminId,
+            CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProductVersionFileLinkConflict, result.ErrorCode);
+        Assert.NotNull(storage.UploadRequest);
+        Assert.Contains(storage.UploadRequest.ObjectName, storage.DeletedObjectNames);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_DuplicatePreviewFileLink_ReturnsConflictAndDeletesStorage()
+    {
+        var productVersionId = Guid.NewGuid();
+        var repository = new VersionUploadFileRepository { RoleName = "ADMIN" };
+        var storage = new VersionUploadFileStorage();
+        var unitOfWork = TestUnitOfWork.ForSaveChanges(_ => throw CreateFileLinkDuplicateException());
+        var service = CatalogServiceTestHelper.CreateProductVersionService(
+            new FakeProductVersionRepository(
+                versions:
+                [
+                    new ProductVersion
+                    {
+                        ProductVersionId = productVersionId,
+                        ProductId = Guid.NewGuid(),
+                        VersionCode = "PV-001",
+                        VersionName = "Standard",
+                        Status = ProductStatus.ACTIVE
+                    }
+                ]),
+            repository,
+            storage,
+            unitOfWork: unitOfWork);
+
+        var result = await service.UploadFileAsync(
+            productVersionId,
+            Guid.NewGuid(),
+            CreateVersionUploadRequest("preview.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProductVersionFileLinkConflict, result.ErrorCode);
+        Assert.NotNull(storage.UploadRequest);
+        Assert.Contains(storage.UploadRequest.ObjectName, storage.DeletedObjectNames);
     }
 
     [Fact]
@@ -1158,10 +1497,17 @@ public sealed class ProductVersionServiceTests
         Assert.Equal(CatalogErrorCodes.CatalogFilterInvalid, result.ErrorCode);
     }
 
+    private static DbUpdateException CreateFileLinkDuplicateException() =>
+        new(
+            "duplicate key",
+            new Exception("duplicate key value violates unique constraint \"file_links_file_id_reference_type_reference_id_file_type_key\""));
+
     private static ProductVersionService CreateVersionUploadService(
         Guid productVersionId,
         VersionUploadFileRepository repository)
     {
+        repository.RoleName ??= "ADMIN";
+
         return CatalogServiceTestHelper.CreateProductVersionService(
             new FakeProductVersionRepository(
                 versions:
@@ -1200,6 +1546,7 @@ public sealed class ProductVersionServiceTests
     private sealed class VersionUploadFileStorage : IFileStorageService
     {
         public StorageUploadRequest? UploadRequest { get; private set; }
+        public List<string> DeletedObjectNames { get; } = [];
 
         public Task<StorageUploadResult> UploadAsync(
             StorageUploadRequest request,
@@ -1215,11 +1562,17 @@ public sealed class ProductVersionServiceTests
         }
 
         public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            DeletedObjectNames.Add(objectName);
+            return Task.CompletedTask;
+        }
     }
 
     private class VersionUploadFileRepository : IProjectFileRepository
     {
+        public string? RoleName { get; set; } = "ADMIN";
+        public ProjectFileAccessReadModel? ProjectAccess { get; set; }
+
         public List<StoredFile> StoredFiles { get; } = [];
         public List<FileLink> FileLinks { get; } = [];
 
@@ -1325,10 +1678,18 @@ public sealed class ProductVersionServiceTests
             => Task.FromResult<ProjectFileAccessReadModel?>(null);
 
         public Task<ProjectFileAccessReadModel?> GetReferenceProjectAccessAsync(string referenceType, Guid referenceId, CancellationToken cancellationToken = default)
-            => Task.FromResult<ProjectFileAccessReadModel?>(null);
+        {
+            if (!string.Equals(referenceType, CatalogFileReferenceTypes.ProductVersion, StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult<ProjectFileAccessReadModel?>(null);
+            }
+
+            return Task.FromResult(
+                ProjectAccess is not null && referenceId != Guid.Empty ? ProjectAccess : null);
+        }
 
         public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
-            => Task.FromResult<string?>(null);
+            => Task.FromResult(RoleName);
 
         public Task<FileMetadataReadModel?> GetFileMetadataAsync(Guid fileId, CancellationToken cancellationToken = default)
             => Task.FromResult<FileMetadataReadModel?>(null);

@@ -31,6 +31,14 @@ public interface IOrderRepository : IGenericRepository<Order>
         return Task.FromResult(false);
     }
 
+    Task<Order?> GetLatestByProjectInStatusesAsync(
+        Guid projectId,
+        IReadOnlyCollection<OrderStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<Order?>(null);
+    }
+
     new Task AddAsync(Order order, CancellationToken cancellationToken = default);
 
     Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default);
@@ -49,85 +57,29 @@ public interface IOrderRepository : IGenericRepository<Order>
         return Task.FromResult<IReadOnlyList<OrderItem>>([]);
     }
 
-    Task<OrderAdjustment?> GetAdjustmentByIdAsync(
-        Guid orderAdjustmentId,
-        CancellationToken cancellationToken = default)
+    void UpdateItem(OrderItem item)
     {
-        return Task.FromResult<OrderAdjustment?>(null);
     }
 
-    Task<OrderAdjustmentItem?> GetAdjustmentItemByIdAsync(
-        Guid orderAdjustmentItemId,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult<OrderAdjustmentItem?>(null);
-    }
-
-    Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsAsync(
-        Guid orderAdjustmentId,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult<IReadOnlyList<OrderAdjustmentItem>>([]);
-    }
-
-    Task<IReadOnlyList<OrderAdjustment>> GetAdjustmentsByOrderAsync(
-        Guid orderId,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult<IReadOnlyList<OrderAdjustment>>([]);
-    }
-
-    Task<IReadOnlyList<OrderAdjustmentItem>> GetAdjustmentItemsByOrderAsync(
-        Guid orderId,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult<IReadOnlyList<OrderAdjustmentItem>>([]);
-    }
-
-    Task<bool> HasCancelledProductionItemAsync(
-        Guid orderItemId,
+    Task<bool> HasCompletedDeliveryFlowAsync(
+        Guid projectId,
         CancellationToken cancellationToken = default)
     {
         return Task.FromResult(false);
     }
 
-    Task AddAdjustmentAsync(
-        OrderAdjustment adjustment,
+    Task<bool> AllDeliverableItemsReadyAsync(
+        Guid orderId,
         CancellationToken cancellationToken = default)
     {
-        return Task.CompletedTask;
+        return Task.FromResult(false);
     }
 
-    Task AddAdjustmentItemAsync(
-        OrderAdjustmentItem item,
+    Task<bool> AllDeliverableItemsDeliveredAsync(
+        Guid orderId,
         CancellationToken cancellationToken = default)
     {
-        return Task.CompletedTask;
-    }
-
-    void UpdateAdjustment(OrderAdjustment adjustment)
-    {
-    }
-
-    void UpdateAdjustmentItem(OrderAdjustmentItem item)
-    {
-    }
-
-    void UpdateItem(OrderItem item)
-    {
-    }
-
-    Task<OrderItem?> TryIncrementDeliveredQuantityAsync(
-        Guid orderItemId,
-        int increment,
-        string? deliveryNote,
-        Guid deliveredBy,
-        DateTime deliveredAt,
-        CancellationToken cancellationToken = default) =>
-        Task.FromResult<OrderItem?>(null);
-
-    void RemoveAdjustmentItem(OrderAdjustmentItem item)
-    {
+        return Task.FromResult(false);
     }
 
     new void Update(Order order);

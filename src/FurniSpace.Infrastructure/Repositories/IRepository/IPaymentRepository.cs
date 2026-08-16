@@ -39,6 +39,21 @@ public interface IPaymentRepository
         Guid orderId,
         PaymentType paymentType,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Payment>> GetAllByOrderAndTypeAsync(
+        Guid orderId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<Payment>>([]);
+    }
+
+    Task<IReadOnlyList<PaymentTransaction>> GetTransactionEntitiesByPaymentIdAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<PaymentTransaction>>([]);
+    }
     Task<Payment?> GetByProjectAndTypeAsync(
         Guid projectId,
         PaymentType paymentType,

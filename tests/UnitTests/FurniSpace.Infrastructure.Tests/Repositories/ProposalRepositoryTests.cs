@@ -114,6 +114,72 @@ public sealed class ProposalRepositoryTests
     }
 
     [Fact]
+    public async Task GetDetailAsync_ReturnsRevisionNoteWhenPresent()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var revisionProposalId = Guid.NewGuid();
+        context.ProposalSet.Add(CreateProposal(
+            revisionProposalId,
+            data.ProjectId,
+            "Revision requested proposal",
+            ProposalStatus.REVISION_REQUESTED,
+            versionNo: 4,
+            revisionNote: "Please adjust lighting."));
+        await context.SaveChangesAsync();
+        var repository = new ProposalRepository(context);
+
+        var detail = await repository.GetDetailAsync(revisionProposalId);
+
+        Assert.NotNull(detail);
+        Assert.Equal("Please adjust lighting.", detail.RevisionNote);
+    }
+
+    [Fact]
+    public async Task GetListAsync_ReturnsRevisionNoteInProjection()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var revisionProposalId = Guid.NewGuid();
+        context.ProposalSet.Add(CreateProposal(
+            revisionProposalId,
+            data.ProjectId,
+            "Revision requested proposal",
+            ProposalStatus.REVISION_REQUESTED,
+            versionNo: 4,
+            revisionNote: "Update bar layout."));
+        await context.SaveChangesAsync();
+        var repository = new ProposalRepository(context);
+
+        var proposals = await repository.GetListAsync(new ProposalListQueryReadModel
+        {
+            ProjectId = data.ProjectId,
+            Status = ProposalStatus.REVISION_REQUESTED,
+            Page = 1,
+            Limit = 10
+        });
+
+        Assert.Single(proposals);
+        Assert.Equal("Update bar layout.", proposals[0].RevisionNote);
+    }
+
+    [Fact]
+    public async Task GetLatestPublishedByProjectAsync_ReturnsRevisionNoteWhenPresent()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var publishedProposal = context.ProposalSet.Single(proposal => proposal.ProposalId == data.PublishedProposalId);
+        publishedProposal.RevisionNote = "Republished after revision.";
+        await context.SaveChangesAsync();
+        var repository = new ProposalRepository(context);
+
+        var detail = await repository.GetLatestPublishedByProjectAsync(data.ProjectId);
+
+        Assert.NotNull(detail);
+        Assert.Equal("Republished after revision.", detail.RevisionNote);
+    }
+
+    [Fact]
     public async Task GetDetailAsync_ReturnsActiveScenesWithPreviewAndItems()
     {
         await using var context = CreateContext();
@@ -690,7 +756,8 @@ public sealed class ProposalRepositoryTests
         Guid projectId,
         string proposalName,
         ProposalStatus status,
-        int versionNo)
+        int versionNo,
+        string? revisionNote = null)
     {
         return new Proposal
         {
@@ -700,6 +767,7 @@ public sealed class ProposalRepositoryTests
             Description = "Proposal description",
             Status = status,
             VersionNo = versionNo,
+            RevisionNote = revisionNote,
             CreatedAt = DateTime.UtcNow.AddMinutes(versionNo),
             UpdatedAt = DateTime.UtcNow.AddMinutes(versionNo)
         };

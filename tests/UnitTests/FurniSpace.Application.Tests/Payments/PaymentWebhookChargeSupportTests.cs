@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Collections.Generic;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,6 +52,7 @@ public sealed class PaymentWebhookChargeSupportTests
         var exception = await Record.ExceptionAsync(() =>
             PaymentWebhookChargeSupport.PushPaymentUpdatedAsync(
                 realtime,
+                stakeholders: null,
                 logger: null,
                 payment,
                 transaction,
@@ -100,6 +102,7 @@ public sealed class PaymentWebhookChargeSupportTests
 
         public Task SendPaymentUpdatedAsync(
             PaymentUpdatedRealtimeDto payload,
+            IReadOnlyCollection<Guid>? stakeholderUserIds = null,
             CancellationToken cancellationToken = default)
         {
             SendAttempted = true;

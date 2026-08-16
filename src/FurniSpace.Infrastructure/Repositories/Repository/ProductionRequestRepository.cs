@@ -18,8 +18,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
     [
         ProductionRequestStatus.PENDING_REVIEW,
         ProductionRequestStatus.FEASIBLE,
-        ProductionRequestStatus.IN_PRODUCTION,
-        ProductionRequestStatus.BLOCKED
+        ProductionRequestStatus.IN_PRODUCTION
     ];
 
     private static readonly ProductionRequestStatus[] ScheduleReadRequestStatuses =
@@ -27,7 +26,6 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         ProductionRequestStatus.PENDING_REVIEW,
         ProductionRequestStatus.FEASIBLE,
         ProductionRequestStatus.IN_PRODUCTION,
-        ProductionRequestStatus.BLOCKED,
         ProductionRequestStatus.COMPLETED
     ];
 
@@ -45,6 +43,15 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                 request.OrderId == orderId &&
                 request.Status.HasValue &&
                 ActiveRequestStatuses.Contains(request.Status.Value),
+            cancellationToken);
+    }
+
+    public Task<bool> ExistsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProductionRequestSet.AnyAsync(
+            request => request.OrderId == orderId,
             cancellationToken);
     }
 
@@ -123,9 +130,6 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             let inProductionCount = DbContext.ProductionRequestSet.Count(request =>
                 request.AssignedTo == account.AccountId &&
                 request.Status == ProductionRequestStatus.IN_PRODUCTION)
-            let blockedCount = DbContext.ProductionRequestSet.Count(request =>
-                request.AssignedTo == account.AccountId &&
-                request.Status == ProductionRequestStatus.BLOCKED)
             select new AvailableProductionStaffReadModel
             {
                 AccountId = account.AccountId,
@@ -136,7 +140,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                 ActiveRequestCount = activeCount,
                 PendingReviewRequestCount = pendingReviewCount,
                 InProductionRequestCount = inProductionCount,
-                BlockedRequestCount = blockedCount,
+                BlockedRequestCount = 0,
                 IsAvailable = true
             };
 
@@ -381,5 +385,43 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         return assignee?.RoleName == ProductionRoleName &&
             assignee.Status == AccountStatus.ACTIVE &&
             assignee.DeletedAt is null;
+    }
+
+    public async Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var requests = await DbContext.ProductionRequestSet
+            .AsNoTracking()
+            .Where(request => request.ProjectId == projectId)
+            .Select(request => new
+            {
+                request.EstimatedStartDate,
+                request.EstimatedCompletionDate,
+                request.ActualStartDate,
+                request.ActualCompletionDate
+            })
+            .ToListAsync(cancellationToken);
+
+        DateOnly? maxDate = null;
+        foreach (var request in requests)
+        {
+            maxDate = MaxDateOnly(maxDate, request.EstimatedStartDate);
+            maxDate = MaxDateOnly(maxDate, request.EstimatedCompletionDate);
+        }
+
+        return maxDate;
+    }
+
+    private static DateOnly? MaxDateOnly(DateOnly? current, DateOnly? candidate)
+    {
+        if (!candidate.HasValue)
+        {
+            return current;
+        }
+
+        return !current.HasValue || candidate.Value > current.Value
+            ? candidate
+            : current;
     }
 }

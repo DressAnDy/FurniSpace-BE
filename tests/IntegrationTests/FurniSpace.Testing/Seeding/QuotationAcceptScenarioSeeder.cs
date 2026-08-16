@@ -148,6 +148,7 @@ public static class QuotationAcceptScenarioSeeder
             VatRate = 0.08m,
             VatAmount = 800_000m,
             TotalAmount = 10_800_000m,
+            DepositAmount = 3_240_000m,
             Status = QuotationStatus.SENT,
             ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7)),
             SentAt = CoreAccountSeeder.FixedTimestamp,

@@ -6,6 +6,7 @@ using FurniSpace.API.IntegrationTests.Support;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Testing.Fakes;
@@ -37,7 +38,7 @@ public sealed class FinalPaymentReviewApiIntegrationTests : IAsyncLifetime
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
-    public async Task PrepareFinalPayment_WhenRemainingExists_CreatesRemainingObligationAndPaidDoesNotAutoComplete()
+    public async Task PrepareFinalPayment_WhenRemainingExists_AutoCompletesOrderAfterPaymentWithoutManualComplete()
     {
         var scenario = await SeedDeliveredWithRemainingAsync();
         var preparation = await PrepareFinalPaymentAsync(scenario);
@@ -54,26 +55,24 @@ public sealed class FinalPaymentReviewApiIntegrationTests : IAsyncLifetime
         await using var verification = _fixture.Database.CreateDbContext();
         var order = await verification.OrderSet.FindAsync(scenario.OrderId);
         var project = await verification.ProjectSet.FindAsync(scenario.ProjectId);
-        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, order?.Status);
+        Assert.Equal(OrderStatus.COMPLETED, order?.Status);
         Assert.Equal(ProjectStatus.DELIVERED, project?.Status);
         Assert.Equal(scenario.FinalTotalAmount, order?.PaidAmount);
         Assert.Equal(0m, order?.RemainingAmount);
     }
 
     [Fact]
-    public async Task CompleteOrder_WhenRemainingPaymentPaid_CompletesOrderAndProjectIdempotently()
+    public async Task CompleteProject_WhenOrderAutoCompletedAfterPayment_CompletesProjectIdempotently()
     {
         var scenario = await SeedDeliveredWithRemainingAsync();
         await PrepareFinalPaymentAsync(scenario);
         var payment = await CreateRemainingPaymentAsync(scenario);
         await PayRemainingPaymentAsync(scenario, payment.PaymentId, payment.Amount);
 
-        var firstCompletion = await CompleteOrderAsync(scenario);
-        var secondCompletion = await CompleteOrderAsync(scenario);
+        var firstCompletion = await CompleteProjectAsync(scenario);
+        var secondCompletion = await CompleteProjectAsync(scenario);
 
-        Assert.Equal(nameof(OrderStatus.COMPLETED), firstCompletion.OrderStatus);
         Assert.Equal(nameof(ProjectStatus.COMPLETED), firstCompletion.ProjectStatus);
-        Assert.Equal(firstCompletion.OrderStatus, secondCompletion.OrderStatus);
         Assert.Equal(firstCompletion.ProjectStatus, secondCompletion.ProjectStatus);
 
         await using var verification = _fixture.Database.CreateDbContext();
@@ -254,6 +253,18 @@ public sealed class FinalPaymentReviewApiIntegrationTests : IAsyncLifetime
 
         var response = await _fixture.Client.SendAsync(request);
         return await ReadDataAsync<OrderCompletionDto>(response, HttpStatusCode.OK);
+    }
+
+    private async Task<ProjectCompletionDto> CompleteProjectAsync(FinalPaymentOrderScenario scenario)
+    {
+        using var request = IntegrationHttp.Authenticated(
+            HttpMethod.Patch,
+            $"/projects/{scenario.ProjectId}/complete",
+            scenario.SalesAccountId,
+            CoreRoles.Sales);
+
+        var response = await _fixture.Client.SendAsync(request);
+        return await ReadDataAsync<ProjectCompletionDto>(response, HttpStatusCode.OK);
     }
 
     private static async Task<T> ReadDataAsync<T>(

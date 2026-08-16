@@ -12,6 +12,13 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         Guid orderId,
         CancellationToken cancellationToken = default);
 
+    Task<bool> ExistsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
     Task<int> CountCreatedOnAsync(
         DateOnly date,
         CancellationToken cancellationToken = default);
@@ -63,6 +70,13 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
     Task<ProductionRequestDetailReadModel?> GetDetailByItemIdAsync(
         Guid productionItemId,
         CancellationToken cancellationToken = default);
+
+    Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<DateOnly?>(null);
+    }
 
     void UpdateItem(ProductionItem item);
 }

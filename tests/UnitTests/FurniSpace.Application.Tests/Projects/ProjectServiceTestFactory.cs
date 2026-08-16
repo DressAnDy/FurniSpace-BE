@@ -16,6 +16,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Payments;
+using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Options;
 
@@ -34,6 +35,16 @@ internal sealed class ProjectServiceFactoryOptions
     public IProjectSearchIndexer? ProjectSearchIndexer { get; init; }
 
     public IPaymentRepository? Payments { get; init; }
+
+    public IOrderRepository? Orders { get; init; }
+
+    public IQuotationRepository? Quotations { get; init; }
+
+    public IProposalRepository? Proposals { get; init; }
+
+    public IProductionRequestRepository? ProductionRequests { get; init; }
+
+    public IProjectScheduleRepository? Schedules { get; init; }
 }
 
 internal static class ProjectServiceTestFactory
@@ -61,8 +72,65 @@ internal static class ProjectServiceTestFactory
                 options.ProjectChats,
                 options.Search,
                 options.ProjectSearchIndexer,
-                options.Payments ?? new FakeProjectPaymentRepository()));
+                options.Payments ?? new FakeProjectPaymentRepository(),
+                options.Orders ?? new FakeProjectOrderRepository(),
+                options.Quotations ?? new FakeProjectQuotationRepository(),
+                options.Proposals ?? new FakeProjectReopenProposalRepository(),
+                options.ProductionRequests ?? new FakeProjectProductionRequestRepository(),
+                options.Schedules ?? transitionFakes.Schedules));
     }
+}
+
+internal sealed class FakeReopenProjectRepository : IProjectRepository
+{
+    private readonly string? _roleName;
+    private readonly List<Project> _projects;
+
+    public FakeReopenProjectRepository(string? roleName, IReadOnlyList<Project> projects)
+    {
+        _roleName = roleName;
+        _projects = projects.ToList();
+    }
+
+    public int SaveChangesCallCount { get; private set; }
+
+    public Task<Project?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        => Task.FromResult(_projects.FirstOrDefault(project => project.ProjectId == id));
+
+    public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
+        => Task.FromResult(_roleName);
+
+    public void Update(Project entity)
+    {
+        var index = _projects.FindIndex(project => project.ProjectId == entity.ProjectId);
+        if (index >= 0)
+        {
+            _projects[index] = entity;
+        }
+    }
+
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        SaveChangesCallCount++;
+        return Task.FromResult(1);
+    }
+
+    public IQueryable<Project> Query() => _projects.AsQueryable();
+    public Task<IReadOnlyList<Project>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Project>>(_projects);
+    public Task AddAsync(Project entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task AddRangeAsync(IEnumerable<Project> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public void Remove(Project entity) { }
+    public Task<ProjectDetailReadModel?> GetDetailAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectDetailReadModel?>(null);
+    public Task<IReadOnlyList<ProjectListItemReadModel>> GetListAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectListItemReadModel>>([]);
+    public Task<int> CountAsync(ProjectListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task<IReadOnlyList<ProjectByUserItemReadModel>> GetByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectByUserItemReadModel>>([]);
+    public Task<int> CountByUserAsync(ProjectByUserQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) => Task.FromResult<DesignerAccountReadModel?>(null);
+    public Task<ProjectSearchIndexItemReadModel?> GetSearchIndexItemAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectSearchIndexItemReadModel?>(null);
+    public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
+    public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(IReadOnlyCollection<string> roleNames, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Guid>>([]);
+    public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
 }
 
 internal sealed class FakeProjectPaymentRepository : IPaymentRepository
@@ -116,6 +184,17 @@ internal sealed class FakeProjectPaymentRepository : IPaymentRepository
         PaymentType paymentType,
         CancellationToken cancellationToken = default)
         => Task.FromResult<Payment?>(null);
+
+    public Task<IReadOnlyList<Payment>> GetAllByOrderAndTypeAsync(
+        Guid orderId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Payment>>([]);
+
+    public Task<IReadOnlyList<PaymentTransaction>> GetTransactionEntitiesByPaymentIdAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<PaymentTransaction>>([]);
 
     public Task<Payment?> GetByProjectAndTypeAsync(
         Guid projectId,
@@ -211,6 +290,12 @@ internal sealed class FakeProjectScheduleRepository : IProjectScheduleRepository
 {
     public bool HasCompletedMeasurement { get; set; }
     public bool HasAssignedSchedule { get; set; }
+    public DateOnly? MaxOperationalScheduleDate { get; set; }
+
+    public Task<DateOnly?> GetMaxOperationalScheduleDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(MaxOperationalScheduleDate);
 
     public Task<bool> HasCompletedMeasurementScheduleAsync(
         Guid projectId,
@@ -518,6 +603,12 @@ internal sealed class FakeProposalRepository : IProposalRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult<ProposalItem?>(null);
 
+    public Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(
+        Guid proposalId,
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<ProposalItem?>(null);
+
     public Task AddItemAsync(ProposalItem item, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
@@ -532,6 +623,18 @@ internal sealed class FakeProposalRepository : IProposalRepository
         DateTime rejectedAt,
         CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+
+    public Task<Proposal?> GetSelectedProposalByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Proposal?>(null);
+
+    public Task<int> RestoreAutoRejectedProposalsAsync(
+        Guid projectId,
+        DateTime autoRejectedAt,
+        DateTime restoredAt,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
 
     public Task<bool> HasActiveSceneAsync(Guid proposalId, CancellationToken cancellationToken = default)
         => Task.FromResult(false);
@@ -558,4 +661,351 @@ internal sealed class FakeProposalRepository : IProposalRepository
     public void Remove(Proposal entity) { }
     public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         => Task.FromResult(0);
+}
+
+internal sealed class FakeProjectOrderRepository : IOrderRepository
+{
+    public Order? Order { get; set; }
+
+    public IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel> ProjectOrders { get; set; } =
+        [];
+
+    public IReadOnlyList<OrderItem> OrderItems { get; set; } = [];
+
+    public Task<Order?> GetLatestByProjectInStatusesAsync(
+        Guid projectId,
+        IReadOnlyCollection<OrderStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        if (Order is null ||
+            Order.ProjectId != projectId ||
+            !Order.Status.HasValue ||
+            !statuses.Contains(Order.Status.Value))
+        {
+            return Task.FromResult<Order?>(null);
+        }
+
+        return Task.FromResult<Order?>(Order);
+    }
+
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel>> GetByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel> orders = ProjectOrders
+            .Where(order => order.ProjectId == projectId)
+            .ToList();
+        return Task.FromResult(orders);
+    }
+
+    public Task<Infrastructure.ReadModels.Orders.OrderDetailReadModel?> GetDetailAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Orders.OrderDetailReadModel?>(null);
+
+    public Task<Order?> GetByIdAsync(Guid orderId, CancellationToken cancellationToken = default)
+        => Task.FromResult(Order?.OrderId == orderId ? Order : null);
+
+    public Task<bool> ExistsForQuotationAsync(Guid quotationId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task AddAsync(Order order, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public Task<IReadOnlyList<OrderItem>> GetItemsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<OrderItem>>(OrderItems.Where(item => item.OrderId == orderId).ToList());
+
+    public void Update(Order order)
+    {
+        Order = order;
+    }
+
+    public IQueryable<Order> Query() => Order is null ? Enumerable.Empty<Order>().AsQueryable() : new[] { Order }.AsQueryable();
+    public Task<IReadOnlyList<Order>> ListAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Order>>(Order is null ? [] : new List<Order> { Order });
+    public Task AddRangeAsync(IEnumerable<Order> entities, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+    public void Remove(Order entity) { }
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(0);
+}
+
+internal sealed class FakeProjectQuotationRepository : IQuotationRepository
+{
+    public Quotation? Quotation { get; set; }
+
+    public Task<Quotation?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        => Task.FromResult(Quotation?.QuotationId == id ? Quotation : null);
+
+    public void Update(Quotation entity)
+    {
+        Quotation = entity;
+    }
+
+    public Task<Quotation?> GetLatestByProjectAndProposalInStatusesAsync(
+        Guid projectId,
+        Guid proposalId,
+        IReadOnlyCollection<QuotationStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        if (Quotation is null ||
+            Quotation.ProjectId != projectId ||
+            Quotation.ProposalId != proposalId ||
+            !Quotation.Status.HasValue ||
+            !statuses.Contains(Quotation.Status.Value))
+        {
+            return Task.FromResult<Quotation?>(null);
+        }
+
+        return Task.FromResult<Quotation?>(Quotation);
+    }
+
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Quotations.QuotationReadModel>> GetByProjectAsync(
+        Infrastructure.ReadModels.Quotations.QuotationQueryReadModel query,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Quotations.QuotationReadModel>>([]);
+
+    public Task<Infrastructure.ReadModels.Quotations.QuotationDetailReadModel?> GetDetailAsync(
+        Guid quotationId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Quotations.QuotationDetailReadModel?>(null);
+
+    public Task<Infrastructure.ReadModels.Quotations.SelectedProposalForQuotationReadModel?> GetSelectedProposalAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Quotations.SelectedProposalForQuotationReadModel?>(null);
+
+    public Task<bool> HasQuotationForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<IReadOnlyList<ProposalItem>> GetProposalItemsAsync(Guid proposalId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ProposalItem>>([]);
+
+    public Task<IReadOnlyList<QuotationItem>> GetItemsByQuotationAsync(Guid quotationId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<QuotationItem>>([]);
+
+    public Task<QuotationItem?> GetItemAsync(Guid quotationItemId, CancellationToken cancellationToken = default)
+        => Task.FromResult<QuotationItem?>(null);
+
+    public Task AddItemAsync(QuotationItem item, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public void UpdateItem(QuotationItem item) { }
+    public void RemoveItem(QuotationItem item) { }
+    public Task AddOrderAsync(Order order, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task AddOrderItemAsync(OrderItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public IQueryable<Quotation> Query() => Quotation is null ? Enumerable.Empty<Quotation>().AsQueryable() : new[] { Quotation }.AsQueryable();
+    public Task<IReadOnlyList<Quotation>> ListAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Quotation>>(Quotation is null ? [] : new List<Quotation> { Quotation });
+    public Task AddAsync(Quotation entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task AddRangeAsync(IEnumerable<Quotation> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public void Remove(Quotation entity) { }
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+}
+
+internal sealed class FakeProjectReopenProposalRepository : IProposalRepository
+{
+    public Proposal? SelectedProposal { get; set; }
+    public List<Proposal> AutoRejectedProposals { get; } = [];
+
+    public Task<Proposal?> GetSelectedProposalByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (SelectedProposal is null || SelectedProposal.ProjectId != projectId)
+        {
+            return Task.FromResult<Proposal?>(null);
+        }
+
+        return Task.FromResult<Proposal?>(SelectedProposal);
+    }
+
+    public Task<int> RestoreAutoRejectedProposalsAsync(
+        Guid projectId,
+        DateTime autoRejectedAt,
+        DateTime restoredAt,
+        CancellationToken cancellationToken = default)
+    {
+        var restored = 0;
+        foreach (var proposal in AutoRejectedProposals.Where(item =>
+                     item.ProjectId == projectId &&
+                     item.Status == ProposalStatus.REJECTED &&
+                     item.RejectedAt == autoRejectedAt))
+        {
+            proposal.Status = ProposalStatus.PUBLISHED;
+            proposal.RejectedAt = null;
+            proposal.UpdatedAt = restoredAt;
+            restored++;
+        }
+
+        return Task.FromResult(restored);
+    }
+
+    public void Update(Proposal entity)
+    {
+        if (SelectedProposal?.ProposalId == entity.ProposalId)
+        {
+            SelectedProposal = entity;
+        }
+    }
+
+    public Task<Infrastructure.ReadModels.Proposals.ProposalProjectAccessReadModel?> GetProjectAccessAsync(Guid projectId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalProjectAccessReadModel?>(null);
+    public Task<Infrastructure.ReadModels.Proposals.ProposalContextReadModel?> GetProposalContextAsync(Guid proposalId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalContextReadModel?>(null);
+    public Task<int> CountByProjectAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalReadModel>> GetListAsync(Infrastructure.ReadModels.Proposals.ProposalListQueryReadModel query, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalReadModel>>([]);
+    public Task<int> CountListAsync(Infrastructure.ReadModels.Proposals.ProposalListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task<int> CountScenesAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task<int> CountScenesAsync(Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task AddSceneAsync(ProposalScene scene, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task<List<Infrastructure.ReadModels.Proposals.ProposalProjectAreaReadModel>> GetProjectAreasByIdsAsync(List<Guid> projectAreaIds, CancellationToken cancellationToken = default)
+        => Task.FromResult<List<Infrastructure.ReadModels.Proposals.ProposalProjectAreaReadModel>>([]);
+    public Task ReplaceSceneAreasAsync(Guid sceneId, List<Guid> projectAreaIds, DateTime now, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?> GetDetailAsync(Guid proposalId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?>(null);
+    public Task<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?> GetLatestPublishedByProjectAsync(Guid projectId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalDetailReadModel?>(null);
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalSceneReadModel>> GetScenesAsync(Infrastructure.ReadModels.Proposals.ProposalSceneListQueryReadModel query, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalSceneReadModel>>([]);
+    public Task<Infrastructure.ReadModels.Proposals.ProposalSceneDetailReadModel?> GetSceneDetailAsync(Guid sceneId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneDetailReadModel?>(null);
+    public Task<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?> GetSceneContextAsync(Guid proposalId, Guid sceneId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?>(null);
+    public Task<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?> GetSceneContextBySceneIdAsync(Guid sceneId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalSceneContextReadModel?>(null);
+    public Task<ProposalScene?> GetSceneEntityAsync(Guid sceneId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalScene?>(null);
+    public Task<IReadOnlyList<ProposalItem>> GetItemsBySceneAsync(Guid proposalId, Guid sceneId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<ProposalItem>>([]);
+    public Task<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalItemReadModel>> GetItemsAsync(Infrastructure.ReadModels.Proposals.ProposalItemListQueryReadModel query, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Proposals.ProposalItemReadModel>>([]);
+    public Task<int> CountItemsAsync(Infrastructure.ReadModels.Proposals.ProposalItemListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task<Infrastructure.ReadModels.Proposals.ProposalItemDetailReadModel?> GetItemDetailAsync(Guid proposalItemId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalItemDetailReadModel?>(null);
+    public Task<ProposalItem?> GetItemEntityAsync(Guid proposalItemId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalItem?>(null);
+    public Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(Guid proposalId, Guid productVersionId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalItem?>(null);
+    public Task AddItemAsync(ProposalItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public void RemoveItem(ProposalItem item) { }
+    public Task<Proposal?> GetProposalEntityAsync(Guid proposalId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Proposal?>(SelectedProposal?.ProposalId == proposalId ? SelectedProposal : null);
+    public Task RejectOtherActiveProposalsAsync(Guid projectId, Guid selectedProposalId, DateTime rejectedAt, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task<bool> HasProposalWithActiveSceneAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<bool> HasSelectedFinalProposalAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(SelectedProposal?.Status == ProposalStatus.SELECTED);
+    public Task<bool> HasActiveSceneAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<bool> FileExistsAsync(Guid fileId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<bool> ProjectAreaBelongsToProjectAsync(Guid projectAreaId, Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public IQueryable<Proposal> Query() => Enumerable.Empty<Proposal>().AsQueryable();
+    public Task<Proposal?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<Proposal?>(null);
+    public Task<IReadOnlyList<Proposal>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Proposal>>([]);
+    public Task AddAsync(Proposal entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task AddRangeAsync(IEnumerable<Proposal> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public void Remove(Proposal entity) { }
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+}
+
+internal sealed class FakeProjectProductionRequestRepository : IProductionRequestRepository
+{
+    public bool HasProductionRequest { get; set; }
+    public DateOnly? MaxOperationalProductionDate { get; set; }
+
+    public Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(MaxOperationalProductionDate);
+
+    public Task<bool> ExistsForOrderAsync(Guid orderId, CancellationToken cancellationToken = default)
+        => Task.FromResult(HasProductionRequest);
+
+    public Task<bool> HasActiveRequestForOrderAsync(Guid orderId, CancellationToken cancellationToken = default)
+        => Task.FromResult(HasProductionRequest);
+
+    public Task<int> CountCreatedOnAsync(DateOnly date, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task<List<OrderItem>> GetProductOrderItemsAsync(Guid orderId, CancellationToken cancellationToken = default) => Task.FromResult(new List<OrderItem>());
+    public Task AddItemsAsync(List<ProductionItem> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task<bool> IsActiveProductionStaffAsync(Guid accountId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<Infrastructure.ReadModels.Production.ProductionAssigneeReadModel?> GetAssigneeAsync(Guid accountId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Production.ProductionAssigneeReadModel?>(null);
+    public Task<List<Infrastructure.ReadModels.Production.AvailableProductionStaffReadModel>> GetAvailableStaffAsync(string? search, CancellationToken cancellationToken = default)
+        => Task.FromResult(new List<Infrastructure.ReadModels.Production.AvailableProductionStaffReadModel>());
+    public Task<List<Infrastructure.ReadModels.Production.ProductionRequestListItemReadModel>> GetQueueAsync(Infrastructure.ReadModels.Production.ProductionRequestQueueReadModel query, CancellationToken cancellationToken = default)
+        => Task.FromResult(new List<Infrastructure.ReadModels.Production.ProductionRequestListItemReadModel>());
+    public Task<bool> HasViewableAssignedRequestAsync(Guid projectId, Guid productionAccountId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?> GetDetailAsync(Guid productionRequestId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?>(null);
+    public Task<ProductionItem?> GetItemByIdAsync(Guid productionItemId, CancellationToken cancellationToken = default) => Task.FromResult<ProductionItem?>(null);
+    public Task<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?> GetDetailByItemIdAsync(Guid productionItemId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?>(null);
+    public void UpdateItem(ProductionItem item) { }
+    public IQueryable<ProductionRequest> Query() => Enumerable.Empty<ProductionRequest>().AsQueryable();
+    public Task<ProductionRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<ProductionRequest?>(null);
+    public Task<IReadOnlyList<ProductionRequest>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProductionRequest>>([]);
+    public Task AddAsync(ProductionRequest entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task AddRangeAsync(IEnumerable<ProductionRequest> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public void Update(ProductionRequest entity) { }
+    public void Remove(ProductionRequest entity) { }
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+}
+
+internal sealed class FakeProjectReopenPaymentRepository : IPaymentRepository
+{
+    public List<Payment> DepositPayments { get; } = [];
+    public List<PaymentTransaction> Transactions { get; } = [];
+    public bool HasSuccessfulTransaction { get; set; }
+
+    public Task<IReadOnlyList<Payment>> GetAllByOrderAndTypeAsync(
+        Guid orderId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<Payment> payments = DepositPayments
+            .Where(payment => payment.OrderId == orderId && payment.PaymentType == paymentType)
+            .ToList();
+        return Task.FromResult(payments);
+    }
+
+    public Task<IReadOnlyList<PaymentTransaction>> GetTransactionEntitiesByPaymentIdAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        IReadOnlyList<PaymentTransaction> transactions = Transactions
+            .Where(transaction => transaction.PaymentId == paymentId)
+            .ToList();
+        return Task.FromResult(transactions);
+    }
+
+    public Task<bool> HasSuccessfulTransactionAsync(Guid paymentId, CancellationToken cancellationToken = default)
+        => Task.FromResult(HasSuccessfulTransaction);
+
+    public void UpdatePayment(Payment payment) { }
+    public void UpdateTransaction(PaymentTransaction transaction) { }
+
+    public Task<Payment?> GetByIdAsync(Guid paymentId, CancellationToken cancellationToken = default) => Task.FromResult<Payment?>(null);
+    public Task<PaymentDetailReadModel?> GetDetailAsync(Guid paymentId, CancellationToken cancellationToken = default) => Task.FromResult<PaymentDetailReadModel?>(null);
+    public Task<PaymentDetailReadModel?> GetDetailByPaymentCodeAsync(string paymentCode, CancellationToken cancellationToken = default) => Task.FromResult<PaymentDetailReadModel?>(null);
+    public Task<PaymentStatusByCodeReadModel?> GetStatusByPaymentCodeAsync(string paymentCode, CancellationToken cancellationToken = default) => Task.FromResult<PaymentStatusByCodeReadModel?>(null);
+    public Task<IReadOnlyList<PaymentListItemReadModel>> GetListAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<PaymentListItemReadModel>>([]);
+    public Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    public Task<PaymentSummaryReadModel> GetSummaryAsync(PaymentQueryReadModel query, DateTime utcNow, CancellationToken cancellationToken = default) => Task.FromResult(new PaymentSummaryReadModel());
+    public Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(PaymentQueryReadModel query, DateTime utcNow, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Payment>>([]);
+    public Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<PaymentTransactionReadModel>>([]);
+    public Task<PaymentTransaction?> GetTransactionByIdAsync(Guid paymentTransactionId, CancellationToken cancellationToken = default) => Task.FromResult<PaymentTransaction?>(null);
+    public Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(Guid paymentId, PaymentProvider provider, PaymentMethod method, CancellationToken cancellationToken = default) => Task.FromResult<PaymentTransactionReadModel?>(null);
+    public Task<PaymentTransactionReadModel?> GetLatestTransactionAsync(Guid paymentId, CancellationToken cancellationToken = default) => Task.FromResult<PaymentTransactionReadModel?>(null);
+    public Task<IReadOnlySet<Guid>> GetPaymentIdsWithSuccessfulTransactionAsync(IReadOnlyCollection<Guid> paymentIds, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
+    public Task<bool> PaymentCodeExistsAsync(string paymentCode, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<bool> TransactionCodeExistsAsync(string transactionCode, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<bool> ProviderTransactionExistsAsync(PaymentProvider provider, string providerTransactionId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<bool> PayOsOrderCodeExistsAsync(string orderCode, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<PaymentTransaction?> GetTransactionByProviderReferenceAsync(PaymentProvider provider, string providerReferenceCode, CancellationToken cancellationToken = default) => Task.FromResult<PaymentTransaction?>(null);
+    public Task AddPaymentAsync(Payment payment, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task<Payment?> GetByOrderAndTypeAsync(Guid orderId, PaymentType paymentType, CancellationToken cancellationToken = default) => Task.FromResult<Payment?>(null);
+    public Task<Payment?> GetByProjectAndTypeAsync(Guid projectId, PaymentType paymentType, CancellationToken cancellationToken = default) => Task.FromResult<Payment?>(null);
+    public Task<decimal> SumOrderScopedPaidAmountAsync(Guid orderId, CancellationToken cancellationToken = default) => Task.FromResult(0m);
 }

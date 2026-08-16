@@ -49,8 +49,8 @@ public sealed class OrderRepositoryTests
         Assert.Single(detail.Items);
         Assert.Equal("Counter", detail.Items[0].ItemName);
         Assert.Equal(OrderItemStatus.READY, detail.Items[0].Status);
-        Assert.Equal(1, detail.Items[0].DeliveredQuantity);
-        Assert.Null(detail.Items[0].CustomerConfirmedAt);
+        Assert.NotNull(detail.Items[0].DeliveredAt);
+        Assert.Equal(data.SalesId, detail.Items[0].DeliveredBy);
     }
 
     [Fact]
@@ -79,91 +79,132 @@ public sealed class OrderRepositoryTests
     }
 
     [Fact]
-    public async Task TryIncrementDeliveredQuantityAsync_WhenValidInMemory_UpdatesTrackedItem()
+    public async Task AllDeliverableItemsReadyAsync_WhenAllReady_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new OrderRepository(context);
+
+        var ready = await repository.AllDeliverableItemsReadyAsync(data.OrderId);
+
+        Assert.True(ready);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsReadyAsync_WhenItemNotReady_ReturnsFalse()
     {
         await using var context = CreateContext();
         var data = await SeedAsync(context);
         var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
-        item.Quantity = 3;
-        item.DeliveredQuantity = 1;
-        item.Status = OrderItemStatus.READY;
+        item.Status = OrderItemStatus.PENDING;
         await context.SaveChangesAsync();
         var repository = new OrderRepository(context);
-        var deliveredBy = Guid.NewGuid();
-        var deliveredAt = DateTime.UtcNow;
 
-        var updated = await repository.TryIncrementDeliveredQuantityAsync(
-            item.OrderItemId,
-            2,
-            "Loaded at front desk",
-            deliveredBy,
-            deliveredAt);
+        var ready = await repository.AllDeliverableItemsReadyAsync(data.OrderId);
 
-        Assert.NotNull(updated);
-        Assert.Equal(3, updated!.DeliveredQuantity);
-        Assert.Equal("Loaded at front desk", updated.DeliveryNote);
-        Assert.Equal(deliveredBy, updated.LastDeliveredBy);
-        Assert.Equal(deliveredAt, updated.LastDeliveredAt);
+        Assert.False(ready);
     }
 
-    [Theory]
-    [InlineData(OrderItemStatus.PENDING, 3, 1, 1)]
-    [InlineData(OrderItemStatus.READY, 0, 0, 1)]
-    [InlineData(OrderItemStatus.READY, 2, 2, 1)]
-    public async Task TryIncrementDeliveredQuantityAsync_WhenInvalidInMemory_ReturnsNull(
-        OrderItemStatus status,
-        int quantity,
-        int deliveredQuantity,
-        int increment)
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_WhenAllDelivered_ReturnsTrue()
     {
         await using var context = CreateContext();
         var data = await SeedAsync(context);
         var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
-        item.Status = status;
-        item.Quantity = quantity;
-        item.DeliveredQuantity = deliveredQuantity;
+        item.Status = OrderItemStatus.DELIVERED;
         await context.SaveChangesAsync();
         var repository = new OrderRepository(context);
 
-        var updated = await repository.TryIncrementDeliveredQuantityAsync(
-            item.OrderItemId,
-            increment,
-            deliveryNote: null,
-            deliveredBy: Guid.NewGuid(),
-            deliveredAt: DateTime.UtcNow);
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(data.OrderId);
 
-        Assert.Null(updated);
+        Assert.True(delivered);
     }
 
     [Fact]
-    public async Task TryIncrementDeliveredQuantityAsync_WhenItemMissingInMemory_ReturnsNull()
+    public async Task HasCompletedDeliveryFlowAsync_WhenOrderDelivered_ReturnsTrue()
     {
         await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var order = await context.OrderSet.SingleAsync(order => order.OrderId == data.OrderId);
+        order.Status = OrderStatus.DELIVERED;
+        await context.SaveChangesAsync();
         var repository = new OrderRepository(context);
 
-        var updated = await repository.TryIncrementDeliveredQuantityAsync(
-            Guid.NewGuid(),
-            1,
-            deliveryNote: null,
-            deliveredBy: Guid.NewGuid(),
-            deliveredAt: DateTime.UtcNow);
+        var completed = await repository.HasCompletedDeliveryFlowAsync(data.ProjectId);
 
-        Assert.Null(updated);
+        Assert.True(completed);
     }
 
     [Fact]
-    public async Task TryIncrementDeliveredQuantityAsync_DefaultInterfaceImplementation_ReturnsNull()
+    public async Task HasCompletedDeliveryFlowAsync_DefaultInterfaceImplementation_ReturnsFalse()
     {
         IOrderRepository repository = new MinimalOrderRepository();
 
-        var updated = await repository.TryIncrementDeliveredQuantityAsync(
-            Guid.NewGuid(),
-            1,
-            deliveryNote: null,
-            deliveredBy: Guid.NewGuid(),
-            deliveredAt: DateTime.UtcNow);
+        var completed = await repository.HasCompletedDeliveryFlowAsync(Guid.NewGuid());
 
-        Assert.Null(updated);
+        Assert.False(completed);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_WhenItemStillReady_ReturnsFalse()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new OrderRepository(context);
+
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(data.OrderId);
+
+        Assert.False(delivered);
+    }
+
+    [Fact]
+    public async Task HasCompletedDeliveryFlowAsync_WhenCustomerConfirmed_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var order = await context.OrderSet.SingleAsync(order => order.OrderId == data.OrderId);
+        order.CustomerConfirmedDeliveryAt = DateTime.UtcNow;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var completed = await repository.HasCompletedDeliveryFlowAsync(data.ProjectId);
+
+        Assert.True(completed);
+    }
+
+    [Fact]
+    public async Task HasCompletedDeliveryFlowAsync_WhenDeliverableItemDelivered_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        item.Status = OrderItemStatus.DELIVERED;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var completed = await repository.HasCompletedDeliveryFlowAsync(data.ProjectId);
+
+        Assert.True(completed);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsReadyAsync_DefaultInterfaceImplementation_ReturnsFalse()
+    {
+        IOrderRepository repository = new MinimalOrderRepository();
+
+        var ready = await repository.AllDeliverableItemsReadyAsync(Guid.NewGuid());
+
+        Assert.False(ready);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_DefaultInterfaceImplementation_ReturnsFalse()
+    {
+        IOrderRepository repository = new MinimalOrderRepository();
+
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(Guid.NewGuid());
+
+        Assert.False(delivered);
     }
 
     private static AppDbContext CreateContext()
@@ -213,6 +254,7 @@ public sealed class OrderRepositoryTests
             VatRate = 0.08m,
             VatAmount = 8m,
             TotalAmount = 100m,
+            DepositAmount = 30m,
             Currency = "VND",
             Status = QuotationStatus.ACCEPTED,
             CreatedAt = DateTime.UtcNow
@@ -244,6 +286,7 @@ public sealed class OrderRepositoryTests
             Status = OrderStatus.DEPOSIT_PENDING,
             CreatedAt = DateTime.UtcNow
         });
+        var deliveredAt = DateTime.UtcNow;
         context.OrderItemSet.Add(new OrderItem
         {
             OrderItemId = orderItemId,
@@ -253,7 +296,8 @@ public sealed class OrderRepositoryTests
             ProductNameSnapshot = "Counter",
             Quantity = 1,
             Status = OrderItemStatus.READY,
-            DeliveredQuantity = 1,
+            DeliveredAt = deliveredAt,
+            DeliveredBy = salesId,
             UnitPrice = 100m,
             DiscountAmount = 0m,
             SubtotalAmount = 100m

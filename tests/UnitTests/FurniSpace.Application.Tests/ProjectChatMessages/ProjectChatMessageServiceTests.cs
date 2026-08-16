@@ -7,6 +7,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Services.ProjectChatMessages;
@@ -85,6 +87,53 @@ public sealed class ProjectChatMessageServiceTests
     }
 
     [Fact]
+    public async Task SendTextMessageAsync_WithDesignerChat_NotifiesOtherParticipants()
+    {
+        var chatId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var access = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = projectId,
+            ProjectName = "Cafe Interior",
+            ChatType = ProjectChatType.DESIGNER,
+            ChatTitle = "Design Discussion",
+            ChatStatus = ProjectChatStatus.OPEN,
+            CustomerId = customerId,
+            AssignedSalesId = salesId,
+            AssignedDesignerId = designerId,
+            CurrentUserName = "Emily Designer",
+            RoleName = "DESIGNER"
+        };
+        var repository = new FakeProjectChatMessageRepository(access);
+        var notifications = new FakeNotificationDispatcher();
+        var service = CreateService(repository, notifications: notifications);
+
+        var result = await service.SendTextMessageAsync(chatId, designerId, ValidSendRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Single(notifications.Requests);
+        var request = notifications.Requests[0];
+        Assert.Equal(NotificationType.ProjectChatMessageSent, request.Type);
+        Assert.Equal(
+            new[] { customerId, salesId }.OrderBy(id => id).ToArray(),
+            request.ReceiverIds.OrderBy(id => id).ToArray());
+        Assert.Equal("Emily Designer", request.Parameters["SenderName"]);
+        Assert.Equal("Design Discussion", request.Parameters["ChatTitle"]);
+        Assert.NotNull(request.Request);
+        Assert.Equal(projectId, request.Request.ProjectId);
+        Assert.Equal("PROJECT_CHAT_MESSAGE", request.Request.ReferenceType);
+        Assert.Equal(repository.AddedMessage!.MessageId, request.Request.ReferenceId);
+        Assert.NotNull(request.Request.Metadata);
+        Assert.Equal(chatId, request.Request.Metadata["chatId"]);
+        Assert.Equal(ProjectChatType.DESIGNER.ToString(), request.Request.Metadata["chatType"]);
+        Assert.Equal("Project chat message", request.Request.Metadata["contentPreview"]);
+    }
+
+    [Fact]
     public async Task SendTextMessageAsync_WhenRealtimeFails_StillReturnsCreated()
     {
         var chatId = Guid.NewGuid();
@@ -113,6 +162,38 @@ public sealed class ProjectChatMessageServiceTests
         Assert.Equal(1, repository.AddCallCount);
         Assert.Equal(1, saveChangesCallCount);
         Assert.Equal(1, realtime.CallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WhenNotificationFails_StillReturnsCreated()
+    {
+        var chatId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ChatType = ProjectChatType.SALES,
+            ChatTitle = "Sales Consultation",
+            ChatStatus = ProjectChatStatus.OPEN,
+            CustomerId = customerId,
+            AssignedSalesId = salesId,
+            CurrentUserName = "Customer",
+            RoleName = "CUSTOMER"
+        };
+        var repository = new FakeProjectChatMessageRepository(access);
+        var notifications = new FakeNotificationDispatcher
+        {
+            ThrowOnDispatch = true
+        };
+        var service = CreateService(repository, notifications: notifications);
+
+        var result = await service.SendTextMessageAsync(chatId, customerId, ValidSendRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, repository.AddCallCount);
+        Assert.Single(notifications.Requests);
     }
 
     [Theory]
@@ -304,6 +385,57 @@ public sealed class ProjectChatMessageServiceTests
         Assert.Equal(1, realtime.CallCount);
         Assert.NotNull(storage.UploadRequest);
     }
+
+    [Fact]
+    public async Task SendFileMessageAsync_WithSalesChat_NotifiesAssignedSalesWithFilePreview()
+    {
+        var chatId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ChatType = ProjectChatType.SALES,
+            ChatTitle = "",
+            ChatStatus = ProjectChatStatus.OPEN,
+            CustomerId = customerId,
+            AssignedSalesId = salesId,
+            CurrentUserName = "Customer",
+            RoleName = "CUSTOMER"
+        };
+        var repository = new FakeProjectChatMessageRepository(access);
+        var notifications = new FakeNotificationDispatcher();
+        var service = CreateService(
+            repository,
+            unitOfWork: TestUnitOfWork.ForTransaction(
+                _ => Task.CompletedTask,
+                _ => Task.FromResult(1),
+                _ => Task.CompletedTask,
+                _ => Task.CompletedTask),
+            notifications: notifications);
+
+        await using var stream = new MemoryStream("floor-plan"u8.ToArray());
+        var result = await service.SendFileMessageAsync(
+            chatId,
+            customerId,
+            new SendFileChatMessageRequestDto
+            {
+                FileContent = stream,
+                OriginalFileName = "floor-plan.pdf",
+                ContentType = "application/pdf",
+                FileSizeBytes = stream.Length,
+                FileType = FileType.FLOOR_PLAN
+            });
+
+        Assert.Equal(201, result.Status);
+        var request = Assert.Single(notifications.Requests);
+        var receiverId = Assert.Single(request.ReceiverIds);
+        Assert.Equal(salesId, receiverId);
+        Assert.Equal("Project chat", request.Parameters["ChatTitle"]);
+        Assert.Equal("floor-plan.pdf", request.Request!.Metadata!["contentPreview"]);
+    }
+
 
     [Fact]
     public async Task SendFileMessageAsync_WithInvalidMimeType_ReturnsUnsupportedMediaType()
@@ -827,7 +959,8 @@ public sealed class ProjectChatMessageServiceTests
         IUnitOfWork? unitOfWork = null,
         IProjectFileRepository? projectFiles = null,
         IFileStorageService? storage = null,
-        FileUploadSettings? uploadSettings = null)
+        FileUploadSettings? uploadSettings = null,
+        INotificationDispatcher? notifications = null)
     {
         return new ProjectChatMessageService(
             repository,
@@ -843,7 +976,8 @@ public sealed class ProjectChatMessageServiceTests
                     new FirebaseStorageSettings()),
                 NullLogger<ProjectChatMessageServiceDependencies>.Instance,
                 Search: null,
-                ChatMessageSearchIndexer: null));
+                ChatMessageSearchIndexer: null,
+                Notifications: notifications));
     }
 
     private static SendTextChatMessageRequestDto ValidSendRequest()
@@ -865,7 +999,9 @@ public sealed class ProjectChatMessageServiceTests
         {
             ChatId = chatId,
             ProjectId = Guid.NewGuid(),
+            ProjectName = "Project",
             ChatType = chatType,
+            ChatTitle = chatType.ToString(),
             ChatStatus = ProjectChatStatus.OPEN,
             CustomerId = roleName == "CUSTOMER" ? currentUserId : Guid.NewGuid(),
             AssignedSalesId = roleName == "SALES" ? currentUserId : Guid.NewGuid(),
@@ -885,7 +1021,10 @@ public sealed class ProjectChatMessageServiceTests
         {
             ChatId = source.ChatId,
             ProjectId = projectId ?? source.ProjectId,
+            ProjectName = source.ProjectName,
             ChatType = source.ChatType,
+            ChatTitle = source.ChatTitle,
+            ChatStaffId = source.ChatStaffId,
             ChatStatus = chatStatus,
             CustomerId = source.CustomerId,
             AssignedSalesId = source.AssignedSalesId,
@@ -1061,6 +1200,36 @@ public sealed class ProjectChatMessageServiceTests
             return _send?.Invoke(projectId, chatId, message) ?? Task.CompletedTask;
         }
     }
+
+    private sealed class FakeNotificationDispatcher : INotificationDispatcher
+    {
+        public bool ThrowOnDispatch { get; init; }
+        public List<NotificationDispatchCall> Requests { get; } = [];
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add(new NotificationDispatchCall(
+                type,
+                parameters,
+                receiverIds.ToList(),
+                request));
+
+            return ThrowOnDispatch
+                ? Task.FromException(new InvalidOperationException("Notification unavailable."))
+                : Task.CompletedTask;
+        }
+    }
+
+    private sealed record NotificationDispatchCall(
+        NotificationType Type,
+        IReadOnlyDictionary<string, string> Parameters,
+        IReadOnlyList<Guid> ReceiverIds,
+        NotificationDispatchRequest? Request);
 
     private sealed class FakeFileStorageService : IFileStorageService
     {

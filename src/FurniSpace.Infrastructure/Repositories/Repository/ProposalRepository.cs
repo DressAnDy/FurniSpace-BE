@@ -93,6 +93,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                 PublishedAt = proposal.PublishedAt,
                 SelectedAt = proposal.SelectedAt,
                 RejectedAt = proposal.RejectedAt,
+                RevisionNote = proposal.RevisionNote,
                 CreatedAt = proposal.CreatedAt,
                 UpdatedAt = proposal.UpdatedAt
             })
@@ -200,6 +201,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     PublishedAt = item.PublishedAt,
                     SelectedAt = item.SelectedAt,
                     RejectedAt = item.RejectedAt,
+                    RevisionNote = item.RevisionNote,
                     CreatedAt = item.CreatedAt,
                     UpdatedAt = item.UpdatedAt,
                     CustomerId = project.CustomerId,
@@ -245,6 +247,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     PublishedAt = item.PublishedAt,
                     SelectedAt = item.SelectedAt,
                     RejectedAt = item.RejectedAt,
+                    RevisionNote = item.RevisionNote,
                     CreatedAt = item.CreatedAt,
                     UpdatedAt = item.UpdatedAt,
                     CustomerId = project.CustomerId,
@@ -571,6 +574,17 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
             .FirstOrDefaultAsync(item => item.ProposalItemId == proposalItemId, cancellationToken);
     }
 
+    public Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(
+        Guid proposalId,
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalItemSet
+            .FirstOrDefaultAsync(
+                item => item.ProposalId == proposalId && item.ProductVersionId == productVersionId,
+                cancellationToken);
+    }
+
     public Task AddItemAsync(
         ProposalItem item,
         CancellationToken cancellationToken = default)
@@ -611,6 +625,42 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
             proposal.RejectedAt = rejectedAt;
             proposal.UpdatedAt = rejectedAt;
         }
+    }
+
+    public Task<Proposal?> GetSelectedProposalByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalSet
+            .Where(proposal =>
+                proposal.ProjectId == projectId &&
+                proposal.Status == ProposalStatus.SELECTED)
+            .OrderByDescending(proposal => proposal.SelectedAt)
+            .ThenByDescending(proposal => proposal.ProposalId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<int> RestoreAutoRejectedProposalsAsync(
+        Guid projectId,
+        DateTime autoRejectedAt,
+        DateTime restoredAt,
+        CancellationToken cancellationToken = default)
+    {
+        var proposals = await DbContext.ProposalSet
+            .Where(proposal =>
+                proposal.ProjectId == projectId &&
+                proposal.Status == ProposalStatus.REJECTED &&
+                proposal.RejectedAt == autoRejectedAt)
+            .ToListAsync(cancellationToken);
+
+        foreach (var proposal in proposals)
+        {
+            proposal.Status = ProposalStatus.PUBLISHED;
+            proposal.RejectedAt = null;
+            proposal.UpdatedAt = restoredAt;
+        }
+
+        return proposals.Count;
     }
 
     private IQueryable<Proposal> BuildListQuery(ProposalListQueryReadModel query)

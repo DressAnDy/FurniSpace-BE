@@ -15,43 +15,6 @@ public interface IOrderService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<OrderDetailDto>> UpdateFinancialAdjustmentAsync(
-        Guid orderId,
-        Guid currentUserId,
-        UpdateOrderFinancialAdjustmentRequestDto request,
-        CancellationToken cancellationToken = default);
-
-    Task<ServiceResult<OrderAdjustmentDto>> CreateAdjustmentAsync(
-        Guid orderId,
-        Guid currentUserId,
-        CreateOrderAdjustmentDto request,
-        CancellationToken cancellationToken = default);
-
-    Task<ServiceResult<OrderAdjustmentItemDto>> AddAdjustmentItemAsync(
-        Guid orderAdjustmentId,
-        Guid currentUserId,
-        UpsertOrderAdjustmentItemDto request,
-        CancellationToken cancellationToken = default);
-
-    Task<ServiceResult<OrderAdjustmentItemDto>> UpdateAdjustmentItemAsync(
-        Guid orderAdjustmentItemId,
-        Guid currentUserId,
-        UpsertOrderAdjustmentItemDto request,
-        CancellationToken cancellationToken = default);
-
-    Task<ServiceResult<OrderAdjustmentDto>> DeleteAdjustmentItemAsync(
-        Guid orderAdjustmentItemId,
-        Guid currentUserId,
-        CancellationToken cancellationToken = default);
-
-    Task<ServiceResult<OrderAdjustmentConfirmationDto>> ConfirmAdjustmentAsync(
-        Guid orderAdjustmentId,
-        Guid currentUserId,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(ServiceResult<OrderAdjustmentConfirmationDto>.Unauthorized());
-    }
-
     Task<ServiceResult<OrderDeliveryStartDto>> StartDeliveryAsync(
         Guid orderId,
         Guid currentUserId,
@@ -60,21 +23,20 @@ public interface IOrderService
         return Task.FromResult(ServiceResult<OrderDeliveryStartDto>.Unauthorized());
     }
 
-    Task<ServiceResult<OrderItemDeliveredQuantityDto>> UpdateDeliveredQuantityAsync(
-        Guid orderItemId,
+    Task<ServiceResult<OrderDeliveryCompletionDto>> CompleteDeliveryAsync(
+        Guid orderId,
         Guid currentUserId,
-        UpdateDeliveredQuantityRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(ServiceResult<OrderItemDeliveredQuantityDto>.Unauthorized());
+        return Task.FromResult(ServiceResult<OrderDeliveryCompletionDto>.Unauthorized());
     }
 
-    Task<ServiceResult<OrderItemDeliveryConfirmationDto>> ConfirmItemDeliveryAsync(
-        Guid orderItemId,
+    Task<ServiceResult<OrderDeliveryConfirmationDto>> ConfirmDeliveryAsync(
+        Guid orderId,
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(ServiceResult<OrderItemDeliveryConfirmationDto>.Unauthorized());
+        return Task.FromResult(ServiceResult<OrderDeliveryConfirmationDto>.Unauthorized());
     }
 
     Task<ServiceResult<OrderFinalPaymentPreparationDto>> PrepareFinalPaymentAsync(

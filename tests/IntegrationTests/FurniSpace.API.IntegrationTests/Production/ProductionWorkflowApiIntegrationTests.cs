@@ -177,7 +177,7 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CompleteProduction_WhenCancelledItemHasNoConfirmedAdjustment_ReturnsBadRequest()
+    public async Task CompleteProduction_WhenCancelledItemHasNoConfirmedAdjustment_CompletesSuccessfully()
     {
         var scenario = await SeedScenarioAsync();
         var created = await CreateRequestDataAsync(scenario);
@@ -195,10 +195,13 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
 
         var response = await _fixture.Client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         await using var verification = _fixture.Database.CreateDbContext();
         var orderItem = await verification.OrderItemSet.FindAsync(scenario.ProductOrderItemId);
-        Assert.Equal(OrderItemStatus.IN_PRODUCTION, orderItem?.Status);
+        var order = await verification.OrderSet.FindAsync(scenario.OrderId);
+        Assert.Equal(OrderItemStatus.UNAVAILABLE, orderItem?.Status);
+        Assert.Equal("Material unavailable", orderItem?.UnavailableReason);
+        Assert.Equal(OrderStatus.READY_FOR_DELIVERY, order?.Status);
     }
 
     private async Task<ProductionOrderScenario> SeedScenarioAsync()
@@ -253,10 +256,7 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
             $"/production-requests/{productionRequestId}/start",
             scenario.ProductionAccountId,
             CoreRoles.Production,
-            new StartProductionRequestDto
-            {
-                ActualStartDate = DateOnly.FromDateTime(DateTime.UtcNow)
-            });
+            new StartProductionRequestDto());
 
         var response = await _fixture.Client.SendAsync(request);
         var status = await ReadDataAsync<ProductionRequestStatusDto>(response, HttpStatusCode.OK);

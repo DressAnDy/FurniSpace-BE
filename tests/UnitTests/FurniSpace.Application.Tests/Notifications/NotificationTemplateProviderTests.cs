@@ -1,5 +1,6 @@
 #nullable enable
 
+using System.Collections.Generic;
 using FurniSpace.Application.Common.Notifications;
 using Xunit;
 
@@ -63,7 +64,7 @@ public sealed class NotificationTemplateProviderTests
         var template = NotificationTemplateProvider.Get(NotificationType.ProposalFinalSelected);
 
         Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
-        Assert.Equal("proposal.final.selected", template.SignalREventName);
+        Assert.Equal("proposal.selected", template.SignalREventName);
         Assert.Equal("Final proposal selected", template.TitleTemplate);
     }
 
@@ -88,6 +89,7 @@ public sealed class NotificationTemplateProviderTests
         Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
         Assert.Equal("proposal.revision.requested", template.SignalREventName);
         Assert.Equal("Proposal revision requested", template.TitleTemplate);
+        Assert.Contains("{RevisionNote}", template.MessageTemplate);
     }
 
     [Fact]
@@ -96,8 +98,18 @@ public sealed class NotificationTemplateProviderTests
         var template = NotificationTemplateProvider.Get(NotificationType.QuotationRevisionRequested);
 
         Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
-        Assert.Equal("quotation.revision.requested", template.SignalREventName);
+        Assert.Equal("quotation.revision_requested", template.SignalREventName);
         Assert.Equal("Quotation revision requested", template.TitleTemplate);
+    }
+
+    [Fact]
+    public void Get_QuotationRevised_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.QuotationRevised);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("quotation.revised", template.SignalREventName);
+        Assert.Equal("Quotation revised", template.TitleTemplate);
     }
 
     [Fact]
@@ -116,7 +128,100 @@ public sealed class NotificationTemplateProviderTests
         var template = NotificationTemplateProvider.Get(NotificationType.ProductionRequestAssigned);
 
         Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
-        Assert.Equal("production_request.assigned", template.SignalREventName);
+        Assert.Equal("production.request.assigned", template.SignalREventName);
         Assert.Equal("Production request assigned", template.TitleTemplate);
+    }
+
+    [Fact]
+    public void Get_PaymentPaid_ReturnsPaymentUpdatedEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.PaymentPaid);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("payment.updated", template.SignalREventName);
+    }
+
+    [Fact]
+    public void Get_ProjectScheduleCreated_ReturnsRealtimeOnlyEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProjectScheduleCreated);
+
+        Assert.Equal(NotificationDeliveryLevel.RealtimeOnly, template.DeliveryLevel);
+        Assert.Equal("project_schedule.created", template.SignalREventName);
+    }
+
+    [Fact]
+    public void Get_ProductionRequestCreated_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProductionRequestCreated);
+
+        Assert.Equal("production.request.created", template.SignalREventName);
+    }
+
+    [Fact]
+    public void Get_ProductionRequestCompleted_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProductionRequestCompleted);
+
+        Assert.Equal("production.request.completed", template.SignalREventName);
+    }
+
+    [Fact]
+    public void Get_OrderUpdated_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.OrderUpdated);
+
+        Assert.Equal("order.updated", template.SignalREventName);
+    }
+
+    [Fact]
+    public void Get_ProjectChatMessageSent_ReturnsWorkflowEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProjectChatMessageSent);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("project_chat.message_sent", template.SignalREventName);
+        Assert.Equal("New chat message", template.TitleTemplate);
+    }
+
+    [Fact]
+    public void Get_FeCatalogEvents_MatchFrontendContract()
+    {
+        var catalog = new Dictionary<NotificationType, string>
+        {
+            [NotificationType.ProjectRequestSubmitted] = "project.request.submitted",
+            [NotificationType.ProjectRequestAccepted] = "project.request.accepted",
+            [NotificationType.ProjectMoreInformationRequested] = "project.more_information.requested",
+            [NotificationType.ProjectBasicInformationUpdated] = "project.basic_information.updated",
+            [NotificationType.ProjectDesignerAssigned] = "project.designer.assigned",
+            [NotificationType.ProposalPublished] = "proposal.published",
+            [NotificationType.ProposalFinalSelected] = "proposal.selected",
+            [NotificationType.QuotationSent] = "quotation.sent",
+            [NotificationType.QuotationRevised] = "quotation.revised",
+            [NotificationType.QuotationRevisionRequested] = "quotation.revision_requested",
+            [NotificationType.QuotationRejected] = "quotation.rejected",
+            [NotificationType.QuotationAccepted] = "quotation.accepted",
+            [NotificationType.PaymentCreated] = "payment.created",
+            [NotificationType.PaymentPaid] = "payment.updated",
+            [NotificationType.OrderUpdated] = "order.updated",
+            [NotificationType.OrderDelivered] = "order.delivered",
+            [NotificationType.OrderCompleted] = "order.completed",
+            [NotificationType.ProductionRequestCreated] = "production.request.created",
+            [NotificationType.ProductionRequestAssigned] = "production.request.assigned",
+            [NotificationType.ProductionRequestCompleted] = "production.request.completed",
+            [NotificationType.ProjectStatusChanged] = "project.status.changed",
+            [NotificationType.ProjectScheduleCreated] = "project_schedule.created",
+            [NotificationType.ProjectScheduleUpdated] = "project_schedule.updated",
+            [NotificationType.ProjectScheduleConfirmed] = "project_schedule.confirmed",
+            [NotificationType.ProjectScheduleCompleted] = "project_schedule.completed",
+            [NotificationType.OrderItemDeliveryUpdated] = "order.item.delivery_updated",
+            [NotificationType.OrderItemDeliveryConfirmed] = "order.item.delivery_confirmed",
+            [NotificationType.ProjectChatMessageSent] = "project_chat.message_sent"
+        };
+
+        foreach (var (type, expectedEvent) in catalog)
+        {
+            Assert.Equal(expectedEvent, NotificationTemplateProvider.Get(type).SignalREventName);
+        }
     }
 }

@@ -98,6 +98,11 @@ public interface IProposalRepository : IGenericRepository<Proposal>
         Guid proposalItemId,
         CancellationToken cancellationToken = default);
 
+    Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(
+        Guid proposalId,
+        Guid productVersionId,
+        CancellationToken cancellationToken = default);
+
     Task AddItemAsync(
         ProposalItem item,
         CancellationToken cancellationToken = default);
@@ -113,6 +118,22 @@ public interface IProposalRepository : IGenericRepository<Proposal>
         Guid selectedProposalId,
         DateTime rejectedAt,
         CancellationToken cancellationToken = default);
+
+    Task<Proposal?> GetSelectedProposalByProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<Proposal?>(null);
+    }
+
+    Task<int> RestoreAutoRejectedProposalsAsync(
+        Guid projectId,
+        DateTime autoRejectedAt,
+        DateTime restoredAt,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(0);
+    }
 
     Task<bool> HasProposalWithActiveSceneAsync(
         Guid projectId,

@@ -62,8 +62,17 @@ public sealed class ProductionRequestServiceTests
         Assert.All(context.OrderItemSet, item => Assert.Equal(OrderItemStatus.IN_PRODUCTION, item.Status));
         Assert.Equal("NORMAL", context.ProductionRequestSet.Single().Priority);
         Assert.Equal("Start soon", context.ProductionRequestSet.Single().Note);
-        Assert.Equal(NotificationType.ProductionRequestAssigned, dispatcher.NotificationType);
-        Assert.Equal(_productionId, Assert.Single(dispatcher.ReceiverIds));
+        Assert.Equal(2, dispatcher.Dispatches.Count);
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestCreated &&
+                        dispatch.Receivers.Contains(_salesId) &&
+                        dispatch.Receivers.Contains(_productionId));
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestAssigned &&
+                        dispatch.Receivers.Contains(_salesId) &&
+                        dispatch.Receivers.Contains(_productionId));
     }
 
     [Theory]
@@ -87,6 +96,59 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(400, result.Status);
         Assert.Equal(expectedCode, result.ErrorCode);
         Assert.Empty(context.ProductionRequestSet);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenEstimatedDatesExceedTarget_ReturnsValidationError()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        await context.SaveChangesAsync();
+        var project = context.ProjectSet.Single();
+        project.TargetCompletionDate = new DateOnly(2026, 8, 1);
+        context.OrderItemSet.Add(CreateOrderItem(data.OrderId, true, "Counter"));
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.CreateAsync(
+            data.OrderId,
+            _salesId,
+            new CreateProductionRequestDto
+            {
+                AssignedTo = _productionId,
+                EstimatedCompletionDate = new DateOnly(2026, 9, 1)
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.ProductionDateExceedsTarget, result.ErrorCode);
+        Assert.Empty(context.ProductionRequestSet);
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenActualStartExceedsTarget_AllowsOverdueProductionStart()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        await context.SaveChangesAsync();
+        var project = context.ProjectSet.Single();
+        project.TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-1));
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.FEASIBLE);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.StartAsync(
+            productionRequest.ProductionRequestId,
+            _productionId,
+            new StartProductionRequestDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
+        Assert.NotNull(context.ProductionRequestSet.Single().ActualStartDate);
     }
 
     [Fact]
@@ -364,7 +426,12 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(_productionId, result.Data!.PreviousAssignedTo);
         Assert.Equal(secondProductionId, result.Data.AssignedTo);
         Assert.Contains("Reassigned due to workload.", context.ProductionRequestSet.Single().Note, StringComparison.Ordinal);
-        Assert.Equal(secondProductionId, Assert.Single(dispatcher.ReceiverIds));
+        var assignedDispatch = Assert.Single(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestAssigned);
+        Assert.Equal(2, assignedDispatch.Receivers.Count);
+        Assert.Contains(secondProductionId, assignedDispatch.Receivers);
+        Assert.Contains(_salesId, assignedDispatch.Receivers);
     }
 
     [Fact]
@@ -462,7 +529,7 @@ public sealed class ProductionRequestServiceTests
     {
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        var productionRequest = CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.BLOCKED);
+        var productionRequest = CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.IN_PRODUCTION);
         context.ProductionRequestSet.Add(productionRequest);
         await context.SaveChangesAsync();
         var service = BuildService(context);
@@ -481,7 +548,7 @@ public sealed class ProductionRequestServiceTests
         await using var context = CreateContext();
         var own = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
         var otherSalesId = Guid.NewGuid();
-        var other = SeedOrderProjectRequest(context, otherSalesId, _productionId, ProductionRequestStatus.BLOCKED, "URGENT");
+        var other = SeedOrderProjectRequest(context, otherSalesId, _productionId, ProductionRequestStatus.FEASIBLE, "URGENT");
         var ownRequest = CreateProductionRequest(own.ProjectId, own.OrderId, _productionId, ProductionRequestStatus.PENDING_REVIEW);
         ownRequest.Priority = "NORMAL";
         context.ProductionRequestSet.Add(ownRequest);
@@ -493,7 +560,7 @@ public sealed class ProductionRequestServiceTests
             _productionId,
             new ProductionRequestQueryDto
             {
-                Status = ProductionRequestStatus.BLOCKED,
+                Status = ProductionRequestStatus.FEASIBLE,
                 AssignedTo = _productionId,
                 Priority = " urgent "
             });
@@ -504,7 +571,7 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(200, productionQueue.Status);
         var item = Assert.Single(productionQueue.Data!.Items);
         Assert.Equal(other.ProductionRequestId, item.ProductionRequestId);
-        Assert.Equal("BLOCKED", item.Status);
+        Assert.Equal("FEASIBLE", item.Status);
     }
 
     [Fact]
@@ -639,29 +706,26 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(ProductionErrorCodes.InvalidProductionRequestTransition, invalidTransition.ErrorCode);
     }
 
-    [Theory]
-    [InlineData(ProductionRequestStatus.FEASIBLE)]
-    [InlineData(ProductionRequestStatus.BLOCKED)]
-    public async Task StartAsync_WhenAllowedStatus_UpdatesStatusAndActualStartDate(
-        ProductionRequestStatus currentStatus)
+    [Fact]
+    public async Task StartAsync_WhenFeasible_UpdatesStatusAndActualStartDate()
     {
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        var productionRequest = CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, currentStatus);
+        var productionRequest = CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.FEASIBLE);
         context.ProductionRequestSet.Add(productionRequest);
         await context.SaveChangesAsync();
         var service = BuildService(context);
-        var startDate = new DateOnly(2026, 7, 25);
 
         var result = await service.StartAsync(
             productionRequest.ProductionRequestId,
             _productionId,
-            new StartProductionRequestDto { ActualStartDate = startDate });
+            new StartProductionRequestDto());
 
         Assert.Equal(200, result.Status);
         Assert.Equal("IN_PRODUCTION", result.Data!.Status);
-        Assert.Equal(startDate, result.Data.ActualStartDate);
+        Assert.NotNull(result.Data.ActualStartDate);
         Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
+        Assert.NotNull(context.ProductionRequestSet.Single().ActualStartDate);
     }
 
     [Fact]
@@ -736,32 +800,10 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
-    public async Task UpdateItemStatusAsync_WhenBlocked_KeepsOrderItemStatus()
-    {
-        await using var context = CreateContext();
-        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.IN_PRODUCTION);
-        await context.SaveChangesAsync();
-        var service = BuildService(context);
-
-        var result = await service.UpdateItemStatusAsync(
-            seeded.ProductionItemId,
-            _productionId,
-            new UpdateProductionItemStatusDto
-            {
-                Status = ProductionItemStatus.BLOCKED,
-                ProductionNote = "Waiting for material."
-            });
-
-        Assert.Equal(200, result.Status);
-        Assert.Equal("BLOCKED", result.Data!.Status);
-        Assert.Equal(OrderItemStatus.IN_PRODUCTION, context.OrderItemSet.Single().Status);
-    }
-
-    [Fact]
     public async Task UpdateItemStatusAsync_WhenCancelled_NotifiesSalesAndKeepsOrderItemStatus()
     {
         await using var context = CreateContext();
-        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.BLOCKED);
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.IN_PRODUCTION);
         await context.SaveChangesAsync();
         var dispatcher = new CapturingNotificationDispatcher();
         var service = BuildService(context, dispatcher);
@@ -781,6 +823,27 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(OrderItemStatus.IN_PRODUCTION, context.OrderItemSet.Single().Status);
         Assert.Equal(NotificationType.ProductionItemCancelled, dispatcher.NotificationType);
         Assert.Equal(_salesId, Assert.Single(dispatcher.ReceiverIds));
+    }
+
+    [Fact]
+    public async Task UpdateItemStatusAsync_WhenCancelledAndNotificationFails_StillCancelsItem()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedProductionItemScenario(context, ProductionItemStatus.IN_PRODUCTION);
+        await context.SaveChangesAsync();
+        var service = BuildService(context, new FailingNotificationDispatcher());
+
+        var result = await service.UpdateItemStatusAsync(
+            seeded.ProductionItemId,
+            _productionId,
+            new UpdateProductionItemStatusDto
+            {
+                Status = ProductionItemStatus.CANCELLED,
+                CancellationReason = "Material unavailable."
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductionItemStatus.CANCELLED, context.ProductionItemSet.Single().Status);
     }
 
     [Fact]
@@ -838,12 +901,13 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
-    public async Task CompleteAsync_WhenItemsResolved_AppliesAdjustmentsAndMovesToDelivery()
+    public async Task CompleteAsync_WhenItemsResolved_MovesToDelivery()
     {
         await using var context = CreateContext();
         var seeded = SeedCompletionScenario(context);
         await context.SaveChangesAsync();
-        var service = BuildService(context);
+        var dispatcher = new CapturingNotificationDispatcher();
+        var service = BuildService(context, dispatcher);
 
         var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
 
@@ -853,14 +917,35 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal("READY_FOR_DELIVERY", result.Data.ProjectStatus);
         Assert.Equal(1, result.Data.ReadyOrderItemCount);
         Assert.Equal(1, result.Data.UnavailableOrderItemCount);
-        Assert.Equal(1, result.Data.AppliedAdjustmentCount);
-        Assert.Equal(7_500_000m, result.Data.FinalTotalAmount);
+        Assert.Equal(10_000_000m, result.Data.FinalTotalAmount);
         Assert.Equal(3_000_000m, result.Data.PaidAmount);
-        Assert.Equal(4_500_000m, result.Data.RemainingAmount);
-        Assert.Equal(OrderAdjustmentStatus.APPLIED, context.OrderAdjustmentSet.Single().Status);
+        Assert.Equal(7_000_000m, result.Data.RemainingAmount);
         Assert.Equal(OrderItemStatus.READY, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CompletedOrderItemId).Status);
         Assert.Equal(OrderItemStatus.UNAVAILABLE, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CancelledOrderItemId).Status);
         Assert.Equal(ProjectStatus.READY_FOR_DELIVERY, context.ProjectSet.Single().Status);
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.ProductionRequestCompleted &&
+                        dispatch.Receivers.Contains(_salesId));
+        Assert.Contains(
+            dispatcher.Dispatches,
+            dispatch => dispatch.Type == NotificationType.OrderUpdated &&
+                        dispatch.Receivers.Contains(_salesId));
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenNotificationFails_DoesNotRollbackCompletion()
+    {
+        await using var context = CreateContext();
+        var seeded = SeedCompletionScenario(context);
+        await context.SaveChangesAsync();
+        var service = BuildService(context, new FailingNotificationDispatcher());
+
+        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductionRequestStatus.COMPLETED, context.ProductionRequestSet.Single().Status);
+        Assert.Equal(OrderStatus.READY_FOR_DELIVERY, context.OrderSet.Single().Status);
     }
 
     [Fact]
@@ -871,7 +956,6 @@ public sealed class ProductionRequestServiceTests
         var request = context.ProductionRequestSet.Local.Single();
         var order = context.OrderSet.Local.Single();
         var project = context.ProjectSet.Local.Single();
-        context.OrderAdjustmentSet.Local.Single().Status = OrderAdjustmentStatus.APPLIED;
         request.Status = ProductionRequestStatus.COMPLETED;
         order.Status = OrderStatus.READY_FOR_DELIVERY;
         project.Status = ProjectStatus.READY_FOR_DELIVERY;
@@ -884,7 +968,6 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal("COMPLETED", result.Data!.ProductionStatus);
         Assert.Equal(0, result.Data.ReadyOrderItemCount);
         Assert.Equal(0, result.Data.UnavailableOrderItemCount);
-        Assert.Equal(1, result.Data.AppliedAdjustmentCount);
     }
 
     [Fact]
@@ -936,37 +1019,6 @@ public sealed class ProductionRequestServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(ProductionErrorCodes.ProductionItemsNotResolved, result.ErrorCode);
-        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
-    }
-
-    [Fact]
-    public async Task CompleteAsync_WhenCancelledItemHasNoConfirmedAdjustment_ReturnsBadRequest()
-    {
-        await using var context = CreateContext();
-        var seeded = SeedCompletionScenario(context, includeAdjustment: false);
-        await context.SaveChangesAsync();
-        var service = BuildService(context);
-
-        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
-
-        Assert.Equal(400, result.Status);
-        Assert.Equal(ProductionErrorCodes.AdjustmentConfirmationRequired, result.ErrorCode);
-    }
-
-    [Fact]
-    public async Task CompleteAsync_WhenAdjustmentRequiresRefund_ReturnsBadRequestWithoutMutating()
-    {
-        await using var context = CreateContext();
-        var seeded = SeedCompletionScenario(context, paidAmount: 8_000_000m);
-        await context.SaveChangesAsync();
-        var service = BuildService(context);
-
-        var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
-
-        Assert.Equal(400, result.Status);
-        Assert.Equal(ProductionErrorCodes.AdjustmentRequiresRefundFlow, result.ErrorCode);
-        Assert.Equal(OrderAdjustmentStatus.CONFIRMED, context.OrderAdjustmentSet.Single().Status);
-        Assert.Equal(OrderStatus.IN_PRODUCTION, context.OrderSet.Single().Status);
         Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
     }
 
@@ -1138,7 +1190,6 @@ public sealed class ProductionRequestServiceTests
 
     private SeededCompletion SeedCompletionScenario(
         AppDbContext context,
-        bool includeAdjustment = true,
         decimal paidAmount = 3_000_000m)
     {
         var data = SeedBase(context, OrderStatus.IN_PRODUCTION, PaymentStatus.PAID);
@@ -1162,64 +1213,15 @@ public sealed class ProductionRequestServiceTests
         var cancelledProductionItem = CreateProductionItem(productionRequest.ProductionRequestId, cancelledItem);
         completedProductionItem.Status = ProductionItemStatus.COMPLETED;
         cancelledProductionItem.Status = ProductionItemStatus.CANCELLED;
+        cancelledProductionItem.CancellationReason = "Item unavailable.";
         context.OrderItemSet.AddRange(completedItem, cancelledItem);
         context.ProductionRequestSet.Add(productionRequest);
         context.ProductionItemSet.AddRange(completedProductionItem, cancelledProductionItem);
-
-        if (includeAdjustment)
-        {
-            AddConfirmedAdjustment(context, data.OrderId, cancelledItem.OrderItemId);
-        }
 
         return new SeededCompletion(
             productionRequest.ProductionRequestId,
             completedItem.OrderItemId,
             cancelledItem.OrderItemId);
-    }
-
-    private void AddConfirmedAdjustment(
-        AppDbContext context,
-        Guid orderId,
-        Guid cancelledOrderItemId)
-    {
-        var adjustmentId = Guid.NewGuid();
-        context.OrderAdjustmentSet.Add(new OrderAdjustment
-        {
-            OrderAdjustmentId = adjustmentId,
-            OrderId = orderId,
-            Status = OrderAdjustmentStatus.CONFIRMED,
-            ItemAdjustmentAmount = 2_000_000m,
-            AdditionalDiscountAmount = 500_000m,
-            TotalAdjustmentAmount = 2_500_000m,
-            Reason = "Production cancellation adjustment.",
-            CreatedBy = _salesId,
-            CreatedAt = DateTime.UtcNow,
-            ConfirmedBy = Guid.NewGuid(),
-            ConfirmedAt = DateTime.UtcNow
-        });
-        context.OrderAdjustmentItemSet.AddRange(
-            new OrderAdjustmentItem
-            {
-                OrderAdjustmentItemId = Guid.NewGuid(),
-                OrderAdjustmentId = adjustmentId,
-                OrderItemId = cancelledOrderItemId,
-                AdjustmentType = OrderAdjustmentItemType.UNAVAILABLE_ITEM,
-                PreviousItemAmount = 2_000_000m,
-                AdjustmentAmount = 2_000_000m,
-                Reason = "Item unavailable.",
-                CreatedBy = _salesId,
-                CreatedAt = DateTime.UtcNow
-            },
-            new OrderAdjustmentItem
-            {
-                OrderAdjustmentItemId = Guid.NewGuid(),
-                OrderAdjustmentId = adjustmentId,
-                AdjustmentType = OrderAdjustmentItemType.ADDITIONAL_DISCOUNT,
-                AdjustmentAmount = 500_000m,
-                Reason = "Compensation discount.",
-                CreatedBy = _salesId,
-                CreatedAt = DateTime.UtcNow
-            });
     }
 
     private static AppDbContext CreateContext()
@@ -1342,18 +1344,19 @@ public sealed class ProductionRequestServiceTests
     {
         public NotificationType? NotificationType { get; private set; }
         public List<Guid> ReceiverIds { get; } = [];
+        public List<(NotificationType Type, IReadOnlyList<Guid> Receivers)> Dispatches { get; } = [];
 
         public Task DispatchAsync(
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
+            NotificationDispatchRequest? request = null,
             CancellationToken cancellationToken = default)
         {
+            var receivers = receiverIds.ToList();
             NotificationType = type;
-            ReceiverIds.AddRange(receiverIds);
+            ReceiverIds.AddRange(receivers);
+            Dispatches.Add((type, receivers));
             return Task.CompletedTask;
         }
     }
@@ -1364,9 +1367,7 @@ public sealed class ProductionRequestServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
+            NotificationDispatchRequest? request = null,
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Notification failed.");

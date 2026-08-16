@@ -185,6 +185,22 @@ public sealed class ProjectsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [HttpPatch("{projectId:guid}/target-completion-date")]
+    public async Task<IActionResult> UpdateTargetCompletionDate(
+        Guid projectId,
+        [FromBody] UpdateProjectTargetCompletionDateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.UpdateTargetCompletionDateAsync(projectId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
     [HttpPatch("{projectId:guid}/status")]
     public async Task<IActionResult> UpdateStatus(
@@ -214,6 +230,36 @@ public sealed class ProjectsController : BaseApiController
         }
 
         var result = await _projects.RejectAsync(projectId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("{projectId:guid}/complete")]
+    public async Task<IActionResult> Complete(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.CompleteAsync(projectId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [HttpPost("{projectId:guid}/reopen-proposal")]
+    public async Task<IActionResult> ReopenProposal(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.ReopenProposalAsync(projectId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 

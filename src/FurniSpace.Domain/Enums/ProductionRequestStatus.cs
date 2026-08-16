@@ -6,6 +6,5 @@ public enum ProductionRequestStatus
     FEASIBLE,
     IN_PRODUCTION,
     COMPLETED,
-    BLOCKED,
     CANCELLED
 }

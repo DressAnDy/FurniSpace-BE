@@ -560,9 +560,6 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
             let inProductionCount = DbContext.ProjectSet.Count(project =>
                 project.AssignedSalesId == account.AccountId &&
                 project.Status == ProjectStatus.IN_PRODUCTION)
-            let productionBlockedCount = DbContext.ProjectSet.Count(project =>
-                project.AssignedSalesId == account.AccountId &&
-                project.Status == ProjectStatus.PRODUCTION_BLOCKED)
             let readyForDeliveryCount = DbContext.ProjectSet.Count(project =>
                 project.AssignedSalesId == account.AccountId &&
                 project.Status == ProjectStatus.READY_FOR_DELIVERY)
@@ -578,7 +575,6 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 spaceVerifiedCount * SalesWorkloadPressurePolicy.WeightSpaceVerified +
                 proposalConsultingCount * SalesWorkloadPressurePolicy.WeightProposalConsulting +
                 inProductionCount * SalesWorkloadPressurePolicy.WeightInProduction +
-                productionBlockedCount * SalesWorkloadPressurePolicy.WeightProductionBlocked +
                 readyForDeliveryCount * SalesWorkloadPressurePolicy.WeightReadyForDelivery +
                 deliveringCount * SalesWorkloadPressurePolicy.WeightDelivering +
                 deliveredCount * SalesWorkloadPressurePolicy.WeightDelivered
@@ -607,7 +603,7 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 SpaceVerifiedCount = spaceVerifiedCount,
                 ProposalConsultingCount = proposalConsultingCount,
                 InProductionCount = inProductionCount,
-                ProductionBlockedCount = productionBlockedCount,
+                ProductionBlockedCount = 0,
                 ReadyForDeliveryCount = readyForDeliveryCount,
                 DeliveringCount = deliveringCount,
                 DeliveredCount = deliveredCount,
@@ -731,8 +727,7 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
                 project.Status.HasValue &&
                 SalesWorkloadPressurePolicy.Terminal.Contains(project.Status.Value)),
             "HIGH_PRESSURE_SOURCE" => projects.Where(project =>
-                project.Status == ProjectStatus.PROPOSAL_CONSULTING ||
-                project.Status == ProjectStatus.PRODUCTION_BLOCKED),
+                project.Status == ProjectStatus.PROPOSAL_CONSULTING),
             SalesWorkloadPressurePolicy.BucketOther => projects.Where(project =>
                 !project.Status.HasValue ||
                 (

@@ -5,6 +5,5 @@ public enum ProductionItemStatus
     PENDING,
     IN_PRODUCTION,
     COMPLETED,
-    BLOCKED,
     CANCELLED
 }

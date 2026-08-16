@@ -15,6 +15,7 @@ public enum NotificationType
     QuotationSent,
     QuotationAccepted,
     QuotationRevisionRequested,
+    QuotationRevised,
     QuotationRejected,
     CustomizationRequestSubmitted,
     CustomizationDesignerReviewed,
@@ -24,6 +25,7 @@ public enum NotificationType
     ProjectScheduleConfirmed,
     ProjectScheduleCompleted,
     ProjectScheduleCancelled,
+    ProjectChatMessageSent,
     OrderDepositPaid,
     PaymentCreated,
     PaymentProcessing,
@@ -33,5 +35,12 @@ public enum NotificationType
     PaymentTransactionFailed,
     PaymentTransactionCancelled,
     ProductionRequestAssigned,
-    ProductionItemCancelled
+    ProductionRequestCreated,
+    ProductionRequestCompleted,
+    ProductionItemCancelled,
+    OrderUpdated,
+    OrderDelivered,
+    OrderCompleted,
+    OrderItemDeliveryUpdated,
+    OrderItemDeliveryConfirmed
 }

@@ -48,7 +48,7 @@ public sealed class ProductionScheduleAccessApiIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task ProductionAssignedToActiveRequest_CanViewScheduleDetail()
     {
-        var scenario = await SeedScheduleAccessScenarioAsync(ProductionRequestStatus.BLOCKED);
+        var scenario = await SeedScheduleAccessScenarioAsync(ProductionRequestStatus.FEASIBLE);
 
         using var request = IntegrationHttp.Authenticated(
             HttpMethod.Get,

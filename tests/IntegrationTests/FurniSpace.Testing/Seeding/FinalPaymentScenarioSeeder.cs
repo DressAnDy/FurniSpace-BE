@@ -73,7 +73,10 @@ public static class FinalPaymentScenarioSeeder
         var quotation = CreateQuotation(project.ProjectId, proposal.ProposalId, suffix);
         var order = CreateDeliveredOrder(project, proposal, quotation, customer.AccountId, sales.AccountId, paidAmount, suffix);
         var (category, product, productVersion) = ProposalScenarioSeeder.CreateCatalog(suffix);
-        var orderItem = CreateDeliveredProductOrderItem(order.OrderId, productVersion.ProductVersionId);
+        var orderItem = CreateDeliveredProductOrderItem(
+            order.OrderId,
+            productVersion.ProductVersionId,
+            sales.AccountId);
         var paidPayment = CreatePaidPayment(project.ProjectId, order.OrderId, quotation.QuotationId, customer.AccountId, paidAmount, suffix);
 
         context.AccountSet.AddRange(customer, sales);
@@ -153,7 +156,10 @@ public static class FinalPaymentScenarioSeeder
         };
     }
 
-    private static OrderItem CreateDeliveredProductOrderItem(Guid orderId, Guid productVersionId)
+    private static OrderItem CreateDeliveredProductOrderItem(
+        Guid orderId,
+        Guid productVersionId,
+        Guid deliveredBy)
     {
         return new OrderItem
         {
@@ -164,9 +170,9 @@ public static class FinalPaymentScenarioSeeder
             ProductVersionNameSnapshot = "Delivered counter version",
             ProductVersionCodeSnapshot = "PV-FP-001",
             Quantity = 1,
-            DeliveredQuantity = 1,
             Status = OrderItemStatus.DELIVERED,
-            CustomerConfirmedAt = CoreAccountSeeder.FixedTimestamp,
+            DeliveredAt = CoreAccountSeeder.FixedTimestamp,
+            DeliveredBy = deliveredBy,
             UnitPrice = PreVatTotalAmount,
             DiscountAmount = 0m,
             SubtotalAmount = PreVatTotalAmount

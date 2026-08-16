@@ -254,6 +254,7 @@ public sealed class QuotationRepositoryTests
             VatRate = 0.08m,
             VatAmount = 8m,
             TotalAmount = 108m,
+            DepositAmount = 32m,
             Currency = "VND",
             Status = status,
             CreatedAt = DateTime.UtcNow.AddMinutes(versionNo)

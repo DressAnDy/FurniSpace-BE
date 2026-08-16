@@ -287,6 +287,29 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Payment>> GetAllByOrderAndTypeAsync(
+        Guid orderId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.PaymentSet
+            .Where(payment => payment.OrderId == orderId && payment.PaymentType == paymentType)
+            .OrderByDescending(payment => payment.CreatedAt)
+            .ThenByDescending(payment => payment.PaymentId)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PaymentTransaction>> GetTransactionEntitiesByPaymentIdAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.PaymentTransactionSet
+            .Where(transaction => transaction.PaymentId == paymentId)
+            .OrderByDescending(transaction => transaction.CreatedAt)
+            .ThenByDescending(transaction => transaction.PaymentTransactionId)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<Payment?> GetByProjectAndTypeAsync(
         Guid projectId,
         PaymentType paymentType,

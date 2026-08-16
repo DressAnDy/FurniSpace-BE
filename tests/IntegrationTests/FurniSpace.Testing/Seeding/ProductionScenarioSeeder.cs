@@ -167,7 +167,6 @@ public static class ProductionScenarioSeeder
             ProductVersionNameSnapshot = $"{productName} Version",
             ProductVersionCodeSnapshot = "PV-PROD-001",
             Quantity = 2,
-            DeliveredQuantity = 0,
             Status = OrderItemStatus.PENDING,
             UnitPrice = 5_000_000m,
             DiscountAmount = 0m,

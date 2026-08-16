@@ -9,4 +9,7 @@ public static class ProjectScheduleErrorCodes
     public const string InvalidProjectStatus = "INVALID_PROJECT_STATUS";
     public const string OrderNotReadyForDelivery = "ORDER_NOT_READY_FOR_DELIVERY";
     public const string InvalidDeliverySchedule = "INVALID_DELIVERY_SCHEDULE";
+    public const string ScheduleDateExceedsTarget = "SCHEDULE_DATE_EXCEEDS_TARGET";
+    public const string ActiveDeliveryScheduleExists = "ACTIVE_DELIVERY_SCHEDULE_EXISTS";
+    public const string DeliveryScheduleNotAllowedAfterCompletion = "DELIVERY_SCHEDULE_NOT_ALLOWED_AFTER_COMPLETION";
 }

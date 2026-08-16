@@ -1108,7 +1108,7 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
-    public async Task UpdateDraftVersionAsync_WithModelFileAddsFileLink()
+    public async Task UpdateDraftVersionAsync_WithModelFileAddsFileLinkAndPersists()
     {
         var ids = CreateIds();
         var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
@@ -1121,12 +1121,24 @@ public sealed class CustomizationRequestServiceTests
         projectFiles.SetMetadata(modelFileId, CreateModelFileMetadata(modelFileId));
         var versionRepo = new FakeCustomizationRequestVersionRepository();
         versionRepo.StoreVersion(version, productVersion);
+        var requestRepo = new FakeCustomizationRequestRepository
+        {
+            ExistingEntity = entity,
+            Detail = detail
+        };
+        var saveChangesCallCount = 0;
+        var unitOfWork = TestUnitOfWork.ForSaveChanges(_ =>
+        {
+            saveChangesCallCount++;
+            return requestRepo.SaveChangesAsync(_);
+        });
         var service = CreateService(
-            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            requestRepo,
             versionRepo,
             new FakeProposalRepository(),
             new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
             productVersions: new FakeProductVersionRepository([sourceVersion, productVersion]),
+            unitOfWork: unitOfWork,
             projectFiles: projectFiles);
 
         var result = await service.UpdateDraftVersionAsync(
@@ -1137,6 +1149,44 @@ public sealed class CustomizationRequestServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal(1, projectFiles.AddedFileLinkCount);
+        Assert.Equal(1, saveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateDraftVersionAsync_DuplicateFileLinkReturnsConflict()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.SUBMITTED);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId);
+        var sourceVersion = CreateSourceProductVersion(ids);
+        var productVersion = CreateCustomProductVersion(Guid.NewGuid());
+        var version = CreateDraftVersion(ids, entity.CustomizationRequestId, productVersion.ProductVersionId);
+        var modelFileId = Guid.NewGuid();
+        var projectFiles = new FakeCustomizationProjectFileRepository();
+        projectFiles.SetMetadata(modelFileId, CreateModelFileMetadata(modelFileId));
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, productVersion);
+        var dbException = new DbUpdateException(
+            "duplicate key",
+            new Exception("duplicate key value violates unique constraint \"file_links_file_id_reference_type_reference_id_file_type_key\""));
+        var unitOfWork = TestUnitOfWork.ForSaveChanges(_ => throw dbException);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            new FakeProposalRepository(),
+            new FakeProjectRepository(DesignerRole, project: CreateProjectEntity(ids)),
+            productVersions: new FakeProductVersionRepository([sourceVersion, productVersion]),
+            unitOfWork: unitOfWork,
+            projectFiles: projectFiles);
+
+        var result = await service.UpdateDraftVersionAsync(
+            entity.CustomizationRequestId,
+            version.CustomizationRequestVersionId,
+            ids.DesignerId,
+            new UpdateCustomizationRequestVersionDto { ModelFileId = modelFileId });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(CustomizationRequestErrorCodes.ProductVersionFileLinkConflict, result.ErrorCode);
     }
 
     #endregion
@@ -1848,6 +1898,73 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(200, result.Status);
         Assert.Equal(CustomizationVersionStatus.WITHDRAWN, otherVersion.Status);
         Assert.NotNull(otherVersion.WithdrawnAt);
+    }
+
+    [Fact]
+    public async Task AcceptVersionAsync_DoesNotModifyMatchingProposalItem()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING);
+        var sourceProductVersion = CreateSourceProductVersion(ids);
+        sourceProductVersion.EstimatedPrice = 2_000_000m;
+        var acceptedProductVersion = CreateCustomProductVersion(Guid.NewGuid());
+        acceptedProductVersion.Width = 55m;
+        acceptedProductVersion.Height = 90m;
+        acceptedProductVersion.Depth = 50m;
+        acceptedProductVersion.Material = "Dark oak";
+        acceptedProductVersion.Color = "Brown";
+        acceptedProductVersion.EstimatedPrice = 2_500_000m;
+        var version = CreateFeasibleVersion(ids, entity.CustomizationRequestId, acceptedProductVersion.ProductVersionId);
+        version.EstimatedAdditionalCost = 500_000m;
+        var proposalItem = new ProposalItem
+        {
+            ProposalItemId = ids.ProposalItemId,
+            ProposalId = ids.ProposalId,
+            SceneId = Guid.NewGuid(),
+            ProductVersionId = ids.ProductVersionId,
+            ItemName = "Dining Chair",
+            Material = "Oak",
+            Color = "Brown",
+            Width = 45m,
+            Height = 80m,
+            Depth = 40m,
+            Quantity = 2,
+            IsCustomized = false,
+            UnitPriceSnapshot = 2_000_000m,
+            TotalPriceSnapshot = 4_000_000m
+        };
+        var proposalRepo = new FakeProposalRepository();
+        proposalRepo.Items.Add(proposalItem);
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, acceptedProductVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            proposalRepo,
+            new FakeProjectRepository(CustomerRole),
+            productVersions: new FakeProductVersionRepository([sourceProductVersion, acceptedProductVersion]));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new AcceptCustomizationRequestDto
+            {
+                CustomizationRequestVersionId = version.CustomizationRequestVersionId
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(CustomizationStatus.ACCEPTED, entity.Status);
+        Assert.Equal(2_500_000m, acceptedProductVersion.EstimatedPrice);
+        Assert.Equal(ids.ProductVersionId, proposalItem.ProductVersionId);
+        Assert.False(proposalItem.IsCustomized);
+        Assert.Equal("Oak", proposalItem.Material);
+        Assert.Equal("Brown", proposalItem.Color);
+        Assert.Equal(45m, proposalItem.Width);
+        Assert.Equal(80m, proposalItem.Height);
+        Assert.Equal(40m, proposalItem.Depth);
+        Assert.Equal(2_000_000m, proposalItem.UnitPriceSnapshot);
+        Assert.Equal(4_000_000m, proposalItem.TotalPriceSnapshot);
     }
 
     [Fact]
@@ -2865,6 +2982,8 @@ public sealed class CustomizationRequestServiceTests
     {
         private readonly ProposalProjectAccessReadModel? _project;
 
+        public List<ProposalItem> Items { get; } = [];
+
         public FakeProposalRepository(ProposalProjectAccessReadModel? project = null)
         {
             _project = project;
@@ -2902,6 +3021,14 @@ public sealed class CustomizationRequestServiceTests
         public Task<int> CountItemsAsync(ProposalItemListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<ProposalItemDetailReadModel?> GetItemDetailAsync(Guid proposalItemId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalItemDetailReadModel?>(null);
         public Task<ProposalItem?> GetItemEntityAsync(Guid proposalItemId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalItem?>(null);
+        public Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(
+            Guid proposalId,
+            Guid productVersionId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(
+                Items.FirstOrDefault(item =>
+                    item.ProposalId == proposalId &&
+                    item.ProductVersionId == productVersionId));
         public Task AddItemAsync(ProposalItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public void RemoveItem(ProposalItem item) { }
         public Task<Proposal?> GetProposalEntityAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult<Proposal?>(null);
@@ -3057,9 +3184,7 @@ public sealed class CustomizationRequestServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
+            NotificationDispatchRequest? request = null,
             CancellationToken cancellationToken = default)
         {
             LastType = type;

@@ -137,9 +137,30 @@ public sealed class PaymentService : IPaymentService
             return ServiceResult<PaymentDetailDto>.Forbidden("You do not have permission to create this deposit payment.");
         }
 
-        if (order.Status != OrderStatus.DEPOSIT_PENDING)
+        if (order.Status == OrderStatus.DEPOSIT_PENDING)
         {
-            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, "Order is not pending deposit payment.");
+            var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
+            if (existing?.Status == PaymentStatus.PAID)
+            {
+                return BadRequestDetail(OrderErrorCodes.DepositAlreadyPaid, "Deposit payment has already been paid.");
+            }
+
+            var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
+                _payments,
+                _unitOfWork,
+                existing,
+                cancellationToken);
+            if (reusable is not null && ActivePaymentResolver.IsActive(reusable, DateTime.UtcNow))
+            {
+                var existingDetail = await _payments.GetDetailAsync(reusable.PaymentId, cancellationToken);
+                return ServiceResult<PaymentDetailDto>.Success(
+                    PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusable, reused: true),
+                    "Active payment retrieved successfully.");
+            }
+        }
+        else if (order.Status != OrderStatus.CREATED)
+        {
+            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, "Order is not ready for deposit payment.");
         }
 
         var depositAmount = order.DepositAmount ?? 0m;
@@ -148,22 +169,22 @@ public sealed class PaymentService : IPaymentService
             return BadRequestDetail(PaymentErrorCodes.InvalidPaymentAmount, "Deposit amount must be greater than zero.");
         }
 
-        var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
-        if (existing?.Status == PaymentStatus.PAID)
+        var activeDeposit = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
+        if (activeDeposit?.Status == PaymentStatus.PAID)
         {
             return BadRequestDetail(OrderErrorCodes.DepositAlreadyPaid, "Deposit payment has already been paid.");
         }
 
-        var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
+        var reusableFromCreated = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
             _payments,
             _unitOfWork,
-            existing,
+            activeDeposit,
             cancellationToken);
-        if (reusable is not null && ActivePaymentResolver.IsActive(reusable, DateTime.UtcNow))
+        if (reusableFromCreated is not null && ActivePaymentResolver.IsActive(reusableFromCreated, DateTime.UtcNow))
         {
-            var existingDetail = await _payments.GetDetailAsync(reusable.PaymentId, cancellationToken);
+            var existingDetail = await _payments.GetDetailAsync(reusableFromCreated.PaymentId, cancellationToken);
             return ServiceResult<PaymentDetailDto>.Success(
-                PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusable, reused: true),
+                PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusableFromCreated, reused: true),
                 "Active payment retrieved successfully.");
         }
 
@@ -188,12 +209,23 @@ public sealed class PaymentService : IPaymentService
         };
 
         await _payments.AddPaymentAsync(payment, cancellationToken);
+
+        if (order.Status == OrderStatus.CREATED)
+        {
+            var orderEntity = await _orders.GetByIdAsync(orderId, cancellationToken);
+            if (orderEntity is not null)
+            {
+                orderEntity.Status = OrderStatus.DEPOSIT_PENDING;
+                orderEntity.UpdatedAt = now;
+                _orders.Update(orderEntity);
+            }
+        }
+
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+        await PaymentNotificationSupport.TryDispatchCreatedAsync(
             _notifications,
             _logger,
-            NotificationType.PaymentCreated,
             payment,
             cancellationToken: cancellationToken);
 
@@ -288,10 +320,9 @@ public sealed class PaymentService : IPaymentService
         await _payments.AddPaymentAsync(payment, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+        await PaymentNotificationSupport.TryDispatchCreatedAsync(
             _notifications,
             _logger,
-            NotificationType.PaymentCreated,
             payment,
             cancellationToken: cancellationToken);
 
@@ -373,6 +404,15 @@ public sealed class PaymentService : IPaymentService
             return BadRequestDetail(PaymentErrorCodes.InvalidPaymentAmount, "Amount must be greater than zero.");
         }
 
+        var expiryValidationError = ProjectStartFeeTargetValidator.ValidateCreateExpiry(
+            request.ExpiredAt,
+            project.TargetCompletionDate,
+            DateTime.UtcNow);
+        if (expiryValidationError is not null)
+        {
+            return ServiceResult<PaymentDetailDto>.Failure(expiryValidationError);
+        }
+
         var paymentCode = await GenerateUniquePaymentCodeAsync(cancellationToken);
         var now = DateTime.UtcNow;
         var payment = new Payment
@@ -396,10 +436,9 @@ public sealed class PaymentService : IPaymentService
         await _payments.AddPaymentAsync(payment, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
+        await PaymentNotificationSupport.TryDispatchCreatedAsync(
             _notifications,
             _logger,
-            NotificationType.PaymentCreated,
             payment,
             cancellationToken: cancellationToken);
 
@@ -1049,12 +1088,16 @@ public sealed class PaymentService : IPaymentService
             };
         }
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentProcessing,
-            payment,
-            cancellationToken: cancellationToken);
+        if (payment.PaidBy is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentProcessing,
+                payment,
+                [payment.PaidBy.Value],
+                cancellationToken: cancellationToken);
+        }
 
         return ServiceResult<PaymentTransactionAttemptResponseDto>.Success(
             new PaymentTransactionAttemptResponseDto
@@ -1123,12 +1166,16 @@ public sealed class PaymentService : IPaymentService
         _payments.UpdatePayment(payment);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentProcessing,
-            payment,
-            cancellationToken: cancellationToken);
+        if (payment.PaidBy is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentProcessing,
+                payment,
+                [payment.PaidBy.Value],
+                cancellationToken: cancellationToken);
+        }
 
         var createdTransaction = new PaymentTransactionReadModel
         {
@@ -1307,12 +1354,16 @@ public sealed class PaymentService : IPaymentService
         _payments.UpdateTransaction(transaction);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentTransactionCancelled,
-            payment,
-            cancellationToken: cancellationToken);
+        if (payment.PaidBy is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentTransactionCancelled,
+                payment,
+                [payment.PaidBy.Value],
+                cancellationToken: cancellationToken);
+        }
 
         return ServiceResult<PaymentTransactionDto>.Success(
             transaction.Adapt<PaymentTransactionDto>(),
@@ -1495,12 +1546,16 @@ public sealed class PaymentService : IPaymentService
 
         _payments.UpdatePayment(payment);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentExpired,
-            payment,
-            cancellationToken: cancellationToken);
+        if (payment.PaidBy is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentExpired,
+                payment,
+                [payment.PaidBy.Value],
+                cancellationToken: cancellationToken);
+        }
         return payment;
     }
 
@@ -1526,11 +1581,17 @@ public sealed class PaymentService : IPaymentService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         foreach (var payment in expiredPayments)
         {
-            await PaymentCustomerNotificationSupport.TryDispatchAsync(
+            if (payment.PaidBy is null)
+            {
+                continue;
+            }
+
+            await PaymentNotificationSupport.TryDispatchAsync(
                 _notifications,
                 _logger,
                 NotificationType.PaymentExpired,
                 payment,
+                [payment.PaidBy.Value],
                 cancellationToken: cancellationToken);
         }
     }

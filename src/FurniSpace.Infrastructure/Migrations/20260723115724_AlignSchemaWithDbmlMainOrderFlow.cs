@@ -128,7 +128,7 @@ namespace FurniSpace.Infrastructure.Migrations
                 {
                     order_adjustment_id = table.Column<Guid>(type: "uuid", nullable: false),
                     order_id = table.Column<Guid>(type: "uuid", nullable: false),
-                    status = table.Column<OrderAdjustmentStatus>(type: "order_adjustment_status", nullable: false, defaultValueSql: "'DRAFT'::order_adjustment_status"),
+                    status = table.Column<string>(type: "order_adjustment_status", nullable: false, defaultValueSql: "'DRAFT'::order_adjustment_status"),
                     item_adjustment_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: false, defaultValue: 0m),
                     additional_discount_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: false, defaultValue: 0m),
                     total_adjustment_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: false, defaultValue: 0m),
@@ -194,7 +194,7 @@ namespace FurniSpace.Infrastructure.Migrations
                     order_adjustment_item_id = table.Column<Guid>(type: "uuid", nullable: false),
                     order_adjustment_id = table.Column<Guid>(type: "uuid", nullable: false),
                     order_item_id = table.Column<Guid>(type: "uuid", nullable: true),
-                    adjustment_type = table.Column<OrderAdjustmentItemType>(type: "order_adjustment_item_type", nullable: false),
+                    adjustment_type = table.Column<string>(type: "order_adjustment_item_type", nullable: false),
                     previous_item_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: false, defaultValue: 0m),
                     adjustment_amount = table.Column<decimal>(type: "numeric(12,2)", nullable: false),
                     reason = table.Column<string>(type: "text", nullable: false),

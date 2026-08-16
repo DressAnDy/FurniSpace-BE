@@ -4,6 +4,7 @@ using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
@@ -20,23 +21,23 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
     private readonly IPaymentRealtimeService _paymentRealtime;
     private readonly IPaymentBusinessEffectService _paymentBusinessEffects;
     private readonly INotificationDispatcher? _notifications;
+    private readonly IProjectStakeholderResolver? _stakeholders;
     private readonly ILogger<PayOsWebhookHandler>? _logger;
 
     public PayOsWebhookHandler(
         IPaymentRepository payments,
         IUnitOfWork unitOfWork,
         IPayOsClient payOsClient,
-        IPaymentRealtimeService paymentRealtime,
-        IPaymentBusinessEffectService paymentBusinessEffects,
-        INotificationDispatcher? notifications = null,
+        PaymentWebhookRuntime runtime,
         ILogger<PayOsWebhookHandler>? logger = null)
     {
         _payments = payments;
         _unitOfWork = unitOfWork;
         _payOsClient = payOsClient;
-        _paymentRealtime = paymentRealtime;
-        _paymentBusinessEffects = paymentBusinessEffects;
-        _notifications = notifications;
+        _paymentRealtime = runtime.PaymentRealtime;
+        _paymentBusinessEffects = runtime.PaymentBusinessEffects;
+        _notifications = runtime.Notifications;
+        _stakeholders = runtime.Stakeholders;
         _logger = logger;
     }
 
@@ -174,6 +175,7 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
 
         await PaymentWebhookChargeSupport.PushPaymentUpdatedAsync(
             _paymentRealtime,
+            _stakeholders,
             _logger,
             payment,
             transaction,
@@ -217,12 +219,16 @@ public sealed class PayOsWebhookHandler : IPayOsWebhookService
             payment.PaymentId,
             transaction.PaymentTransactionId);
 
-        await PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentTransactionFailed,
-            payment,
-            cancellationToken: cancellationToken);
+        if (payment.PaidBy is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchAsync(
+                _notifications,
+                _logger,
+                NotificationType.PaymentTransactionFailed,
+                payment,
+                [payment.PaidBy.Value],
+                cancellationToken: cancellationToken);
+        }
     }
 
     private static bool IsSuccessfulWebhook(string? code)

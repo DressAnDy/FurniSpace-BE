@@ -97,4 +97,13 @@ internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepositor
     {
         return Task.FromResult(false);
     }
+
+    public bool ConfirmedDeliverySchedule { get; init; }
+
+    public Task<bool> HasConfirmedDeliveryScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ConfirmedDeliverySchedule);
+    }
 }

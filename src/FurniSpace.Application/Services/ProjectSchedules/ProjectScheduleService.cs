@@ -223,7 +223,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
         }
 
-        var validationError = ValidateUpdateTime(request, detail);
+        var validationError = await ValidateUpdateTimeAsync(request, detail, cancellationToken);
         if (validationError is not null)
         {
             return validationError;
@@ -505,6 +505,15 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
         }
 
+        var targetDateError = ValidateScheduleDatesAgainstTarget(
+            request.ScheduledStart,
+            request.ScheduledEnd,
+            project.TargetCompletionDate);
+        if (targetDateError is not null)
+        {
+            return targetDateError;
+        }
+
         if (request.ScheduleType == ProjectScheduleType.MEASUREMENT)
         {
             var measurementError = ValidateMeasurementScheduleCreate(
@@ -624,6 +633,22 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     "Project and order must be ready for delivery before creating a delivery schedule."));
         }
 
+        if (await _orders.HasCompletedDeliveryFlowAsync(project.ProjectId, cancellationToken))
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.DeliveryScheduleNotAllowedAfterCompletion,
+                    "A new delivery schedule cannot be created after delivery has completed."));
+        }
+
+        if (await _schedules.HasActiveDeliveryScheduleAsync(project.ProjectId, cancellationToken))
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.ActiveDeliveryScheduleExists,
+                    "Only one active delivery schedule is allowed per project."));
+        }
+
         var hasReadyOrder = await _orders.HasProjectOrderInStatusesAsync(
             project.ProjectId,
             DeliveryReadyOrderStatuses,
@@ -716,9 +741,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         return ServiceResult<ProjectScheduleDto>.Forbidden("You are not authorized to delete this schedule.");
     }
 
-    private static ServiceResult<ProjectScheduleDto>? ValidateUpdateTime(
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateUpdateTimeAsync(
         UpdateProjectScheduleRequestDto request,
-        ProjectScheduleDetailReadModel detail)
+        ProjectScheduleDetailReadModel detail,
+        CancellationToken cancellationToken)
     {
         if (request.ScheduledStart.HasValue && request.ScheduledStart.Value <= DateTime.UtcNow)
         {
@@ -730,6 +756,42 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (effectiveEnd.HasValue && effectiveEnd.Value <= effectiveStart)
         {
             return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
+        }
+
+        var project = await _projects.GetDetailAsync(detail.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
+        }
+
+        return ValidateScheduleDatesAgainstTarget(
+            effectiveStart,
+            effectiveEnd,
+            project.TargetCompletionDate);
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateScheduleDatesAgainstTarget(
+        DateTime scheduledStart,
+        DateTime? scheduledEnd,
+        DateOnly? targetCompletionDate)
+    {
+        var startError = ProjectTimelineDateValidator.ValidateScheduleDateWithinTarget(
+            scheduledStart,
+            targetCompletionDate);
+        if (startError is not null)
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(startError);
+        }
+
+        if (scheduledEnd.HasValue)
+        {
+            var endError = ProjectTimelineDateValidator.ValidateScheduleDateWithinTarget(
+                scheduledEnd.Value,
+                targetCompletionDate);
+            if (endError is not null)
+            {
+                return ServiceResult<ProjectScheduleDto>.Failure(endError);
+            }
         }
 
         return null;
@@ -911,9 +973,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             NotificationType.ProjectScheduleCreated,
             parameters,
             receivers,
-            schedule.ProjectId,
-            ProjectScheduleReferenceType,
-            schedule.ScheduleId,
+            new NotificationDispatchRequest(
+                schedule.ProjectId,
+                ProjectScheduleReferenceType,
+                schedule.ScheduleId),
             cancellationToken);
     }
 
@@ -944,9 +1007,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             NotificationType.ProjectScheduleUpdated,
             parameters,
             receivers,
-            schedule.ProjectId,
-            ProjectScheduleReferenceType,
-            schedule.ScheduleId,
+            new NotificationDispatchRequest(
+                schedule.ProjectId,
+                ProjectScheduleReferenceType,
+                schedule.ScheduleId),
             cancellationToken);
     }
 
@@ -967,9 +1031,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     NotificationType.ProjectScheduleConfirmed,
                     parameters,
                     receivers,
-                    schedule.ProjectId,
-                    ProjectScheduleReferenceType,
-                    schedule.ScheduleId,
+                    new NotificationDispatchRequest(
+                        schedule.ProjectId,
+                        ProjectScheduleReferenceType,
+                        schedule.ScheduleId),
                     cancellationToken);
                 break;
             }
@@ -980,8 +1045,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     NotificationType.ProjectScheduleCompleted,
                     parameters,
                     receivers,
-                    schedule.ProjectId,
-                    cancellationToken: cancellationToken);
+                    new NotificationDispatchRequest(schedule.ProjectId),
+                    cancellationToken);
                 break;
             }
             case ProjectScheduleStatus.CANCELLED:
@@ -991,9 +1056,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     NotificationType.ProjectScheduleCancelled,
                     parameters,
                     receivers,
-                    schedule.ProjectId,
-                    ProjectScheduleReferenceType,
-                    schedule.ScheduleId,
+                    new NotificationDispatchRequest(
+                        schedule.ProjectId,
+                        ProjectScheduleReferenceType,
+                        schedule.ScheduleId),
                     cancellationToken);
                 break;
             }

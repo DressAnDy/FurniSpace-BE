@@ -58,8 +58,6 @@ public class AppDbContext : DbContext
     private const string PaymentTransactionStatusColumnType = "payment_transaction_status";
     private const string ProductionRequestStatusColumnType = "production_request_status";
     private const string ProductionItemStatusColumnType = "production_item_status";
-    private const string OrderAdjustmentStatusColumnType = "order_adjustment_status";
-    private const string OrderAdjustmentItemTypeColumnType = "order_adjustment_item_type";
 
     private const string ProjectChatTypeColumnType = "project_chat_type";
     private const string ProjectChatStatusColumnType = "project_chat_status";
@@ -128,8 +126,6 @@ public class AppDbContext : DbContext
     public DbSet<QuotationItem> QuotationItemSet => Set<QuotationItem>();
     public DbSet<Order> OrderSet => Set<Order>();
     public DbSet<OrderItem> OrderItemSet => Set<OrderItem>();
-    public DbSet<OrderAdjustment> OrderAdjustmentSet => Set<OrderAdjustment>();
-    public DbSet<OrderAdjustmentItem> OrderAdjustmentItemSet => Set<OrderAdjustmentItem>();
     public DbSet<Payment> PaymentSet => Set<Payment>();
     public DbSet<PaymentTransaction> PaymentTransactionSet => Set<PaymentTransaction>();
     public DbSet<ProductionRequest> ProductionRequestSet => Set<ProductionRequest>();
@@ -141,7 +137,7 @@ public class AppDbContext : DbContext
         base.OnModelCreating(modelBuilder);
 
         modelBuilder.HasAnnotation("Npgsql:Enum:account_status", "ACTIVE,INACTIVE,SUSPENDED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:project_status", "SUBMITTED,IN_CONSULTATION,NEED_BASIC_INFORMATION,WAITING_FOR_DESIGNER_ASSIGNMENT,MEASUREMENT_REQUIRED,SPACE_VERIFIED,PROPOSAL_CONSULTING,PROPOSAL_SELECTED,QUOTATION_SENT,QUOTATION_REVISION_REQUESTED,ORDER_CONFIRMED,IN_PRODUCTION,PRODUCTION_BLOCKED,READY_FOR_DELIVERY,DELIVERING,DELIVERED,COMPLETED,REJECTED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:project_status", "SUBMITTED,IN_CONSULTATION,NEED_BASIC_INFORMATION,WAITING_FOR_DESIGNER_ASSIGNMENT,MEASUREMENT_REQUIRED,SPACE_VERIFIED,PROPOSAL_CONSULTING,PROPOSAL_SELECTED,QUOTATION_SENT,QUOTATION_REVISION_REQUESTED,ORDER_CONFIRMED,IN_PRODUCTION,READY_FOR_DELIVERY,DELIVERING,DELIVERED,COMPLETED,REJECTED");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_area_type", "STORE,FLOOR,ROOM,ZONE,OUTDOOR_AREA,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_area_status", "DRAFT,NEED_MEASUREMENT,MEASURED,VERIFIED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_schedule_type", "MEASUREMENT,CONSULTATION,DESIGN_REVIEW,DELIVERY,HANDOVER,OTHER");
@@ -156,16 +152,14 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:quotation_status", "DRAFT,SENT,REVISION_REQUESTED,REVISED,ACCEPTED,REJECTED,EXPIRED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_status", "CREATED,DEPOSIT_PENDING,DEPOSIT_PAID,IN_PRODUCTION,READY_FOR_DELIVERY,DELIVERING,DELIVERED,FINAL_PAYMENT_PENDING,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_item_status", "PENDING,IN_PRODUCTION,READY,UNAVAILABLE,DELIVERED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:order_adjustment_status", "DRAFT,CONFIRMED,APPLIED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:order_adjustment_item_type", "UNAVAILABLE_ITEM,ADDITIONAL_DISCOUNT");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_status", "PENDING,PROCESSING,PAID,CANCELLED,EXPIRED,REFUNDED");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_type", "PROJECT_START_FEE,DEPOSIT,REMAINING_PAYMENT,FULL_PAYMENT,REFUND,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_provider", "PAYOS,SEPAY,CASH,MANUAL_BANK_TRANSFER,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_method", "PAYMENT_LINK,QR_CODE,BANK_TRANSFER,CASH,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_transaction_type", "CHARGE,REFUND,ADJUSTMENT");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_transaction_status", "PENDING,SUCCESS,FAILED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:production_request_status", "PENDING_REVIEW,FEASIBLE,IN_PRODUCTION,COMPLETED,BLOCKED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:production_item_status", "PENDING,IN_PRODUCTION,COMPLETED,BLOCKED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:production_request_status", "PENDING_REVIEW,FEASIBLE,IN_PRODUCTION,COMPLETED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:production_item_status", "PENDING,IN_PRODUCTION,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:notification_status", "UNREAD,READ");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,PRODUCTION,DELIVERY,GENERAL,INTERNAL");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_status", "OPEN,CLOSED,ARCHIVED");
@@ -201,8 +195,6 @@ public class AppDbContext : DbContext
         ConfigureQuotationItems(modelBuilder);
         ConfigureOrders(modelBuilder);
         ConfigureOrderItems(modelBuilder);
-        ConfigureOrderAdjustments(modelBuilder);
-        ConfigureOrderAdjustmentItems(modelBuilder);
         ConfigurePayments(modelBuilder);
         ConfigurePaymentTransactions(modelBuilder);
         ConfigureProductionRequests(modelBuilder);
@@ -617,6 +609,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.PublishedAt).HasColumnName("published_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.SelectedAt).HasColumnName("selected_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.RejectedAt).HasColumnName(RejectedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.RevisionNote).HasColumnName("revision_note").HasColumnType(TextColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => new { e.ProjectId, e.VersionNo, e.CreatedAt, e.ProposalId })
@@ -847,6 +840,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.VatRate).HasColumnName(VatRateColumnName).HasColumnType(TaxRateColumnType).HasDefaultValue(0.08m).IsRequired();
             entity.Property(e => e.VatAmount).HasColumnName(VatAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.TotalAmount).HasColumnName(TotalAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
+            entity.Property(e => e.DepositAmount).HasColumnName("deposit_amount").HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.Currency).HasColumnName("currency").HasColumnType(Varchar10ColumnType).HasDefaultValue("VND").IsRequired();
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(QuotationStatusColumnType).HasDefaultValueSql("'DRAFT'::quotation_status");
             entity.Property(e => e.ValidUntil).HasColumnName("valid_until").HasColumnType(DateColumnType);
@@ -964,7 +958,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductVersionNameSnapshot).HasColumnName(ProductVersionNameSnapshotColumnName).HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.ProductVersionCodeSnapshot).HasColumnName("product_version_code_snapshot").HasColumnType(Varchar50ColumnType);
             entity.Property(e => e.Quantity).HasColumnName(QuantityColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1).IsRequired();
-            entity.Property(e => e.DeliveredQuantity).HasColumnName("delivered_quantity").HasColumnType(IntegerColumnType).HasDefaultValue(0);
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(OrderItemStatusColumnType).HasDefaultValueSql("'PENDING'::order_item_status");
             entity.Property(e => e.UnitPrice).HasColumnName("unit_price").HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.DiscountAmount).HasColumnName(DiscountAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
@@ -975,73 +968,13 @@ public class AppDbContext : DbContext
             entity.Property(e => e.UnavailableConfirmedAt).HasColumnName("unavailable_confirmed_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.ProductionNote).HasColumnName("production_note").HasColumnType(TextColumnType);
             entity.Property(e => e.DeliveryNote).HasColumnName("delivery_note").HasColumnType(TextColumnType);
-            entity.Property(e => e.LastDeliveredAt).HasColumnName("last_delivered_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.LastDeliveredBy).HasColumnName("last_delivered_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.CustomerConfirmedAt).HasColumnName("customer_confirmed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.DeliveredAt).HasColumnName("delivered_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.DeliveredBy).HasColumnName("delivered_by").HasColumnType(UuidColumnType);
             entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<QuotationItem>().WithMany().HasForeignKey(e => e.QuotationItemId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.LastDeliveredBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.DeliveredBy).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UnavailableConfirmedBy).OnDelete(DeleteBehavior.Restrict);
-        });
-    }
-
-    private static void ConfigureOrderAdjustments(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<OrderAdjustment>(entity =>
-        {
-            entity.ToTable("order_adjustments");
-            entity.HasKey(e => e.OrderAdjustmentId);
-            entity.Property(e => e.OrderAdjustmentId).HasColumnName("order_adjustment_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.OrderId).HasColumnName(OrderIdColumnName).HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(OrderAdjustmentStatusColumnType).HasDefaultValueSql("'DRAFT'::order_adjustment_status").IsRequired();
-            entity.Property(e => e.ItemAdjustmentAmount).HasColumnName("item_adjustment_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.AdditionalDiscountAmount).HasColumnName("additional_discount_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.TotalAdjustmentAmount).HasColumnName("total_adjustment_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.Reason).HasColumnName("reason").HasColumnType(TextColumnType).IsRequired();
-            entity.Property(e => e.InternalNote).HasColumnName("internal_note").HasColumnType(TextColumnType);
-            entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
-            entity.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.ConfirmedBy).HasColumnName("confirmed_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.ConfirmedAt).HasColumnName("confirmed_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.AppliedBy).HasColumnName("applied_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.AppliedAt).HasColumnName("applied_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CancelledBy).HasColumnName("cancelled_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.CancelledAt).HasColumnName(CancelledAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CancellationReason).HasColumnName(CancellationReasonColumnName).HasColumnType(TextColumnType);
-            entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UpdatedBy).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ConfirmedBy).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.AppliedBy).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CancelledBy).OnDelete(DeleteBehavior.Restrict);
-        });
-    }
-
-    private static void ConfigureOrderAdjustmentItems(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<OrderAdjustmentItem>(entity =>
-        {
-            entity.ToTable("order_adjustment_items");
-            entity.HasKey(e => e.OrderAdjustmentItemId);
-            entity.Property(e => e.OrderAdjustmentItemId).HasColumnName("order_adjustment_item_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.OrderAdjustmentId).HasColumnName("order_adjustment_id").HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.OrderItemId).HasColumnName("order_item_id").HasColumnType(UuidColumnType);
-            entity.Property(e => e.AdjustmentType).HasColumnName("adjustment_type").HasColumnType(OrderAdjustmentItemTypeColumnType).IsRequired();
-            entity.Property(e => e.PreviousItemAmount).HasColumnName("previous_item_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.AdjustmentAmount).HasColumnName("adjustment_amount").HasColumnType(Decimal12ColumnType).IsRequired();
-            entity.Property(e => e.Reason).HasColumnName("reason").HasColumnType(TextColumnType).IsRequired();
-            entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
-            entity.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.HasIndex(e => new { e.OrderAdjustmentId, e.OrderItemId, e.AdjustmentType }).IsUnique();
-            entity.HasOne<OrderAdjustment>().WithMany().HasForeignKey(e => e.OrderAdjustmentId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<OrderItem>().WithMany().HasForeignKey(e => e.OrderItemId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UpdatedBy).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

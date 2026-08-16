@@ -26,7 +26,8 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
             ["PROJECT_SCHEDULE"] = GetProjectScheduleAccessAsync,
             ["PROPOSAL"] = GetProposalAccessAsync,
             ["QUOTATION"] = GetQuotationAccessAsync,
-            ["ORDER"] = GetOrderAccessAsync
+            ["ORDER"] = GetOrderAccessAsync,
+            [ProductVersionReferenceType] = GetProductVersionAccessAsync
         };
     }
 
@@ -505,6 +506,17 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
             DbContext.OrderSet
                 .Where(order => order.OrderId == referenceId)
                 .Select(order => order.ProjectId),
+            cancellationToken);
+    }
+
+    private Task<ProjectFileAccessReadModel?> GetProductVersionAccessAsync(
+        Guid referenceId,
+        CancellationToken cancellationToken)
+    {
+        return ProjectAccessByProjectIdAsync(
+            DbContext.ProductVersionSet
+                .Where(version => version.ProductVersionId == referenceId && version.ProjectId.HasValue)
+                .Select(version => version.ProjectId!.Value),
             cancellationToken);
     }
 

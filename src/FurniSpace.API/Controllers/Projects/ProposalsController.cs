@@ -282,6 +282,21 @@ public sealed class ProposalsController : BaseApiController
     }
 
     [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
+    [HttpPost("proposals/{proposalId:guid}/reopen-for-editing")]
+    public async Task<IActionResult> ReopenForEditing(
+        Guid proposalId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _proposals.ReopenForEditingAsync(proposalId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,SALES,ADMIN")]
     [HttpPatch("proposals/{proposalId:guid}")]
     public async Task<IActionResult> Update(
         Guid proposalId,

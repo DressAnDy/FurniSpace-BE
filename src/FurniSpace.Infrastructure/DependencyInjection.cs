@@ -76,6 +76,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectChatRepository, ProjectChatRepository>();
         services.AddScoped<IProjectChatMessageRepository, ProjectChatMessageRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IProjectWorkflowRepository, ProjectWorkflowRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IProjectScheduleRepository, ProjectScheduleRepository>();
         services.AddScoped<IProjectAreaRepository, ProjectAreaRepository>();

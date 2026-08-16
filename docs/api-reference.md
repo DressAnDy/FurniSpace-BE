@@ -36,6 +36,7 @@ Complete HTTP + SignalR API reference for FurniSpace backend.
 19. [Notifications](#19-notifications)
 20. [Payments](#20-payments)
 20a. [Admin Financial Dashboard](#20a-admin-financial-dashboard)
+20b. [Role Dashboards (queues + KPIs)](#20b-role-dashboards-queues--kpis)
 21. [Production](#21-production)
 22. [SignalR hubs](#22-signalr-hubs)
 23. [Enums](#23-enums)
@@ -2598,6 +2599,75 @@ The added indexes target implemented query paths only:
 | `idx_fin_payment_transactions_payment_failed_time` | Per-payment failed attempt diagnostics |
 | `idx_fin_orders_project_confirmed` | Project financial overview latest-order lookup |
 | `idx_fin_orders_receivable_status_confirmed` | Receivable and order exception scans |
+
+---
+
+## 20b. Role Dashboards (queues + KPIs)
+
+Server-side work queues so FE can render without N+1 account lookups or client-side next-action rules. No dedicated queue tables — projections over Project / Order / ProductionRequest.
+
+| Method | Path | Roles |
+| --- | --- | --- |
+| GET | `/api/dashboard/sales/action-queue` | SALES, ADMIN |
+| GET | `/api/dashboard/sales/kpis` | SALES, ADMIN |
+| GET | `/api/dashboard/designer/work-queue` | DESIGNER, ADMIN |
+| GET | `/api/dashboard/designer/kpis` | DESIGNER, ADMIN |
+| GET | `/api/dashboard/production/queue` | PRODUCTION, ADMIN |
+| GET | `/api/dashboard/production/kpis` | PRODUCTION, ADMIN |
+
+### Common query params
+
+| Param | Values / notes |
+| --- | --- |
+| `scope` | `mine` (default), `team`, `all` (`all` meaningful for ADMIN) |
+| `group` | Queue tab filter (e.g. `Intake`, `Design`, `Proposal and Quotation`, `Order and Payment`, `Delivery`, `Production`) |
+| `dateRange` | `today`, `thisWeek`, `thisMonth` (on derived due date; null due still included) |
+| `priority` | `HIGH`, `MEDIUM`, `LOW` |
+| `search` | Project code/name or customer name |
+| `page`, `limit` | Default `1` / `20`, max `100` |
+
+### Queue response
+
+```json
+{
+  "items": [
+    {
+      "id": "...",
+      "projectId": "...",
+      "projectCode": "PRJ-001",
+      "projectName": "...",
+      "customerName": "...",
+      "assigneeName": "...",
+      "group": "Intake",
+      "phase": "SUBMITTED",
+      "status": "SUBMITTED",
+      "priority": "HIGH",
+      "action": "Review request",
+      "actionPath": "/projects/{projectId}",
+      "dueAt": "2026-08-17T23:59:59Z",
+      "dueBucket": "TODAY",
+      "warning": null,
+      "lastUpdatedAt": "..."
+    }
+  ],
+  "countsByGroup": { "Intake": 3, "Order and Payment": 1 },
+  "page": 1,
+  "limit": 20,
+  "total": 4
+}
+```
+
+`dueBucket`: `OVERDUE` | `TODAY` | `THIS_WEEK` | `LATER` (null when no due date).
+
+Sales next-action uses project status plus latest non-cancelled order (deposit / remaining payment / delivery confirm). Designer queue is status-first for design-active work. Production queue wraps active production requests (`PENDING_REVIEW`, `FEASIBLE`, `IN_PRODUCTION`).
+
+### KPI responses
+
+**Sales:** `newRequests`, `waitingCustomer`, `paymentFollowUp`, `overdueTasks`, `activeProjects`  
+**Designer:** `measurementDue`, `proposalsInProgress`, `revisionRequested`, `overdueTasks`  
+**Production:** `pendingReview`, `inProduction`, `readyToComplete`, `overdueTasks`
+
+KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local).
 
 ---
 

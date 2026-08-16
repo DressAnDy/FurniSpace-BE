@@ -610,6 +610,64 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public async Task UpdateTargetCompletionDate_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(45);
+        var response = new ProjectTargetCompletionDateDto
+        {
+            ProjectId = projectId,
+            TargetCompletionDate = targetDate,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var service = new FakeProjectService(
+            createResult: ServiceResult<ProjectDto>.Created(new ProjectDto()),
+            updateTargetCompletionDateResult: ServiceResult<ProjectTargetCompletionDateDto>.Success(
+                response,
+                "Project target completion date updated successfully."));
+        var controller = CreateControllerWithUser(service, currentUserId);
+        var request = new UpdateProjectTargetCompletionDateRequestDto
+        {
+            TargetCompletionDate = targetDate
+        };
+
+        var actionResult = await controller.UpdateTargetCompletionDate(projectId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectTargetCompletionDateDto>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project target completion date updated successfully.", result.Message);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.UpdateTargetCompletionDateRequest);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDate_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.UpdateTargetCompletionDate(
+            Guid.NewGuid(),
+            new UpdateProjectTargetCompletionDateRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.ProjectId);
+        Assert.Equal(Guid.Empty, service.CurrentUserId);
+        Assert.Null(service.UpdateTargetCompletionDateRequest);
+    }
+
+    [Fact]
     public async Task UpdateBasicInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));

@@ -1726,6 +1726,132 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task UpdateTargetCompletionDateAsync_WithEmptyProjectId_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateTargetCompletionDateAsync(
+            Guid.Empty,
+            Guid.NewGuid(),
+            new UpdateProjectTargetCompletionDateRequestDto
+            {
+                TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30)
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project id is required.", result.Message);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDateAsync_WithEmptyCurrentUser_ReturnsUnauthorized()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateTargetCompletionDateAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            new UpdateProjectTargetCompletionDateRequestDto
+            {
+                TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30)
+            });
+
+        Assert.Equal(401, result.Status);
+        Assert.Equal("Authenticated account id is required.", result.Message);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDateAsync_WithPastTarget_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateTargetCompletionDateAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new UpdateProjectTargetCompletionDateRequestDto
+            {
+                TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(-1)
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectErrorCodes.InvalidTargetCompletionDate, result.ErrorCode);
+        Assert.Equal(0, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDateAsync_WithMissingProject_ReturnsNotFound()
+    {
+        var repository = new FakeProjectRepository(roleName: "SALES");
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateTargetCompletionDateAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new UpdateProjectTargetCompletionDateRequestDto
+            {
+                TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30)
+            });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project not found.", result.Message);
+        Assert.Equal(1, repository.GetByIdCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDateAsync_WithUnauthorizedParticipant_ReturnsForbidden()
+    {
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, Guid.NewGuid());
+        var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateTargetCompletionDateAsync(
+            projectId,
+            Guid.NewGuid(),
+            new UpdateProjectTargetCompletionDateRequestDto
+            {
+                TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30)
+            });
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You do not have access to update this project.", result.Message);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDateAsync_WhenTargetConflictsWithProductionDates_ReturnsConflict()
+    {
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var productionRequests = new FakeProjectProductionRequestRepository
+        {
+            MaxOperationalProductionDate = new DateOnly(2026, 12, 15)
+        };
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            new ProjectServiceFactoryOptions { ProductionRequests = productionRequests });
+
+        var result = await service.UpdateTargetCompletionDateAsync(
+            projectId,
+            salesId,
+            new UpdateProjectTargetCompletionDateRequestDto
+            {
+                TargetCompletionDate = new DateOnly(2026, 12, 1)
+            });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectErrorCodes.TargetDateConflictsWithOperationalDates, result.ErrorCode);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
     public async Task RequestInformationAsync_WithAssignedSales_UpdatesProjectStatus()
     {
         var projectId = Guid.NewGuid();

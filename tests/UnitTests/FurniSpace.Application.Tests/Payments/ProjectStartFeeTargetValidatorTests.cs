@@ -74,4 +74,97 @@ public sealed class ProjectStartFeeTargetValidatorTests
 
         Assert.Null(error);
     }
+
+    [Fact]
+    public void ValidateCreateExpiry_WhenExpiryNotProvided_ReturnsNull()
+    {
+        var utcNow = new DateTime(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
+
+        var error = ProjectStartFeeTargetValidator.ValidateCreateExpiry(
+            null,
+            new DateOnly(2026, 12, 31),
+            utcNow);
+
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateCreateExpiry_WhenTargetMissing_ReturnsNull()
+    {
+        var utcNow = new DateTime(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
+
+        var error = ProjectStartFeeTargetValidator.ValidateCreateExpiry(
+            utcNow.AddDays(7),
+            null,
+            utcNow);
+
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateCreateExpiry_WhenExpiryWithinTarget_ReturnsNull()
+    {
+        var utcNow = new DateTime(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
+
+        var error = ProjectStartFeeTargetValidator.ValidateCreateExpiry(
+            utcNow.AddDays(7),
+            new DateOnly(2026, 8, 15),
+            utcNow);
+
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateTargetUpdateAgainstActiveStartFee_WhenTargetMissing_ReturnsNull()
+    {
+        var utcNow = new DateTime(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
+        var payment = new Payment
+        {
+            Status = PaymentStatus.PENDING,
+            ExpiredAt = utcNow.AddDays(30)
+        };
+
+        var error = ProjectStartFeeTargetValidator.ValidateTargetUpdateAgainstActiveStartFee(
+            null,
+            payment,
+            utcNow);
+
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateTargetUpdateAgainstActiveStartFee_WhenPaymentInactive_ReturnsNull()
+    {
+        var utcNow = new DateTime(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
+        var payment = new Payment
+        {
+            Status = PaymentStatus.EXPIRED,
+            ExpiredAt = utcNow.AddDays(30)
+        };
+
+        var error = ProjectStartFeeTargetValidator.ValidateTargetUpdateAgainstActiveStartFee(
+            new DateOnly(2026, 8, 1),
+            payment,
+            utcNow);
+
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateTargetUpdateAgainstActiveStartFee_WhenExpiryWithinNewTarget_ReturnsNull()
+    {
+        var utcNow = new DateTime(2026, 7, 30, 12, 0, 0, DateTimeKind.Utc);
+        var payment = new Payment
+        {
+            Status = PaymentStatus.PENDING,
+            ExpiredAt = utcNow.AddDays(10)
+        };
+
+        var error = ProjectStartFeeTargetValidator.ValidateTargetUpdateAgainstActiveStartFee(
+            new DateOnly(2026, 8, 15),
+            payment,
+            utcNow);
+
+        Assert.Null(error);
+    }
 }

@@ -2068,6 +2068,148 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
+    public async Task ReopenForEditingAsync_WithDraftProposal_ReturnsBadRequest()
+    {
+        var designerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        context.ProposalStatus = ProposalStatus.DRAFT;
+        var service = CreateService(
+            new FakeProposalRepository(context: context),
+            new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.ReopenForEditingAsync(proposalId, designerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProposalReopenErrorCodes.ReopenNotAllowed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReopenForEditingAsync_WithSelectedProposal_ReturnsBadRequest()
+    {
+        var designerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        context.ProposalStatus = ProposalStatus.SELECTED;
+        var service = CreateService(
+            new FakeProposalRepository(context: context),
+            new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.ReopenForEditingAsync(proposalId, designerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProposalReopenErrorCodes.ProposalAlreadySelected, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReopenForEditingAsync_WithNonConsultingProject_ReturnsBadRequest()
+    {
+        var designerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        context.ProposalStatus = ProposalStatus.PUBLISHED;
+        var project = new Project
+        {
+            ProjectId = context.ProjectId,
+            CustomerId = context.CustomerId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.QUOTATION_SENT
+        };
+        var service = CreateService(
+            new FakeProposalRepository(context: context),
+            new FakeProjectRepository("DESIGNER", project));
+
+        var result = await service.ReopenForEditingAsync(proposalId, designerId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProposalReopenErrorCodes.ReopenNotAllowed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateItemAsync_WithRevisionRequestedProposal_RecalculatesSubtotal()
+    {
+        var proposalId = Guid.NewGuid();
+        var proposalItemId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var entity = CreateProposalItem(proposalItemId, proposalId);
+        var detail = CreateProposalItemDetail(proposalItemId, proposalId, assignedDesignerId: designerId);
+        detail.ProposalStatus = ProposalStatus.REVISION_REQUESTED;
+        var repository = new FakeProposalRepository(itemDetail: detail);
+        repository.Items.Add(entity);
+        var service = CreateService(repository, new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.UpdateItemAsync(
+            proposalItemId,
+            designerId,
+            new UpdateProposalItemRequestDto { Quantity = 5 });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(5, result.Data!.Quantity);
+        Assert.Equal(6000000m, result.Data.SubtotalAmount);
+    }
+
+    [Fact]
+    public async Task DeleteItemAsync_WithRevisionRequestedProposal_RemovesProposalItem()
+    {
+        var proposalId = Guid.NewGuid();
+        var proposalItemId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var detail = CreateProposalItemDetail(proposalItemId, proposalId, assignedSalesId: salesId);
+        detail.ProposalStatus = ProposalStatus.REVISION_REQUESTED;
+        var repository = new FakeProposalRepository(itemDetail: detail);
+        repository.Items.Add(CreateProposalItem(proposalItemId, proposalId));
+        var service = CreateService(repository, new FakeProjectRepository("SALES"));
+
+        var result = await service.DeleteItemAsync(proposalItemId, salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.True(result.Data!.Deleted);
+        Assert.Empty(repository.Items);
+    }
+
+    [Fact]
+    public async Task UpdateSceneAsync_WithRevisionRequestedProposal_UpdatesSqlMetadata()
+    {
+        var designerId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var repository = new FakeProposalRepository(sceneContext: new ProposalSceneContextReadModel
+        {
+            SceneId = sceneId,
+            ProposalId = proposalId,
+            ProjectId = projectId,
+            SceneAreas = [CreateSceneAreaReadModel(Guid.NewGuid())],
+            ProposalStatus = ProposalStatus.REVISION_REQUESTED,
+            AssignedDesignerId = designerId
+        });
+        repository.ProjectAreas.Add(CreateProjectAreaReadModel(projectAreaId, projectId));
+        repository.Scenes.Add(new ProposalScene
+        {
+            SceneId = sceneId,
+            ProposalId = proposalId,
+            SceneName = "Old scene",
+            SceneType = ProposalSceneType.THREE_D,
+            MongoSceneId = "mongo-scene-id",
+            IsActive = true
+        });
+        var service = CreateService(repository, new FakeProjectRepository("DESIGNER"));
+
+        var result = await service.UpdateSceneAsync(
+            sceneId,
+            designerId,
+            new UpdateProposalSceneRequestDto
+            {
+                SceneName = " Revised scene ",
+                ProjectAreaIds = [projectAreaId]
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Revised scene", result.Data!.SceneName);
+    }
+
+    [Fact]
     public async Task UpdateSceneAsync_WithDraftProposal_UpdatesSqlMetadata()
     {
         var designerId = Guid.NewGuid();

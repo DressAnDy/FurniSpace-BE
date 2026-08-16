@@ -442,6 +442,45 @@ public sealed class ProposalsControllerTests
     }
 
     [Fact]
+    public async Task ReopenForEditing_ReturnsServiceResultAndPassesProposalId()
+    {
+        var proposalId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var response = new ReopenProposalForEditingResponseDto
+        {
+            ProposalId = proposalId,
+            ProposalStatus = ProposalStatus.DRAFT
+        };
+        var service = new FakeProposalService(
+            reopenResult: ServiceResult<ReopenProposalForEditingResponseDto>.Success(
+                response,
+                "Proposal reopened for editing successfully."));
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.ReopenForEditing(proposalId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ReopenProposalForEditingResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(proposalId, service.ProposalId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+    }
+
+    [Fact]
+    public void ReopenForEditing_AllowsDesignerSalesAndAdminRoles()
+    {
+        var method = typeof(ProposalsController).GetMethod(nameof(ProposalsController.ReopenForEditing));
+        Assert.NotNull(method);
+        var authorize = method!
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .Single();
+
+        Assert.Equal("DESIGNER,SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public async Task Actions_WithoutUserClaim_ReturnUnauthorized()
     {
         var service = new FakeProposalService();
@@ -461,6 +500,7 @@ public sealed class ProposalsControllerTests
         Assert.IsType<UnauthorizedResult>(await controller.RequestRevision(Guid.NewGuid(), new RequestProposalRevisionRequestDto()));
         Assert.IsType<UnauthorizedResult>(await controller.Publish(Guid.NewGuid(), new PublishProposalRequestDto()));
         Assert.IsType<UnauthorizedResult>(await controller.Update(Guid.NewGuid(), new UpdateProposalRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.ReopenForEditing(Guid.NewGuid()));
         Assert.IsType<UnauthorizedResult>(await controller.UpdateScene(Guid.NewGuid(), new UpdateProposalSceneRequestDto()));
         Assert.Equal(0, service.CallCount);
     }

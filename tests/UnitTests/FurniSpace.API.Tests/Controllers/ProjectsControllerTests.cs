@@ -906,6 +906,7 @@ public sealed class ProjectsControllerTests
         private readonly ServiceResult<ProjectTargetCompletionDateDto> _updateTargetCompletionDateResult;
         private readonly ServiceResult<ProjectStatusUpdateDto> _updateStatusResult;
         private readonly ServiceResult<ProjectRejectionDto> _rejectResult;
+        private readonly ServiceResult<ProjectCompletionDto> _completeResult;
         private readonly ServiceResult<ReopenProposalResponseDto> _reopenProposalResult;
         private readonly ServiceResult<ProjectDesignerAssignmentDto> _assignDesignerResult;
         private readonly ServiceResult<ProjectsByUserResponseDto> _projectsByUserResult;
@@ -920,6 +921,7 @@ public sealed class ProjectsControllerTests
             ServiceResult<ProjectTargetCompletionDateDto>? updateTargetCompletionDateResult = null,
             ServiceResult<ProjectStatusUpdateDto>? updateStatusResult = null,
             ServiceResult<ProjectRejectionDto>? rejectResult = null,
+            ServiceResult<ProjectCompletionDto>? completeResult = null,
             ServiceResult<ReopenProposalResponseDto>? reopenProposalResult = null,
             ServiceResult<ProjectDesignerAssignmentDto>? assignDesignerResult = null,
             ServiceResult<ProjectsByUserResponseDto>? projectsByUserResult = null)
@@ -938,6 +940,8 @@ public sealed class ProjectsControllerTests
                 ServiceResult<ProjectStatusUpdateDto>.Success(new ProjectStatusUpdateDto());
             _rejectResult = rejectResult ??
                 ServiceResult<ProjectRejectionDto>.Success(new ProjectRejectionDto());
+            _completeResult = completeResult ??
+                ServiceResult<ProjectCompletionDto>.Success(new ProjectCompletionDto());
             _reopenProposalResult = reopenProposalResult ??
                 ServiceResult<ReopenProposalResponseDto>.Success(new ReopenProposalResponseDto());
             _assignDesignerResult = assignDesignerResult ??
@@ -1050,6 +1054,16 @@ public sealed class ProjectsControllerTests
             CurrentUserId = currentUserId;
             RejectRequest = request;
             return Task.FromResult(_rejectResult);
+        }
+
+        public Task<ServiceResult<ProjectCompletionDto>> CompleteAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_completeResult);
         }
 
         public Task<ServiceResult<ProjectDesignerAssignmentDto>> AssignDesignerAsync(

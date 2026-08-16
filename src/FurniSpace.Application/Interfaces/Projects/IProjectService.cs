@@ -51,6 +51,11 @@ public interface IProjectService
         RejectProjectRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectCompletionDto>> CompleteAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectDesignerAssignmentDto>> AssignDesignerAsync(
         Guid projectId,
         Guid currentUserId,

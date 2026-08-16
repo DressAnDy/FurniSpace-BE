@@ -1007,6 +1007,71 @@ public sealed class ProjectService : IProjectService
             "Project request rejected.");
     }
 
+    public async Task<ServiceResult<ProjectCompletionDto>> CompleteAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectCompletionDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectCompletionDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectCompletionDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
+                roleName,
+                project.AssignedSalesId,
+                currentUserId))
+        {
+            return ServiceResult<ProjectCompletionDto>.Forbidden(
+                "You do not have permission to complete this project.");
+        }
+
+        if (project.Status == ProjectStatus.COMPLETED)
+        {
+            return ServiceResult<ProjectCompletionDto>.Success(
+                ToProjectCompletionDto(project, project.CompletedAt ?? project.UpdatedAt ?? DateTime.UtcNow),
+                "Project completed successfully.");
+        }
+
+        if (project.Status != ProjectStatus.DELIVERED)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.ProjectNotDelivered,
+                "Project must be DELIVERED before completion.");
+        }
+
+        var validationError = await ValidateProjectCompletionOrderReadinessAsync(projectId, cancellationToken);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        var now = DateTime.UtcNow;
+        project.Status = ProjectStatus.COMPLETED;
+        project.CompletedAt = now;
+        project.UpdatedAt = now;
+        _projects.Update(project);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+        await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
+
+        return ServiceResult<ProjectCompletionDto>.Success(
+            ToProjectCompletionDto(project, now),
+            "Project completed successfully.");
+    }
+
     public async Task<ServiceResult<ReopenProposalResponseDto>> ReopenProposalAsync(
         Guid projectId,
         Guid currentUserId,
@@ -1792,6 +1857,11 @@ public sealed class ProjectService : IProjectService
         return ServiceResult<ReopenProposalResponseDto>.Failure(Error.BadRequest(code, message));
     }
 
+    private static ServiceResult<ProjectCompletionDto> ProjectCompletionFailure(string code, string message)
+    {
+        return ServiceResult<ProjectCompletionDto>.Failure(Error.BadRequest(code, message));
+    }
+
     private static ProjectStatus ResolveDesignerAssignmentStatus(ProjectSpaceDataStatus spaceDataStatus)
     {
         return spaceDataStatus == ProjectSpaceDataStatus.SUFFICIENT
@@ -1817,6 +1887,63 @@ public sealed class ProjectService : IProjectService
     private static string? NormalizeOptional(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private async Task<ServiceResult<ProjectCompletionDto>?> ValidateProjectCompletionOrderReadinessAsync(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var projectOrders = await _orders.GetByProjectAsync(projectId, cancellationToken);
+        var relatedOrder = projectOrders
+            .FirstOrDefault(order => order.Status != OrderStatus.CANCELLED);
+        if (relatedOrder is null)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.RelatedOrderNotFound,
+                "Project must have a related order before completion.");
+        }
+
+        if (relatedOrder.Status != OrderStatus.COMPLETED)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.RelatedOrderNotCompleted,
+                "Related order must be completed before project completion.");
+        }
+
+        var order = await _orders.GetByIdAsync(relatedOrder.OrderId, cancellationToken);
+        if (order is null)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.RelatedOrderNotFound,
+                "Project must have a related order before completion.");
+        }
+
+        if (!order.CustomerConfirmedDeliveryAt.HasValue)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.DeliveryNotConfirmed,
+                "Customer delivery confirmation is required before project completion.");
+        }
+
+        var items = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+        if (!OrderFinancialCompletionEvaluator.AreDeliverableItemsDelivered(items))
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.DeliveryNotConfirmed,
+                "Customer delivery confirmation is required before project completion.");
+        }
+
+        return null;
+    }
+
+    private static ProjectCompletionDto ToProjectCompletionDto(Project project, DateTime completedAt)
+    {
+        return new ProjectCompletionDto
+        {
+            ProjectId = project.ProjectId,
+            ProjectStatus = project.Status?.ToString() ?? string.Empty,
+            CompletedAt = completedAt
+        };
     }
 
 }

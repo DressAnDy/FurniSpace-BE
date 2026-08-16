@@ -18,6 +18,7 @@ using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Search;
+using FurniSpace.Infrastructure.ReadModels.Orders;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -3273,6 +3274,102 @@ public sealed class ProjectServiceTests
             SearchAggregationRequest request,
             CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("Elasticsearch unavailable.");
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenOrderCompleted_CompletesProjectAndNotifies()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = salesId,
+            ProjectName = "Delivered project",
+            Status = ProjectStatus.DELIVERED
+        };
+        var repository = new FakeProjectRepository("SALES", [project]);
+        var orders = new FakeProjectOrderRepository
+        {
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = projectId,
+                Status = OrderStatus.COMPLETED,
+                CustomerConfirmedDeliveryAt = DateTime.UtcNow
+            },
+            ProjectOrders =
+            [
+                new OrderListItemReadModel
+                {
+                    OrderId = orderId,
+                    ProjectId = projectId,
+                    Status = OrderStatus.COMPLETED
+                }
+            ],
+            OrderItems =
+            [
+                new OrderItem
+                {
+                    OrderId = orderId,
+                    ProductVersionId = Guid.NewGuid(),
+                    Quantity = 1,
+                    Status = OrderItemStatus.DELIVERED
+                }
+            ]
+        };
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new ProjectServiceFactoryOptions { Dispatcher = dispatcher, Orders = orders });
+
+        var result = await service.CompleteAsync(projectId, salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectStatus.COMPLETED, project.Status);
+        Assert.NotNull(project.CompletedAt);
+        Assert.Equal(NotificationType.ProjectStatusChanged, dispatcher.LastType);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenOrderNotCompleted_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = salesId,
+            ProjectName = "Delivered project",
+            Status = ProjectStatus.DELIVERED
+        };
+        var repository = new FakeProjectRepository("SALES", [project]);
+        var orders = new FakeProjectOrderRepository
+        {
+            ProjectOrders =
+            [
+                new OrderListItemReadModel
+                {
+                    OrderId = orderId,
+                    ProjectId = projectId,
+                    Status = OrderStatus.FINAL_PAYMENT_PENDING
+                }
+            ]
+        };
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            new ProjectServiceFactoryOptions { Orders = orders });
+
+        var result = await service.CompleteAsync(projectId, salesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectErrorCodes.RelatedOrderNotCompleted, result.ErrorCode);
     }
 
     internal sealed class FakeProjectRepository : IProjectRepository

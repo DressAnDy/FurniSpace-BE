@@ -483,7 +483,7 @@ public sealed class OrderService : IOrderService
         {
             return ServiceResult<OrderCompletionDto>.Success(
                 ToCompletionDto(order, project, order.UpdatedAt ?? DateTime.UtcNow),
-                "Order and project completed successfully.");
+                "Order completed successfully.");
         }
 
         var validationError = await ValidateCompletionReadinessAsync<OrderCompletionDto>(
@@ -497,10 +497,7 @@ public sealed class OrderService : IOrderService
         var now = DateTime.UtcNow;
         order.Status = OrderStatus.COMPLETED;
         order.UpdatedAt = now;
-        project.Status = ProjectStatus.COMPLETED;
-        project.UpdatedAt = now;
         _orders.Update(order);
-        _projects.Update(project);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         await OrderNotificationSupport.TryDispatchCompletedAsync(
@@ -509,16 +506,10 @@ public sealed class OrderService : IOrderService
             order,
             project,
             cancellationToken);
-        await OrderNotificationSupport.TryDispatchProjectStatusChangedAsync(
-            _notifications,
-            _logger,
-            project,
-            OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
-            cancellationToken);
 
         return ServiceResult<OrderCompletionDto>.Success(
             ToCompletionDto(order, project, now),
-            "Order and project completed successfully.");
+            "Order completed successfully.");
     }
 
     private async Task<ServiceResult<T>?> ValidateCompletionReadinessAsync<T>(
@@ -540,7 +531,7 @@ public sealed class OrderService : IOrderService
         }
 
         var items = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
-        if (items.Where(IsActiveDeliveryItem).Any(item => item.Status != OrderItemStatus.DELIVERED))
+        if (!OrderFinancialCompletionEvaluator.AreDeliverableItemsDelivered(items))
         {
             return BadRequest<T>(
                 OrderErrorCodes.DeliveryNotCompleted,

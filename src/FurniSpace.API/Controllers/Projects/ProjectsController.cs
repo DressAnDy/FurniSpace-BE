@@ -233,6 +233,21 @@ public sealed class ProjectsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("{projectId:guid}/complete")]
+    public async Task<IActionResult> Complete(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.CompleteAsync(projectId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
     [HttpPost("{projectId:guid}/reopen-proposal")]
     public async Task<IActionResult> ReopenProposal(

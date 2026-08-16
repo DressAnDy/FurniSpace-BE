@@ -826,9 +826,9 @@ public sealed class OrderServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal(OrderStatus.COMPLETED, order.Status);
-        Assert.Equal(ProjectStatus.COMPLETED, project.Status);
+        Assert.Equal(ProjectStatus.DELIVERED, project.Status);
         Assert.Contains(NotificationType.OrderCompleted, dispatcher.Types);
-        Assert.Contains(NotificationType.ProjectStatusChanged, dispatcher.Types);
+        Assert.DoesNotContain(NotificationType.ProjectStatusChanged, dispatcher.Types);
     }
 
     private static OrderService BuildService(OrderServiceTestOptions? options = null)

@@ -330,7 +330,7 @@ public sealed class DashboardQueueService : IDashboardQueueService
     }
 
     private static DashboardQueueResponseDto BuildQueueResponse(
-        IReadOnlyList<DashboardQueueItemDto> items,
+        List<DashboardQueueItemDto> items,
         DashboardQueueQueryDto query)
     {
         var counts = items

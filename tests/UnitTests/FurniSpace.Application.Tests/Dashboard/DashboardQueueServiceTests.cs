@@ -165,6 +165,272 @@ public sealed class DashboardQueueServiceTests
         Assert.Equal("Review production request", result.Data.Items[0].Action);
     }
 
+    [Fact]
+    public async Task GetSalesActionQueueAsync_EmptyUser_ReturnsUnauthorized()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository(),
+            new FakeProjectRepository { RoleName = "SALES" });
+
+        var result = await service.GetSalesActionQueueAsync(Guid.Empty, new DashboardQueueQueryDto());
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Theory]
+    [InlineData(0, 20)]
+    [InlineData(1, 0)]
+    [InlineData(1, 101)]
+    public async Task GetSalesActionQueueAsync_InvalidPaging_ReturnsBadRequest(int page, int limit)
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository(),
+            new FakeProjectRepository { RoleName = "SALES" });
+
+        var result = await service.GetSalesActionQueueAsync(
+            Guid.NewGuid(),
+            new DashboardQueueQueryDto { Page = page, Limit = limit });
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Theory]
+    [InlineData("scope", "invalid")]
+    [InlineData("dateRange", "yesterday")]
+    [InlineData("priority", "URGENT")]
+    public async Task GetSalesActionQueueAsync_InvalidFilters_ReturnsBadRequest(string field, string value)
+    {
+        var query = new DashboardQueueQueryDto();
+        if (field == "scope")
+        {
+            query.Scope = value;
+        }
+        else if (field == "dateRange")
+        {
+            query.DateRange = value;
+        }
+        else
+        {
+            query.Priority = value;
+        }
+
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository(),
+            new FakeProjectRepository { RoleName = "SALES" });
+
+        var result = await service.GetSalesActionQueueAsync(Guid.NewGuid(), query);
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task GetSalesActionQueueAsync_AdminRole_IsAllowed()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                SalesRows =
+                [
+                    new DashboardProjectQueueRowReadModel
+                    {
+                        ProjectId = Guid.NewGuid(),
+                        ProjectName = "Admin view",
+                        Status = ProjectStatus.SUBMITTED,
+                        CustomerName = "C",
+                        UpdatedAt = DateTime.UtcNow
+                    }
+                ]
+            },
+            new FakeProjectRepository { RoleName = "ADMIN" });
+
+        var result = await service.GetSalesActionQueueAsync(
+            Guid.NewGuid(),
+            new DashboardQueueQueryDto { Scope = "all", Priority = "HIGH" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+    }
+
+    [Fact]
+    public async Task GetSalesActionQueueAsync_FiltersByPriority()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                SalesRows =
+                [
+                    new DashboardProjectQueueRowReadModel
+                    {
+                        ProjectId = Guid.NewGuid(),
+                        ProjectName = "High",
+                        Status = ProjectStatus.SUBMITTED,
+                        CustomerName = "C",
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new DashboardProjectQueueRowReadModel
+                    {
+                        ProjectId = Guid.NewGuid(),
+                        ProjectName = "Low",
+                        Status = ProjectStatus.MEASUREMENT_REQUIRED,
+                        CustomerName = "C",
+                        UpdatedAt = DateTime.UtcNow
+                    }
+                ]
+            },
+            new FakeProjectRepository { RoleName = "SALES" });
+
+        var result = await service.GetSalesActionQueueAsync(
+            Guid.NewGuid(),
+            new DashboardQueueQueryDto { Priority = "LOW" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal("Follow design progress", result.Data.Items[0].Action);
+    }
+
+    [Fact]
+    public async Task GetSalesKpisAsync_WhenForbidden_MapsError()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository(),
+            new FakeProjectRepository { RoleName = "DESIGNER" });
+
+        var result = await service.GetSalesKpisAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetDesignerKpisAsync_ReturnsAggregates()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                DesignerKpis = new DesignerDashboardKpisReadModel
+                {
+                    MeasurementDue = 1,
+                    ProposalsInProgress = 2,
+                    RevisionRequested = 3,
+                    OverdueTasks = 4
+                }
+            },
+            new FakeProjectRepository { RoleName = "DESIGNER" });
+
+        var result = await service.GetDesignerKpisAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, result.Data!.MeasurementDue);
+        Assert.Equal(2, result.Data.ProposalsInProgress);
+        Assert.Equal(3, result.Data.RevisionRequested);
+        Assert.Equal(4, result.Data.OverdueTasks);
+    }
+
+    [Fact]
+    public async Task GetProductionKpisAsync_ReturnsAggregates()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                ProductionKpis = new ProductionDashboardKpisReadModel
+                {
+                    PendingReview = 1,
+                    InProduction = 2,
+                    ReadyToComplete = 3,
+                    OverdueTasks = 4
+                }
+            },
+            new FakeProjectRepository { RoleName = "PRODUCTION" });
+
+        var result = await service.GetProductionKpisAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, result.Data!.PendingReview);
+        Assert.Equal(2, result.Data.InProduction);
+        Assert.Equal(3, result.Data.ReadyToComplete);
+        Assert.Equal(4, result.Data.OverdueTasks);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_UsesStoredPriorityAndOverdueBoost()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                ProductionRows =
+                [
+                    new DashboardProductionQueueRowReadModel
+                    {
+                        ProductionRequestId = Guid.NewGuid(),
+                        ProjectId = Guid.NewGuid(),
+                        ProjectName = "Overdue job",
+                        CustomerName = "Buyer",
+                        Status = ProductionRequestStatus.FEASIBLE,
+                        Priority = "medium",
+                        EstimatedCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2)),
+                        CreatedAt = DateTime.UtcNow
+                    }
+                ]
+            },
+            new FakeProjectRepository { RoleName = "PRODUCTION" });
+
+        var result = await service.GetProductionQueueAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("HIGH", result.Data!.Items[0].Priority);
+        Assert.Equal("OVERDUE", result.Data.Items[0].DueBucket);
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_InvalidStoredPriority_FallsBackToResolved()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                ProductionRows =
+                [
+                    new DashboardProductionQueueRowReadModel
+                    {
+                        ProductionRequestId = Guid.NewGuid(),
+                        ProjectId = Guid.NewGuid(),
+                        ProjectName = "Job",
+                        CustomerName = "Buyer",
+                        Status = ProductionRequestStatus.PENDING_REVIEW,
+                        Priority = "weird",
+                        CreatedAt = DateTime.UtcNow
+                    }
+                ]
+            },
+            new FakeProjectRepository { RoleName = "PRODUCTION" });
+
+        var result = await service.GetProductionQueueAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
+
+        Assert.Equal("HIGH", result.Data!.Items[0].Priority);
+    }
+
+    [Fact]
+    public async Task GetDesignerKpisAsync_WhenForbidden_MapsError()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository(),
+            new FakeProjectRepository { RoleName = "SALES" });
+
+        var result = await service.GetDesignerKpisAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProductionKpisAsync_WhenForbidden_MapsError()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository(),
+            new FakeProjectRepository { RoleName = "SALES" });
+
+        var result = await service.GetProductionKpisAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
     private sealed class FakeDashboardQueueReadRepository : IDashboardQueueReadRepository
     {
         public IReadOnlyList<DashboardProjectQueueRowReadModel> SalesRows { get; init; } = [];

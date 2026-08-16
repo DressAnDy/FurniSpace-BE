@@ -23,150 +23,18 @@ public static class DashboardNextActionResolver
         DateTime? customerConfirmedDeliveryAt,
         string? dueBucket)
     {
-        if (orderStatus == OrderStatus.DEPOSIT_PENDING && orderId.HasValue)
+        var orderAction = TryResolveSalesOrderAction(
+            orderId,
+            orderStatus,
+            remainingAmount,
+            customerConfirmedDeliveryAt,
+            dueBucket);
+        if (orderAction is not null)
         {
-            return new DashboardNextActionResult(
-                GroupOrderAndPayment,
-                orderStatus.ToString()!,
-                "Follow up deposit",
-                DashboardActionPaths.Order(orderId.Value),
-                BoostIfOverdue(PriorityHigh, dueBucket),
-                "Payment follow-up");
+            return orderAction;
         }
 
-        if (orderStatus == OrderStatus.FINAL_PAYMENT_PENDING && orderId.HasValue)
-        {
-            var remaining = remainingAmount ?? 0m;
-            if (remaining > 0m)
-            {
-                return new DashboardNextActionResult(
-                    GroupOrderAndPayment,
-                    orderStatus.ToString()!,
-                    "Create Remaining Payment",
-                    DashboardActionPaths.Order(orderId.Value),
-                    BoostIfOverdue(PriorityHigh, dueBucket),
-                    "Remaining unpaid");
-            }
-
-            if (!customerConfirmedDeliveryAt.HasValue)
-            {
-                return new DashboardNextActionResult(
-                    GroupOrderAndPayment,
-                    orderStatus.ToString()!,
-                    "Waiting delivery confirm",
-                    DashboardActionPaths.Order(orderId.Value),
-                    BoostIfOverdue(PriorityMedium, dueBucket),
-                    "Waiting customer confirm");
-            }
-        }
-
-        return projectStatus switch
-        {
-            ProjectStatus.SUBMITTED => new DashboardNextActionResult(
-                GroupIntake,
-                projectStatus.ToString()!,
-                "Review request",
-                DashboardActionPaths.Project(projectId),
-                BoostIfOverdue(PriorityHigh, dueBucket),
-                null),
-
-            ProjectStatus.IN_CONSULTATION => new DashboardNextActionResult(
-                GroupIntake,
-                projectStatus.ToString()!,
-                "Continue consultation",
-                DashboardActionPaths.Project(projectId),
-                BoostIfOverdue(PriorityMedium, dueBucket),
-                null),
-
-            ProjectStatus.NEED_BASIC_INFORMATION => new DashboardNextActionResult(
-                GroupIntake,
-                projectStatus.ToString()!,
-                "Waiting customer info",
-                DashboardActionPaths.Project(projectId),
-                BoostIfOverdue(PriorityMedium, dueBucket),
-                "Waiting customer"),
-
-            ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT => new DashboardNextActionResult(
-                GroupIntake,
-                projectStatus.ToString()!,
-                "Assign designer",
-                DashboardActionPaths.Project(projectId),
-                BoostIfOverdue(PriorityHigh, dueBucket),
-                null),
-
-            ProjectStatus.MEASUREMENT_REQUIRED or ProjectStatus.SPACE_VERIFIED => new DashboardNextActionResult(
-                GroupDesign,
-                projectStatus.ToString()!,
-                "Follow design progress",
-                DashboardActionPaths.Project(projectId),
-                BoostIfOverdue(PriorityLow, dueBucket),
-                null),
-
-            ProjectStatus.PROPOSAL_CONSULTING or ProjectStatus.PROPOSAL_SELECTED => new DashboardNextActionResult(
-                GroupProposalAndQuotation,
-                projectStatus.ToString()!,
-                "Manage proposal",
-                DashboardActionPaths.ProjectProposals(projectId),
-                BoostIfOverdue(PriorityMedium, dueBucket),
-                null),
-
-            ProjectStatus.QUOTATION_SENT => new DashboardNextActionResult(
-                GroupProposalAndQuotation,
-                projectStatus.ToString()!,
-                "Waiting quotation accept",
-                DashboardActionPaths.ProjectQuotations(projectId),
-                BoostIfOverdue(PriorityMedium, dueBucket),
-                "Waiting customer"),
-
-            ProjectStatus.QUOTATION_REVISION_REQUESTED => new DashboardNextActionResult(
-                GroupProposalAndQuotation,
-                projectStatus.ToString()!,
-                "Revise quotation",
-                DashboardActionPaths.ProjectQuotations(projectId),
-                BoostIfOverdue(PriorityHigh, dueBucket),
-                null),
-
-            ProjectStatus.ORDER_CONFIRMED or ProjectStatus.IN_PRODUCTION => new DashboardNextActionResult(
-                GroupOrderAndPayment,
-                projectStatus.ToString()!,
-                "Monitor order",
-                orderId.HasValue ? DashboardActionPaths.Order(orderId.Value) : DashboardActionPaths.Project(projectId),
-                BoostIfOverdue(PriorityLow, dueBucket),
-                null),
-
-            ProjectStatus.READY_FOR_DELIVERY or ProjectStatus.DELIVERING or ProjectStatus.DELIVERED =>
-                new DashboardNextActionResult(
-                    GroupDelivery,
-                    projectStatus.ToString()!,
-                    "Monitor delivery",
-                    orderId.HasValue ? DashboardActionPaths.Order(orderId.Value) : DashboardActionPaths.Project(projectId),
-                    BoostIfOverdue(PriorityMedium, dueBucket),
-                    null),
-
-            ProjectStatus.COMPLETED => new DashboardNextActionResult(
-                GroupDelivery,
-                projectStatus.ToString()!,
-                "Complete",
-                DashboardActionPaths.Project(projectId),
-                PriorityLow,
-                null),
-
-            ProjectStatus.REJECTED => new DashboardNextActionResult(
-                GroupIntake,
-                projectStatus.ToString()!,
-                "Review rejected request",
-                DashboardActionPaths.Project(projectId),
-                PriorityLow,
-                null),
-
-            _ => new DashboardNextActionResult(
-                GroupIntake,
-                projectStatus?.ToString() ?? "UNKNOWN",
-                "Review project",
-                DashboardActionPaths.Project(projectId),
-                BoostIfOverdue(PriorityMedium, dueBucket),
-                null)
-        };
+        return ResolveSalesByProjectStatus(projectStatus, projectId, orderId, dueBucket);
     }
 
     public static DashboardNextActionResult ResolveDesigner(
@@ -294,6 +162,181 @@ public static class DashboardNextActionResolver
                 BoostIfOverdue(PriorityMedium, dueBucket),
                 null)
         };
+    }
+
+    private static DashboardNextActionResult? TryResolveSalesOrderAction(
+        Guid? orderId,
+        OrderStatus? orderStatus,
+        decimal? remainingAmount,
+        DateTime? customerConfirmedDeliveryAt,
+        string? dueBucket)
+    {
+        if (!orderId.HasValue)
+        {
+            return null;
+        }
+
+        if (orderStatus == OrderStatus.DEPOSIT_PENDING)
+        {
+            return new DashboardNextActionResult(
+                GroupOrderAndPayment,
+                orderStatus.ToString()!,
+                "Follow up deposit",
+                DashboardActionPaths.Order(orderId.Value),
+                BoostIfOverdue(PriorityHigh, dueBucket),
+                "Payment follow-up");
+        }
+
+        if (orderStatus != OrderStatus.FINAL_PAYMENT_PENDING)
+        {
+            return null;
+        }
+
+        if ((remainingAmount ?? 0m) > 0m)
+        {
+            return new DashboardNextActionResult(
+                GroupOrderAndPayment,
+                orderStatus.ToString()!,
+                "Create Remaining Payment",
+                DashboardActionPaths.Order(orderId.Value),
+                BoostIfOverdue(PriorityHigh, dueBucket),
+                "Remaining unpaid");
+        }
+
+        if (!customerConfirmedDeliveryAt.HasValue)
+        {
+            return new DashboardNextActionResult(
+                GroupOrderAndPayment,
+                orderStatus.ToString()!,
+                "Waiting delivery confirm",
+                DashboardActionPaths.Order(orderId.Value),
+                BoostIfOverdue(PriorityMedium, dueBucket),
+                "Waiting customer confirm");
+        }
+
+        return null;
+    }
+
+    private static DashboardNextActionResult ResolveSalesByProjectStatus(
+        ProjectStatus? projectStatus,
+        Guid projectId,
+        Guid? orderId,
+        string? dueBucket)
+    {
+        return projectStatus switch
+        {
+            ProjectStatus.SUBMITTED => new DashboardNextActionResult(
+                GroupIntake,
+                projectStatus.ToString()!,
+                "Review request",
+                DashboardActionPaths.Project(projectId),
+                BoostIfOverdue(PriorityHigh, dueBucket),
+                null),
+
+            ProjectStatus.IN_CONSULTATION => new DashboardNextActionResult(
+                GroupIntake,
+                projectStatus.ToString()!,
+                "Continue consultation",
+                DashboardActionPaths.Project(projectId),
+                BoostIfOverdue(PriorityMedium, dueBucket),
+                null),
+
+            ProjectStatus.NEED_BASIC_INFORMATION => new DashboardNextActionResult(
+                GroupIntake,
+                projectStatus.ToString()!,
+                "Waiting customer info",
+                DashboardActionPaths.Project(projectId),
+                BoostIfOverdue(PriorityMedium, dueBucket),
+                "Waiting customer"),
+
+            ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT => new DashboardNextActionResult(
+                GroupIntake,
+                projectStatus.ToString()!,
+                "Assign designer",
+                DashboardActionPaths.Project(projectId),
+                BoostIfOverdue(PriorityHigh, dueBucket),
+                null),
+
+            ProjectStatus.MEASUREMENT_REQUIRED or ProjectStatus.SPACE_VERIFIED => new DashboardNextActionResult(
+                GroupDesign,
+                projectStatus.ToString()!,
+                "Follow design progress",
+                DashboardActionPaths.Project(projectId),
+                BoostIfOverdue(PriorityLow, dueBucket),
+                null),
+
+            ProjectStatus.PROPOSAL_CONSULTING or ProjectStatus.PROPOSAL_SELECTED => new DashboardNextActionResult(
+                GroupProposalAndQuotation,
+                projectStatus.ToString()!,
+                "Manage proposal",
+                DashboardActionPaths.ProjectProposals(projectId),
+                BoostIfOverdue(PriorityMedium, dueBucket),
+                null),
+
+            ProjectStatus.QUOTATION_SENT => new DashboardNextActionResult(
+                GroupProposalAndQuotation,
+                projectStatus.ToString()!,
+                "Waiting quotation accept",
+                DashboardActionPaths.ProjectQuotations(projectId),
+                BoostIfOverdue(PriorityMedium, dueBucket),
+                "Waiting customer"),
+
+            ProjectStatus.QUOTATION_REVISION_REQUESTED => new DashboardNextActionResult(
+                GroupProposalAndQuotation,
+                projectStatus.ToString()!,
+                "Revise quotation",
+                DashboardActionPaths.ProjectQuotations(projectId),
+                BoostIfOverdue(PriorityHigh, dueBucket),
+                null),
+
+            ProjectStatus.ORDER_CONFIRMED or ProjectStatus.IN_PRODUCTION => new DashboardNextActionResult(
+                GroupOrderAndPayment,
+                projectStatus.ToString()!,
+                "Monitor order",
+                ResolveOrderOrProjectPath(orderId, projectId),
+                BoostIfOverdue(PriorityLow, dueBucket),
+                null),
+
+            ProjectStatus.READY_FOR_DELIVERY or ProjectStatus.DELIVERING or ProjectStatus.DELIVERED =>
+                new DashboardNextActionResult(
+                    GroupDelivery,
+                    projectStatus.ToString()!,
+                    "Monitor delivery",
+                    ResolveOrderOrProjectPath(orderId, projectId),
+                    BoostIfOverdue(PriorityMedium, dueBucket),
+                    null),
+
+            ProjectStatus.COMPLETED => new DashboardNextActionResult(
+                GroupDelivery,
+                projectStatus.ToString()!,
+                "Complete",
+                DashboardActionPaths.Project(projectId),
+                PriorityLow,
+                null),
+
+            ProjectStatus.REJECTED => new DashboardNextActionResult(
+                GroupIntake,
+                projectStatus.ToString()!,
+                "Review rejected request",
+                DashboardActionPaths.Project(projectId),
+                PriorityLow,
+                null),
+
+            _ => new DashboardNextActionResult(
+                GroupIntake,
+                projectStatus?.ToString() ?? "UNKNOWN",
+                "Review project",
+                DashboardActionPaths.Project(projectId),
+                BoostIfOverdue(PriorityMedium, dueBucket),
+                null)
+        };
+    }
+
+    private static string ResolveOrderOrProjectPath(Guid? orderId, Guid projectId)
+    {
+        return orderId.HasValue
+            ? DashboardActionPaths.Order(orderId.Value)
+            : DashboardActionPaths.Project(projectId);
     }
 
     private static string BoostIfOverdue(string priority, string? dueBucket)

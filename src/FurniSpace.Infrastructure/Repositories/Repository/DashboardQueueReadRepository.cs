@@ -218,60 +218,79 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 request.Status.HasValue &&
                 ActiveProductionStatuses.Contains(request.Status.Value));
 
+        requests = ApplyProductionScope(requests, filter);
+        requests = ApplyProductionSearch(requests, filter.Search);
+        requests = ApplyProductionDateRange(requests, filter.DateRange, filter.UtcNow);
+        return requests;
+    }
+
+    private static IQueryable<Domain.Entities.ProductionRequest> ApplyProductionScope(
+        IQueryable<Domain.Entities.ProductionRequest> requests,
+        DashboardQueueFilterReadModel filter)
+    {
         var scope = NormalizeScope(filter.Scope);
         if (string.Equals(scope, "mine", StringComparison.OrdinalIgnoreCase))
         {
-            requests = requests.Where(request => request.AssignedTo == filter.CurrentUserId);
-        }
-        else if (!IsAdmin(filter.CurrentUserRole) &&
-                 !string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase))
-        {
-            // team: all active production requests visible to PRODUCTION/ADMIN
-        }
-        else if (!IsAdmin(filter.CurrentUserRole) &&
-                 string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase))
-        {
-            // non-admin "all" treated as team/global production queue
+            return requests.Where(request => request.AssignedTo == filter.CurrentUserId);
         }
 
-        if (!string.IsNullOrWhiteSpace(filter.Search))
+        return requests;
+    }
+
+    private IQueryable<Domain.Entities.ProductionRequest> ApplyProductionSearch(
+        IQueryable<Domain.Entities.ProductionRequest> requests,
+        string? search)
+    {
+        if (string.IsNullOrWhiteSpace(search))
         {
-            var pattern = $"%{filter.Search.Trim()}%";
-            requests = requests.Where(request =>
-                _db.ProjectSet.Any(project =>
-                    project.ProjectId == request.ProjectId &&
-                    (EF.Functions.ILike(project.ProjectName, pattern) ||
-                     (project.ProjectCode != null && EF.Functions.ILike(project.ProjectCode, pattern)) ||
-                     _db.AccountSet.Any(account =>
-                         account.AccountId == project.CustomerId &&
-                         EF.Functions.ILike(account.FullName, pattern)))));
+            return requests;
         }
 
-        if (!string.IsNullOrWhiteSpace(filter.DateRange))
+        var pattern = $"%{search.Trim()}%";
+        return requests.Where(request =>
+            _db.ProjectSet.Any(project =>
+                project.ProjectId == request.ProjectId &&
+                (EF.Functions.ILike(project.ProjectName, pattern) ||
+                 (project.ProjectCode != null && EF.Functions.ILike(project.ProjectCode, pattern)) ||
+                 _db.AccountSet.Any(account =>
+                     account.AccountId == project.CustomerId &&
+                     EF.Functions.ILike(account.FullName, pattern)))));
+    }
+
+    private static IQueryable<Domain.Entities.ProductionRequest> ApplyProductionDateRange(
+        IQueryable<Domain.Entities.ProductionRequest> requests,
+        string? dateRange,
+        DateTime utcNow)
+    {
+        if (string.IsNullOrWhiteSpace(dateRange))
         {
-            var today = DateOnly.FromDateTime(filter.UtcNow);
-            var range = filter.DateRange.Trim();
-            if (string.Equals(range, "today", StringComparison.OrdinalIgnoreCase))
-            {
-                requests = requests.Where(request =>
-                    !request.EstimatedCompletionDate.HasValue ||
-                    request.EstimatedCompletionDate == today);
-            }
-            else if (string.Equals(range, "thisWeek", StringComparison.OrdinalIgnoreCase))
-            {
-                var start = today.AddDays(-(int)today.DayOfWeek);
-                var end = start.AddDays(6);
-                requests = requests.Where(request =>
-                    !request.EstimatedCompletionDate.HasValue ||
-                    (request.EstimatedCompletionDate >= start && request.EstimatedCompletionDate <= end));
-            }
-            else if (string.Equals(range, "thisMonth", StringComparison.OrdinalIgnoreCase))
-            {
-                requests = requests.Where(request =>
-                    !request.EstimatedCompletionDate.HasValue ||
-                    (request.EstimatedCompletionDate!.Value.Year == today.Year &&
-                     request.EstimatedCompletionDate.Value.Month == today.Month));
-            }
+            return requests;
+        }
+
+        var today = DateOnly.FromDateTime(utcNow);
+        var range = dateRange.Trim();
+        if (string.Equals(range, "today", StringComparison.OrdinalIgnoreCase))
+        {
+            return requests.Where(request =>
+                !request.EstimatedCompletionDate.HasValue ||
+                request.EstimatedCompletionDate == today);
+        }
+
+        if (string.Equals(range, "thisWeek", StringComparison.OrdinalIgnoreCase))
+        {
+            var start = today.AddDays(-(int)today.DayOfWeek);
+            var end = start.AddDays(6);
+            return requests.Where(request =>
+                !request.EstimatedCompletionDate.HasValue ||
+                (request.EstimatedCompletionDate >= start && request.EstimatedCompletionDate <= end));
+        }
+
+        if (string.Equals(range, "thisMonth", StringComparison.OrdinalIgnoreCase))
+        {
+            return requests.Where(request =>
+                !request.EstimatedCompletionDate.HasValue ||
+                (request.EstimatedCompletionDate.Value.Year == today.Year &&
+                 request.EstimatedCompletionDate.Value.Month == today.Month));
         }
 
         return requests;
@@ -495,7 +514,7 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         {
             return projects.Where(project =>
                 !project.TargetCompletionDate.HasValue ||
-                (project.TargetCompletionDate!.Value.Year == today.Year &&
+                (project.TargetCompletionDate.Value.Year == today.Year &&
                  project.TargetCompletionDate.Value.Month == today.Month));
         }
 

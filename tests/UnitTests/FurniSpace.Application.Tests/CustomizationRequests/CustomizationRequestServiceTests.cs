@@ -1901,7 +1901,7 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
-    public async Task AcceptVersionAsync_AppliesAcceptedProductVersionToMatchingProposalItem()
+    public async Task AcceptVersionAsync_DoesNotModifyMatchingProposalItem()
     {
         var ids = CreateIds();
         var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
@@ -1914,6 +1914,7 @@ public sealed class CustomizationRequestServiceTests
         acceptedProductVersion.Depth = 50m;
         acceptedProductVersion.Material = "Dark oak";
         acceptedProductVersion.Color = "Brown";
+        acceptedProductVersion.EstimatedPrice = 2_500_000m;
         var version = CreateFeasibleVersion(ids, entity.CustomizationRequestId, acceptedProductVersion.ProductVersionId);
         version.EstimatedAdditionalCost = 500_000m;
         var proposalItem = new ProposalItem
@@ -1923,7 +1924,13 @@ public sealed class CustomizationRequestServiceTests
             SceneId = Guid.NewGuid(),
             ProductVersionId = ids.ProductVersionId,
             ItemName = "Dining Chair",
+            Material = "Oak",
+            Color = "Brown",
+            Width = 45m,
+            Height = 80m,
+            Depth = 40m,
             Quantity = 2,
+            IsCustomized = false,
             UnitPriceSnapshot = 2_000_000m,
             TotalPriceSnapshot = 4_000_000m
         };
@@ -1947,13 +1954,17 @@ public sealed class CustomizationRequestServiceTests
             });
 
         Assert.Equal(200, result.Status);
-        Assert.Equal(acceptedProductVersion.ProductVersionId, proposalItem.ProductVersionId);
-        Assert.True(proposalItem.IsCustomized);
-        Assert.Equal("Dark oak", proposalItem.Material);
+        Assert.Equal(CustomizationStatus.ACCEPTED, entity.Status);
+        Assert.Equal(2_500_000m, acceptedProductVersion.EstimatedPrice);
+        Assert.Equal(ids.ProductVersionId, proposalItem.ProductVersionId);
+        Assert.False(proposalItem.IsCustomized);
+        Assert.Equal("Oak", proposalItem.Material);
         Assert.Equal("Brown", proposalItem.Color);
-        Assert.Equal(55m, proposalItem.Width);
-        Assert.Equal(2_500_000m, proposalItem.UnitPriceSnapshot);
-        Assert.Equal(5_000_000m, proposalItem.TotalPriceSnapshot);
+        Assert.Equal(45m, proposalItem.Width);
+        Assert.Equal(80m, proposalItem.Height);
+        Assert.Equal(40m, proposalItem.Depth);
+        Assert.Equal(2_000_000m, proposalItem.UnitPriceSnapshot);
+        Assert.Equal(4_000_000m, proposalItem.TotalPriceSnapshot);
     }
 
     [Fact]

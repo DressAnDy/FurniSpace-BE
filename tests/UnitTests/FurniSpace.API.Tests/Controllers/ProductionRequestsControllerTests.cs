@@ -136,7 +136,7 @@ public sealed class ProductionRequestsControllerTests
     {
         var userId = Guid.NewGuid();
         var requestId = Guid.NewGuid();
-        var request = new StartProductionRequestDto { ActualStartDate = new DateOnly(2026, 7, 25) };
+        var request = new StartProductionRequestDto();
         var service = new FakeProductionRequestService();
         var controller = BuildController(service, userId);
 

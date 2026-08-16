@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.CustomizationRequests;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Proposals;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.CustomizationRequests.CustomizationRequestServiceConstants;
@@ -690,6 +691,19 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             finalPrice,
             now);
         CustomizationAcceptedProductVersionFactory.MarkRequestAccepted(entity, version, now);
+
+        var proposalItem = await _proposals.GetItemEntityByProposalAndProductVersionAsync(
+            entity.ProposalId,
+            entity.SourceProductVersionId,
+            cancellationToken);
+        if (proposalItem is not null)
+        {
+            ProposalItemCustomizationSnapshotApplier.ApplyAcceptedProductVersion(
+                proposalItem,
+                acceptedProductVersion,
+                now);
+        }
+
         await WithdrawOtherVersionsAsync(entity.CustomizationRequestId, version.CustomizationRequestVersionId, now, cancellationToken);
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);

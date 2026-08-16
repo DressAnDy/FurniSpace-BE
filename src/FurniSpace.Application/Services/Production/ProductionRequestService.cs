@@ -461,15 +461,6 @@ public sealed class ProductionRequestService : IProductionRequestService
 
         var now = DateTime.UtcNow;
         var actualStartDate = DateOnly.FromDateTime(now);
-        var targetStartError = ProjectTimelineDateValidator.ValidateDateOnlyWithinTarget(
-            actualStartDate,
-            project.TargetCompletionDate,
-            ProductionErrorCodes.ProductionDateExceedsTarget,
-            "Actual start date must not exceed project target completion date.");
-        if (targetStartError is not null)
-        {
-            return ServiceResult<ProductionRequestStatusDto>.Failure(targetStartError);
-        }
 
         productionRequest.Status = ProductionRequestStatus.IN_PRODUCTION;
         productionRequest.ActualStartDate = actualStartDate;
@@ -607,16 +598,6 @@ public sealed class ProductionRequestService : IProductionRequestService
         }
 
         var now = DateTime.UtcNow;
-        var actualCompletionDate = DateOnly.FromDateTime(now);
-        var targetCompletionError = ProjectTimelineDateValidator.ValidateDateOnlyWithinTarget(
-            actualCompletionDate,
-            project.TargetCompletionDate,
-            ProductionErrorCodes.ProductionDateExceedsTarget,
-            "Actual completion date must not exceed project target completion date.");
-        if (targetCompletionError is not null)
-        {
-            return ServiceResult<ProductionCompletionDto>.Failure(targetCompletionError);
-        }
 
         try
         {

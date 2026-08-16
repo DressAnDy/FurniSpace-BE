@@ -92,6 +92,11 @@ public interface IProposalService
         UpdateProposalRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ReopenProposalForEditingResponseDto>> ReopenForEditingAsync(
+        Guid proposalId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(
         Guid sceneId,
         Guid currentUserId,

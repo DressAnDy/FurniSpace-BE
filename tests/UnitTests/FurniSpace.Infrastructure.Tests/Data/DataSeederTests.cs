@@ -13,7 +13,7 @@ namespace FurniSpace.Infrastructure.Tests.Data;
 public sealed class DataSeederTests
 {
     [Fact]
-    public async Task SeedAsync_ExecutesAllSeedCommandsInWorkflowOrder()
+    public async Task SeedAsync_ExecutesRoleAndAccountSeedCommandsInOrder()
     {
         var rawCommands = new List<string>();
         var interpolatedCommands = new List<FormattableString>();
@@ -35,54 +35,25 @@ public sealed class DataSeederTests
             },
             expectedToken);
 
-        Assert.Equal(26, rawCommands.Count);
+        Assert.Single(rawCommands);
         Assert.Single(interpolatedCommands);
-        AssertTablesAreSeededInOrder(rawCommands);
+        Assert.Equal("roles", ExtractTableName(rawCommands[0]));
+
+        var rolesSeed = rawCommands[0];
+        Assert.Contains("ADMIN", rolesSeed);
+        Assert.Contains("SALES", rolesSeed);
+        Assert.Contains("DESIGNER", rolesSeed);
+        Assert.Contains("CUSTOMER", rolesSeed);
+        Assert.Contains("PRODUCTION", rolesSeed);
+        Assert.Contains("ON CONFLICT (role_name) DO NOTHING", rolesSeed);
 
         var accountSeed = interpolatedCommands[0];
         Assert.Contains("INSERT INTO accounts", accountSeed.Format);
+        Assert.Contains("admin@furnispace.local", accountSeed.Format);
         Assert.Contains("customer@furnispace.local", accountSeed.Format);
         Assert.Contains("production@furnispace.local", accountSeed.Format);
         Assert.Contains("ON CONFLICT (email) DO UPDATE", accountSeed.Format);
         Assert.Equal(6, accountSeed.ArgumentCount);
-
-        var businessTypeSeed = rawCommands.Single(command => ExtractTableName(command) == "business_types");
-        Assert.Contains("CAFE", businessTypeSeed);
-        Assert.Contains("FASHION_STORE", businessTypeSeed);
-        Assert.Contains("ON CONFLICT (code) DO NOTHING", businessTypeSeed);
-        Assert.Contains("pg_get_serial_sequence('business_types', 'id')", businessTypeSeed);
-
-        var productSeed = rawCommands.Single(command => ExtractTableName(command) == "products");
-        Assert.Contains("business_type_ids", productSeed);
-        Assert.Contains("ARRAY[1, 2, 6]::integer[]", productSeed);
-        Assert.Contains("ARRAY[5, 6, 9]::integer[]", productSeed);
-        Assert.Contains("ARRAY[1, 2, 7]::integer[]", productSeed);
-        Assert.Contains("ARRAY[3, 4, 5, 6]::integer[]", productSeed);
-        Assert.Contains("ON CONFLICT (product_code) DO UPDATE", productSeed);
-        Assert.Contains("COALESCE(products.business_type_ids, EXCLUDED.business_type_ids)", productSeed);
-
-        var quotationSeed = rawCommands.Single(command => ExtractTableName(command) == "quotations");
-        Assert.Contains("total_discount_amount", quotationSeed);
-        Assert.Contains("pre_vat_amount", quotationSeed);
-        Assert.Contains("vat_rate", quotationSeed);
-        Assert.Contains("vat_amount", quotationSeed);
-        Assert.Contains("currency", quotationSeed);
-        Assert.DoesNotContain("taxable_amount", quotationSeed);
-
-        var quotationItemSeed = rawCommands.Single(command => ExtractTableName(command) == "quotation_items");
-        Assert.Contains("gross_amount", quotationItemSeed);
-        Assert.Contains("total_amount", quotationItemSeed);
-        Assert.DoesNotContain("item_type", quotationItemSeed);
-        Assert.DoesNotContain("customization_unit_additional_cost", quotationItemSeed);
-
-        var orderSeed = rawCommands.Single(command => ExtractTableName(command) == "orders");
-        Assert.Contains("vat_rate", orderSeed);
-        Assert.Contains("vat_amount", orderSeed);
-
-        var orderItemSeed = rawCommands.Single(command => ExtractTableName(command) == "order_items");
-        Assert.Contains("subtotal_amount", orderItemSeed);
-        Assert.DoesNotContain("item_type", orderItemSeed);
-        Assert.DoesNotContain("customization_unit_additional_cost", orderItemSeed);
     }
 
     [Fact]
@@ -96,7 +67,7 @@ public sealed class DataSeederTests
                 {
                     var table = ExtractTableName(sql);
                     executedTables.Add(table);
-                    if (table == "project_schedules")
+                    if (table == "roles")
                     {
                         throw new InvalidOperationException("seed failed");
                     }
@@ -106,50 +77,7 @@ public sealed class DataSeederTests
                 (_, _) => Task.FromResult(1)));
 
         Assert.Equal("seed failed", exception.Message);
-        Assert.Equal(
-            ["roles", "business_types", "categories", "products", "projects", "product_versions", "project_areas", "project_schedules"],
-            executedTables);
-    }
-
-    private static void AssertTablesAreSeededInOrder(IReadOnlyList<string> rawCommands)
-    {
-        var tables = rawCommands.Select(ExtractTableName).ToArray();
-
-        Assert.Equal(
-            [
-                "roles",
-                "business_types",
-                "categories",
-                "products",
-                "projects",
-                "product_versions",
-                "project_areas",
-                "project_schedules",
-                "files",
-                "file_links",
-                "project_chats",
-                "project_chat_messages",
-                "proposals",
-                "proposal_scenes",
-                "proposal_scene_areas",
-                "proposal_items",
-                "proposal_scene_variants",
-                "customization_requests",
-                "quotations",
-                "quotation_items",
-                "orders",
-                "order_items",
-                "production_requests",
-                "production_items",
-                "notifications",
-                "project_reviews"
-            ],
-            tables);
-
-        foreach (var command in rawCommands)
-        {
-            Assert.Contains("ON CONFLICT", command);
-        }
+        Assert.Equal(["roles"], executedTables);
     }
 
     private static string ExtractTableName(string sql)

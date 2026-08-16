@@ -603,6 +603,12 @@ internal sealed class FakeProposalRepository : IProposalRepository
         CancellationToken cancellationToken = default)
         => Task.FromResult<ProposalItem?>(null);
 
+    public Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(
+        Guid proposalId,
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<ProposalItem?>(null);
+
     public Task AddItemAsync(ProposalItem item, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
@@ -868,6 +874,7 @@ internal sealed class FakeProjectReopenProposalRepository : IProposalRepository
     public Task<Infrastructure.ReadModels.Proposals.ProposalItemDetailReadModel?> GetItemDetailAsync(Guid proposalItemId, CancellationToken cancellationToken = default)
         => Task.FromResult<Infrastructure.ReadModels.Proposals.ProposalItemDetailReadModel?>(null);
     public Task<ProposalItem?> GetItemEntityAsync(Guid proposalItemId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalItem?>(null);
+    public Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(Guid proposalId, Guid productVersionId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalItem?>(null);
     public Task AddItemAsync(ProposalItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
     public void RemoveItem(ProposalItem item) { }
     public Task<Proposal?> GetProposalEntityAsync(Guid proposalId, CancellationToken cancellationToken = default)

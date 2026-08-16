@@ -29,4 +29,5 @@ public static class PaymentErrorCodes
     public const string ProjectStartFeeAlreadyPaid = "PROJECT_START_FEE_ALREADY_PAID";
     public const string DesignerAlreadyAssigned = "DESIGNER_ALREADY_ASSIGNED";
     public const string ProjectStartFeeRequired = "PROJECT_START_FEE_REQUIRED";
+    public const string ProjectStartFeeExpiryExceedsTarget = "PROJECT_START_FEE_EXPIRY_EXCEEDS_TARGET";
 }

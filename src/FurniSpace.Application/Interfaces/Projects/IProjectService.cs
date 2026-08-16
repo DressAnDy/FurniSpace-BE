@@ -33,6 +33,12 @@ public interface IProjectService
         UpdateProjectBasicInformationRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectTargetCompletionDateDto>> UpdateTargetCompletionDateAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpdateProjectTargetCompletionDateRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectStatusUpdateDto>> UpdateStatusAsync(
         Guid projectId,
         Guid currentUserId,

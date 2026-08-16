@@ -779,6 +779,91 @@ public sealed class ProjectService : IProjectService
             "Project basic information updated successfully.");
     }
 
+    public async Task<ServiceResult<ProjectTargetCompletionDateDto>> UpdateTargetCompletionDateAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpdateProjectTargetCompletionDateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var pastTargetError = ProjectTimelineDateValidator.ValidateTargetNotInPast(
+            request.TargetCompletionDate,
+            DateOnly.FromDateTime(DateTime.UtcNow.Date));
+        if (pastTargetError is not null)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Failure(pastTargetError);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanUpdateBasicInformation(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Forbidden("You do not have access to update this project.");
+        }
+
+        if (!IsTargetCompletionDateEditableStatus(project.Status))
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Failure(
+                Error.Validation(
+                    ProjectErrorCodes.TargetCompletionDateNotEditable,
+                    "Project target completion date cannot be updated from its current status."));
+        }
+
+        var targetConflictError = await ProjectTimelineDateValidator.ValidateTargetNotBeforeCommittedDatesAsync(
+            projectId,
+            request.TargetCompletionDate,
+            _schedules,
+            _productionRequests,
+            cancellationToken);
+        if (targetConflictError is not null)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Failure(targetConflictError);
+        }
+
+        var projectStartFeePayment = await _payments.GetByProjectAndTypeAsync(
+            projectId,
+            PaymentType.PROJECT_START_FEE,
+            cancellationToken);
+        var startFeeConflictError = ProjectStartFeeTargetValidator.ValidateTargetUpdateAgainstActiveStartFee(
+            request.TargetCompletionDate,
+            projectStartFeePayment,
+            DateTime.UtcNow);
+        if (startFeeConflictError is not null)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Failure(startFeeConflictError);
+        }
+
+        project.TargetCompletionDate = request.TargetCompletionDate;
+        var updatedAt = DateTime.UtcNow;
+        project.UpdatedAt = updatedAt;
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+
+        return ServiceResult<ProjectTargetCompletionDateDto>.Success(
+            new ProjectTargetCompletionDateDto
+            {
+                ProjectId = project.ProjectId,
+                TargetCompletionDate = project.TargetCompletionDate,
+                UpdatedAt = updatedAt
+            },
+            "Project target completion date updated successfully.");
+    }
+
     public async Task<ServiceResult<ProjectStatusUpdateDto>> UpdateStatusAsync(
         Guid projectId,
         Guid currentUserId,
@@ -1527,13 +1612,18 @@ public sealed class ProjectService : IProjectService
 
     private static bool CanRejectFromStatus(ProjectStatus? status)
     {
-        if (!status.HasValue ||
-            !ProjectStatusRanks.TryGetValue(status.Value, out var currentRank))
-        {
-            return false;
-        }
+        return status is ProjectStatus.SUBMITTED
+            or ProjectStatus.IN_CONSULTATION
+            or ProjectStatus.NEED_BASIC_INFORMATION
+            or ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT
+            or ProjectStatus.MEASUREMENT_REQUIRED
+            or ProjectStatus.SPACE_VERIFIED;
+    }
 
-        return currentRank < ProjectStatusRanks[ProjectStatus.ORDER_CONFIRMED];
+    private static bool IsTargetCompletionDateEditableStatus(ProjectStatus? status)
+    {
+        return status.HasValue &&
+            status is not ProjectStatus.COMPLETED and not ProjectStatus.REJECTED;
     }
 
     private static bool CanReopenFromProjectStatus(ProjectStatus? status)

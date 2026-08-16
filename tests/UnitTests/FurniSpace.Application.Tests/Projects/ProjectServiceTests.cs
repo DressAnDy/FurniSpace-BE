@@ -523,12 +523,12 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
-    public async Task RejectAsync_WithAdmin_RejectsUnassignedProjectBeforeOrderConfirmed()
+    public async Task RejectAsync_WithAdmin_RejectsUnassignedProjectInEarlyPhase()
     {
         var projectId = Guid.NewGuid();
         var project = CreateQualifiedProject(projectId, Guid.NewGuid());
         project.AssignedSalesId = null;
-        project.Status = ProjectStatus.QUOTATION_SENT;
+        project.Status = ProjectStatus.SPACE_VERIFIED;
         var repository = new FakeProjectRepository(roleName: "ADMIN", entities: [project]);
         var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
 
@@ -537,6 +537,45 @@ public sealed class ProjectServiceTests
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
         Assert.Equal(ProjectStatus.REJECTED, result.Data.Status);
+    }
+
+    [Fact]
+    public async Task RejectAsync_WithProposalConsultingStatus_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.Status = ProjectStatus.PROPOSAL_CONSULTING;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.RejectAsync(projectId, salesId, ValidRejectRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Project cannot be rejected from its current status.", result.Message);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Theory]
+    [InlineData(ProjectStatus.SUBMITTED)]
+    [InlineData(ProjectStatus.IN_CONSULTATION)]
+    [InlineData(ProjectStatus.NEED_BASIC_INFORMATION)]
+    [InlineData(ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT)]
+    [InlineData(ProjectStatus.MEASUREMENT_REQUIRED)]
+    [InlineData(ProjectStatus.SPACE_VERIFIED)]
+    public async Task RejectAsync_WithAllowedEarlyStatus_RejectsProject(ProjectStatus status)
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.Status = status;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync));
+
+        var result = await service.RejectAsync(projectId, salesId, ValidRejectRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectStatus.REJECTED, project.Status);
     }
 
     [Fact]
@@ -641,6 +680,8 @@ public sealed class ProjectServiceTests
     }
 
     [Theory]
+    [InlineData(ProjectStatus.PROPOSAL_CONSULTING)]
+    [InlineData(ProjectStatus.QUOTATION_SENT)]
     [InlineData(ProjectStatus.ORDER_CONFIRMED)]
     [InlineData(ProjectStatus.IN_PRODUCTION)]
     [InlineData(ProjectStatus.REJECTED)]
@@ -1584,6 +1625,103 @@ public sealed class ProjectServiceTests
 
         Assert.Equal(409, result.Status);
         Assert.Equal(ProjectErrorCodes.TargetDateConflictsWithOperationalDates, result.ErrorCode);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDateAsync_WithOwnerCustomer_UpdatesTargetWhileInProduction()
+    {
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(60);
+        var project = new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.IN_PRODUCTION,
+            TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30)
+        };
+        var repository = new FakeProjectRepository(roleName: "CUSTOMER", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new ProjectServiceFactoryOptions
+            {
+                Payments = new FakeProjectPaymentRepository { ProjectStartFeePayment = null }
+            });
+
+        var result = await service.UpdateTargetCompletionDateAsync(
+            projectId,
+            customerId,
+            new UpdateProjectTargetCompletionDateRequestDto { TargetCompletionDate = targetDate });
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(targetDate, result.Data.TargetCompletionDate);
+        Assert.Equal(targetDate, project.TargetCompletionDate);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDateAsync_WhenActiveStartFeeExpiryExceedsNewTarget_ReturnsConflict()
+    {
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.TargetCompletionDate = new DateOnly(2026, 12, 31);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var payments = new FakeProjectPaymentRepository
+        {
+            ProjectStartFeePayment = new Payment
+            {
+                PaymentId = Guid.NewGuid(),
+                ProjectId = projectId,
+                PaymentType = PaymentType.PROJECT_START_FEE,
+                Status = PaymentStatus.PENDING,
+                ExpiredAt = DateTime.UtcNow.AddDays(30)
+            }
+        };
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            new ProjectServiceFactoryOptions { Payments = payments });
+
+        var result = await service.UpdateTargetCompletionDateAsync(
+            projectId,
+            salesId,
+            new UpdateProjectTargetCompletionDateRequestDto
+            {
+                TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(7)
+            });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectErrorCodes.TargetDateConflictsWithActiveStartFee, result.ErrorCode);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+    }
+
+    [Theory]
+    [InlineData(ProjectStatus.COMPLETED)]
+    [InlineData(ProjectStatus.REJECTED)]
+    public async Task UpdateTargetCompletionDateAsync_WithTerminalStatus_ReturnsBadRequest(ProjectStatus status)
+    {
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var project = CreateQualifiedProject(projectId, salesId);
+        project.Status = status;
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project]);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var result = await service.UpdateTargetCompletionDateAsync(
+            projectId,
+            salesId,
+            new UpdateProjectTargetCompletionDateRequestDto
+            {
+                TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(30)
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectErrorCodes.TargetCompletionDateNotEditable, result.ErrorCode);
         Assert.Equal(0, repository.SaveChangesCallCount);
     }
 

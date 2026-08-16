@@ -503,6 +503,7 @@ public sealed class ProposalsControllerTests
         private readonly ServiceResult<PublishProposalResponseDto> _publishResult;
         private readonly ServiceResult<UpdateProposalResponseDto> _updateResult;
         private readonly ServiceResult<UpdateProposalSceneResponseDto> _updateSceneResult;
+        private readonly ServiceResult<ReopenProposalForEditingResponseDto> _reopenResult;
 
         public FakeProposalService(
             ServiceResult<ProposalDto>? createResult = null,
@@ -520,7 +521,8 @@ public sealed class ProposalsControllerTests
             ServiceResult<RequestProposalRevisionResponseDto>? requestRevisionResult = null,
             ServiceResult<PublishProposalResponseDto>? publishResult = null,
             ServiceResult<UpdateProposalResponseDto>? updateResult = null,
-            ServiceResult<UpdateProposalSceneResponseDto>? updateSceneResult = null)
+            ServiceResult<UpdateProposalSceneResponseDto>? updateSceneResult = null,
+            ServiceResult<ReopenProposalForEditingResponseDto>? reopenResult = null)
         {
             _createResult = createResult ?? ServiceResult<ProposalDto>.Created(new ProposalDto());
             _listResult = listResult ?? ServiceResult<ProposalListResponseDto>.Success(new ProposalListResponseDto());
@@ -538,6 +540,7 @@ public sealed class ProposalsControllerTests
             _publishResult = publishResult ?? ServiceResult<PublishProposalResponseDto>.Success(new PublishProposalResponseDto());
             _updateResult = updateResult ?? ServiceResult<UpdateProposalResponseDto>.Success(new UpdateProposalResponseDto());
             _updateSceneResult = updateSceneResult ?? ServiceResult<UpdateProposalSceneResponseDto>.Success(new UpdateProposalSceneResponseDto());
+            _reopenResult = reopenResult ?? ServiceResult<ReopenProposalForEditingResponseDto>.Success(new ReopenProposalForEditingResponseDto());
         }
 
         public int CallCount { get; private set; }
@@ -744,6 +747,17 @@ public sealed class ProposalsControllerTests
             CurrentUserId = currentUserId;
             UpdateRequest = request;
             return Task.FromResult(_updateResult);
+        }
+
+        public Task<ServiceResult<ReopenProposalForEditingResponseDto>> ReopenForEditingAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProposalId = proposalId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_reopenResult);
         }
 
         public Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(

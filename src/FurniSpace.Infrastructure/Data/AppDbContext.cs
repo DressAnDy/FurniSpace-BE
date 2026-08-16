@@ -609,6 +609,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.PublishedAt).HasColumnName("published_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.SelectedAt).HasColumnName("selected_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.RejectedAt).HasColumnName(RejectedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.RevisionNote).HasColumnName("revision_note").HasColumnType(TextColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => new { e.ProjectId, e.VersionNo, e.CreatedAt, e.ProposalId })

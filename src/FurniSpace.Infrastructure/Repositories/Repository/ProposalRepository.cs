@@ -93,6 +93,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                 PublishedAt = proposal.PublishedAt,
                 SelectedAt = proposal.SelectedAt,
                 RejectedAt = proposal.RejectedAt,
+                RevisionNote = proposal.RevisionNote,
                 CreatedAt = proposal.CreatedAt,
                 UpdatedAt = proposal.UpdatedAt
             })
@@ -200,6 +201,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     PublishedAt = item.PublishedAt,
                     SelectedAt = item.SelectedAt,
                     RejectedAt = item.RejectedAt,
+                    RevisionNote = item.RevisionNote,
                     CreatedAt = item.CreatedAt,
                     UpdatedAt = item.UpdatedAt,
                     CustomerId = project.CustomerId,
@@ -245,6 +247,7 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
                     PublishedAt = item.PublishedAt,
                     SelectedAt = item.SelectedAt,
                     RejectedAt = item.RejectedAt,
+                    RevisionNote = item.RevisionNote,
                     CreatedAt = item.CreatedAt,
                     UpdatedAt = item.UpdatedAt,
                     CustomerId = project.CustomerId,
@@ -569,6 +572,17 @@ public sealed class ProposalRepository : GenericRepository<Proposal>, IProposalR
     {
         return DbContext.ProposalItemSet
             .FirstOrDefaultAsync(item => item.ProposalItemId == proposalItemId, cancellationToken);
+    }
+
+    public Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(
+        Guid proposalId,
+        Guid productVersionId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProposalItemSet
+            .FirstOrDefaultAsync(
+                item => item.ProposalId == proposalId && item.ProductVersionId == productVersionId,
+                cancellationToken);
     }
 
     public Task AddItemAsync(

@@ -404,6 +404,15 @@ public sealed class PaymentService : IPaymentService
             return BadRequestDetail(PaymentErrorCodes.InvalidPaymentAmount, "Amount must be greater than zero.");
         }
 
+        var expiryValidationError = ProjectStartFeeTargetValidator.ValidateCreateExpiry(
+            request.ExpiredAt,
+            project.TargetCompletionDate,
+            DateTime.UtcNow);
+        if (expiryValidationError is not null)
+        {
+            return ServiceResult<PaymentDetailDto>.Failure(expiryValidationError);
+        }
+
         var paymentCode = await GenerateUniquePaymentCodeAsync(cancellationToken);
         var now = DateTime.UtcNow;
         var payment = new Payment

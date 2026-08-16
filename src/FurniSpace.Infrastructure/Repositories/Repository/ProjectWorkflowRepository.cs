@@ -108,7 +108,8 @@ public sealed class ProjectWorkflowRepository : IProjectWorkflowRepository
                 {
                     OrderId = i.OrderId,
                     Quantity = i.Quantity,
-                    DeliveredQuantity = i.DeliveredQuantity
+                    Status = i.Status,
+                    DeliveredAt = i.DeliveredAt
                 })
                 .ToListAsync(cancellationToken);
 

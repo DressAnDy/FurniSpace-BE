@@ -129,7 +129,7 @@ public sealed class ProjectWorkflowServiceTests
                 new ProjectWorkflowProductionItemReadModel
                 {
                     ProductionRequestId = Guid.NewGuid(),
-                    Status = ProductionItemStatus.BLOCKED
+                    Status = ProductionItemStatus.CANCELLED
                 }
             ]);
 
@@ -279,7 +279,19 @@ public sealed class ProjectWorkflowServiceTests
             ],
             OrderItems =
             [
-                new ProjectWorkflowOrderItemReadModel { OrderId = Guid.NewGuid(), Quantity = 10, DeliveredQuantity = 4 }
+                new ProjectWorkflowOrderItemReadModel
+                {
+                    OrderId = Guid.NewGuid(),
+                    Quantity = 4,
+                    Status = OrderItemStatus.DELIVERED,
+                    DeliveredAt = DateTime.UtcNow.AddHours(-1)
+                },
+                new ProjectWorkflowOrderItemReadModel
+                {
+                    OrderId = Guid.NewGuid(),
+                    Quantity = 6,
+                    Status = OrderItemStatus.READY
+                }
             ],
             Schedules =
             [

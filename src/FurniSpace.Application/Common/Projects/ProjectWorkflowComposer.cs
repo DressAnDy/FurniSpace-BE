@@ -139,7 +139,7 @@ internal static class ProjectWorkflowComposer
             ProjectWorkflowStageCatalog.StageDelivery =>
                 snapshot.Schedules.Any(s =>
                     s.ScheduleType is ProjectScheduleType.DELIVERY or ProjectScheduleType.HANDOVER) ||
-                snapshot.OrderItems.Any(i => (i.DeliveredQuantity ?? 0) > 0),
+                snapshot.OrderItems.Any(IsOrderItemDelivered),
             _ => false
         };
     }
@@ -157,9 +157,7 @@ internal static class ProjectWorkflowComposer
             ProjectWorkflowStageCatalog.StageQuotationOrder =>
                 snapshot.Status == ProjectStatus.QUOTATION_REVISION_REQUESTED,
             ProjectWorkflowStageCatalog.StageProduction =>
-                snapshot.Status == ProjectStatus.PRODUCTION_BLOCKED ||
-                snapshot.ProductionRequests.Any(r => r.Status == ProductionRequestStatus.BLOCKED) ||
-                snapshot.ProductionItems.Any(i => i.Status == ProductionItemStatus.BLOCKED),
+                snapshot.ProductionItems.Any(i => i.Status == ProductionItemStatus.CANCELLED),
             ProjectWorkflowStageCatalog.StageDelivery =>
                 HasOverdueDeliverySchedule(snapshot),
             _ => false
@@ -296,13 +294,12 @@ internal static class ProjectWorkflowComposer
         {
             ProductionRequestStatus.PENDING_REVIEW,
             ProductionRequestStatus.FEASIBLE,
-            ProductionRequestStatus.IN_PRODUCTION,
-            ProductionRequestStatus.BLOCKED
+            ProductionRequestStatus.IN_PRODUCTION
         };
 
         var openRequests = snapshot.ProductionRequests.Count(r =>
             r.Status.HasValue && openStatuses.Contains(r.Status.Value));
-        var blockedCount = snapshot.ProductionItems.Count(i => i.Status == ProductionItemStatus.BLOCKED);
+        var blockedCount = snapshot.ProductionItems.Count(i => i.Status == ProductionItemStatus.CANCELLED);
         var overdueCount = snapshot.ProductionItems.Count(i =>
             i.Status is not (ProductionItemStatus.COMPLETED or ProductionItemStatus.CANCELLED) &&
             i.EstimatedCompletionDate.HasValue &&
@@ -324,17 +321,16 @@ internal static class ProjectWorkflowComposer
             s.ScheduleType is ProjectScheduleType.DELIVERY or ProjectScheduleType.HANDOVER &&
             s.Status is not (ProjectScheduleStatus.COMPLETED or ProjectScheduleStatus.CANCELLED) &&
             s.ScheduledStart >= now);
-        var partial = snapshot.OrderItems.Count(i =>
-        {
-            var delivered = i.DeliveredQuantity ?? 0;
-            var quantity = i.Quantity ?? 0;
-            return delivered > 0 && quantity > 0 && delivered < quantity;
-        });
+        // Single full-delivery model: no partial quantities; count non-terminal undelivered items.
+        var pendingDeliveryItems = snapshot.OrderItems.Count(i =>
+            !IsOrderItemDelivered(i) &&
+            i.Status is not (OrderItemStatus.CANCELLED or OrderItemStatus.UNAVAILABLE) &&
+            (i.Quantity ?? 0) > 0);
 
         return
         [
             Metric("upcomingSchedules", "Upcoming schedules", upcoming, "count"),
-            Metric("partialDeliveryItems", "Partial delivery items", partial, "count")
+            Metric("partialDeliveryItems", "Pending delivery items", pendingDeliveryItems, "count")
         ];
     }
 
@@ -526,12 +522,11 @@ internal static class ProjectWorkflowComposer
         var openItemStatuses = new HashSet<ProductionItemStatus>
         {
             ProductionItemStatus.PENDING,
-            ProductionItemStatus.IN_PRODUCTION,
-            ProductionItemStatus.BLOCKED
+            ProductionItemStatus.IN_PRODUCTION
         };
         var openItemCount = snapshot.ProductionItems.Count(i =>
             i.Status.HasValue && openItemStatuses.Contains(i.Status.Value));
-        var blockedItemCount = snapshot.ProductionItems.Count(i => i.Status == ProductionItemStatus.BLOCKED);
+        var blockedItemCount = snapshot.ProductionItems.Count(i => i.Status == ProductionItemStatus.CANCELLED);
 
         return FactMap(
             ("productionRequestStatus", latest?.Status?.ToString()),
@@ -548,15 +543,25 @@ internal static class ProjectWorkflowComposer
             .FirstOrDefault();
         var order = ResolvePrimaryOrder(snapshot);
 
-        var totalQty = snapshot.OrderItems.Sum(i => i.Quantity ?? 0);
-        var deliveredQty = snapshot.OrderItems.Sum(i => i.DeliveredQuantity ?? 0);
-        int? progress = totalQty <= 0 ? null : (int)Math.Clamp(Math.Round(deliveredQty * 100d / totalQty), 0, 100);
+        var countableItems = snapshot.OrderItems
+            .Where(i => i.Status is not (OrderItemStatus.CANCELLED or OrderItemStatus.UNAVAILABLE))
+            .ToList();
+        var totalQty = countableItems.Sum(i => i.Quantity ?? 0);
+        var deliveredQty = countableItems
+            .Where(IsOrderItemDelivered)
+            .Sum(i => i.Quantity ?? 0);
+        int? progress = totalQty <= 0
+            ? null
+            : (int)Math.Clamp(Math.Round(deliveredQty * 100d / totalQty), 0, 100);
 
         return FactMap(
             ("deliveryScheduleStatus", schedule?.Status?.ToString()),
             ("deliveredItemProgressPercent", progress),
             ("remainingAmount", order?.RemainingAmount));
     }
+
+    private static bool IsOrderItemDelivered(ProjectWorkflowOrderItemReadModel item) =>
+        item.Status == OrderItemStatus.DELIVERED || item.DeliveredAt.HasValue;
 
     private static int CountMeasurementSchedules(ProjectWorkflowSnapshotReadModel snapshot) =>
         snapshot.Schedules.Count(s =>

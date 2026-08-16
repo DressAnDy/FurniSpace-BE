@@ -66,7 +66,8 @@ public sealed record ProjectWorkflowOrderItemReadModel
 {
     public Guid OrderId { get; init; }
     public int? Quantity { get; init; }
-    public int? DeliveredQuantity { get; init; }
+    public OrderItemStatus? Status { get; init; }
+    public DateTime? DeliveredAt { get; init; }
 }
 
 public sealed record ProjectWorkflowProductionRequestReadModel

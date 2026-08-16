@@ -125,7 +125,7 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
-    public async Task StartAsync_WhenActualStartExceedsTarget_ReturnsValidationError()
+    public async Task StartAsync_WhenActualStartExceedsTarget_AllowsOverdueProductionStart()
     {
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
@@ -146,9 +146,9 @@ public sealed class ProductionRequestServiceTests
             _productionId,
             new StartProductionRequestDto());
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(ProductionErrorCodes.ProductionDateExceedsTarget, result.ErrorCode);
-        Assert.Equal(ProductionRequestStatus.FEASIBLE, context.ProductionRequestSet.Single().Status);
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProductionRequestStatus.IN_PRODUCTION, context.ProductionRequestSet.Single().Status);
+        Assert.NotNull(context.ProductionRequestSet.Single().ActualStartDate);
     }
 
     [Fact]

@@ -89,6 +89,7 @@ public sealed class NotificationTemplateProviderTests
         Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
         Assert.Equal("proposal.revision.requested", template.SignalREventName);
         Assert.Equal("Proposal revision requested", template.TitleTemplate);
+        Assert.Contains("{RevisionNote}", template.MessageTemplate);
     }
 
     [Fact]

@@ -98,6 +98,11 @@ public interface IProposalRepository : IGenericRepository<Proposal>
         Guid proposalItemId,
         CancellationToken cancellationToken = default);
 
+    Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(
+        Guid proposalId,
+        Guid productVersionId,
+        CancellationToken cancellationToken = default);
+
     Task AddItemAsync(
         ProposalItem item,
         CancellationToken cancellationToken = default);

@@ -256,10 +256,7 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
             $"/production-requests/{productionRequestId}/start",
             scenario.ProductionAccountId,
             CoreRoles.Production,
-            new StartProductionRequestDto
-            {
-                ActualStartDate = DateOnly.FromDateTime(DateTime.UtcNow)
-            });
+            new StartProductionRequestDto());
 
         var response = await _fixture.Client.SendAsync(request);
         var status = await ReadDataAsync<ProductionRequestStatusDto>(response, HttpStatusCode.OK);

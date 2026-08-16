@@ -55,7 +55,7 @@ public static class NotificationTemplateProvider
 
             NotificationType.ProposalRevisionRequested => new NotificationTemplate(
                 "Proposal revision requested",
-                "Customer requested revisions for proposal \"{ProposalName}\".",
+                "Customer requested revisions for proposal \"{ProposalName}\". Note: {RevisionNote}",
                 NotificationDeliveryLevel.InAppRealtime,
                 "proposal.revision.requested"),
 

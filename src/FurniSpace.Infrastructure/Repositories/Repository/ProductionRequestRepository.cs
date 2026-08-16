@@ -408,8 +408,6 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         {
             maxDate = MaxDateOnly(maxDate, request.EstimatedStartDate);
             maxDate = MaxDateOnly(maxDate, request.EstimatedCompletionDate);
-            maxDate = MaxDateOnly(maxDate, request.ActualStartDate);
-            maxDate = MaxDateOnly(maxDate, request.ActualCompletionDate);
         }
 
         return maxDate;

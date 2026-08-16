@@ -269,6 +269,50 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
+    public async Task CreateProjectStartFeePaymentAsync_WhenExpiryInPast_ReturnsValidationError()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "SALES",
+            ProjectDetail = CreateProjectDetail()
+        });
+
+        var result = await service.CreateProjectStartFeePaymentAsync(
+            _projectId,
+            _salesId,
+            new CreateProjectStartFeePaymentRequestDto
+            {
+                ExpiredAt = DateTime.UtcNow.AddMinutes(-1)
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.PaymentExpired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateProjectStartFeePaymentAsync_WhenExpiryExceedsTarget_ReturnsValidationError()
+    {
+        var projectDetail = CreateProjectDetail();
+        projectDetail.TargetCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(10);
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "SALES",
+            ProjectDetail = projectDetail
+        });
+
+        var result = await service.CreateProjectStartFeePaymentAsync(
+            _projectId,
+            _salesId,
+            new CreateProjectStartFeePaymentRequestDto
+            {
+                ExpiredAt = DateTime.UtcNow.AddDays(15)
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.ProjectStartFeeExpiryExceedsTarget, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task GetProjectStartFeeStatusAsync_WhenAuthorized_ReturnsStatus()
     {
         var repository = new PaymentServiceFakeRepository();

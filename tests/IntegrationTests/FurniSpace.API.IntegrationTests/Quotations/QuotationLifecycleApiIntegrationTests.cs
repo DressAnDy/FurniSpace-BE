@@ -375,10 +375,7 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             $"/production-requests/{productionRequestId}/start",
             productionAccountId,
             CoreRoles.Production,
-            new StartProductionRequestDto
-            {
-                ActualStartDate = DateOnly.FromDateTime(DateTime.UtcNow)
-            });
+            new StartProductionRequestDto());
 
         var response = await _fixture.Client.SendAsync(request);
         await ReadDataAsync<ProductionRequestStatusDto>(response, HttpStatusCode.OK);

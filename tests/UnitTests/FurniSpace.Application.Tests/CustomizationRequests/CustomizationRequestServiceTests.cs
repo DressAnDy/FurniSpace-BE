@@ -1901,6 +1901,62 @@ public sealed class CustomizationRequestServiceTests
     }
 
     [Fact]
+    public async Task AcceptVersionAsync_AppliesAcceptedProductVersionToMatchingProposalItem()
+    {
+        var ids = CreateIds();
+        var entity = CreateEntity(ids, CustomizationStatus.REVIEWING);
+        var detail = CreateDetail(ids, entity.CustomizationRequestId, CustomizationStatus.REVIEWING);
+        var sourceProductVersion = CreateSourceProductVersion(ids);
+        sourceProductVersion.EstimatedPrice = 2_000_000m;
+        var acceptedProductVersion = CreateCustomProductVersion(Guid.NewGuid());
+        acceptedProductVersion.Width = 55m;
+        acceptedProductVersion.Height = 90m;
+        acceptedProductVersion.Depth = 50m;
+        acceptedProductVersion.Material = "Dark oak";
+        acceptedProductVersion.Color = "Brown";
+        var version = CreateFeasibleVersion(ids, entity.CustomizationRequestId, acceptedProductVersion.ProductVersionId);
+        version.EstimatedAdditionalCost = 500_000m;
+        var proposalItem = new ProposalItem
+        {
+            ProposalItemId = ids.ProposalItemId,
+            ProposalId = ids.ProposalId,
+            SceneId = Guid.NewGuid(),
+            ProductVersionId = ids.ProductVersionId,
+            ItemName = "Dining Chair",
+            Quantity = 2,
+            UnitPriceSnapshot = 2_000_000m,
+            TotalPriceSnapshot = 4_000_000m
+        };
+        var proposalRepo = new FakeProposalRepository();
+        proposalRepo.Items.Add(proposalItem);
+        var versionRepo = new FakeCustomizationRequestVersionRepository();
+        versionRepo.StoreVersion(version, acceptedProductVersion);
+        var service = CreateService(
+            new FakeCustomizationRequestRepository { ExistingEntity = entity, Detail = detail },
+            versionRepo,
+            proposalRepo,
+            new FakeProjectRepository(CustomerRole),
+            productVersions: new FakeProductVersionRepository([sourceProductVersion, acceptedProductVersion]));
+
+        var result = await service.AcceptVersionAsync(
+            entity.CustomizationRequestId,
+            ids.CustomerId,
+            new AcceptCustomizationRequestDto
+            {
+                CustomizationRequestVersionId = version.CustomizationRequestVersionId
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(acceptedProductVersion.ProductVersionId, proposalItem.ProductVersionId);
+        Assert.True(proposalItem.IsCustomized);
+        Assert.Equal("Dark oak", proposalItem.Material);
+        Assert.Equal("Brown", proposalItem.Color);
+        Assert.Equal(55m, proposalItem.Width);
+        Assert.Equal(2_500_000m, proposalItem.UnitPriceSnapshot);
+        Assert.Equal(5_000_000m, proposalItem.TotalPriceSnapshot);
+    }
+
+    [Fact]
     public async Task AcceptVersionAsync_NotFeasibleVersionReturnsBadRequest()
     {
         var ids = CreateIds();
@@ -2915,6 +2971,8 @@ public sealed class CustomizationRequestServiceTests
     {
         private readonly ProposalProjectAccessReadModel? _project;
 
+        public List<ProposalItem> Items { get; } = [];
+
         public FakeProposalRepository(ProposalProjectAccessReadModel? project = null)
         {
             _project = project;
@@ -2952,6 +3010,14 @@ public sealed class CustomizationRequestServiceTests
         public Task<int> CountItemsAsync(ProposalItemListQueryReadModel query, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<ProposalItemDetailReadModel?> GetItemDetailAsync(Guid proposalItemId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalItemDetailReadModel?>(null);
         public Task<ProposalItem?> GetItemEntityAsync(Guid proposalItemId, CancellationToken cancellationToken = default) => Task.FromResult<ProposalItem?>(null);
+        public Task<ProposalItem?> GetItemEntityByProposalAndProductVersionAsync(
+            Guid proposalId,
+            Guid productVersionId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(
+                Items.FirstOrDefault(item =>
+                    item.ProposalId == proposalId &&
+                    item.ProductVersionId == productVersionId));
         public Task AddItemAsync(ProposalItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public void RemoveItem(ProposalItem item) { }
         public Task<Proposal?> GetProposalEntityAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult<Proposal?>(null);

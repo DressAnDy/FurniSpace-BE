@@ -1953,6 +1953,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("rejected_at");
 
+                    b.Property<string>("RevisionNote")
+                        .HasColumnType("text")
+                        .HasColumnName("revision_note");
+
                     b.Property<DateTime?>("SelectedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("selected_at");

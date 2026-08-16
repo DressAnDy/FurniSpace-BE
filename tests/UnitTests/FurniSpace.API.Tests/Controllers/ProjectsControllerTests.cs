@@ -108,6 +108,15 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public void UpdateTargetCompletionDate_AllowsCustomerSalesAndAdminRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.UpdateTargetCompletionDate));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public void UpdateStatus_AllowsSalesDesignerAndAdminRoles()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.UpdateStatus));
@@ -601,6 +610,64 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public async Task UpdateTargetCompletionDate_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(45);
+        var response = new ProjectTargetCompletionDateDto
+        {
+            ProjectId = projectId,
+            TargetCompletionDate = targetDate,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var service = new FakeProjectService(
+            createResult: ServiceResult<ProjectDto>.Created(new ProjectDto()),
+            updateTargetCompletionDateResult: ServiceResult<ProjectTargetCompletionDateDto>.Success(
+                response,
+                "Project target completion date updated successfully."));
+        var controller = CreateControllerWithUser(service, currentUserId);
+        var request = new UpdateProjectTargetCompletionDateRequestDto
+        {
+            TargetCompletionDate = targetDate
+        };
+
+        var actionResult = await controller.UpdateTargetCompletionDate(projectId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectTargetCompletionDateDto>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project target completion date updated successfully.", result.Message);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.UpdateTargetCompletionDateRequest);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDate_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.UpdateTargetCompletionDate(
+            Guid.NewGuid(),
+            new UpdateProjectTargetCompletionDateRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.ProjectId);
+        Assert.Equal(Guid.Empty, service.CurrentUserId);
+        Assert.Null(service.UpdateTargetCompletionDateRequest);
+    }
+
+    [Fact]
     public async Task UpdateBasicInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
@@ -836,6 +903,7 @@ public sealed class ProjectsControllerTests
         private readonly ServiceResult<ProjectSalesAssignmentDto> _assignSalesResult;
         private readonly ServiceResult<ProjectInformationRequestDto> _requestInformationResult;
         private readonly ServiceResult<ProjectBasicInformationDto> _updateBasicInformationResult;
+        private readonly ServiceResult<ProjectTargetCompletionDateDto> _updateTargetCompletionDateResult;
         private readonly ServiceResult<ProjectStatusUpdateDto> _updateStatusResult;
         private readonly ServiceResult<ProjectRejectionDto> _rejectResult;
         private readonly ServiceResult<ReopenProposalResponseDto> _reopenProposalResult;
@@ -849,6 +917,7 @@ public sealed class ProjectsControllerTests
             ServiceResult<ProjectSalesAssignmentDto>? assignSalesResult = null,
             ServiceResult<ProjectInformationRequestDto>? requestInformationResult = null,
             ServiceResult<ProjectBasicInformationDto>? updateBasicInformationResult = null,
+            ServiceResult<ProjectTargetCompletionDateDto>? updateTargetCompletionDateResult = null,
             ServiceResult<ProjectStatusUpdateDto>? updateStatusResult = null,
             ServiceResult<ProjectRejectionDto>? rejectResult = null,
             ServiceResult<ReopenProposalResponseDto>? reopenProposalResult = null,
@@ -863,6 +932,8 @@ public sealed class ProjectsControllerTests
                 ServiceResult<ProjectInformationRequestDto>.Success(new ProjectInformationRequestDto());
             _updateBasicInformationResult = updateBasicInformationResult ??
                 ServiceResult<ProjectBasicInformationDto>.Success(new ProjectBasicInformationDto());
+            _updateTargetCompletionDateResult = updateTargetCompletionDateResult ??
+                ServiceResult<ProjectTargetCompletionDateDto>.Success(new ProjectTargetCompletionDateDto());
             _updateStatusResult = updateStatusResult ??
                 ServiceResult<ProjectStatusUpdateDto>.Success(new ProjectStatusUpdateDto());
             _rejectResult = rejectResult ??
@@ -882,6 +953,7 @@ public sealed class ProjectsControllerTests
         public AssignProjectSalesRequestDto? AssignSalesRequest { get; private set; }
         public RequestProjectInformationRequestDto? RequestInformationRequest { get; private set; }
         public UpdateProjectBasicInformationRequestDto? UpdateBasicInformationRequest { get; private set; }
+        public UpdateProjectTargetCompletionDateRequestDto? UpdateTargetCompletionDateRequest { get; private set; }
         public UpdateProjectStatusRequestDto? UpdateStatusRequest { get; private set; }
         public RejectProjectRequestDto? RejectRequest { get; private set; }
         public AssignProjectDesignerRequestDto? AssignDesignerRequest { get; private set; }
@@ -942,6 +1014,18 @@ public sealed class ProjectsControllerTests
             CurrentUserId = currentUserId;
             UpdateBasicInformationRequest = request;
             return Task.FromResult(_updateBasicInformationResult);
+        }
+
+        public Task<ServiceResult<ProjectTargetCompletionDateDto>> UpdateTargetCompletionDateAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpdateProjectTargetCompletionDateRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            UpdateTargetCompletionDateRequest = request;
+            return Task.FromResult(_updateTargetCompletionDateResult);
         }
 
         public Task<ServiceResult<ProjectStatusUpdateDto>> UpdateStatusAsync(
@@ -1130,6 +1214,12 @@ public sealed class ProjectsControllerTests
             UpdateProposalRequestDto request,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<UpdateProposalResponseDto>.Success(new UpdateProposalResponseDto()));
+
+        public Task<ServiceResult<ReopenProposalForEditingResponseDto>> ReopenForEditingAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ReopenProposalForEditingResponseDto>.Success(new ReopenProposalForEditingResponseDto()));
 
         public Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(
             Guid sceneId,

@@ -14,6 +14,7 @@ public abstract class ProposalBaseDto<TStatus>
     public DateTime? PublishedAt { get; set; }
     public DateTime? SelectedAt { get; set; }
     public DateTime? RejectedAt { get; set; }
+    public string? RevisionNote { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

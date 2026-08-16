@@ -126,6 +126,15 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public void Complete_AllowsSalesAndAdminRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.Complete));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public void Reject_AllowsSalesAndAdminRoles()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.Reject));
@@ -741,6 +750,55 @@ public sealed class ProjectsControllerTests
         Assert.Equal(Guid.Empty, service.ProjectId);
         Assert.Equal(Guid.Empty, service.CurrentUserId);
         Assert.Null(service.UpdateStatusRequest);
+    }
+
+    [Fact]
+    public async Task Complete_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var response = new ProjectCompletionDto
+        {
+            ProjectId = projectId,
+            ProjectStatus = nameof(ProjectStatus.COMPLETED),
+            CompletedAt = DateTime.UtcNow
+        };
+        var service = new FakeProjectService(
+            createResult: ServiceResult<ProjectDto>.Created(new ProjectDto()),
+            completeResult: ServiceResult<ProjectCompletionDto>.Success(
+                response,
+                "Project completed successfully."));
+        var controller = CreateControllerWithUser(service, currentUserId);
+
+        var actionResult = await controller.Complete(projectId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectCompletionDto>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project completed successfully.", result.Message);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task Complete_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.Complete(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.ProjectId);
+        Assert.Equal(Guid.Empty, service.CurrentUserId);
     }
 
     [Fact]

@@ -831,6 +831,87 @@ public sealed class OrderServiceTests
         Assert.DoesNotContain(NotificationType.ProjectStatusChanged, dispatcher.Types);
     }
 
+    [Fact]
+    public async Task CompleteAsync_WhenAlreadyCompleted_ReturnsSuccessIdempotently()
+    {
+        var orderId = Guid.NewGuid();
+        var completedAt = DateTime.UtcNow.AddHours(-2);
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            OrderCode = "ORD-001",
+            FinalTotalAmount = 100m,
+            Status = OrderStatus.COMPLETED,
+            CustomerConfirmedDeliveryAt = DateTime.UtcNow,
+            UpdatedAt = completedAt
+        };
+        var project = new Project
+        {
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.DELIVERED
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            OrderDetail = CreateDetail(orderId, _customerId),
+            Order = order,
+            Project = project,
+            SummedPaidAmount = 100m
+        });
+
+        var result = await service.CompleteAsync(orderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(OrderStatus.COMPLETED, order.Status);
+        Assert.Equal(ProjectStatus.DELIVERED, project.Status);
+        Assert.Equal(completedAt, order.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_WhenAlreadyCompletedWithoutUpdatedAt_ReturnsSuccess()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            OrderCode = "ORD-001",
+            FinalTotalAmount = 100m,
+            Status = OrderStatus.COMPLETED,
+            CustomerConfirmedDeliveryAt = DateTime.UtcNow,
+            UpdatedAt = null
+        };
+        var project = new Project
+        {
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.DELIVERED
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            OrderDetail = CreateDetail(orderId, _customerId),
+            Order = order,
+            Project = project,
+            SummedPaidAmount = 100m
+        });
+
+        var result = await service.CompleteAsync(orderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data?.CompletedAt);
+    }
+
     private static OrderService BuildService(OrderServiceTestOptions? options = null)
     {
         options ??= new OrderServiceTestOptions();

@@ -46,34 +46,207 @@ public sealed class PaymentBusinessEffectServiceTests
     }
 
     [Fact]
-    public async Task ApplyAsync_RemainingPaid_DoesNotAutoCompleteOrder()
+    public async Task ApplyAsync_RemainingPaid_AutoCompletesOrderWithoutCompletingProject()
     {
         var orderId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
         var order = CreateOrder(orderId, Guid.NewGuid(), OrderStatus.FINAL_PAYMENT_PENDING);
+        order.ProjectId = projectId;
         order.RemainingAmount = 0m;
         order.CustomerConfirmedDeliveryAt = DateTime.UtcNow;
-        var projectId = order.ProjectId;
-        var orders = new FakeOrderRepository { Order = order };
+        var orders = new FakeOrderRepository
+        {
+            Order = order,
+            OrderItems =
+            [
+                new OrderItem
+                {
+                    OrderId = orderId,
+                    ProductVersionId = Guid.NewGuid(),
+                    Quantity = 1,
+                    Status = OrderItemStatus.DELIVERED
+                }
+            ]
+        };
         var projects = new FakeProjectRepository
         {
             Project = new Project
             {
                 ProjectId = projectId,
-                Status = ProjectStatus.ORDER_CONFIRMED
+                Status = ProjectStatus.DELIVERED
             }
         };
+        var payments = new FakePaymentRepository { SummedPaidAmount = 100m };
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = new PaymentBusinessEffectService(
+            payments,
+            orders,
+            projects,
+            dispatcher);
+
+        var payment = CreatePayment(orderId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID, projectId);
+
+        await service.ApplyAsync(payment);
+
+        Assert.Equal(OrderStatus.COMPLETED, orders.Order!.Status);
+        Assert.Equal(ProjectStatus.DELIVERED, projects.Project!.Status);
+        Assert.Contains(dispatcher.Dispatched, item => item.Type == NotificationType.OrderCompleted);
+        Assert.DoesNotContain(dispatcher.Dispatched, item => item.Type == NotificationType.ProjectStatusChanged);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RemainingPaid_WhenAlreadyCompleted_IsIdempotent()
+    {
+        var orderId = Guid.NewGuid();
+        var order = CreateOrder(orderId, Guid.NewGuid(), OrderStatus.COMPLETED);
+        order.CustomerConfirmedDeliveryAt = DateTime.UtcNow;
+        var orders = new FakeOrderRepository { Order = order };
         var payments = new FakePaymentRepository { SummedPaidAmount = 100m };
         var service = new PaymentBusinessEffectService(
             payments,
             orders,
-            projects);
+            new FakeProjectRepository());
 
         var payment = CreatePayment(orderId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID);
 
         await service.ApplyAsync(payment);
 
+        Assert.Equal(OrderStatus.COMPLETED, orders.Order!.Status);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RemainingPaid_WhenRemainingAmountPositive_DoesNotAutoComplete()
+    {
+        var orderId = Guid.NewGuid();
+        var order = CreateOrder(orderId, Guid.NewGuid(), OrderStatus.FINAL_PAYMENT_PENDING);
+        order.CustomerConfirmedDeliveryAt = DateTime.UtcNow;
+        var orders = new FakeOrderRepository
+        {
+            Order = order,
+            OrderItems = [CreateDeliveredItem(orderId)]
+        };
+        var payments = new FakePaymentRepository { SummedPaidAmount = 70m };
+        var service = new PaymentBusinessEffectService(payments, orders, new FakeProjectRepository());
+
+        await service.ApplyAsync(CreatePayment(orderId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID));
+
         Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, orders.Order!.Status);
-        Assert.Equal(ProjectStatus.ORDER_CONFIRMED, projects.Project!.Status);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RemainingPaid_WhenNotFinalPaymentPending_DoesNotAutoComplete()
+    {
+        var orderId = Guid.NewGuid();
+        var order = CreateOrder(orderId, Guid.NewGuid(), OrderStatus.DELIVERED);
+        order.CustomerConfirmedDeliveryAt = DateTime.UtcNow;
+        var orders = new FakeOrderRepository
+        {
+            Order = order,
+            OrderItems = [CreateDeliveredItem(orderId)]
+        };
+        var payments = new FakePaymentRepository { SummedPaidAmount = 100m };
+        var service = new PaymentBusinessEffectService(payments, orders, new FakeProjectRepository());
+
+        await service.ApplyAsync(CreatePayment(orderId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID));
+
+        Assert.Equal(OrderStatus.DELIVERED, orders.Order!.Status);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RemainingPaid_WhenDeliveryNotConfirmed_DoesNotAutoComplete()
+    {
+        var orderId = Guid.NewGuid();
+        var order = CreateOrder(orderId, Guid.NewGuid(), OrderStatus.FINAL_PAYMENT_PENDING);
+        var orders = new FakeOrderRepository
+        {
+            Order = order,
+            OrderItems = [CreateDeliveredItem(orderId)]
+        };
+        var payments = new FakePaymentRepository { SummedPaidAmount = 100m };
+        var service = new PaymentBusinessEffectService(payments, orders, new FakeProjectRepository());
+
+        await service.ApplyAsync(CreatePayment(orderId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID));
+
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, orders.Order!.Status);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RemainingPaid_WhenItemsNotDelivered_DoesNotAutoComplete()
+    {
+        var orderId = Guid.NewGuid();
+        var order = CreateOrder(orderId, Guid.NewGuid(), OrderStatus.FINAL_PAYMENT_PENDING);
+        order.CustomerConfirmedDeliveryAt = DateTime.UtcNow;
+        var orders = new FakeOrderRepository
+        {
+            Order = order,
+            OrderItems =
+            [
+                new OrderItem
+                {
+                    OrderId = orderId,
+                    ProductVersionId = Guid.NewGuid(),
+                    Quantity = 1,
+                    Status = OrderItemStatus.READY
+                }
+            ]
+        };
+        var payments = new FakePaymentRepository { SummedPaidAmount = 100m };
+        var service = new PaymentBusinessEffectService(payments, orders, new FakeProjectRepository());
+
+        await service.ApplyAsync(CreatePayment(orderId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID));
+
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, orders.Order!.Status);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RemainingPaid_WhenOrderMissing_DoesNotThrow()
+    {
+        var payments = new FakePaymentRepository { SummedPaidAmount = 100m };
+        var service = new PaymentBusinessEffectService(
+            payments,
+            new FakeOrderRepository(),
+            new FakeProjectRepository());
+
+        var payment = CreatePayment(Guid.NewGuid(), PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID);
+
+        await service.ApplyAsync(payment);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RemainingPaid_WhenProjectMissing_StillCompletesOrder()
+    {
+        var orderId = Guid.NewGuid();
+        var order = CreateOrder(orderId, Guid.NewGuid(), OrderStatus.FINAL_PAYMENT_PENDING);
+        order.CustomerConfirmedDeliveryAt = DateTime.UtcNow;
+        var orders = new FakeOrderRepository
+        {
+            Order = order,
+            OrderItems = [CreateDeliveredItem(orderId)]
+        };
+        var payments = new FakePaymentRepository { SummedPaidAmount = 100m };
+        var service = new PaymentBusinessEffectService(
+            payments,
+            orders,
+            new FakeProjectRepository());
+
+        await service.ApplyAsync(CreatePayment(orderId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID));
+
+        Assert.Equal(OrderStatus.COMPLETED, orders.Order!.Status);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RemainingPaid_WhenPaymentHasNoOrderId_DoesNothing()
+    {
+        var payments = new FakePaymentRepository { SummedPaidAmount = 100m };
+        var orders = new FakeOrderRepository();
+        var service = new PaymentBusinessEffectService(
+            payments,
+            orders,
+            new FakeProjectRepository());
+
+        await service.ApplyAsync(CreatePayment(null, PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID));
+
+        Assert.Null(orders.Order);
     }
 
     [Fact]
@@ -238,6 +411,17 @@ public sealed class PaymentBusinessEffectServiceTests
         };
     }
 
+    private static OrderItem CreateDeliveredItem(Guid orderId)
+    {
+        return new OrderItem
+        {
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Quantity = 1,
+            Status = OrderItemStatus.DELIVERED
+        };
+    }
+
     private sealed class FakePaymentRepository : IPaymentRepository
     {
         public decimal SummedPaidAmount { get; set; }
@@ -373,6 +557,8 @@ public sealed class PaymentBusinessEffectServiceTests
     {
         public Order? Order { get; set; }
 
+        public IReadOnlyList<OrderItem> OrderItems { get; set; } = [];
+
         public Task<IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel>> GetByProjectAsync(
             Guid projectId,
             CancellationToken cancellationToken = default)
@@ -392,6 +578,11 @@ public sealed class PaymentBusinessEffectServiceTests
         public Task AddAsync(Order order, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<IReadOnlyList<OrderItem>> GetItemsByOrderAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<OrderItem>>(OrderItems.Where(item => item.OrderId == orderId).ToList());
 
         public void Update(Order order) => Order = order;
 

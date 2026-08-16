@@ -126,6 +126,15 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public void Complete_AllowsSalesAndAdminRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.Complete));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public void Reject_AllowsSalesAndAdminRoles()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.Reject));
@@ -744,6 +753,55 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public async Task Complete_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var response = new ProjectCompletionDto
+        {
+            ProjectId = projectId,
+            ProjectStatus = nameof(ProjectStatus.COMPLETED),
+            CompletedAt = DateTime.UtcNow
+        };
+        var service = new FakeProjectService(
+            createResult: ServiceResult<ProjectDto>.Created(new ProjectDto()),
+            completeResult: ServiceResult<ProjectCompletionDto>.Success(
+                response,
+                "Project completed successfully."));
+        var controller = CreateControllerWithUser(service, currentUserId);
+
+        var actionResult = await controller.Complete(projectId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectCompletionDto>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project completed successfully.", result.Message);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task Complete_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.Complete(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.ProjectId);
+        Assert.Equal(Guid.Empty, service.CurrentUserId);
+    }
+
+    [Fact]
     public async Task Reject_ReturnsServiceResultThroughBaseController()
     {
         var currentUserId = Guid.NewGuid();
@@ -906,6 +964,7 @@ public sealed class ProjectsControllerTests
         private readonly ServiceResult<ProjectTargetCompletionDateDto> _updateTargetCompletionDateResult;
         private readonly ServiceResult<ProjectStatusUpdateDto> _updateStatusResult;
         private readonly ServiceResult<ProjectRejectionDto> _rejectResult;
+        private readonly ServiceResult<ProjectCompletionDto> _completeResult;
         private readonly ServiceResult<ReopenProposalResponseDto> _reopenProposalResult;
         private readonly ServiceResult<ProjectDesignerAssignmentDto> _assignDesignerResult;
         private readonly ServiceResult<ProjectsByUserResponseDto> _projectsByUserResult;
@@ -920,6 +979,7 @@ public sealed class ProjectsControllerTests
             ServiceResult<ProjectTargetCompletionDateDto>? updateTargetCompletionDateResult = null,
             ServiceResult<ProjectStatusUpdateDto>? updateStatusResult = null,
             ServiceResult<ProjectRejectionDto>? rejectResult = null,
+            ServiceResult<ProjectCompletionDto>? completeResult = null,
             ServiceResult<ReopenProposalResponseDto>? reopenProposalResult = null,
             ServiceResult<ProjectDesignerAssignmentDto>? assignDesignerResult = null,
             ServiceResult<ProjectsByUserResponseDto>? projectsByUserResult = null)
@@ -938,6 +998,8 @@ public sealed class ProjectsControllerTests
                 ServiceResult<ProjectStatusUpdateDto>.Success(new ProjectStatusUpdateDto());
             _rejectResult = rejectResult ??
                 ServiceResult<ProjectRejectionDto>.Success(new ProjectRejectionDto());
+            _completeResult = completeResult ??
+                ServiceResult<ProjectCompletionDto>.Success(new ProjectCompletionDto());
             _reopenProposalResult = reopenProposalResult ??
                 ServiceResult<ReopenProposalResponseDto>.Success(new ReopenProposalResponseDto());
             _assignDesignerResult = assignDesignerResult ??
@@ -1050,6 +1112,16 @@ public sealed class ProjectsControllerTests
             CurrentUserId = currentUserId;
             RejectRequest = request;
             return Task.FromResult(_rejectResult);
+        }
+
+        public Task<ServiceResult<ProjectCompletionDto>> CompleteAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_completeResult);
         }
 
         public Task<ServiceResult<ProjectDesignerAssignmentDto>> AssignDesignerAsync(

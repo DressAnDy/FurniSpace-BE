@@ -145,15 +145,49 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
             return;
         }
 
-        var order = await _orders.GetByIdAsync(payment.OrderId.Value, cancellationToken);
-        if (order is null || order.Status != OrderStatus.FINAL_PAYMENT_PENDING)
+        var orderId = payment.OrderId.Value;
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null || order.Status == OrderStatus.COMPLETED)
         {
             return;
         }
 
-        // Remaining payment PAID only updates order financial summary via ApplyOrderCollectionEffectsAsync.
-        // Order/project completion is explicit in a later workflow step.
-        await Task.CompletedTask;
+        if (order.Status != OrderStatus.FINAL_PAYMENT_PENDING)
+        {
+            return;
+        }
+
+        var items = await _orders.GetItemsByOrderAsync(orderId, cancellationToken);
+        var summedPaidAmount = await _payments.SumOrderScopedPaidAmountAsync(orderId, cancellationToken);
+        var (paidAmount, remainingAmount) = OrderPaidAmountRecalculator.Calculate(
+            order.FinalTotalAmount,
+            summedPaidAmount);
+
+        if (!OrderFinancialCompletionEvaluator.CanAutoCompleteAfterRemainingPayment(
+                order,
+                items,
+                remainingAmount))
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        order.PaidAmount = paidAmount;
+        order.RemainingAmount = remainingAmount;
+        order.Status = OrderStatus.COMPLETED;
+        order.UpdatedAt = now;
+        _orders.Update(order);
+
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is not null)
+        {
+            await OrderNotificationSupport.TryDispatchCompletedAsync(
+                _notifications,
+                _logger,
+                order,
+                project,
+                cancellationToken);
+        }
     }
 
     private async Task DispatchProjectStartFeePaidNotificationAsync(

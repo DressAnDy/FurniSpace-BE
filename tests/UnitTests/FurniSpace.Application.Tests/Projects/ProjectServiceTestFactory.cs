@@ -667,6 +667,11 @@ internal sealed class FakeProjectOrderRepository : IOrderRepository
 {
     public Order? Order { get; set; }
 
+    public IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel> ProjectOrders { get; set; } =
+        [];
+
+    public IReadOnlyList<OrderItem> OrderItems { get; set; } = [];
+
     public Task<Order?> GetLatestByProjectInStatusesAsync(
         Guid projectId,
         IReadOnlyCollection<OrderStatus> statuses,
@@ -686,7 +691,12 @@ internal sealed class FakeProjectOrderRepository : IOrderRepository
     public Task<IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel>> GetByProjectAsync(
         Guid projectId,
         CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel>>([]);
+    {
+        IReadOnlyList<Infrastructure.ReadModels.Orders.OrderListItemReadModel> orders = ProjectOrders
+            .Where(order => order.ProjectId == projectId)
+            .ToList();
+        return Task.FromResult(orders);
+    }
 
     public Task<Infrastructure.ReadModels.Orders.OrderDetailReadModel?> GetDetailAsync(
         Guid orderId,
@@ -704,6 +714,11 @@ internal sealed class FakeProjectOrderRepository : IOrderRepository
 
     public Task AddItemAsync(OrderItem item, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+
+    public Task<IReadOnlyList<OrderItem>> GetItemsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<OrderItem>>(OrderItems.Where(item => item.OrderId == orderId).ToList());
 
     public void Update(Order order)
     {

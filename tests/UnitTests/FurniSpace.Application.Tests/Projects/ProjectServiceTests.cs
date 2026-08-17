@@ -295,6 +295,40 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
+    public async Task AssignDesignerAsync_WhenDesignerHasTwoActiveProjects_ReturnsConflict()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var activeProjectOne = CreateAssignedDesignerProject(designer.AccountId, ProjectStatus.MEASUREMENT_REQUIRED);
+        var activeProjectTwo = CreateAssignedDesignerProject(designer.AccountId, ProjectStatus.PROPOSAL_CONSULTING);
+        var repository = new FakeProjectRepository(
+            roleName: "SALES",
+            entities: [project, activeProjectOne, activeProjectTwo],
+            designer: designer);
+        var projectChats = new FakeProjectChatService();
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            TestUnitOfWork.Instance,
+            new() { ProjectChats = projectChats });
+
+        var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
+        {
+            DesignerId = designer.AccountId,
+            SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+        });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal("Designer has reached maximum active project capacity.", result.Message);
+        Assert.Null(result.Data);
+        Assert.Null(project.AssignedDesignerId);
+        Assert.Equal(1, repository.GetActiveDesignerCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
+        Assert.Equal(0, projectChats.UpsertCallCount);
+    }
+
+    [Fact]
     public async Task AssignDesignerAsync_AfterSuccessfulAssignment_DispatchesDesignerAssignedNotification()
     {
         var salesId = Guid.NewGuid();
@@ -3196,6 +3230,21 @@ public sealed class ProjectServiceTests
             BusinessType = "Cafe",
             FurnitureRequirement = "Counter, tables, chairs",
             Status = ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT
+        };
+    }
+
+    private static Project CreateAssignedDesignerProject(Guid designerId, ProjectStatus status)
+    {
+        return new Project
+        {
+            ProjectId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = Guid.NewGuid(),
+            AssignedDesignerId = designerId,
+            ProjectName = "Assigned project",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Furniture",
+            Status = status
         };
     }
 

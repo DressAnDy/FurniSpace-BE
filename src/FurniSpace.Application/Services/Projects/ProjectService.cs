@@ -4,6 +4,7 @@ using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Constants.Common;
+using static FurniSpace.Application.Constants.Accounts.AccountServiceConstants;
 using static FurniSpace.Application.Constants.Projects.ProjectServiceConstants;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
@@ -16,6 +17,7 @@ using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Search.Documents;
+using FurniSpace.Infrastructure.Common.Accounts;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Common.Search;
@@ -1237,6 +1239,11 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest("Designer account is not active or does not have Designer role.");
         }
 
+        if (!HasDesignerAvailableCapacity(designer.AccountId, project.ProjectId))
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.Conflict("Designer has reached maximum active project capacity.");
+        }
+
         var projectChats = _projectChats ?? throw new InvalidOperationException(
             "Project chat service is not configured.");
 
@@ -1289,6 +1296,18 @@ public sealed class ProjectService : IProjectService
     private static List<string> ValidateRequest(CreateProjectRequestDto request)
     {
         return ValidateBasicInformation(request.Adapt<UpdateProjectBasicInformationRequestDto>());
+    }
+
+    private bool HasDesignerAvailableCapacity(Guid designerId, Guid currentProjectId)
+    {
+        var designActiveStatuses = DesignerWorkloadStatusSets.DesignActive;
+        var activeAssignmentCount = _projects.Query().Count(project =>
+            project.ProjectId != currentProjectId &&
+            project.AssignedDesignerId == designerId &&
+            project.Status.HasValue &&
+            designActiveStatuses.Contains(project.Status.Value));
+
+        return activeAssignmentCount < MaxActiveDesignerProjects;
     }
 
     private static List<string> ValidateBasicInformation(UpdateProjectBasicInformationRequestDto request)

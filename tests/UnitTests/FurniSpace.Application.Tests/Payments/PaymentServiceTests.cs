@@ -1042,6 +1042,99 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
+    public async Task CreatePaymentTransactionAttemptAsync_PayOs_WithoutRequestUrls_UsesConfiguredUrls()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m);
+        payment.PaidBy = _customerId;
+        repository.SeedPayment(payment, CreatePaymentDetail(paymentId, customerId: _customerId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            PayOsEnabled = true
+        });
+
+        var result = await service.CreatePaymentTransactionAttemptAsync(
+            paymentId,
+            _customerId,
+            new CreatePaymentTransactionAttemptRequestDto
+            {
+                PaymentProvider = PaymentProvider.PAYOS,
+                PaymentMethod = PaymentMethod.PAYMENT_LINK
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(PaymentProvider.PAYOS, result.Data!.PaymentProvider);
+        Assert.Equal("https://pay.payos.vn/checkout", result.Data.PaymentUrl);
+        Assert.Equal("qr-data", result.Data.QrContent);
+        Assert.Equal(PaymentStatus.PROCESSING, payment.Status);
+    }
+
+    [Fact]
+    public async Task CreatePaymentTransactionAttemptAsync_PayOs_WithoutUrlsAndNoConfig_ReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m);
+        payment.PaidBy = _customerId;
+        repository.SeedPayment(payment, CreatePaymentDetail(paymentId, customerId: _customerId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            PayOsEnabled = true,
+            PayOsReturnUrl = string.Empty,
+            PayOsCancelUrl = string.Empty
+        });
+
+        var result = await service.CreatePaymentTransactionAttemptAsync(
+            paymentId,
+            _customerId,
+            new CreatePaymentTransactionAttemptRequestDto
+            {
+                PaymentProvider = PaymentProvider.PAYOS,
+                PaymentMethod = PaymentMethod.PAYMENT_LINK
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.PayOsCreateLinkFailed, result.ErrorCode);
+        Assert.Equal("PayOS return and cancel URLs must be configured.", result.Message);
+    }
+
+    [Fact]
+    public async Task CreatePaymentTransactionAttemptAsync_PayOs_WithHttpRequestUrls_ReturnsBadRequest()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        var payment = CreatePayment(paymentId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 30m);
+        payment.PaidBy = _customerId;
+        repository.SeedPayment(payment, CreatePaymentDetail(paymentId, customerId: _customerId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Payments = repository,
+            PayOsEnabled = true
+        });
+
+        var result = await service.CreatePaymentTransactionAttemptAsync(
+            paymentId,
+            _customerId,
+            new CreatePaymentTransactionAttemptRequestDto
+            {
+                PaymentProvider = PaymentProvider.PAYOS,
+                PaymentMethod = PaymentMethod.PAYMENT_LINK,
+                ReturnUrl = "http://example.com/return",
+                CancelUrl = "http://example.com/cancel"
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(PaymentErrorCodes.PayOsCreateLinkFailed, result.ErrorCode);
+        Assert.Equal("PayOS return and cancel URLs must be valid HTTPS URLs.", result.Message);
+    }
+
+    [Fact]
     public async Task GetActiveTransactionAsync_WhenPendingSePayExists_ReturnsTransaction()
     {
         var paymentId = Guid.NewGuid();
@@ -1235,8 +1328,8 @@ public sealed class PaymentServiceTests
             new PayOsOptions
             {
                 Enabled = options.PayOsEnabled,
-                ReturnUrl = "https://example.com/return",
-                CancelUrl = "https://example.com/cancel",
+                ReturnUrl = options.PayOsReturnUrl ?? "https://example.com/return",
+                CancelUrl = options.PayOsCancelUrl ?? "https://example.com/cancel",
                 DescriptionPrefix = "FS "
             },
             new ProjectWorkflowSettings
@@ -1345,6 +1438,8 @@ public sealed class PaymentServiceTests
         public bool SePayEnabled { get; init; }
         public bool VietQrEnabled { get; init; }
         public bool PayOsEnabled { get; init; } = true;
+        public string? PayOsReturnUrl { get; init; }
+        public string? PayOsCancelUrl { get; init; }
         public decimal DefaultProjectStartFeeAmount { get; init; } = 500000m;
         public INotificationDispatcher? Notifications { get; init; }
     }

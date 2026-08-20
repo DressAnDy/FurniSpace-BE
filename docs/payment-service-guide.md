@@ -77,7 +77,16 @@ PATCH  /api/payments/{paymentId}/transactions/{paymentTransactionId}/cancel  # C
 
 **Create transaction (CP5)** — CUSTOMER only:
 
-PayOS:
+PayOS (QR / payment link — `returnUrl` / `cancelUrl` optional; server uses `PAYOS_RETURN_URL` / `PAYOS_CANCEL_URL` when omitted):
+
+```json
+{
+  "paymentProvider": "PAYOS",
+  "paymentMethod": "PAYMENT_LINK"
+}
+```
+
+Optional client override:
 
 ```json
 {
@@ -99,7 +108,7 @@ SePay:
 
 - Transaction amount/currency are copied from the Payment (customer cannot override).
 - Reuses an existing PENDING attempt with the same provider/method when still valid (same `paymentTransactionId`).
-- PayOS requires valid HTTPS `returnUrl` and `cancelUrl`.
+- PayOS requires valid HTTPS redirect URLs at link creation time. Configure `PAYOS_RETURN_URL` / `PAYOS_CANCEL_URL` on the server; clients may omit them (typical QR flow) or override with HTTPS URLs.
 
 ### 3.2 Business payment creation (Sales/System)
 

@@ -174,7 +174,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         if (string.IsNullOrWhiteSpace(context.MongoSceneId))
         {
             return ServiceResult<RoomPlannerSceneResponseDto>.Success(
-                CreateEmptySceneResponse(context),
+                await CreateEmptySceneResponseAsync(context, currentUserRole, cancellationToken),
                 "Empty Room Planner scene template returned successfully.");
         }
 
@@ -204,7 +204,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         }
 
         return ServiceResult<RoomPlannerSceneResponseDto>.Success(
-            ToResponse(context, document),
+            await ToResponseAsync(context, document, currentUserRole, cancellationToken),
             "Room planner scene retrieved successfully.");
     }
 
@@ -408,9 +408,12 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         };
     }
 
-    private static RoomPlannerSceneResponseDto CreateEmptySceneResponse(
-        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context) =>
-        new()
+    private async Task<RoomPlannerSceneResponseDto> CreateEmptySceneResponseAsync(
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        string currentUserRole,
+        CancellationToken cancellationToken)
+    {
+        return new RoomPlannerSceneResponseDto
         {
             SceneId = context.SceneId,
             MongoSceneId = null,
@@ -418,6 +421,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             ProjectId = context.ProjectId,
             ProjectAreaIds = ToOrderedProjectAreaIds(context.SceneAreas),
             Areas = ToSceneAreaDtos(context.SceneAreas),
+            AreaBlueprints = await GetAreaBlueprintsAsync(context, currentUserRole, cancellationToken),
             SchemaVersion = 3,
             EditorVersion = EmptyTemplateEditorVersion,
             Unit = "meter",
@@ -430,11 +434,15 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             EditorState = new RoomPlannerEditorStateDocument(),
             LastSavedAt = null
         };
+    }
 
-    private static RoomPlannerSceneResponseDto ToResponse(
+    private async Task<RoomPlannerSceneResponseDto> ToResponseAsync(
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
-        RoomPlannerSceneDocument document) =>
-        new()
+        RoomPlannerSceneDocument document,
+        string currentUserRole,
+        CancellationToken cancellationToken)
+    {
+        return new RoomPlannerSceneResponseDto
         {
             SceneId = context.SceneId,
             MongoSceneId = document.Id,
@@ -442,6 +450,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             ProjectId = document.ProjectId,
             ProjectAreaIds = ToOrderedProjectAreaIds(context.SceneAreas),
             Areas = ToSceneAreaDtos(context.SceneAreas),
+            AreaBlueprints = await GetAreaBlueprintsAsync(context, currentUserRole, cancellationToken),
             SchemaVersion = document.SchemaVersion,
             EditorVersion = document.EditorVersion,
             Unit = document.Unit,
@@ -455,6 +464,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             EditorState = document.EditorState,
             LastSavedAt = document.Metadata?.UpdatedAt
         };
+    }
 
     private static Error? ValidateDocumentForLoad(
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
@@ -520,6 +530,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     private static bool IsEditableProposal(ProposalStatus? status)
     {
         return status is ProposalStatus.DRAFT
+            or ProposalStatus.PUBLISHED
             or ProposalStatus.REVISION_REQUESTED;
     }
 
@@ -533,6 +544,50 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         }
 
         return await _sceneDocuments.GetBySqlSceneIdAsync(context.SceneId, cancellationToken);
+    }
+
+    private async Task<List<RoomPlannerAreaBlueprintDto>> GetAreaBlueprintsAsync(
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        string currentUserRole,
+        CancellationToken cancellationToken)
+    {
+        if (_projectFiles is null)
+        {
+            return [];
+        }
+
+        var files = await _projectFiles.GetCatalogFilesByReferencesAsync(
+            "PROJECT_AREA",
+            ToOrderedProjectAreaIds(context.SceneAreas),
+            IsCustomer(currentUserRole),
+            cancellationToken);
+
+        return files
+            .Where(file => file.IsPrimary == true && IsAreaBlueprintFileType(file.FileType))
+            .OrderBy(file => file.DisplayOrder ?? int.MaxValue)
+            .ThenBy(file => file.UploadedAt)
+            .Select(file => new RoomPlannerAreaBlueprintDto
+            {
+                ProjectAreaId = file.ReferenceId,
+                FileId = file.FileId,
+                FileLinkId = file.FileLinkId,
+                FileType = file.FileType,
+                OriginalFileName = file.OriginalFileName,
+                PublicUrl = file.FileUrl,
+                MimeType = file.MimeType,
+                DisplayOrder = file.DisplayOrder,
+                IsPrimary = file.IsPrimary == true
+            })
+            .ToList();
+    }
+
+    private static bool IsAreaBlueprintFileType(FileType? fileType)
+    {
+        return fileType is FileType.FLOOR_PLAN
+            or FileType.PDF_DRAWING
+            or FileType.REFERENCE_IMAGE
+            or FileType.LIDAR_SCAN
+            or FileType.MEASUREMENT_REPORT;
     }
 
     private static void NormalizePayload(RoomPlannerScenePayloadDto request)
@@ -628,9 +683,56 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         }
 
         return ValidateFloorMappings(request.BlueprintLayout, context)
+            ?? ValidateStandardAreaGeometry(request.BlueprintLayout, context)
             ?? ValidateObjectIds(request.Objects)
             ?? ValidateObjectFloorReferences(request)
             ?? ValidateStableGeometryReferences(request.BlueprintLayout);
+    }
+
+    private static Error? ValidateStandardAreaGeometry(
+        RoomPlannerBlueprintLayoutDocument blueprintLayout,
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context)
+    {
+        var standardAreas = context.SceneAreas
+            .Where(area => !area.IsSpecialLayout && HasRectangularDimensions(area))
+            .ToDictionary(area => area.ProjectAreaId);
+
+        foreach (var floor in blueprintLayout.Floors)
+        {
+            if (!standardAreas.TryGetValue(floor.ProjectAreaId, out var area))
+            {
+                continue;
+            }
+
+            if (!MatchesStandardAreaRectangle(floor, area))
+            {
+                return Error.BadRequest(
+                    InvalidBlueprintGeometryCode,
+                    "Standard project area boundary must match the configured width and length.");
+            }
+        }
+
+        return null;
+    }
+
+    private static bool MatchesStandardAreaRectangle(
+        RoomPlannerBlueprintFloorDocument floor,
+        Infrastructure.ReadModels.Proposals.ProposalSceneAreaReadModel area)
+    {
+        var width = area.Width!.Value;
+        var length = area.Length!.Value;
+        var expectedPoints = new HashSet<(decimal X, decimal Z)>
+        {
+            (0m, 0m),
+            (width, 0m),
+            (width, length),
+            (0m, length)
+        };
+        var actualPoints = floor.Points
+            .Select(point => (point.X, point.Z))
+            .ToHashSet();
+
+        return actualPoints.SetEquals(expectedPoints) && floor.Walls.Count >= 4;
     }
 
     private static Error? ValidateFloorMappings(
@@ -773,6 +875,10 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
     private static Error BlueprintMappingError() =>
         Error.BadRequest(BlueprintFloorMappingMismatchCode, "Blueprint floors must match SQL scene area mappings.");
 
+    private static bool HasRectangularDimensions(
+        Infrastructure.ReadModels.Proposals.ProposalSceneAreaReadModel area) =>
+        area.Width is > 0m && area.Length is > 0m;
+
     private static bool ContainsDuplicate<T>(IEnumerable<T> values) =>
         values.GroupBy(value => value).Any(group => group.Count() > 1);
 
@@ -892,18 +998,25 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
                      .ThenBy(area => area.ProjectAreaId)
                      .Select((area, index) => (area, index)))
         {
-            floors.Add(new RoomPlannerBlueprintFloorDocument
+            var floor = new RoomPlannerBlueprintFloorDocument
             {
                 Id = $"floor-{context.SceneId:N}-{area.ProjectAreaId:N}",
                 ProjectAreaId = area.ProjectAreaId,
                 Name = area.AreaName,
                 LevelIndex = index,
                 Elevation = elevation,
-                FloorHeight = DefaultFloorHeight,
+                FloorHeight = area.Height ?? DefaultFloorHeight,
                 SlabThickness = DefaultSlabThickness
-            });
+            };
 
-            elevation += DefaultFloorHeight + DefaultSlabThickness;
+            if (!area.IsSpecialLayout && HasRectangularDimensions(area))
+            {
+                ApplyStandardAreaRectangle(floor, area);
+            }
+
+            floors.Add(floor);
+
+            elevation += floor.FloorHeight.GetValueOrDefault(DefaultFloorHeight) + DefaultSlabThickness;
         }
 
         return new RoomPlannerBlueprintLayoutDocument
@@ -917,6 +1030,59 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         };
     }
 
+    private static void ApplyStandardAreaRectangle(
+        RoomPlannerBlueprintFloorDocument floor,
+        Infrastructure.ReadModels.Proposals.ProposalSceneAreaReadModel area)
+    {
+        var width = area.Width!.Value;
+        var length = area.Length!.Value;
+        floor.Points =
+        [
+            CreateBlueprintPoint("p1", 0m, 0m),
+            CreateBlueprintPoint("p2", width, 0m),
+            CreateBlueprintPoint("p3", width, length),
+            CreateBlueprintPoint("p4", 0m, length)
+        ];
+        floor.Walls =
+        [
+            CreateBlueprintWall("w1", floor.Points[0], floor.Points[1], area.Height),
+            CreateBlueprintWall("w2", floor.Points[1], floor.Points[2], area.Height),
+            CreateBlueprintWall("w3", floor.Points[2], floor.Points[3], area.Height),
+            CreateBlueprintWall("w4", floor.Points[3], floor.Points[0], area.Height)
+        ];
+        floor.Rooms =
+        [
+            new Dictionary<string, object?>
+            {
+                ["roomId"] = $"room-{area.ProjectAreaId:N}",
+                ["projectAreaId"] = area.ProjectAreaId,
+                ["areaSqm"] = area.AreaSqm ?? width * length,
+                ["lockedBoundary"] = true
+            }
+        ];
+    }
+
+    private static RoomPlannerPoint2Document CreateBlueprintPoint(string pointId, decimal x, decimal z) =>
+        new() { PointId = pointId, X = x, Z = z };
+
+    private static RoomPlannerWallDocument CreateBlueprintWall(
+        string wallId,
+        RoomPlannerPoint2Document start,
+        RoomPlannerPoint2Document end,
+        decimal? height) =>
+        new()
+        {
+            WallId = wallId,
+            StartPointId = start.PointId,
+            EndPointId = end.PointId,
+            Start = start,
+            End = end,
+            Height = height ?? DefaultFloorHeight,
+            Thickness = 0.1m,
+            Locked = true,
+            Visible = true
+        };
+
     private static List<ProposalSceneAreaDto> ToSceneAreaDtos(
         IEnumerable<Infrastructure.ReadModels.Proposals.ProposalSceneAreaReadModel> areas) =>
         areas
@@ -928,6 +1094,11 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
                 AreaName = area.AreaName,
                 AreaType = area.AreaType?.ToString(),
                 FloorNumber = area.FloorNumber,
+                IsSpecialLayout = area.IsSpecialLayout,
+                AreaSqm = area.AreaSqm,
+                Width = area.Width,
+                Length = area.Length,
+                Height = area.Height,
                 SortOrder = area.SortOrder,
                 Status = area.Status?.ToString()
             })

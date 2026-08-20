@@ -11,6 +11,8 @@ public sealed class UploadProjectFileFormRequest
     public IFormFile? File { get; set; }
     public FileType FileType { get; set; } = FileType.OTHER;
     public FileVisibility? Visibility { get; set; }
+    public bool? IsPrimary { get; set; }
+    public int? DisplayOrder { get; set; }
     public string? Note { get; set; }
 
     public UploadProjectFileRequestDto ToRequestDto()
@@ -23,6 +25,8 @@ public sealed class UploadProjectFileFormRequest
             FileSizeBytes = File?.Length ?? 0,
             FileType = FileType,
             Visibility = Visibility,
+            IsPrimary = IsPrimary,
+            DisplayOrder = DisplayOrder,
             Note = Note
         };
     }

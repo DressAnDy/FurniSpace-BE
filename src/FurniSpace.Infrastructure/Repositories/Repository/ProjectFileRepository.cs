@@ -15,6 +15,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
     private const string ProductReferenceType = "PRODUCT";
     private const string ProductVersionReferenceType = "PRODUCT_VERSION";
     private const string ProjectReferenceType = "PROJECT";
+    private const string ProjectAreaReferenceType = "PROJECT_AREA";
 
     private readonly Dictionary<string, Func<Guid, CancellationToken, Task<ProjectFileAccessReadModel?>>> _projectAccessResolvers;
 
@@ -23,6 +24,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         _projectAccessResolvers = new Dictionary<string, Func<Guid, CancellationToken, Task<ProjectFileAccessReadModel?>>>(StringComparer.OrdinalIgnoreCase)
         {
             [ProjectReferenceType] = GetProjectAccessAsync,
+            [ProjectAreaReferenceType] = GetProjectAreaAccessAsync,
             ["PROJECT_SCHEDULE"] = GetProjectScheduleAccessAsync,
             ["PROPOSAL"] = GetProposalAccessAsync,
             ["QUOTATION"] = GetQuotationAccessAsync,
@@ -199,6 +201,34 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
     {
         return await DbContext.FileLinkSet
             .Where(link => link.FileId == fileId)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<FileLink?> GetFileLinkEntityAsync(
+        string referenceType,
+        Guid referenceId,
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedReferenceType = referenceType.Trim().ToUpperInvariant();
+        return DbContext.FileLinkSet
+            .Where(link =>
+                link.ReferenceType == normalizedReferenceType &&
+                link.ReferenceId == referenceId &&
+                link.FileId == fileId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByReferenceAsync(
+        string referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedReferenceType = referenceType.Trim().ToUpperInvariant();
+        return await DbContext.FileLinkSet
+            .Where(link =>
+                link.ReferenceType == normalizedReferenceType &&
+                link.ReferenceId == referenceId)
             .ToListAsync(cancellationToken);
     }
 
@@ -393,6 +423,21 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
 
     private IQueryable<FileMetadataReadModel> BuildLinkedFileMetadataQuery()
     {
+        var projectAreaAccess =
+            DbContext.ProjectAreaSet.Join(
+                DbContext.ProjectSet,
+                area => area.ProjectId,
+                project => project.ProjectId,
+                (area, project) => new
+                {
+                    area.ProjectAreaId,
+                    project.ProjectId,
+                    project.CustomerId,
+                    project.AssignedSalesId,
+                    project.AssignedDesignerId,
+                    project.Status
+                });
+
         return DbContext.StoredFileSet
             .Join(
                 DbContext.FileLinkSet,
@@ -414,7 +459,23 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 (joined, projects) => new { joined.file, joined.link, projects })
             .SelectMany(
                 joined => joined.projects.DefaultIfEmpty(),
-                (joined, project) => new FileMetadataReadModel
+                (joined, project) => new { joined.file, joined.link, project })
+            .GroupJoin(
+                projectAreaAccess,
+                joined => new
+                {
+                    joined.link.ReferenceType,
+                    joined.link.ReferenceId
+                },
+                area => new
+                {
+                    ReferenceType = ProjectAreaReferenceType,
+                    ReferenceId = area.ProjectAreaId
+                },
+                (joined, areas) => new { joined.file, joined.link, joined.project, areas })
+            .SelectMany(
+                joined => joined.areas.DefaultIfEmpty(),
+                (joined, areaProject) => new FileMetadataReadModel
                 {
                     FileId = joined.file.FileId,
                     FileLinkId = joined.link.FileLinkId,
@@ -433,15 +494,15 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                     Status = joined.file.Status,
                     DisplayOrder = joined.link.DisplayOrder,
                     IsPrimary = joined.link.IsPrimary,
-                    ProjectAccess = project == null
+                    ProjectAccess = joined.project == null && areaProject == null
                         ? null
                         : new ProjectFileAccessReadModel
                         {
-                            ProjectId = project.ProjectId,
-                            CustomerId = project.CustomerId,
-                            AssignedSalesId = project.AssignedSalesId,
-                            AssignedDesignerId = project.AssignedDesignerId,
-                            Status = project.Status
+                            ProjectId = joined.project == null ? areaProject!.ProjectId : joined.project.ProjectId,
+                            CustomerId = joined.project == null ? areaProject!.CustomerId : joined.project.CustomerId,
+                            AssignedSalesId = joined.project == null ? areaProject!.AssignedSalesId : joined.project.AssignedSalesId,
+                            AssignedDesignerId = joined.project == null ? areaProject!.AssignedDesignerId : joined.project.AssignedDesignerId,
+                            Status = joined.project == null ? areaProject!.Status : joined.project.Status
                         }
                 });
     }
@@ -473,6 +534,17 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
             DbContext.ProjectScheduleSet
                 .Where(schedule => schedule.ScheduleId == referenceId)
                 .Select(schedule => schedule.ProjectId),
+            cancellationToken);
+    }
+
+    private Task<ProjectFileAccessReadModel?> GetProjectAreaAccessAsync(
+        Guid referenceId,
+        CancellationToken cancellationToken)
+    {
+        return ProjectAccessByProjectIdAsync(
+            DbContext.ProjectAreaSet
+                .Where(area => area.ProjectAreaId == referenceId)
+                .Select(area => area.ProjectId),
             cancellationToken);
     }
 
@@ -599,22 +671,67 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
 
     private IQueryable<ProjectFileSearchIndexItemReadModel> BuildProjectFileSearchIndexQuery()
     {
-        return BuildLinkedFileMetadataQuery()
-            .Where(file => file.ProjectAccess != null && file.ReferenceId.HasValue)
-            .Select(file => new ProjectFileSearchIndexItemReadModel
+        return BuildProjectSearchIndexQuery().Concat(BuildProjectAreaSearchIndexQuery());
+    }
+
+    private IQueryable<ProjectFileSearchIndexItemReadModel> BuildProjectSearchIndexQuery()
+    {
+        return DbContext.StoredFileSet
+            .Join(
+                DbContext.FileLinkSet,
+                file => file.FileId,
+                link => link.FileId,
+                (file, link) => new { file, link })
+            .Where(joined => joined.link.ReferenceType == ProjectReferenceType)
+            .Join(
+                DbContext.ProjectSet,
+                joined => joined.link.ReferenceId,
+                project => project.ProjectId,
+                (joined, project) => new ProjectFileSearchIndexItemReadModel
+                {
+                    FileId = joined.file.FileId,
+                    FileLinkId = joined.link.FileLinkId,
+                    ProjectId = project.ProjectId,
+                    ReferenceType = joined.link.ReferenceType,
+                    ReferenceId = joined.link.ReferenceId,
+                    OriginalFileName = joined.file.OriginalFileName,
+                    FileType = joined.link.FileType,
+                    Visibility = joined.link.Visibility,
+                    MimeType = joined.file.MimeType,
+                    UploadedAt = joined.file.UploadedAt,
+                    UploadedBy = joined.file.UploadedBy,
+                    Status = joined.file.Status
+                });
+    }
+
+    private IQueryable<ProjectFileSearchIndexItemReadModel> BuildProjectAreaSearchIndexQuery()
+    {
+        return DbContext.StoredFileSet
+            .Join(
+                DbContext.FileLinkSet,
+                file => file.FileId,
+                link => link.FileId,
+                (file, link) => new { file, link })
+            .Where(joined => joined.link.ReferenceType == ProjectAreaReferenceType)
+            .Join(
+                DbContext.ProjectAreaSet,
+                joined => joined.link.ReferenceId,
+                area => area.ProjectAreaId,
+                (joined, area) => new { joined.file, joined.link, area.ProjectId })
+            .Select(joined => new ProjectFileSearchIndexItemReadModel
             {
-                FileId = file.FileId,
-                FileLinkId = file.FileLinkId,
-                ProjectId = file.ProjectAccess!.ProjectId,
-                ReferenceType = file.ReferenceType,
-                ReferenceId = file.ReferenceId!.Value,
-                OriginalFileName = file.OriginalFileName,
-                FileType = file.FileType,
-                Visibility = file.Visibility,
-                MimeType = file.MimeType,
-                UploadedAt = file.UploadedAt,
-                UploadedBy = file.UploadedBy,
-                Status = file.Status
+                FileId = joined.file.FileId,
+                FileLinkId = joined.link.FileLinkId,
+                ProjectId = joined.ProjectId,
+                ReferenceType = joined.link.ReferenceType,
+                ReferenceId = joined.link.ReferenceId,
+                OriginalFileName = joined.file.OriginalFileName,
+                FileType = joined.link.FileType,
+                Visibility = joined.link.Visibility,
+                MimeType = joined.file.MimeType,
+                UploadedAt = joined.file.UploadedAt,
+                UploadedBy = joined.file.UploadedBy,
+                Status = joined.file.Status
             });
     }
 

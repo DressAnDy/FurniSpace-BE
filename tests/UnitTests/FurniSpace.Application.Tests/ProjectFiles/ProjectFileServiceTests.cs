@@ -81,6 +81,135 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
+    public async Task UploadProjectAreaFileAsync_AssignedDesigner_UploadsAndLinksProjectAreaFile()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "DESIGNER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = Guid.NewGuid(),
+                AssignedDesignerId = designerId
+            }
+        };
+        var service = CreateService(repository, new FakeFileStorageService());
+        var request = CreateUploadRequest("blueprint.pdf", FileType.PDF_DRAWING, isPrimary: true, displayOrder: 2);
+
+        var result = await service.UploadProjectAreaFileAsync(projectAreaId, designerId, request);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal("Project area file uploaded successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(projectId, result.Data.ProjectId);
+        Assert.Equal("PROJECT_AREA", result.Data.ReferenceType);
+        Assert.Equal(projectAreaId, result.Data.ReferenceId);
+        Assert.True(result.Data.IsPrimary);
+        Assert.Equal(2, result.Data.DisplayOrder);
+        Assert.Single(repository.FileLinks);
+        Assert.Equal("PROJECT_AREA", repository.FileLinks[0].ReferenceType);
+        Assert.Equal(projectAreaId, repository.FileLinks[0].ReferenceId);
+        Assert.True(repository.FileLinks[0].IsPrimary);
+    }
+
+    [Fact]
+    public async Task UploadProjectAreaFileAsync_WithUnsupportedFileType_ReturnsBadRequest()
+    {
+        var service = CreateService(new FakeProjectFileRepository(), new FakeFileStorageService());
+
+        var result = await service.UploadProjectAreaFileAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            CreateUploadRequest("preview.jpg", FileType.PRODUCT_PREVIEW));
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("Project area file type is not supported.", result.Errors!);
+    }
+
+    [Fact]
+    public async Task GetProjectAreaFilesAsync_ForCustomer_AppliesCustomerVisibleFilter()
+    {
+        var customerId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = Guid.NewGuid(),
+                CustomerId = customerId
+            },
+            FileReferencePage = new FileReferencePageReadModel
+            {
+                Total = 1,
+                Items = [CreateMetadata(projectAreaId, customerId, FileVisibility.CUSTOMER_VISIBLE)]
+            }
+        };
+        var service = CreateService(repository, new FakeFileStorageService());
+
+        var result = await service.GetProjectAreaFilesAsync(
+            projectAreaId,
+            customerId,
+            new ProjectFilesQueryDto { Page = 1, Limit = 10 });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal("PROJECT_AREA", repository.LastReferenceQuery!.ReferenceType);
+        Assert.Equal(projectAreaId, repository.LastReferenceQuery.ReferenceId);
+        Assert.True(repository.LastReferenceQuery.CustomerVisibleOnly);
+        Assert.Equal(customerId, repository.LastReferenceQuery.CustomerAccountId);
+    }
+
+    [Fact]
+    public async Task SetProjectAreaPrimaryFileAsync_AssignedSales_UpdatesPrimaryLink()
+    {
+        var salesId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var selectedFileId = Guid.NewGuid();
+        var selectedLink = new FileLink
+        {
+            FileLinkId = Guid.NewGuid(),
+            FileId = selectedFileId,
+            ReferenceType = "PROJECT_AREA",
+            ReferenceId = projectAreaId,
+            FileType = FileType.FLOOR_PLAN,
+            IsPrimary = false
+        };
+        var otherLink = new FileLink
+        {
+            FileLinkId = Guid.NewGuid(),
+            FileId = Guid.NewGuid(),
+            ReferenceType = "PROJECT_AREA",
+            ReferenceId = projectAreaId,
+            FileType = FileType.PDF_DRAWING,
+            IsPrimary = true
+        };
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "SALES",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = Guid.NewGuid(),
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = salesId
+            }
+        };
+        repository.FileLinkEntities.AddRange([selectedLink, otherLink]);
+        var service = CreateService(repository, new FakeFileStorageService());
+
+        var result = await service.SetProjectAreaPrimaryFileAsync(projectAreaId, selectedFileId, salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.True(result.Data!.IsPrimary);
+        Assert.True(selectedLink.IsPrimary);
+        Assert.False(otherLink.IsPrimary);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
     public async Task UploadProjectFileAsync_WithInvalidFile_ReturnsValidationErrors()
     {
         var repository = new FakeProjectFileRepository();
@@ -530,7 +659,9 @@ public sealed class ProjectFileServiceTests
         string fileName,
         FileType fileType,
         FileVisibility? visibility = FileVisibility.STAFF_ONLY,
-        string? note = null)
+        string? note = null,
+        bool? isPrimary = null,
+        int? displayOrder = null)
     {
         return new UploadProjectFileRequestDto
         {
@@ -542,6 +673,8 @@ public sealed class ProjectFileServiceTests
             FileSizeBytes = 12,
             FileType = fileType,
             Visibility = visibility,
+            IsPrimary = isPrimary,
+            DisplayOrder = displayOrder,
             Note = note
         };
     }
@@ -757,6 +890,32 @@ public sealed class ProjectFileServiceTests
             CancellationToken cancellationToken = default)
         {
             var links = FileLinkEntities.Where(link => link.FileId == fileId).ToList();
+            return Task.FromResult<IReadOnlyList<FileLink>>(links);
+        }
+
+        public Task<FileLink?> GetFileLinkEntityAsync(
+            string referenceType,
+            Guid referenceId,
+            Guid fileId,
+            CancellationToken cancellationToken = default)
+        {
+            var link = FileLinkEntities.FirstOrDefault(link =>
+                string.Equals(link.ReferenceType, referenceType, StringComparison.OrdinalIgnoreCase) &&
+                link.ReferenceId == referenceId &&
+                link.FileId == fileId);
+            return Task.FromResult(link);
+        }
+
+        public Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByReferenceAsync(
+            string referenceType,
+            Guid referenceId,
+            CancellationToken cancellationToken = default)
+        {
+            var links = FileLinkEntities
+                .Where(link =>
+                    string.Equals(link.ReferenceType, referenceType, StringComparison.OrdinalIgnoreCase) &&
+                    link.ReferenceId == referenceId)
+                .ToList();
             return Task.FromResult<IReadOnlyList<FileLink>>(links);
         }
 

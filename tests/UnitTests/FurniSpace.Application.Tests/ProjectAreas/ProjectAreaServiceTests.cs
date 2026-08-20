@@ -37,6 +37,7 @@ public sealed class ProjectAreaServiceTests
         Assert.Equal("Main Cafe Area", result.Data.AreaName);
         Assert.Equal(ProjectAreaType.ZONE, result.Data.AreaType);
         Assert.Equal(ProjectAreaStatus.DRAFT, result.Data.Status);
+        Assert.False(result.Data.IsSpecialLayout);
         Assert.Equal(1, areaRepo.AddCallCount);
     }
 
@@ -92,6 +93,58 @@ public sealed class ProjectAreaServiceTests
         var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
         var request = ValidCreateRequest();
         request.Width = -1;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidAreaDimension, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_StandardLayoutWithMismatchedArea_ReturnsInvalidAreaDimension()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+        var request = ValidCreateRequest();
+        request.AreaSqm = 99m;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidAreaDimension, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SpecialLayoutAcceptsNullWidthAndLength()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var areaRepo = new FakeProjectAreaRepository();
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+        var request = ValidCreateRequest();
+        request.IsSpecialLayout = true;
+        request.Width = null;
+        request.Length = null;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(201, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.True(result.Data.IsSpecialLayout);
+        Assert.Null(areaRepo.EntityById?.Width);
+        Assert.Null(areaRepo.EntityById?.Length);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SpecialLayoutWithoutHeight_ReturnsInvalidAreaDimension()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+        var request = ValidCreateRequest();
+        request.IsSpecialLayout = true;
+        request.Height = null;
 
         var result = await service.CreateAsync(project.ProjectId, salesId, request);
 
@@ -418,6 +471,65 @@ public sealed class ProjectAreaServiceTests
     }
 
     [Fact]
+    public async Task UpdateAsync_SpecialToStandardWithoutStandardDimensions_ReturnsInvalidAreaDimension()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        entity.IsSpecialLayout = true;
+        entity.Width = null;
+        entity.Length = null;
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        detail.IsSpecialLayout = true;
+        detail.Width = null;
+        detail.Length = null;
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            AreaRepo = new FakeProjectAreaRepository { Detail = detail, EntityById = entity }
+        });
+
+        var result = await service.UpdateAsync(entity.ProjectAreaId, salesId, new UpdateProjectAreaRequestDto
+        {
+            IsSpecialLayout = false
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidAreaDimension, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SpecialToStandardWithValidDimensions_UpdatesArea()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        entity.IsSpecialLayout = true;
+        entity.Width = null;
+        entity.Length = null;
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        detail.IsSpecialLayout = true;
+        detail.Width = null;
+        detail.Length = null;
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            AreaRepo = new FakeProjectAreaRepository { Detail = detail, EntityById = entity }
+        });
+
+        var result = await service.UpdateAsync(entity.ProjectAreaId, salesId, new UpdateProjectAreaRequestDto
+        {
+            IsSpecialLayout = false,
+            AreaSqm = 20m,
+            Width = 5m,
+            Length = 4m,
+            Height = 3m
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.False(entity.IsSpecialLayout);
+        Assert.Equal(20m, entity.AreaSqm);
+    }
+
+    [Fact]
     public async Task CancelAsync_AlreadyCancelled_ReturnsProjectAreaAlreadyCancelled()
     {
         var salesId = Guid.NewGuid();
@@ -504,6 +616,10 @@ public sealed class ProjectAreaServiceTests
             ProjectId = projectId ?? Guid.NewGuid(),
             AreaName = "Main Cafe Area",
             AreaType = ProjectAreaType.ZONE,
+            AreaSqm = 45.5m,
+            Width = 6.5m,
+            Length = 7.0m,
+            Height = 3.2m,
             Status = ProjectAreaStatus.DRAFT,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -526,6 +642,10 @@ public sealed class ProjectAreaServiceTests
             AssignedDesignerId = assignedDesignerId,
             AreaName = "Main Cafe Area",
             AreaType = ProjectAreaType.ZONE,
+            AreaSqm = 45.5m,
+            Width = 6.5m,
+            Length = 7.0m,
+            Height = 3.2m,
             Status = ProjectAreaStatus.DRAFT,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -619,6 +739,11 @@ public sealed class ProjectAreaServiceTests
                 ProjectId = entity.ProjectId,
                 AreaName = entity.AreaName,
                 AreaType = entity.AreaType,
+                IsSpecialLayout = entity.IsSpecialLayout,
+                AreaSqm = entity.AreaSqm,
+                Width = entity.Width,
+                Length = entity.Length,
+                Height = entity.Height,
                 Status = entity.Status,
                 CreatedAt = entity.CreatedAt,
                 UpdatedAt = entity.UpdatedAt

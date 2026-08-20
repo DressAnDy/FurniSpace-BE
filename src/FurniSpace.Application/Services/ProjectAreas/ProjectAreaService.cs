@@ -77,6 +77,7 @@ public sealed class ProjectAreaService : IProjectAreaService
         var area = request.Adapt<ProjectArea>();
         area.ProjectAreaId = Guid.NewGuid();
         area.ProjectId = projectId;
+        area.IsSpecialLayout = request.IsSpecialLayout == true;
         area.CreatedBy = currentUserId;
         area.CreatedAt = now;
         area.UpdatedAt = now;
@@ -157,16 +158,6 @@ public sealed class ProjectAreaService : IProjectAreaService
 
         var detail = context.Detail!;
 
-        var dimensionError = ValidateDimensions(
-            request.AreaSqm,
-            request.Width,
-            request.Length,
-            request.Height);
-        if (dimensionError is not null)
-        {
-            return dimensionError;
-        }
-
         if (request.ParentAreaId.HasValue)
         {
             var parentError = await ValidateParentAreaAsync(
@@ -186,7 +177,20 @@ public sealed class ProjectAreaService : IProjectAreaService
             return ProjectAreaNotFoundResult();
         }
 
+        var targetIsSpecialLayout = request.IsSpecialLayout ?? detail.IsSpecialLayout;
+        var dimensionError = ValidateDimensions(
+            targetIsSpecialLayout,
+            request.AreaSqm ?? area.AreaSqm,
+            request.Width ?? area.Width,
+            request.Length ?? area.Length,
+            request.Height ?? area.Height);
+        if (dimensionError is not null)
+        {
+            return dimensionError;
+        }
+
         request.Adapt(area);
+        area.IsSpecialLayout = targetIsSpecialLayout;
         area.UpdatedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -345,10 +349,16 @@ public sealed class ProjectAreaService : IProjectAreaService
             return ServiceResult<ProjectAreaDto>.BadRequest("Area type is required.");
         }
 
-        return ValidateDimensions(request.AreaSqm, request.Width, request.Length, request.Height);
+        return ValidateDimensions(
+            request.IsSpecialLayout == true,
+            request.AreaSqm,
+            request.Width,
+            request.Length,
+            request.Height);
     }
 
     private static ServiceResult<ProjectAreaDto>? ValidateDimensions(
+        bool isSpecialLayout,
         decimal? areaSqm,
         decimal? width,
         decimal? length,
@@ -363,7 +373,44 @@ public sealed class ProjectAreaService : IProjectAreaService
                     "Area dimensions must be null or greater than zero."));
         }
 
+        return isSpecialLayout
+            ? ValidateSpecialLayoutDimensions(height)
+            : ValidateStandardLayoutDimensions(areaSqm, width, length, height);
+    }
+
+    private static ServiceResult<ProjectAreaDto>? ValidateSpecialLayoutDimensions(decimal? height)
+    {
+        return !height.HasValue
+            ? InvalidAreaDimensionResult("Special layout area height is required.")
+            : null;
+    }
+
+    private static ServiceResult<ProjectAreaDto>? ValidateStandardLayoutDimensions(
+        decimal? areaSqm,
+        decimal? width,
+        decimal? length,
+        decimal? height)
+    {
+        if (!areaSqm.HasValue || !width.HasValue || !length.HasValue || !height.HasValue)
+        {
+            return InvalidAreaDimensionResult("Standard layout area dimensions are required.");
+        }
+
+        var expectedAreaSqm = decimal.Round(width.Value * length.Value, 2);
+        if (decimal.Round(areaSqm.Value, 2) != expectedAreaSqm)
+        {
+            return InvalidAreaDimensionResult("Standard layout area must equal width multiplied by length.");
+        }
+
         return null;
+    }
+
+    private static ServiceResult<ProjectAreaDto> InvalidAreaDimensionResult(string message)
+    {
+        return ServiceResult<ProjectAreaDto>.Failure(
+            Error.Validation(
+                ProjectAreaErrorCodes.InvalidAreaDimension,
+                message));
     }
 
     private async Task<ServiceResult<ProjectAreaDto>?> ValidateParentAreaAsync(

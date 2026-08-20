@@ -100,6 +100,7 @@ public sealed class ProjectAreaRepository : GenericRepository<ProjectArea>, IPro
                     AreaName = area.AreaName,
                     AreaType = area.AreaType,
                     FloorNumber = area.FloorNumber,
+                    IsSpecialLayout = area.IsSpecialLayout,
                     Description = area.Description,
                     AreaSqm = area.AreaSqm,
                     Width = area.Width,

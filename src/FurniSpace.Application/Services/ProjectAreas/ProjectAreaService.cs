@@ -63,14 +63,16 @@ public sealed class ProjectAreaService : IProjectAreaService
             return validationError;
         }
 
-        var parentError = await ValidateParentAreaAsync(
-            projectId,
+        var structureError = await ValidateAreaStructureAsync(
+            project,
+            request.AreaType,
+            request.FloorNumber,
             request.ParentAreaId,
             projectAreaId: null,
             cancellationToken);
-        if (parentError is not null)
+        if (structureError is not null)
         {
-            return parentError;
+            return structureError;
         }
 
         var now = DateTime.UtcNow;
@@ -158,23 +160,28 @@ public sealed class ProjectAreaService : IProjectAreaService
 
         var detail = context.Detail!;
 
-        if (request.ParentAreaId.HasValue)
-        {
-            var parentError = await ValidateParentAreaAsync(
-                detail.ProjectId,
-                request.ParentAreaId,
-                projectAreaId,
-                cancellationToken);
-            if (parentError is not null)
-            {
-                return parentError;
-            }
-        }
-
         var area = await _areas.GetByIdAsync(projectAreaId, cancellationToken);
         if (area is null)
         {
             return ProjectAreaNotFoundResult();
+        }
+
+        var project = await _projects.GetDetailAsync(detail.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectAreaDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var structureError = await ValidateAreaStructureAsync(
+            project,
+            request.AreaType ?? detail.AreaType,
+            request.FloorNumber ?? detail.FloorNumber,
+            request.ParentAreaId ?? detail.ParentAreaId,
+            projectAreaId,
+            cancellationToken);
+        if (structureError is not null)
+        {
+            return structureError;
         }
 
         var targetIsSpecialLayout = request.IsSpecialLayout ?? detail.IsSpecialLayout;
@@ -413,12 +420,92 @@ public sealed class ProjectAreaService : IProjectAreaService
                 message));
     }
 
-    private async Task<ServiceResult<ProjectAreaDto>?> ValidateParentAreaAsync(
-        Guid projectId,
+    private async Task<ServiceResult<ProjectAreaDto>?> ValidateAreaStructureAsync(
+        ProjectDetailReadModel project,
+        ProjectAreaType? areaType,
+        int? floorNumber,
         Guid? parentAreaId,
         Guid? projectAreaId,
         CancellationToken cancellationToken)
     {
+        var floorError = await ValidateFloorRulesAsync(
+            project,
+            areaType,
+            floorNumber,
+            projectAreaId,
+            cancellationToken);
+        if (floorError is not null)
+        {
+            return floorError;
+        }
+
+        return await ValidateParentAreaAsync(
+            project.ProjectId,
+            areaType,
+            parentAreaId,
+            projectAreaId,
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<ProjectAreaDto>?> ValidateFloorRulesAsync(
+        ProjectDetailReadModel project,
+        ProjectAreaType? areaType,
+        int? floorNumber,
+        Guid? projectAreaId,
+        CancellationToken cancellationToken)
+    {
+        if (areaType != ProjectAreaType.FLOOR)
+        {
+            return null;
+        }
+
+        var floorNumberError = ValidateFloorNumber(project.NumberOfFloors, floorNumber);
+        if (floorNumberError is not null)
+        {
+            return floorNumberError;
+        }
+
+        var isDuplicate = await _areas.ActiveFloorNumberExistsAsync(
+            project.ProjectId,
+            floorNumber!.Value,
+            projectAreaId,
+            cancellationToken);
+
+        return isDuplicate
+            ? DuplicateFloorNumberResult()
+            : null;
+    }
+
+    private static ServiceResult<ProjectAreaDto>? ValidateFloorNumber(
+        int? projectNumberOfFloors,
+        int? floorNumber)
+    {
+        if (!floorNumber.HasValue || floorNumber.Value <= 0)
+        {
+            return InvalidFloorNumberResult("FLOOR area requires a positive floor number.");
+        }
+
+        if (projectNumberOfFloors.HasValue && floorNumber.Value > projectNumberOfFloors.Value)
+        {
+            return InvalidFloorNumberResult("Floor number cannot exceed project number of floors.");
+        }
+
+        return null;
+    }
+
+    private async Task<ServiceResult<ProjectAreaDto>?> ValidateParentAreaAsync(
+        Guid projectId,
+        ProjectAreaType? areaType,
+        Guid? parentAreaId,
+        Guid? projectAreaId,
+        CancellationToken cancellationToken)
+    {
+        var directHierarchyError = ValidateDirectHierarchy(areaType, parentAreaId);
+        if (directHierarchyError is not null)
+        {
+            return directHierarchyError;
+        }
+
         if (!parentAreaId.HasValue)
         {
             return null;
@@ -432,11 +519,8 @@ public sealed class ProjectAreaService : IProjectAreaService
                     "Project area cannot be its own parent."));
         }
 
-        var belongsToProject = await _areas.BelongsToProjectAsync(
-            parentAreaId.Value,
-            projectId,
-            cancellationToken);
-        if (!belongsToProject)
+        var parent = await _areas.GetDetailAsync(parentAreaId.Value, cancellationToken);
+        if (parent is null || parent.ProjectId != projectId)
         {
             return ServiceResult<ProjectAreaDto>.Failure(
                 Error.Validation(
@@ -444,7 +528,62 @@ public sealed class ProjectAreaService : IProjectAreaService
                     "Parent area must belong to the same project."));
         }
 
+        return ValidateParentAreaType(areaType, parent.AreaType);
+    }
+
+    private static ServiceResult<ProjectAreaDto>? ValidateDirectHierarchy(
+        ProjectAreaType? areaType,
+        Guid? parentAreaId)
+    {
+        if (areaType == ProjectAreaType.FLOOR && parentAreaId.HasValue)
+        {
+            return InvalidParentAreaResult("FLOOR area cannot have a parent area.");
+        }
+
+        if (areaType == ProjectAreaType.ROOM && !parentAreaId.HasValue)
+        {
+            return InvalidParentAreaResult("ROOM area parent must be a FLOOR area.");
+        }
+
         return null;
+    }
+
+    private static ServiceResult<ProjectAreaDto>? ValidateParentAreaType(
+        ProjectAreaType? areaType,
+        ProjectAreaType? parentAreaType)
+    {
+        return areaType switch
+        {
+            ProjectAreaType.ROOM when parentAreaType != ProjectAreaType.FLOOR
+                => InvalidParentAreaResult("ROOM area parent must be a FLOOR area."),
+            ProjectAreaType.ZONE when parentAreaType is not ProjectAreaType.ROOM and not ProjectAreaType.FLOOR
+                => InvalidParentAreaResult("ZONE area parent must be a ROOM or FLOOR area."),
+            _ => null
+        };
+    }
+
+    private static ServiceResult<ProjectAreaDto> InvalidFloorNumberResult(string message)
+    {
+        return ServiceResult<ProjectAreaDto>.Failure(
+            Error.Validation(
+                ProjectAreaErrorCodes.InvalidFloorNumber,
+                message));
+    }
+
+    private static ServiceResult<ProjectAreaDto> DuplicateFloorNumberResult()
+    {
+        return ServiceResult<ProjectAreaDto>.Failure(
+            Error.Validation(
+                ProjectAreaErrorCodes.DuplicateFloorNumber,
+                "Active FLOOR number already exists in this project."));
+    }
+
+    private static ServiceResult<ProjectAreaDto> InvalidParentAreaResult(string message)
+    {
+        return ServiceResult<ProjectAreaDto>.Failure(
+            Error.Validation(
+                ProjectAreaErrorCodes.InvalidParentArea,
+                message));
     }
 
     private static bool CanManageProjectAreas(

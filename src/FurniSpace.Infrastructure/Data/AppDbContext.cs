@@ -559,6 +559,11 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => e.ProjectId);
+            entity.HasIndex(e => new { e.ProjectId, e.FloorNumber })
+                .IsUnique()
+                .HasDatabaseName("uq_project_active_floor_number")
+                .HasFilter("area_type = 'FLOOR' AND status <> 'CANCELLED'");
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProjectArea>().WithMany().HasForeignKey(e => e.ParentAreaId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);

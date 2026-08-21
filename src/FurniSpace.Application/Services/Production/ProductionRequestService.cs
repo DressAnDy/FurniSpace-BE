@@ -33,8 +33,7 @@ public sealed class ProductionRequestService : IProductionRequestService
     private const string ProductionItemNotFoundMessage = "Production item not found.";
     private static readonly ProductionRequestStatus[] AssignableStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
+        ProductionRequestStatus.PENDING,
         ProductionRequestStatus.IN_PRODUCTION
     ];
 
@@ -386,45 +385,6 @@ public sealed class ProductionRequestService : IProductionRequestService
             "Production request detail retrieved successfully.");
     }
 
-    public async Task<ServiceResult<ProductionRequestStatusDto>> MarkFeasibleAsync(
-        Guid productionRequestId,
-        Guid currentUserId,
-        MarkProductionRequestFeasibleDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var accessError = await ValidateProductionAdminAsync<ProductionRequestStatusDto>(
-            currentUserId,
-            cancellationToken);
-        if (accessError is not null)
-        {
-            return accessError;
-        }
-
-        var productionRequest = await _productionRequests.GetByIdAsync(productionRequestId, cancellationToken);
-        if (productionRequest is null)
-        {
-            return NotFound<ProductionRequestStatusDto>(
-                ProductionErrorCodes.ProductionRequestNotFound,
-                ProductionRequestNotFoundMessage);
-        }
-
-        if (productionRequest.Status != ProductionRequestStatus.PENDING_REVIEW)
-        {
-            return InvalidRequestTransition<ProductionRequestStatusDto>();
-        }
-
-        var now = DateTime.UtcNow;
-        productionRequest.Status = ProductionRequestStatus.FEASIBLE;
-        productionRequest.Note = MergeNote(productionRequest.Note, request.Note);
-        productionRequest.UpdatedAt = now;
-        _productionRequests.Update(productionRequest);
-        await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<ProductionRequestStatusDto>.Success(
-            ToStatusDto(productionRequest),
-            "Production request marked feasible successfully.");
-    }
-
     public async Task<ServiceResult<ProductionRequestStatusDto>> StartAsync(
         Guid productionRequestId,
         Guid currentUserId,
@@ -447,7 +407,7 @@ public sealed class ProductionRequestService : IProductionRequestService
                 ProductionRequestNotFoundMessage);
         }
 
-        if (productionRequest.Status is not ProductionRequestStatus.FEASIBLE)
+        if (productionRequest.Status is not ProductionRequestStatus.PENDING)
         {
             return InvalidRequestTransition<ProductionRequestStatusDto>();
         }
@@ -654,7 +614,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             ProjectId = order.ProjectId,
             OrderId = order.OrderId,
             AssignedTo = request.AssignedTo,
-            Status = ProductionRequestStatus.PENDING_REVIEW,
+            Status = ProductionRequestStatus.PENDING,
             Priority = NormalizePriority(request.Priority),
             EstimatedStartDate = request.EstimatedStartDate,
             EstimatedCompletionDate = request.EstimatedCompletionDate,

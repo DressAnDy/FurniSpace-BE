@@ -280,10 +280,13 @@ public static class DependencyInjection
             sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IOrderRepository>(),
             sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectRepository>(),
             sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IPaymentRepository>(),
-            sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectScheduleRepository>(),
-            sp.GetRequiredService<IUnitOfWork>(),
-            sp.GetService<INotificationDispatcher>(),
-            sp.GetService<ILogger<OrderService>>()));
+            new OrderServiceDependencies(
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProductionRequestRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectScheduleRepository>(),
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<IOptions<SePayOptions>>().Value,
+                sp.GetService<INotificationDispatcher>(),
+                sp.GetService<ILogger<OrderService>>())));
         services.AddScoped<PaymentWebhookRuntime>();
         services.AddScoped<ISePayWebhookService, SePayWebhookHandler>();
         services.AddScoped<IPayOsWebhookService, PayOsWebhookHandler>();

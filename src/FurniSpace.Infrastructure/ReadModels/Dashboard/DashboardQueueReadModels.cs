@@ -17,6 +17,48 @@ public sealed class DashboardQueueFilterReadModel
     public DateTime UtcNow { get; init; }
 }
 
+public sealed class ProjectPhaseDeadlineRiskQueryReadModel
+{
+    public ProjectPhaseType? Phase { get; init; }
+
+    public Guid? SalesId { get; init; }
+
+    public Guid? DesignerId { get; init; }
+
+    public DateOnly? From { get; init; }
+
+    public DateOnly? To { get; init; }
+}
+
+public sealed class ProjectPhaseDeadlineRiskRowReadModel
+{
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public ProjectPhaseType Phase { get; init; }
+
+    public DateOnly DueDate { get; init; }
+
+    public DateTime? CompletedAt { get; init; }
+
+    public ProjectStatus? ProjectStatus { get; init; }
+
+    public Guid? AssignedSalesId { get; init; }
+
+    public string? AssignedSalesName { get; init; }
+
+    public Guid? AssignedDesignerId { get; init; }
+
+    public string? AssignedDesignerName { get; init; }
+
+    public Guid? AssignedProductionId { get; init; }
+
+    public string? AssignedProductionName { get; init; }
+}
+
 public sealed class DashboardProjectQueueRowReadModel
 {
     public Guid ProjectId { get; init; }

@@ -165,7 +165,7 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_method", "PAYMENT_LINK,QR_CODE,BANK_TRANSFER,CASH,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_transaction_type", "CHARGE,REFUND,ADJUSTMENT");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_transaction_status", "PENDING,SUCCESS,FAILED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:production_request_status", "PENDING_REVIEW,FEASIBLE,IN_PRODUCTION,COMPLETED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:production_request_status", "PENDING,IN_PRODUCTION,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:production_item_status", "PENDING,IN_PRODUCTION,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:notification_status", "UNREAD,READ");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,PRODUCTION,DELIVERY,GENERAL,INTERNAL");
@@ -1106,7 +1106,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.OrderId).HasColumnName(OrderIdColumnName).HasColumnType(UuidColumnType);
             entity.Property(e => e.AssignedTo).HasColumnName("assigned_to").HasColumnType(UuidColumnType);
-            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(ProductionRequestStatusColumnType).HasDefaultValueSql("'PENDING_REVIEW'::production_request_status");
+            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(ProductionRequestStatusColumnType).HasDefaultValueSql("'PENDING'::production_request_status");
             entity.Property(e => e.Priority).HasColumnName("priority").HasColumnType(Varchar30ColumnType);
             entity.Property(e => e.EstimatedStartDate).HasColumnName("estimated_start_date").HasColumnType(DateColumnType);
             entity.Property(e => e.EstimatedCompletionDate).HasColumnName("estimated_completion_date").HasColumnType(DateColumnType);

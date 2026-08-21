@@ -27,4 +27,8 @@ public interface IDashboardQueueReadRepository
     Task<ProductionDashboardKpisReadModel> GetProductionKpisAsync(
         DashboardQueueFilterReadModel filter,
         CancellationToken cancellationToken = default);
+
+    Task<List<ProjectPhaseDeadlineRiskRowReadModel>> GetProjectPhaseDeadlineRiskRowsAsync(
+        ProjectPhaseDeadlineRiskQueryReadModel query,
+        CancellationToken cancellationToken = default);
 }

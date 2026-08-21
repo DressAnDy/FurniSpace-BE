@@ -40,8 +40,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
 
     private static readonly ProductionRequestStatus[] OpenProductionStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
+        ProductionRequestStatus.PENDING,
         ProductionRequestStatus.IN_PRODUCTION
     ];
 
@@ -302,7 +301,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
                 .ToList(),
             OpenRequestCount = open.Count,
             BlockedCount = 0,
-            PendingReviewCount = requests.Count(item => item.Status == ProductionRequestStatus.PENDING_REVIEW),
+            PendingReviewCount = requests.Count(item => item.Status == ProductionRequestStatus.PENDING),
             UnassignedCount = open.Count(item => item.AssignedTo == null),
             OverdueCount = requests.Count(IsOverdue),
             CreatedInRange = requests.Count(item => InRange(item.CreatedAt, from, to)),

@@ -34,8 +34,7 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
 
     private static readonly ProductionRequestStatus[] ActiveProductionStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
+        ProductionRequestStatus.PENDING,
         ProductionRequestStatus.IN_PRODUCTION
     ];
 
@@ -165,13 +164,13 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         return new ProductionDashboardKpisReadModel
         {
             PendingReview = await requests.CountAsync(
-                request => request.Status == ProductionRequestStatus.PENDING_REVIEW,
+                request => request.Status == ProductionRequestStatus.PENDING,
                 cancellationToken),
             InProduction = await requests.CountAsync(
                 request => request.Status == ProductionRequestStatus.IN_PRODUCTION,
                 cancellationToken),
             ReadyToComplete = await requests.CountAsync(
-                request => request.Status == ProductionRequestStatus.FEASIBLE,
+                request => false,
                 cancellationToken),
             OverdueTasks = await requests.CountAsync(
                 request =>
@@ -179,6 +178,30 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                     request.EstimatedCompletionDate.Value < today,
                 cancellationToken)
         };
+    }
+
+    public Task<List<ProjectPhaseDeadlineRiskRowReadModel>> GetProjectPhaseDeadlineRiskRowsAsync(
+        ProjectPhaseDeadlineRiskQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        var deadlines = _db.ProjectPhaseDeadlineSet.AsQueryable();
+
+        if (query.Phase.HasValue)
+        {
+            deadlines = deadlines.Where(deadline => deadline.Phase == query.Phase.Value);
+        }
+
+        if (query.From.HasValue)
+        {
+            deadlines = deadlines.Where(deadline => deadline.DueDate >= query.From.Value);
+        }
+
+        if (query.To.HasValue)
+        {
+            deadlines = deadlines.Where(deadline => deadline.DueDate <= query.To.Value);
+        }
+
+        return PhaseDeadlineRiskRows(deadlines, query).ToListAsync(cancellationToken);
     }
 
     private IQueryable<Domain.Entities.Project> BuildSalesProjectQuery(DashboardQueueFilterReadModel filter)
@@ -412,7 +435,7 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                         .Select(account => account.FullName)
                         .FirstOrDefault()
                     : null,
-                Status = request.Status ?? ProductionRequestStatus.PENDING_REVIEW,
+                Status = request.Status ?? ProductionRequestStatus.PENDING,
                 Priority = request.Priority,
                 EstimatedCompletionDate = request.EstimatedCompletionDate,
                 BlockedItemCount = _db.ProductionItemSet.Count(item =>
@@ -421,6 +444,60 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 UpdatedAt = request.UpdatedAt,
                 CreatedAt = request.CreatedAt
             });
+    }
+
+    private IQueryable<ProjectPhaseDeadlineRiskRowReadModel> PhaseDeadlineRiskRows(
+        IQueryable<Domain.Entities.ProjectPhaseDeadline> deadlines,
+        ProjectPhaseDeadlineRiskQueryReadModel query)
+    {
+        var rows =
+            from deadline in deadlines
+            join project in _db.ProjectSet on deadline.ProjectId equals project.ProjectId
+            where (!query.SalesId.HasValue || project.AssignedSalesId == query.SalesId.Value) &&
+                  (!query.DesignerId.HasValue || project.AssignedDesignerId == query.DesignerId.Value)
+            orderby deadline.DueDate, deadline.Phase, project.ProjectCode
+            select new ProjectPhaseDeadlineRiskRowReadModel
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                Phase = deadline.Phase,
+                DueDate = deadline.DueDate,
+                CompletedAt = deadline.CompletedAt,
+                ProjectStatus = project.Status,
+                AssignedSalesId = project.AssignedSalesId,
+                AssignedSalesName = project.AssignedSalesId.HasValue
+                    ? _db.AccountSet
+                        .Where(account => account.AccountId == project.AssignedSalesId)
+                        .Select(account => account.FullName)
+                        .FirstOrDefault()
+                    : null,
+                AssignedDesignerId = project.AssignedDesignerId,
+                AssignedDesignerName = project.AssignedDesignerId.HasValue
+                    ? _db.AccountSet
+                        .Where(account => account.AccountId == project.AssignedDesignerId)
+                        .Select(account => account.FullName)
+                        .FirstOrDefault()
+                    : null,
+                AssignedProductionId = _db.ProductionRequestSet
+                    .Where(request => request.ProjectId == project.ProjectId && request.AssignedTo.HasValue)
+                    .OrderByDescending(request => request.UpdatedAt ?? request.CreatedAt)
+                    .ThenByDescending(request => request.ProductionRequestId)
+                    .Select(request => request.AssignedTo)
+                    .FirstOrDefault(),
+                AssignedProductionName = _db.ProductionRequestSet
+                    .Where(request => request.ProjectId == project.ProjectId && request.AssignedTo.HasValue)
+                    .OrderByDescending(request => request.UpdatedAt ?? request.CreatedAt)
+                    .ThenByDescending(request => request.ProductionRequestId)
+                    .Join(
+                        _db.AccountSet,
+                        request => request.AssignedTo,
+                        account => account.AccountId,
+                        (_, account) => account.FullName)
+                    .FirstOrDefault()
+            };
+
+        return rows;
     }
 
     private static IQueryable<Domain.Entities.Project> ApplyProjectScope(

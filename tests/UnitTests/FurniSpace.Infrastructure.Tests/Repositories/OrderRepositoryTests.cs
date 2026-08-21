@@ -106,6 +106,31 @@ public sealed class OrderRepositoryTests
     }
 
     [Fact]
+    public async Task AllDeliverableItemsReadyAsync_WhenUnavailableItemExists_IgnoresUnavailableItem()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        context.OrderItemSet.Add(new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = data.OrderId,
+            ProductVersionId = Guid.NewGuid(),
+            ProductNameSnapshot = "Unavailable Table",
+            Quantity = 1,
+            Status = OrderItemStatus.UNAVAILABLE,
+            UnitPrice = 100m,
+            DiscountAmount = 0m,
+            SubtotalAmount = 100m
+        });
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var ready = await repository.AllDeliverableItemsReadyAsync(data.OrderId);
+
+        Assert.True(ready);
+    }
+
+    [Fact]
     public async Task AllDeliverableItemsDeliveredAsync_WhenAllDelivered_ReturnsTrue()
     {
         await using var context = CreateContext();

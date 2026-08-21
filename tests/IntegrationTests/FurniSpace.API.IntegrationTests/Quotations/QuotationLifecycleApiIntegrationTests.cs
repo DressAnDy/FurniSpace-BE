@@ -189,7 +189,6 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             orderSnapshot.OrderId,
             productionAccountId);
         var productionItemId = await GetProductionItemIdAsync(productionRequestId);
-        await MarkFeasibleAsync(productionAccountId, productionRequestId);
         await StartProductionAsync(productionAccountId, productionRequestId);
         await UpdateProductionItemStatusAsync(
             productionAccountId,
@@ -353,19 +352,6 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         var result = await ReadDataAsync<ProductionRequestCreatedDto>(response, HttpStatusCode.Created);
         Assert.Equal(1, result.ProductionItemCount);
         return result.ProductionRequestId;
-    }
-
-    private async Task MarkFeasibleAsync(Guid productionAccountId, Guid productionRequestId)
-    {
-        using var request = IntegrationHttp.AuthenticatedJson(
-            HttpMethod.Patch,
-            $"/production-requests/{productionRequestId}/mark-feasible",
-            productionAccountId,
-            CoreRoles.Production,
-            new MarkProductionRequestFeasibleDto { Note = "Feasible" });
-
-        var response = await _fixture.Client.SendAsync(request);
-        await ReadDataAsync<ProductionRequestStatusDto>(response, HttpStatusCode.OK);
     }
 
     private async Task StartProductionAsync(Guid productionAccountId, Guid productionRequestId)

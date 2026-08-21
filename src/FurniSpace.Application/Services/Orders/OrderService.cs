@@ -1,7 +1,9 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Projects;
 using static FurniSpace.Application.Constants.Orders.OrderServiceConstants;
+using FurniSpace.Application.Constants.Payments;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Orders;
@@ -20,27 +22,29 @@ public sealed class OrderService : IOrderService
     private readonly IOrderRepository _orders;
     private readonly IProjectRepository _projects;
     private readonly IPaymentRepository _payments;
+    private readonly IProductionRequestRepository _productionRequests;
     private readonly IProjectScheduleRepository _schedules;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly SePayOptions _sePayOptions;
     private readonly INotificationDispatcher? _notifications;
-    private readonly ILogger<OrderService>? _logger;
+    private readonly ILogger? _logger;
+    private const int RemainingPaymentExpiryDays = 7;
 
     public OrderService(
         IOrderRepository orders,
         IProjectRepository projects,
         IPaymentRepository payments,
-        IProjectScheduleRepository schedules,
-        IUnitOfWork unitOfWork,
-        INotificationDispatcher? notifications = null,
-        ILogger<OrderService>? logger = null)
+        OrderServiceDependencies dependencies)
     {
         _orders = orders;
         _projects = projects;
         _payments = payments;
-        _schedules = schedules;
-        _unitOfWork = unitOfWork;
-        _notifications = notifications;
-        _logger = logger;
+        _productionRequests = dependencies.ProductionRequests;
+        _schedules = dependencies.Schedules;
+        _unitOfWork = dependencies.UnitOfWork;
+        _sePayOptions = dependencies.SePayOptions;
+        _notifications = dependencies.Notifications;
+        _logger = dependencies.Logger;
     }
 
     public async Task<ServiceResult<OrderListResponseDto>> GetByProjectAsync(
@@ -156,6 +160,14 @@ public sealed class OrderService : IOrderService
                 "Order must be READY_FOR_DELIVERY before delivery can start.");
         }
 
+        var productionError = await ValidateProductionCompletedForDeliveryAsync<OrderDeliveryStartDto>(
+            order.OrderId,
+            cancellationToken);
+        if (productionError is not null)
+        {
+            return productionError;
+        }
+
         if (!await _schedules.HasConfirmedDeliveryScheduleAsync(order.ProjectId, cancellationToken))
         {
             return BadRequest<OrderDeliveryStartDto>(
@@ -234,6 +246,14 @@ public sealed class OrderService : IOrderService
                 "Order must be DELIVERING before delivery can be completed.");
         }
 
+        var productionError = await ValidateProductionCompletedForDeliveryAsync<OrderDeliveryCompletionDto>(
+            order.OrderId,
+            cancellationToken);
+        if (productionError is not null)
+        {
+            return productionError;
+        }
+
         if (await _orders.AllDeliverableItemsDeliveredAsync(order.OrderId, cancellationToken))
         {
             return ServiceResult<OrderDeliveryCompletionDto>.Success(
@@ -309,7 +329,15 @@ public sealed class OrderService : IOrderService
             return accessError;
         }
 
-        if (order.Status == OrderStatus.DELIVERED && order.CustomerConfirmedDeliveryAt.HasValue)
+        var productionError = await ValidateProductionCompletedForDeliveryAsync<OrderDeliveryConfirmationDto>(
+            order.OrderId,
+            cancellationToken);
+        if (productionError is not null)
+        {
+            return productionError;
+        }
+
+        if (IsDeliveryAlreadyConfirmed(order))
         {
             return ServiceResult<OrderDeliveryConfirmationDto>.Success(
                 ToOrderDeliveryConfirmationDto(order, project),
@@ -332,14 +360,26 @@ public sealed class OrderService : IOrderService
         }
 
         var now = DateTime.UtcNow;
-        order.Status = OrderStatus.DELIVERED;
-        order.CustomerConfirmedDeliveryAt = now;
-        order.UpdatedAt = now;
-        project.Status = ProjectStatus.DELIVERED;
-        project.UpdatedAt = now;
-        _orders.Update(order);
-        _projects.Update(project);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        Payment? remainingPayment = null;
+        await UnitOfWorkTransactions.ExecuteAsync(
+            _unitOfWork,
+            async transactionCancellationToken =>
+            {
+                order.CustomerConfirmedDeliveryAt = now;
+                order.UpdatedAt = now;
+                project.Status = ProjectStatus.DELIVERED;
+                project.UpdatedAt = now;
+
+                remainingPayment = await ApplyPostDeliveryFinancialStateAsync(
+                    order,
+                    now,
+                    transactionCancellationToken);
+
+                _orders.Update(order);
+                _projects.Update(project);
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            },
+            cancellationToken);
 
         await OrderNotificationSupport.TryDispatchDeliveredAsync(
             _notifications,
@@ -353,6 +393,14 @@ public sealed class OrderService : IOrderService
             project,
             OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
             cancellationToken);
+        if (remainingPayment is not null)
+        {
+            await PaymentNotificationSupport.TryDispatchCreatedAsync(
+                _notifications,
+                _logger,
+                remainingPayment,
+                cancellationToken);
+        }
 
         return ServiceResult<OrderDeliveryConfirmationDto>.Success(
             ToOrderDeliveryConfirmationDto(order, project),
@@ -554,6 +602,99 @@ public sealed class OrderService : IOrderService
         return null;
     }
 
+    private async Task<Payment?> ApplyPostDeliveryFinancialStateAsync(
+        Order order,
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        var paidAmount = await _payments.SumOrderScopedPaidAmountAsync(order.OrderId, cancellationToken);
+        var (recalculatedPaidAmount, remainingAmount) = OrderPaidAmountRecalculator.Calculate(
+            order.FinalTotalAmount,
+            paidAmount);
+
+        order.PaidAmount = recalculatedPaidAmount;
+        order.RemainingAmount = remainingAmount;
+
+        if (remainingAmount <= 0m)
+        {
+            order.Status = OrderStatus.COMPLETED;
+            return null;
+        }
+
+        var payment = await GetOrCreateRemainingPaymentAsync(order, remainingAmount, utcNow, cancellationToken);
+        order.Status = OrderStatus.FINAL_PAYMENT_PENDING;
+        return payment;
+    }
+
+    private async Task<Payment> GetOrCreateRemainingPaymentAsync(
+        Order order,
+        decimal remainingAmount,
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        var existing = await _payments.GetByOrderAndTypeAsync(
+            order.OrderId,
+            PaymentType.REMAINING_PAYMENT,
+            cancellationToken);
+        var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
+            _payments,
+            _unitOfWork,
+            existing,
+            cancellationToken);
+        if (reusable is not null && ActivePaymentResolver.IsActive(reusable, utcNow))
+        {
+            return reusable;
+        }
+
+        var payment = new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            ProjectId = order.ProjectId,
+            OrderId = order.OrderId,
+            QuotationId = order.QuotationId,
+            PaymentCode = await GenerateUniquePaymentCodeAsync(cancellationToken),
+            PaidBy = order.CustomerId,
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = remainingAmount,
+            Currency = _sePayOptions.Currency,
+            Status = PaymentStatus.PENDING,
+            ExpiredAt = utcNow.AddDays(RemainingPaymentExpiryDays),
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        };
+
+        await _payments.AddPaymentAsync(payment, cancellationToken);
+        return payment;
+    }
+
+    private async Task<string> GenerateUniquePaymentCodeAsync(CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < PaymentServiceConstants.MaxPaymentCodeAttempts; attempt++)
+        {
+            var code = PaymentCodeGenerator.Generate(
+                _sePayOptions.PaymentCodePrefix,
+                _sePayOptions.PaymentCodeRandomDigits);
+            if (!await _payments.PaymentCodeExistsAsync(code, cancellationToken))
+            {
+                return code;
+            }
+        }
+
+        throw new InvalidOperationException("Unable to generate a unique payment code.");
+    }
+
+    private async Task<ServiceResult<T>?> ValidateProductionCompletedForDeliveryAsync<T>(
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        return await _productionRequests.IsOrderProductionCompletedAsync(orderId, cancellationToken)
+            ? null
+            : ServiceResult<T>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.ProductionNotCompleted,
+                    "Production must be completed before delivery can proceed."));
+    }
+
     private static List<OrderListItemReadModel> FilterByAccess(
         IReadOnlyList<OrderListItemReadModel> items,
         string? role,
@@ -591,6 +732,12 @@ public sealed class OrderService : IOrderService
     {
         return IsProductLineItem(item) &&
             item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED;
+    }
+
+    private static bool IsDeliveryAlreadyConfirmed(Order order)
+    {
+        return order.CustomerConfirmedDeliveryAt.HasValue &&
+            order.Status is OrderStatus.DELIVERED or OrderStatus.FINAL_PAYMENT_PENDING or OrderStatus.COMPLETED;
     }
 
     private static ServiceResult<OrderListResponseDto> NotFoundList(string errorCode, string message)

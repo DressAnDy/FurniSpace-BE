@@ -1047,8 +1047,19 @@ public sealed class PaymentService : IPaymentService
         CreatePaymentTransactionAttemptRequestDto request,
         CancellationToken cancellationToken)
     {
-        if (!PaymentServiceManagementSupport.IsValidHttpsUrl(request.ReturnUrl) ||
-            !PaymentServiceManagementSupport.IsValidHttpsUrl(request.CancelUrl))
+        var returnUrl = ResolveUrl(request.ReturnUrl, _payOsOptions.ReturnUrl);
+        var cancelUrl = ResolveUrl(request.CancelUrl, _payOsOptions.CancelUrl);
+
+        if (string.IsNullOrWhiteSpace(returnUrl) || string.IsNullOrWhiteSpace(cancelUrl))
+        {
+            return Failure<PaymentTransactionAttemptResponseDto>(
+                PaymentErrorCodes.PayOsCreateLinkFailed,
+                "PayOS return and cancel URLs must be configured.",
+                isBadRequest: true);
+        }
+
+        if (!PaymentServiceManagementSupport.IsValidHttpsUrl(returnUrl) ||
+            !PaymentServiceManagementSupport.IsValidHttpsUrl(cancelUrl))
         {
             return Failure<PaymentTransactionAttemptResponseDto>(
                 PaymentErrorCodes.PayOsCreateLinkFailed,
@@ -1073,8 +1084,8 @@ public sealed class PaymentService : IPaymentService
             currentUserId,
             new CreatePayOsPaymentLinkRequestDto
             {
-                ReturnUrl = request.ReturnUrl,
-                CancelUrl = request.CancelUrl
+                ReturnUrl = returnUrl,
+                CancelUrl = cancelUrl
             },
             cancellationToken);
 

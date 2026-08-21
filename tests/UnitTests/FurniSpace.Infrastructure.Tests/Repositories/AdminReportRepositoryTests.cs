@@ -476,7 +476,7 @@ public sealed class AdminReportRepositoryTests
                 ProjectId = commercialProjectId,
                 OrderId = orderId,
                 AssignedTo = prodStaffId,
-                Status = ProductionRequestStatus.FEASIBLE,
+                Status = ProductionRequestStatus.PENDING,
                 CreatedAt = now.AddDays(-2)
             },
             new ProductionRequest
@@ -485,7 +485,7 @@ public sealed class AdminReportRepositoryTests
                 ProjectId = commercialProjectId,
                 OrderId = orderId,
                 AssignedTo = null,
-                Status = ProductionRequestStatus.PENDING_REVIEW,
+                Status = ProductionRequestStatus.PENDING,
                 CreatedAt = now.AddDays(-1)
             },
             new ProductionRequest
@@ -494,7 +494,7 @@ public sealed class AdminReportRepositoryTests
                 ProjectId = commercialProjectId,
                 OrderId = orderId,
                 AssignedTo = prodFullId,
-                Status = ProductionRequestStatus.FEASIBLE,
+                Status = ProductionRequestStatus.PENDING,
                 CreatedAt = now.AddDays(-1)
             },
             new ProductionRequest

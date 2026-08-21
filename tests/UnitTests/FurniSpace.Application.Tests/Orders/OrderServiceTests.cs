@@ -6,6 +6,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.Orders;
@@ -307,7 +309,7 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
-    public async Task ConfirmDeliveryAsync_WhenAllItemsDelivered_MarksOrderDeliveredAndNotifies()
+    public async Task ConfirmDeliveryAsync_WhenRemainingAmountPositive_CreatesPaymentAndNotifies()
     {
         var orderId = Guid.NewGuid();
         var order = new Order
@@ -317,6 +319,8 @@ public sealed class OrderServiceTests
             CustomerId = _customerId,
             SalesId = _salesId,
             OrderCode = "ORD-001",
+            QuotationId = Guid.NewGuid(),
+            FinalTotalAmount = 100m,
             Status = OrderStatus.DELIVERING
         };
         var item = new OrderItem
@@ -330,7 +334,7 @@ public sealed class OrderServiceTests
             DeliveredBy = _salesId
         };
         var dispatcher = new CapturingNotificationDispatcher();
-        var service = BuildService(new OrderServiceTestOptions
+        var options = new OrderServiceTestOptions
         {
             Role = "CUSTOMER",
             Project = new Project
@@ -343,15 +347,26 @@ public sealed class OrderServiceTests
             },
             Order = order,
             OrderItems = [item],
+            SummedPaidAmount = 30m,
             Notifications = dispatcher
-        });
+        };
+        var service = BuildService(options);
 
         var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
 
         Assert.Equal(200, result.Status);
-        Assert.Equal(OrderStatus.DELIVERED, order.Status);
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, order.Status);
+        Assert.Equal(ProjectStatus.DELIVERED.ToString(), result.Data!.ProjectStatus);
+        Assert.Equal(30m, order.PaidAmount);
+        Assert.Equal(70m, order.RemainingAmount);
+        var payment = Assert.Single(options.AddedPayments);
+        Assert.Equal(PaymentType.REMAINING_PAYMENT, payment.PaymentType);
+        Assert.Equal(70m, payment.Amount);
+        Assert.Equal(_customerId, payment.PaidBy);
+        Assert.NotNull(payment.ExpiredAt);
         Assert.Contains(NotificationType.OrderDelivered, dispatcher.Types);
         Assert.Contains(NotificationType.ProjectStatusChanged, dispatcher.Types);
+        Assert.Contains(NotificationType.PaymentCreated, dispatcher.Types);
     }
 
     [Fact]
@@ -450,6 +465,38 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
+    public async Task StartDeliveryAsync_WhenProductionIncomplete_ReturnsConflict()
+    {
+        var orderId = Guid.NewGuid();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            IsProductionCompleted = false,
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                SalesId = _salesId,
+                Status = OrderStatus.READY_FOR_DELIVERY
+            },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.READY_FOR_DELIVERY
+            },
+            HasConfirmedDeliverySchedule = true
+        });
+
+        var result = await service.StartDeliveryAsync(orderId, _salesId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.ProductionNotCompleted, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task StartDeliveryAsync_WhenForbidden_ReturnsForbidden()
     {
         var orderId = Guid.NewGuid();
@@ -509,6 +556,37 @@ public sealed class OrderServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(OrderErrorCodes.OrderNotDelivering, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteDeliveryAsync_WhenProductionIncomplete_ReturnsConflict()
+    {
+        var orderId = Guid.NewGuid();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            IsProductionCompleted = false,
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                SalesId = _salesId,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            }
+        });
+
+        var result = await service.CompleteDeliveryAsync(orderId, _salesId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.ProductionNotCompleted, result.ErrorCode);
     }
 
     [Fact]
@@ -641,6 +719,165 @@ public sealed class OrderServiceTests
 
         Assert.Equal(409, result.Status);
         Assert.Equal(OrderErrorCodes.DeliverableItemsNotDelivered, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenProductionIncomplete_ReturnsConflict()
+    {
+        var orderId = Guid.NewGuid();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            IsProductionCompleted = false,
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                SalesId = _salesId,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            }
+        });
+
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.ProductionNotCompleted, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenRemainingAmountZero_CompletesOrderWithoutPayment()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            FinalTotalAmount = 100m,
+            Status = OrderStatus.DELIVERING
+        };
+        var project = new Project
+        {
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            Status = ProjectStatus.DELIVERING
+        };
+        var options = new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order,
+            Project = project,
+            OrderItems = [CreateDeliveredOrderItem(orderId)],
+            SummedPaidAmount = 100m
+        };
+        var service = BuildService(options);
+
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(OrderStatus.COMPLETED, order.Status);
+        Assert.Equal(ProjectStatus.DELIVERED, project.Status);
+        Assert.Empty(options.AddedPayments);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenActiveRemainingPaymentExists_ReusesPayment()
+    {
+        var orderId = Guid.NewGuid();
+        var existingPayment = new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            ProjectId = _projectId,
+            OrderId = orderId,
+            PaymentCode = "FS12345678",
+            PaidBy = _customerId,
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = 70m,
+            Currency = "VND",
+            Status = PaymentStatus.PENDING,
+            ExpiredAt = DateTime.UtcNow.AddDays(1)
+        };
+        var dispatcher = new CapturingNotificationDispatcher();
+        var options = new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                SalesId = _salesId,
+                FinalTotalAmount = 100m,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            },
+            ExistingRemainingPayment = existingPayment,
+            OrderItems = [CreateDeliveredOrderItem(orderId)],
+            SummedPaidAmount = 30m,
+            Notifications = dispatcher
+        };
+        var service = BuildService(options);
+
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Empty(options.AddedPayments);
+        Assert.Contains(NotificationType.PaymentCreated, dispatcher.Types);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenPaymentCreationFails_RollsBackTransaction()
+    {
+        var orderId = Guid.NewGuid();
+        var unitOfWork = new FakeUnitOfWork();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                SalesId = _salesId,
+                FinalTotalAmount = 100m,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            },
+            OrderItems = [CreateDeliveredOrderItem(orderId)],
+            SummedPaidAmount = 30m,
+            ThrowOnAddPayment = true,
+            UnitOfWork = unitOfWork
+        });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ConfirmDeliveryAsync(orderId, _customerId));
+
+        Assert.True(unitOfWork.BeganTransaction);
+        Assert.True(unitOfWork.RolledBackTransaction);
+        Assert.False(unitOfWork.CommittedTransaction);
+        Assert.Equal(0, unitOfWork.SaveChangesCount);
     }
 
     [Fact]
@@ -915,7 +1152,13 @@ public sealed class OrderServiceTests
     private static OrderService BuildService(OrderServiceTestOptions? options = null)
     {
         options ??= new OrderServiceTestOptions();
-        var payments = new EmptyPaymentRepository { SummedPaidAmount = options.SummedPaidAmount };
+        var payments = new EmptyPaymentRepository
+        {
+            SummedPaidAmount = options.SummedPaidAmount,
+            ExistingRemainingPayment = options.ExistingRemainingPayment,
+            AddedPayments = options.AddedPayments,
+            ThrowOnAddPayment = options.ThrowOnAddPayment
+        };
         return new OrderService(
             new FakeOrderRepository(
                 options.Orders,
@@ -925,9 +1168,13 @@ public sealed class OrderServiceTests
                 options.OrderItems),
             new FakeProjectRepository(options.ProjectDetail, options.Role, options.Project),
             payments,
-            new EmptyProjectScheduleRepository { ConfirmedDeliverySchedule = options.HasConfirmedDeliverySchedule },
-            new FakeUnitOfWork(),
-            options.Notifications);
+            new OrderServiceDependencies(
+                new FakeProductionRequestRepository(options.IsProductionCompleted),
+                new EmptyProjectScheduleRepository { ConfirmedDeliverySchedule = options.HasConfirmedDeliverySchedule },
+                options.UnitOfWork,
+                new SePayOptions { Currency = "VND", PaymentCodePrefix = "FS", PaymentCodeRandomDigits = 8 },
+                options.Notifications,
+                null));
     }
 
     private ProjectDetailReadModel CreateProjectDetail()
@@ -983,6 +1230,19 @@ public sealed class OrderServiceTests
         };
     }
 
+    private static OrderItem CreateDeliveredOrderItem(Guid orderId)
+    {
+        return new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.DELIVERED,
+            Quantity = 1,
+            DeliveredAt = DateTime.UtcNow
+        };
+    }
+
     private sealed class OrderServiceTestOptions
     {
         public string Role { get; init; } = "ADMIN";
@@ -1004,6 +1264,16 @@ public sealed class OrderServiceTests
         public bool HasConfirmedDeliverySchedule { get; init; }
 
         public decimal SummedPaidAmount { get; init; }
+
+        public bool IsProductionCompleted { get; init; } = true;
+
+        public Payment? ExistingRemainingPayment { get; init; }
+
+        public List<Payment> AddedPayments { get; } = [];
+
+        public bool ThrowOnAddPayment { get; init; }
+
+        public FakeUnitOfWork UnitOfWork { get; init; } = new();
 
         public INotificationDispatcher? Notifications { get; init; }
     }
@@ -1075,7 +1345,7 @@ public sealed class OrderServiceTests
                     item.OrderId == orderId &&
                     item.ProductVersionId.HasValue &&
                     (item.Quantity ?? 0) > 0 &&
-                    item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED)
+                    item.Status is not (OrderItemStatus.UNAVAILABLE or OrderItemStatus.CANCELLED))
                 .ToList();
         }
 
@@ -1194,6 +1464,12 @@ public sealed class OrderServiceTests
     {
         public decimal SummedPaidAmount { get; init; }
 
+        public Payment? ExistingRemainingPayment { get; init; }
+
+        public List<Payment> AddedPayments { get; init; } = [];
+
+        public bool ThrowOnAddPayment { get; init; }
+
         public Task<Payment?> GetByIdAsync(Guid paymentId, CancellationToken cancellationToken = default)
             => Task.FromResult<Payment?>(null);
 
@@ -1244,7 +1520,15 @@ public sealed class OrderServiceTests
             => Task.FromResult<PaymentTransaction?>(null);
 
         public Task AddPaymentAsync(Payment payment, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            if (ThrowOnAddPayment)
+            {
+                throw new InvalidOperationException("Payment creation failed.");
+            }
+
+            AddedPayments.Add(payment);
+            return Task.CompletedTask;
+        }
 
         public Task AddTransactionAsync(PaymentTransaction transaction, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
@@ -1253,7 +1537,11 @@ public sealed class OrderServiceTests
             Guid orderId,
             PaymentType paymentType,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<Payment?>(null);
+            => Task.FromResult(
+                ExistingRemainingPayment?.OrderId == orderId &&
+                ExistingRemainingPayment.PaymentType == paymentType
+                    ? ExistingRemainingPayment
+                    : null);
 
         public Task<Payment?> GetByProjectAndTypeAsync(
             Guid projectId,
@@ -1321,19 +1609,130 @@ public sealed class OrderServiceTests
         }
     }
 
+    private sealed class FakeProductionRequestRepository(bool isOrderProductionCompleted)
+        : IProductionRequestRepository
+    {
+        public Task<bool> IsOrderProductionCompletedAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(isOrderProductionCompleted);
+
+        public Task<bool> HasActiveRequestForOrderAsync(Guid orderId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<int> CountCreatedOnAsync(DateOnly date, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
+        public Task<List<OrderItem>> GetProductOrderItemsAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new List<OrderItem>());
+
+        public Task AddItemsAsync(List<ProductionItem> items, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<bool> IsActiveProductionStaffAsync(Guid accountId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<Infrastructure.ReadModels.Production.ProductionAssigneeReadModel?> GetAssigneeAsync(
+            Guid accountId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Infrastructure.ReadModels.Production.ProductionAssigneeReadModel?>(null);
+
+        public Task<List<Infrastructure.ReadModels.Production.AvailableProductionStaffReadModel>> GetAvailableStaffAsync(
+            string? search,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new List<Infrastructure.ReadModels.Production.AvailableProductionStaffReadModel>());
+
+        public Task<List<Infrastructure.ReadModels.Production.ProductionRequestListItemReadModel>> GetQueueAsync(
+            Infrastructure.ReadModels.Production.ProductionRequestQueueReadModel query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(new List<Infrastructure.ReadModels.Production.ProductionRequestListItemReadModel>());
+
+        public Task<bool> HasViewableAssignedRequestAsync(
+            Guid projectId,
+            Guid productionAccountId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?> GetDetailAsync(
+            Guid productionRequestId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?>(null);
+
+        public Task<ProductionItem?> GetItemByIdAsync(
+            Guid productionItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductionItem?>(null);
+
+        public Task<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?> GetDetailByItemIdAsync(
+            Guid productionItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?>(null);
+
+        public void UpdateItem(ProductionItem item)
+        {
+        }
+
+        public IQueryable<ProductionRequest> Query() => Enumerable.Empty<ProductionRequest>().AsQueryable();
+
+        public Task<ProductionRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult<ProductionRequest?>(null);
+
+        public Task<IReadOnlyList<ProductionRequest>> ListAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<ProductionRequest>>([]);
+
+        public Task AddAsync(ProductionRequest entity, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task AddRangeAsync(IEnumerable<ProductionRequest> entities, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public void Update(ProductionRequest entity)
+        {
+        }
+
+        public void Remove(ProductionRequest entity)
+        {
+        }
+
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+    }
+
     private sealed class FakeUnitOfWork : IUnitOfWork
     {
+        public bool BeganTransaction { get; private set; }
+
+        public bool CommittedTransaction { get; private set; }
+
+        public bool RolledBackTransaction { get; private set; }
+
+        public int SaveChangesCount { get; private set; }
+
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(1);
+        {
+            SaveChangesCount++;
+            return Task.FromResult(1);
+        }
 
         public Task BeginTransactionAsync(CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            BeganTransaction = true;
+            return Task.CompletedTask;
+        }
 
         public Task CommitTransactionAsync(CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            CommittedTransaction = true;
+            return Task.CompletedTask;
+        }
 
         public Task RollbackTransactionAsync(CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        {
+            RolledBackTransaction = true;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class CapturingNotificationDispatcher : INotificationDispatcher

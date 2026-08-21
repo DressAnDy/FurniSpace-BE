@@ -45,7 +45,6 @@ public sealed class ProductionRequestsControllerTests
     }
 
     [Theory]
-    [InlineData(nameof(ProductionRequestsController.MarkFeasible))]
     [InlineData(nameof(ProductionRequestsController.Start))]
     [InlineData(nameof(ProductionRequestsController.Complete))]
     public void ProductionStatusActions_RequireProductionOrAdmin(string methodName)
@@ -70,7 +69,7 @@ public sealed class ProductionRequestsControllerTests
 
         var result = await controller.GetQueue(new ProductionRequestQueryDto
         {
-            Status = ProductionRequestStatus.PENDING_REVIEW,
+            Status = ProductionRequestStatus.PENDING,
             AssignedTo = assigneeId,
             Priority = "NORMAL"
         });
@@ -115,23 +114,6 @@ public sealed class ProductionRequestsControllerTests
     }
 
     [Fact]
-    public async Task MarkFeasible_ReturnsServiceResultAndPassesRequest()
-    {
-        var userId = Guid.NewGuid();
-        var requestId = Guid.NewGuid();
-        var request = new MarkProductionRequestFeasibleDto { Note = "ok" };
-        var service = new FakeProductionRequestService();
-        var controller = BuildController(service, userId);
-
-        var result = await controller.MarkFeasible(requestId, request);
-
-        var objectResult = Assert.IsType<ObjectResult>(result);
-        Assert.Equal(200, objectResult.StatusCode);
-        Assert.Equal(requestId, service.ProductionRequestId);
-        Assert.Same(request, service.MarkFeasibleRequest);
-    }
-
-    [Fact]
     public async Task Start_ReturnsServiceResultAndPassesRequest()
     {
         var userId = Guid.NewGuid();
@@ -172,14 +154,12 @@ public sealed class ProductionRequestsControllerTests
         var queue = await controller.GetQueue(new ProductionRequestQueryDto());
         var detail = await controller.GetDetail(Guid.NewGuid());
         var assign = await controller.Assign(Guid.NewGuid(), new AssignProductionRequestDto());
-        var markFeasible = await controller.MarkFeasible(Guid.NewGuid(), new MarkProductionRequestFeasibleDto());
         var start = await controller.Start(Guid.NewGuid(), new StartProductionRequestDto());
         var complete = await controller.Complete(Guid.NewGuid());
 
         Assert.IsType<UnauthorizedResult>(queue);
         Assert.IsType<UnauthorizedResult>(detail);
         Assert.IsType<UnauthorizedResult>(assign);
-        Assert.IsType<UnauthorizedResult>(markFeasible);
         Assert.IsType<UnauthorizedResult>(start);
         Assert.IsType<UnauthorizedResult>(complete);
     }
@@ -212,7 +192,6 @@ public sealed class ProductionRequestsControllerTests
         public Guid ProductionRequestId { get; private set; }
         public ProductionRequestQueryDto? QueueQuery { get; private set; }
         public AssignProductionRequestDto? AssignRequest { get; private set; }
-        public MarkProductionRequestFeasibleDto? MarkFeasibleRequest { get; private set; }
         public StartProductionRequestDto? StartRequest { get; private set; }
 
         public Task<ServiceResult<ProductionRequestCreatedDto>> CreateAsync(
@@ -265,19 +244,6 @@ public sealed class ProductionRequestsControllerTests
             ProductionRequestId = productionRequestId;
             return Task.FromResult(ServiceResult<ProductionRequestDetailDto>.Success(
                 new ProductionRequestDetailDto()));
-        }
-
-        public Task<ServiceResult<ProductionRequestStatusDto>> MarkFeasibleAsync(
-            Guid productionRequestId,
-            Guid currentUserId,
-            MarkProductionRequestFeasibleDto request,
-            CancellationToken cancellationToken = default)
-        {
-            CurrentUserId = currentUserId;
-            ProductionRequestId = productionRequestId;
-            MarkFeasibleRequest = request;
-            return Task.FromResult(ServiceResult<ProductionRequestStatusDto>.Success(
-                new ProductionRequestStatusDto()));
         }
 
         public Task<ServiceResult<ProductionRequestStatusDto>> StartAsync(

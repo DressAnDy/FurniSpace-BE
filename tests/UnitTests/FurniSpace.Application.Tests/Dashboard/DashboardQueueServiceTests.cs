@@ -149,7 +149,7 @@ public sealed class DashboardQueueServiceTests
                     ProjectName = "Factory job",
                     CustomerName = "Buyer",
                     AssignedToName = "Prod Staff",
-                    Status = ProductionRequestStatus.PENDING_REVIEW,
+                    Status = ProductionRequestStatus.PENDING,
                     CreatedAt = DateTime.UtcNow
                 }
             ]
@@ -162,7 +162,7 @@ public sealed class DashboardQueueServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal(productionRequestId.ToString("D"), result.Data!.Items[0].Id);
-        Assert.Equal("Review production request", result.Data.Items[0].Action);
+        Assert.Equal("Start production", result.Data.Items[0].Action);
     }
 
     [Fact]
@@ -364,7 +364,7 @@ public sealed class DashboardQueueServiceTests
                         ProjectId = Guid.NewGuid(),
                         ProjectName = "Overdue job",
                         CustomerName = "Buyer",
-                        Status = ProductionRequestStatus.FEASIBLE,
+                        Status = ProductionRequestStatus.PENDING,
                         Priority = "medium",
                         EstimatedCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2)),
                         CreatedAt = DateTime.UtcNow
@@ -394,7 +394,7 @@ public sealed class DashboardQueueServiceTests
                         ProjectId = Guid.NewGuid(),
                         ProjectName = "Job",
                         CustomerName = "Buyer",
-                        Status = ProductionRequestStatus.PENDING_REVIEW,
+                        Status = ProductionRequestStatus.PENDING,
                         Priority = "weird",
                         CreatedAt = DateTime.UtcNow
                     }
@@ -431,6 +431,132 @@ public sealed class DashboardQueueServiceTests
         Assert.Equal(403, result.Status);
     }
 
+    [Fact]
+    public async Task GetProjectPhaseDeadlineRisksAsync_MapsStatusesGroupsAndFilters()
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                DeadlineRiskRows =
+                [
+                    CreateDeadlineRiskRow(ProjectPhaseType.PROPOSAL, today.AddDays(-3), completedAt: null),
+                    CreateDeadlineRiskRow(ProjectPhaseType.PRODUCTION, today.AddDays(-2), DateTime.UtcNow),
+                    CreateDeadlineRiskRow(ProjectPhaseType.PRODUCTION, today.AddDays(5), completedAt: null)
+                ]
+            },
+            new FakeProjectRepository { RoleName = "ADMIN" });
+
+        var result = await service.GetProjectPhaseDeadlineRisksAsync(
+            Guid.NewGuid(),
+            new ProjectPhaseDeadlineRiskQueryDto { Status = "OVERDUE", Page = 1, Limit = 20 });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal("OVERDUE", result.Data.Items[0].Status);
+        Assert.Equal("Overdue Proposal", result.Data.Items[0].Group);
+        Assert.Equal(3, result.Data.Items[0].Days);
+        Assert.Equal(1, result.Data.CountsByGroup["Overdue Proposal"]);
+    }
+
+    [Fact]
+    public async Task GetProjectPhaseDeadlineRisksAsync_OnTrackDueSoonAndCompletedLate_AreQueryable()
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                DeadlineRiskRows =
+                [
+                    CreateDeadlineRiskRow(ProjectPhaseType.PROPOSAL, today.AddDays(4), completedAt: null),
+                    CreateDeadlineRiskRow(ProjectPhaseType.PRODUCTION, today.AddDays(-1), DateTime.UtcNow.AddDays(1))
+                ]
+            },
+            new FakeProjectRepository { RoleName = "SALES" });
+
+        var onTrack = await service.GetProjectPhaseDeadlineRisksAsync(
+            Guid.NewGuid(),
+            new ProjectPhaseDeadlineRiskQueryDto { Status = "ON_TRACK" });
+        var completedLate = await service.GetProjectPhaseDeadlineRisksAsync(
+            Guid.NewGuid(),
+            new ProjectPhaseDeadlineRiskQueryDto { Status = "COMPLETED_LATE" });
+
+        Assert.Single(onTrack.Data!.Items);
+        Assert.Equal("Due Soon", onTrack.Data.Items[0].Group);
+        Assert.Single(completedLate.Data!.Items);
+        Assert.Equal("Completed Late", completedLate.Data.Items[0].Group);
+    }
+
+    [Theory]
+    [InlineData("INSTALLATION", null, 400)]
+    [InlineData("PROPOSAL", "BAD", 400)]
+    [InlineData("PROPOSAL", "OVERDUE", 403)]
+    public async Task GetProjectPhaseDeadlineRisksAsync_InvalidInputOrRole_ReturnsError(
+        string phase,
+        string? status,
+        int expectedStatus)
+    {
+        var role = expectedStatus == 403 ? "CUSTOMER" : "ADMIN";
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository(),
+            new FakeProjectRepository { RoleName = role });
+
+        var result = await service.GetProjectPhaseDeadlineRisksAsync(
+            Guid.NewGuid(),
+            new ProjectPhaseDeadlineRiskQueryDto { Phase = phase, Status = status });
+
+        Assert.Equal(expectedStatus, result.Status);
+    }
+
+    [Fact]
+    public async Task GetProjectPhaseDeadlineRisksAsync_InvalidPagingDateOrUser_ReturnsError()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository(),
+            new FakeProjectRepository { RoleName = "ADMIN" });
+
+        var unauthorized = await service.GetProjectPhaseDeadlineRisksAsync(
+            Guid.Empty,
+            new ProjectPhaseDeadlineRiskQueryDto());
+        var invalidPaging = await service.GetProjectPhaseDeadlineRisksAsync(
+            Guid.NewGuid(),
+            new ProjectPhaseDeadlineRiskQueryDto { Limit = 101 });
+        var invalidRange = await service.GetProjectPhaseDeadlineRisksAsync(
+            Guid.NewGuid(),
+            new ProjectPhaseDeadlineRiskQueryDto
+            {
+                From = new DateOnly(2026, 9, 10),
+                To = new DateOnly(2026, 9, 1)
+            });
+
+        Assert.Equal(401, unauthorized.Status);
+        Assert.Equal(400, invalidPaging.Status);
+        Assert.Equal(400, invalidRange.Status);
+    }
+
+    private static ProjectPhaseDeadlineRiskRowReadModel CreateDeadlineRiskRow(
+        ProjectPhaseType phase,
+        DateOnly dueDate,
+        DateTime? completedAt)
+    {
+        return new ProjectPhaseDeadlineRiskRowReadModel
+        {
+            ProjectId = Guid.NewGuid(),
+            ProjectCode = "PRJ-RISK",
+            ProjectName = "Deadline Risk",
+            Phase = phase,
+            DueDate = dueDate,
+            CompletedAt = completedAt,
+            ProjectStatus = ProjectStatus.IN_CONSULTATION,
+            AssignedSalesId = Guid.NewGuid(),
+            AssignedSalesName = "Sales",
+            AssignedDesignerId = Guid.NewGuid(),
+            AssignedDesignerName = "Designer",
+            AssignedProductionId = Guid.NewGuid(),
+            AssignedProductionName = "Production"
+        };
+    }
+
     private sealed class FakeDashboardQueueReadRepository : IDashboardQueueReadRepository
     {
         public IReadOnlyList<DashboardProjectQueueRowReadModel> SalesRows { get; init; } = [];
@@ -439,6 +565,7 @@ public sealed class DashboardQueueServiceTests
         public SalesDashboardKpisReadModel SalesKpis { get; init; } = new();
         public DesignerDashboardKpisReadModel DesignerKpis { get; init; } = new();
         public ProductionDashboardKpisReadModel ProductionKpis { get; init; } = new();
+        public IReadOnlyList<ProjectPhaseDeadlineRiskRowReadModel> DeadlineRiskRows { get; init; } = [];
 
         public Task<IReadOnlyList<DashboardProjectQueueRowReadModel>> GetSalesQueueRowsAsync(
             DashboardQueueFilterReadModel filter,
@@ -469,6 +596,11 @@ public sealed class DashboardQueueServiceTests
             DashboardQueueFilterReadModel filter,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ProductionKpis);
+
+        public Task<List<ProjectPhaseDeadlineRiskRowReadModel>> GetProjectPhaseDeadlineRiskRowsAsync(
+            ProjectPhaseDeadlineRiskQueryReadModel query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(DeadlineRiskRows.ToList());
     }
 
     private sealed class FakeProjectRepository : IProjectRepository

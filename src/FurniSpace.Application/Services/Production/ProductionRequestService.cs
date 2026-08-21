@@ -6,6 +6,7 @@ using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Production;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -32,8 +33,7 @@ public sealed class ProductionRequestService : IProductionRequestService
     private const string ProductionItemNotFoundMessage = "Production item not found.";
     private static readonly ProductionRequestStatus[] AssignableStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
+        ProductionRequestStatus.PENDING,
         ProductionRequestStatus.IN_PRODUCTION
     ];
 
@@ -385,45 +385,6 @@ public sealed class ProductionRequestService : IProductionRequestService
             "Production request detail retrieved successfully.");
     }
 
-    public async Task<ServiceResult<ProductionRequestStatusDto>> MarkFeasibleAsync(
-        Guid productionRequestId,
-        Guid currentUserId,
-        MarkProductionRequestFeasibleDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var accessError = await ValidateProductionAdminAsync<ProductionRequestStatusDto>(
-            currentUserId,
-            cancellationToken);
-        if (accessError is not null)
-        {
-            return accessError;
-        }
-
-        var productionRequest = await _productionRequests.GetByIdAsync(productionRequestId, cancellationToken);
-        if (productionRequest is null)
-        {
-            return NotFound<ProductionRequestStatusDto>(
-                ProductionErrorCodes.ProductionRequestNotFound,
-                ProductionRequestNotFoundMessage);
-        }
-
-        if (productionRequest.Status != ProductionRequestStatus.PENDING_REVIEW)
-        {
-            return InvalidRequestTransition<ProductionRequestStatusDto>();
-        }
-
-        var now = DateTime.UtcNow;
-        productionRequest.Status = ProductionRequestStatus.FEASIBLE;
-        productionRequest.Note = MergeNote(productionRequest.Note, request.Note);
-        productionRequest.UpdatedAt = now;
-        _productionRequests.Update(productionRequest);
-        await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<ProductionRequestStatusDto>.Success(
-            ToStatusDto(productionRequest),
-            "Production request marked feasible successfully.");
-    }
-
     public async Task<ServiceResult<ProductionRequestStatusDto>> StartAsync(
         Guid productionRequestId,
         Guid currentUserId,
@@ -446,7 +407,7 @@ public sealed class ProductionRequestService : IProductionRequestService
                 ProductionRequestNotFoundMessage);
         }
 
-        if (productionRequest.Status is not ProductionRequestStatus.FEASIBLE)
+        if (productionRequest.Status is not ProductionRequestStatus.PENDING)
         {
             return InvalidRequestTransition<ProductionRequestStatusDto>();
         }
@@ -608,6 +569,14 @@ public sealed class ProductionRequestService : IProductionRequestService
                 now,
                 cancellationToken);
             CompleteWorkflow(productionRequest, order, project, now);
+            if (_dependencies.PhaseDeadlines is not null)
+            {
+                await _dependencies.PhaseDeadlines.MarkCompletedOnceAsync(
+                    project.ProjectId,
+                    ProjectPhaseType.PRODUCTION,
+                    now,
+                    cancellationToken);
+            }
             await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
             await _dependencies.UnitOfWork.CommitTransactionAsync(cancellationToken);
         }
@@ -645,7 +614,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             ProjectId = order.ProjectId,
             OrderId = order.OrderId,
             AssignedTo = request.AssignedTo,
-            Status = ProductionRequestStatus.PENDING_REVIEW,
+            Status = ProductionRequestStatus.PENDING,
             Priority = NormalizePriority(request.Priority),
             EstimatedStartDate = request.EstimatedStartDate,
             EstimatedCompletionDate = request.EstimatedCompletionDate,
@@ -1429,16 +1398,19 @@ public sealed class ProductionRequestServiceDependencies
     public ProductionRequestServiceDependencies(
         IUnitOfWork unitOfWork,
         INotificationDispatcher? notifications,
-        ILogger<ProductionRequestService>? logger)
+        ILogger<ProductionRequestService>? logger,
+        IProjectPhaseDeadlineService? phaseDeadlines = null)
     {
         UnitOfWork = unitOfWork;
         Notifications = notifications;
         Logger = logger;
+        PhaseDeadlines = phaseDeadlines;
     }
 
     public IUnitOfWork UnitOfWork { get; }
     public INotificationDispatcher? Notifications { get; }
     public ILogger<ProductionRequestService>? Logger { get; }
+    public IProjectPhaseDeadlineService? PhaseDeadlines { get; }
 }
 
 public static class ProductionErrorCodes

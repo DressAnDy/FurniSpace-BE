@@ -19,6 +19,13 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         return Task.FromResult(false);
     }
 
+    Task<bool> IsOrderProductionCompletedAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
     Task<int> CountCreatedOnAsync(
         DateOnly date,
         CancellationToken cancellationToken = default);

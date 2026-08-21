@@ -218,7 +218,7 @@ public sealed class DashboardQueueReadRepositoryTests
             ProjectId = seed.SalesProjectId,
             OrderId = seed.OrderId,
             AssignedTo = seed.ProductionId,
-            Status = ProductionRequestStatus.FEASIBLE,
+            Status = ProductionRequestStatus.PENDING,
             EstimatedCompletionDate = DateOnly.FromDateTime(seed.Now),
             CreatedAt = seed.Now,
             UpdatedAt = seed.Now
@@ -235,7 +235,8 @@ public sealed class DashboardQueueReadRepositoryTests
         });
 
         Assert.True(kpis.InProduction >= 1);
-        Assert.True(kpis.ReadyToComplete >= 1);
+        Assert.True(kpis.PendingReview >= 1);
+        Assert.Equal(0, kpis.ReadyToComplete);
         Assert.True(kpis.OverdueTasks >= 1);
     }
 
@@ -255,6 +256,54 @@ public sealed class DashboardQueueReadRepositoryTests
         Assert.Equal(1, new SalesDashboardKpisReadModel { NewRequests = 1 }.NewRequests);
         Assert.Equal(2, new DesignerDashboardKpisReadModel { MeasurementDue = 2 }.MeasurementDue);
         Assert.Equal(3, new ProductionDashboardKpisReadModel { PendingReview = 3 }.PendingReview);
+    }
+
+    [Fact]
+    public async Task GetProjectPhaseDeadlineRiskRowsAsync_ReturnsDeadlineContext()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        context.ProjectPhaseDeadlineSet.AddRange(
+            CreatePhaseDeadline(seed.SalesProjectId, ProjectPhaseType.PROPOSAL, new DateOnly(2026, 8, 15), seed.SalesId, seed.Now),
+            CreatePhaseDeadline(seed.SalesProjectId, ProjectPhaseType.PRODUCTION, new DateOnly(2026, 8, 25), seed.SalesId, seed.Now));
+        await context.SaveChangesAsync();
+        var repository = new DashboardQueueReadRepository(context);
+
+        var rows = await repository.GetProjectPhaseDeadlineRiskRowsAsync(new ProjectPhaseDeadlineRiskQueryReadModel
+        {
+            Phase = ProjectPhaseType.PROPOSAL,
+            SalesId = seed.SalesId,
+            DesignerId = seed.DesignerId,
+            From = new DateOnly(2026, 8, 1),
+            To = new DateOnly(2026, 8, 20)
+        });
+
+        Assert.Single(rows);
+        Assert.Equal(seed.SalesProjectId, rows[0].ProjectId);
+        Assert.Equal(ProjectPhaseType.PROPOSAL, rows[0].Phase);
+        Assert.Equal("Sales One", rows[0].AssignedSalesName);
+        Assert.Equal("Designer One", rows[0].AssignedDesignerName);
+        Assert.Equal(seed.ProductionId, rows[0].AssignedProductionId);
+        Assert.Equal("Production One", rows[0].AssignedProductionName);
+    }
+
+    [Fact]
+    public async Task GetProjectPhaseDeadlineRiskRowsAsync_DateFilterExcludesOutsideRange()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        context.ProjectPhaseDeadlineSet.Add(
+            CreatePhaseDeadline(seed.DesignerProjectId, ProjectPhaseType.PRODUCTION, new DateOnly(2026, 9, 20), seed.SalesId, seed.Now));
+        await context.SaveChangesAsync();
+        var repository = new DashboardQueueReadRepository(context);
+
+        var rows = await repository.GetProjectPhaseDeadlineRiskRowsAsync(new ProjectPhaseDeadlineRiskQueryReadModel
+        {
+            From = new DateOnly(2026, 8, 1),
+            To = new DateOnly(2026, 8, 31)
+        });
+
+        Assert.Empty(rows);
     }
 
     private static AppDbContext CreateContext()
@@ -355,7 +404,7 @@ public sealed class DashboardQueueReadRepositoryTests
             ProjectId = salesProjectId,
             OrderId = orderId,
             AssignedTo = productionId,
-            Status = ProductionRequestStatus.PENDING_REVIEW,
+            Status = ProductionRequestStatus.PENDING,
             Priority = "HIGH",
             EstimatedCompletionDate = DateOnly.FromDateTime(now),
             CreatedAt = now,
@@ -396,6 +445,25 @@ public sealed class DashboardQueueReadRepositoryTests
             FullName = fullName,
             Status = AccountStatus.ACTIVE,
             CreatedAt = DateTime.UtcNow
+        };
+    }
+
+    private static ProjectPhaseDeadline CreatePhaseDeadline(
+        Guid projectId,
+        ProjectPhaseType phase,
+        DateOnly dueDate,
+        Guid createdBy,
+        DateTime now)
+    {
+        return new ProjectPhaseDeadline
+        {
+            ProjectPhaseDeadlineId = Guid.NewGuid(),
+            ProjectId = projectId,
+            Phase = phase,
+            DueDate = dueDate,
+            CreatedBy = createdBy,
+            CreatedAt = now,
+            UpdatedAt = now
         };
     }
 

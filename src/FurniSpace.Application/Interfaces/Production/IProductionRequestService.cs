@@ -34,12 +34,6 @@ public interface IProductionRequestService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<ProductionRequestStatusDto>> MarkFeasibleAsync(
-        Guid productionRequestId,
-        Guid currentUserId,
-        MarkProductionRequestFeasibleDto request,
-        CancellationToken cancellationToken = default);
-
     Task<ServiceResult<ProductionRequestStatusDto>> StartAsync(
         Guid productionRequestId,
         Guid currentUserId,

@@ -39,7 +39,7 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
         Assert.Equal(scenario.OrderId, created.OrderId);
         Assert.Equal(scenario.ProjectId, created.ProjectId);
         Assert.Equal(scenario.ProductionAccountId, created.AssignedTo);
-        Assert.Equal(nameof(ProductionRequestStatus.PENDING_REVIEW), created.Status);
+        Assert.Equal(nameof(ProductionRequestStatus.PENDING), created.Status);
         Assert.Equal(1, created.ProductionItemCount);
 
         await using var verification = _fixture.Database.CreateDbContext();
@@ -130,7 +130,6 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
         var created = await CreateRequestDataAsync(scenario);
         var productionItemId = await GetProductionItemIdAsync(created.ProductionRequestId);
 
-        await MarkFeasibleAsync(scenario, created.ProductionRequestId);
         await StartProductionAsync(scenario, created.ProductionRequestId);
         await UpdateItemStatusAsync(scenario, productionItemId, ProductionItemStatus.IN_PRODUCTION);
         await UpdateItemStatusAsync(scenario, productionItemId, ProductionItemStatus.COMPLETED);
@@ -162,7 +161,6 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
         var scenario = await SeedScenarioAsync();
         var created = await CreateRequestDataAsync(scenario);
 
-        await MarkFeasibleAsync(scenario, created.ProductionRequestId);
         await StartProductionAsync(scenario, created.ProductionRequestId);
 
         using var request = IntegrationHttp.Authenticated(
@@ -183,7 +181,6 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
         var created = await CreateRequestDataAsync(scenario);
         var productionItemId = await GetProductionItemIdAsync(created.ProductionRequestId);
 
-        await MarkFeasibleAsync(scenario, created.ProductionRequestId);
         await StartProductionAsync(scenario, created.ProductionRequestId);
         await UpdateItemStatusAsync(scenario, productionItemId, ProductionItemStatus.CANCELLED, "Material unavailable");
 
@@ -233,20 +230,6 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
             });
 
         return await _fixture.Client.SendAsync(request);
-    }
-
-    private async Task MarkFeasibleAsync(ProductionOrderScenario scenario, Guid productionRequestId)
-    {
-        using var request = IntegrationHttp.AuthenticatedJson(
-            HttpMethod.Patch,
-            $"/production-requests/{productionRequestId}/mark-feasible",
-            scenario.ProductionAccountId,
-            CoreRoles.Production,
-            new MarkProductionRequestFeasibleDto { Note = "Feasible" });
-
-        var response = await _fixture.Client.SendAsync(request);
-        var status = await ReadDataAsync<ProductionRequestStatusDto>(response, HttpStatusCode.OK);
-        Assert.Equal(nameof(ProductionRequestStatus.FEASIBLE), status.Status);
     }
 
     private async Task StartProductionAsync(ProductionOrderScenario scenario, Guid productionRequestId)

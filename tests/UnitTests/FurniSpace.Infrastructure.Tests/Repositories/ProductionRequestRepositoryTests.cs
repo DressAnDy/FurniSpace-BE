@@ -36,8 +36,8 @@ public sealed class ProductionRequestRepositoryTests
         context.ProjectSet.Add(CreateProject(projectId, salesId));
         context.OrderSet.Add(CreateOrder(orderId, projectId, salesId));
         context.ProductionRequestSet.AddRange(
-            CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.PENDING_REVIEW),
-            CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.FEASIBLE),
+            CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.PENDING),
+            CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.IN_PRODUCTION),
             CreateRequest(orderId, projectId, staffId, ProductionRequestStatus.COMPLETED),
             CreateRequest(orderId, projectId, deletedStaffId, ProductionRequestStatus.IN_PRODUCTION),
             CreateRequest(orderId, projectId, inactiveStaffId, ProductionRequestStatus.IN_PRODUCTION));
@@ -46,11 +46,11 @@ public sealed class ProductionRequestRepositoryTests
 
         var staff = await repository.GetAvailableStaffAsync("production");
 
-        var item = Assert.Single(staff);
+        var item = Assert.Single(staff, item => item.AccountId == staffId);
         Assert.Equal(staffId, item.AccountId);
         Assert.Equal(2, item.ActiveRequestCount);
         Assert.Equal(1, item.PendingReviewRequestCount);
-        Assert.Equal(0, item.InProductionRequestCount);
+        Assert.Equal(1, item.InProductionRequestCount);
         Assert.Equal(0, item.BlockedRequestCount);
         Assert.Equal(AccountStatus.ACTIVE, item.AccountStatus);
         Assert.DoesNotContain(staff, item => item.AccountId == deletedStaffId);
@@ -74,8 +74,7 @@ public sealed class ProductionRequestRepositoryTests
     }
 
     [Theory]
-    [InlineData(ProductionRequestStatus.PENDING_REVIEW, true)]
-    [InlineData(ProductionRequestStatus.FEASIBLE, true)]
+    [InlineData(ProductionRequestStatus.PENDING, true)]
     [InlineData(ProductionRequestStatus.IN_PRODUCTION, true)]
     [InlineData(ProductionRequestStatus.COMPLETED, true)]
     [InlineData(ProductionRequestStatus.CANCELLED, false)]
@@ -163,6 +162,65 @@ public sealed class ProductionRequestRepositoryTests
         Assert.Equal(new DateOnly(2026, 12, 31), maxDate);
     }
 
+    [Fact]
+    public async Task IsOrderProductionCompletedAsync_WhenRequestAndItemsCompleted_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedProductionCompletionAsync(
+            context,
+            ProductionRequestStatus.COMPLETED,
+            ProductionItemStatus.COMPLETED);
+        var repository = new ProductionRequestRepository(context);
+
+        var completed = await repository.IsOrderProductionCompletedAsync(data.OrderId);
+
+        Assert.True(completed);
+    }
+
+    [Fact]
+    public async Task IsOrderProductionCompletedAsync_WhenCompletedRequestHasCancelledItem_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedProductionCompletionAsync(
+            context,
+            ProductionRequestStatus.COMPLETED,
+            ProductionItemStatus.CANCELLED);
+        var repository = new ProductionRequestRepository(context);
+
+        var completed = await repository.IsOrderProductionCompletedAsync(data.OrderId);
+
+        Assert.True(completed);
+    }
+
+    [Theory]
+    [InlineData(ProductionRequestStatus.PENDING, ProductionItemStatus.COMPLETED)]
+    [InlineData(ProductionRequestStatus.IN_PRODUCTION, ProductionItemStatus.COMPLETED)]
+    [InlineData(ProductionRequestStatus.COMPLETED, ProductionItemStatus.PENDING)]
+    [InlineData(ProductionRequestStatus.COMPLETED, ProductionItemStatus.IN_PRODUCTION)]
+    public async Task IsOrderProductionCompletedAsync_WhenRequestOrItemsIncomplete_ReturnsFalse(
+        ProductionRequestStatus requestStatus,
+        ProductionItemStatus itemStatus)
+    {
+        await using var context = CreateContext();
+        var data = await SeedProductionCompletionAsync(context, requestStatus, itemStatus);
+        var repository = new ProductionRequestRepository(context);
+
+        var completed = await repository.IsOrderProductionCompletedAsync(data.OrderId);
+
+        Assert.False(completed);
+    }
+
+    [Fact]
+    public async Task IsOrderProductionCompletedAsync_WhenRequestMissing_ReturnsFalse()
+    {
+        await using var context = CreateContext();
+        var repository = new ProductionRequestRepository(context);
+
+        var completed = await repository.IsOrderProductionCompletedAsync(Guid.NewGuid());
+
+        Assert.False(completed);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -239,4 +297,33 @@ public sealed class ProductionRequestRepositoryTests
             CreatedAt = DateTime.UtcNow
         };
     }
+
+    private static async Task<ProductionCompletionData> SeedProductionCompletionAsync(
+        AppDbContext context,
+        ProductionRequestStatus requestStatus,
+        ProductionItemStatus itemStatus)
+    {
+        var staffId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var request = CreateRequest(orderId, projectId, staffId, requestStatus);
+        context.ProjectSet.Add(CreateProject(projectId, salesId));
+        context.OrderSet.Add(CreateOrder(orderId, projectId, salesId));
+        context.ProductionRequestSet.Add(request);
+        context.ProductionItemSet.Add(new ProductionItem
+        {
+            ProductionItemId = Guid.NewGuid(),
+            ProductionRequestId = request.ProductionRequestId,
+            OrderItemId = Guid.NewGuid(),
+            ProductVersionId = Guid.NewGuid(),
+            ProductNameSnapshot = "Counter",
+            Quantity = 1,
+            Status = itemStatus
+        });
+        await context.SaveChangesAsync();
+        return new ProductionCompletionData(orderId);
+    }
+
+    private sealed record ProductionCompletionData(Guid OrderId);
 }

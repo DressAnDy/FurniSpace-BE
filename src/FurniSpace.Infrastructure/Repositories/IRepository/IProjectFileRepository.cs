@@ -41,6 +41,17 @@ public interface IProjectFileRepository : IGenericRepository<StoredFile>
         Guid fileId,
         CancellationToken cancellationToken = default);
 
+    Task<FileLink?> GetFileLinkEntityAsync(
+        string referenceType,
+        Guid referenceId,
+        Guid fileId,
+        CancellationToken cancellationToken = default) => Task.FromResult<FileLink?>(null);
+
+    Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByReferenceAsync(
+        string referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<FileLink>>([]);
+
     void RemoveFileLinks(IEnumerable<FileLink> fileLinks);
 
     Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(

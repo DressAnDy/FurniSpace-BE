@@ -528,10 +528,19 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         if (request.ScheduleType == ProjectScheduleType.DELIVERY)
         {
-            return await ValidateDeliveryScheduleCreateAsync(project, cancellationToken);
+            var deliveryError = await ValidateDeliveryScheduleCreateAsync(project, cancellationToken);
+            if (deliveryError is not null)
+            {
+                return deliveryError;
+            }
         }
 
-        return null;
+        return await ValidateStaffScheduleOverlapAsync(
+            request.AssignedStaffId,
+            request.ScheduledStart,
+            request.ScheduledEnd,
+            excludedScheduleId: null,
+            cancellationToken);
     }
 
     private async Task<ServiceResult<ProjectScheduleDto>?> ValidateProductionCreatePermissionAsync(
@@ -764,10 +773,48 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
         }
 
-        return ValidateScheduleDatesAgainstTarget(
+        var targetDateError = ValidateScheduleDatesAgainstTarget(
             effectiveStart,
             effectiveEnd,
             project.TargetCompletionDate);
+        if (targetDateError is not null)
+        {
+            return targetDateError;
+        }
+
+        return await ValidateStaffScheduleOverlapAsync(
+            request.AssignedStaffId ?? detail.AssignedStaffId,
+            effectiveStart,
+            effectiveEnd,
+            detail.ScheduleId,
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateStaffScheduleOverlapAsync(
+        Guid? assignedStaffId,
+        DateTime scheduledStart,
+        DateTime? scheduledEnd,
+        Guid? excludedScheduleId,
+        CancellationToken cancellationToken)
+    {
+        if (!assignedStaffId.HasValue)
+        {
+            return null;
+        }
+
+        var hasOverlap = await _schedules.HasActiveStaffOverlapAsync(
+            assignedStaffId.Value,
+            scheduledStart,
+            scheduledEnd,
+            excludedScheduleId,
+            cancellationToken);
+
+        return hasOverlap
+            ? ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.StaffScheduleOverlap,
+                    "Assigned staff already has an overlapping active schedule."))
+            : null;
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateScheduleDatesAgainstTarget(

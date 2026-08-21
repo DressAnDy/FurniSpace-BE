@@ -20,6 +20,12 @@ public interface IProjectAreaRepository : IGenericRepository<ProjectArea>
         Guid projectId,
         CancellationToken cancellationToken = default);
 
+    Task<bool> ActiveFloorNumberExistsAsync(
+        Guid projectId,
+        int floorNumber,
+        Guid? excludedProjectAreaId = null,
+        CancellationToken cancellationToken = default);
+
     Task<bool> HasActiveUsageAsync(
         Guid projectAreaId,
         CancellationToken cancellationToken = default);

@@ -2,8 +2,7 @@ namespace FurniSpace.Domain.Enums;
 
 public enum ProductionRequestStatus
 {
-    PENDING_REVIEW,
-    FEASIBLE,
+    PENDING,
     IN_PRODUCTION,
     COMPLETED,
     CANCELLED

@@ -194,7 +194,7 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
     {
         return item.ProductVersionId.HasValue &&
             (item.Quantity ?? 0) > 0 &&
-            item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED;
+            item.Status is not (OrderItemStatus.UNAVAILABLE or OrderItemStatus.CANCELLED);
     }
 
     public new void Update(Order order)

@@ -5,10 +5,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Services.Production;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -53,7 +56,7 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(data.OrderId, result.Data!.OrderId);
         Assert.Equal(data.ProjectId, result.Data.ProjectId);
         Assert.Equal(_productionId, result.Data.AssignedTo);
-        Assert.Equal("PENDING_REVIEW", result.Data.Status);
+        Assert.Equal("PENDING", result.Data.Status);
         Assert.Equal(2, result.Data.ProductionItemCount);
         Assert.StartsWith("PRD-", result.Data.ProductionCode, StringComparison.Ordinal);
         Assert.Equal(OrderStatus.IN_PRODUCTION, context.OrderSet.Single().Status);
@@ -136,7 +139,7 @@ public sealed class ProductionRequestServiceTests
             data.ProjectId,
             data.OrderId,
             _productionId,
-            ProductionRequestStatus.FEASIBLE);
+            ProductionRequestStatus.PENDING);
         context.ProductionRequestSet.Add(productionRequest);
         await context.SaveChangesAsync();
         var service = BuildService(context);
@@ -162,7 +165,7 @@ public sealed class ProductionRequestServiceTests
             ProjectId = data.ProjectId,
             OrderId = data.OrderId,
             AssignedTo = _productionId,
-            Status = ProductionRequestStatus.PENDING_REVIEW
+            Status = ProductionRequestStatus.PENDING
         });
         await context.SaveChangesAsync();
         var service = BuildService(context);
@@ -335,7 +338,7 @@ public sealed class ProductionRequestServiceTests
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
         context.ProductionRequestSet.AddRange(
-            CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.PENDING_REVIEW),
+            CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.PENDING),
             CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.IN_PRODUCTION),
             CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.COMPLETED));
         await context.SaveChangesAsync();
@@ -406,7 +409,7 @@ public sealed class ProductionRequestServiceTests
             data.ProjectId,
             data.OrderId,
             _productionId,
-            ProductionRequestStatus.PENDING_REVIEW);
+            ProductionRequestStatus.IN_PRODUCTION);
         productionRequest.Note = "Initial note";
         context.ProductionRequestSet.Add(productionRequest);
         await context.SaveChangesAsync();
@@ -443,7 +446,7 @@ public sealed class ProductionRequestServiceTests
             data.ProjectId,
             data.OrderId,
             _productionId,
-            ProductionRequestStatus.FEASIBLE);
+            ProductionRequestStatus.PENDING);
         context.ProductionRequestSet.Add(productionRequest);
         await context.SaveChangesAsync();
         var service = BuildService(context);
@@ -548,8 +551,8 @@ public sealed class ProductionRequestServiceTests
         await using var context = CreateContext();
         var own = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
         var otherSalesId = Guid.NewGuid();
-        var other = SeedOrderProjectRequest(context, otherSalesId, _productionId, ProductionRequestStatus.FEASIBLE, "URGENT");
-        var ownRequest = CreateProductionRequest(own.ProjectId, own.OrderId, _productionId, ProductionRequestStatus.PENDING_REVIEW);
+        var other = SeedOrderProjectRequest(context, otherSalesId, _productionId, ProductionRequestStatus.PENDING, "URGENT");
+        var ownRequest = CreateProductionRequest(own.ProjectId, own.OrderId, _productionId, ProductionRequestStatus.PENDING);
         ownRequest.Priority = "NORMAL";
         context.ProductionRequestSet.Add(ownRequest);
         await context.SaveChangesAsync();
@@ -560,7 +563,7 @@ public sealed class ProductionRequestServiceTests
             _productionId,
             new ProductionRequestQueryDto
             {
-                Status = ProductionRequestStatus.FEASIBLE,
+                Status = ProductionRequestStatus.PENDING,
                 AssignedTo = _productionId,
                 Priority = " urgent "
             });
@@ -571,7 +574,7 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(200, productionQueue.Status);
         var item = Assert.Single(productionQueue.Data!.Items);
         Assert.Equal(other.ProductionRequestId, item.ProductionRequestId);
-        Assert.Equal("FEASIBLE", item.Status);
+        Assert.Equal("PENDING", item.Status);
     }
 
     [Fact]
@@ -627,7 +630,7 @@ public sealed class ProductionRequestServiceTests
             data.ProjectId,
             data.OrderId,
             _productionId,
-            ProductionRequestStatus.PENDING_REVIEW);
+            ProductionRequestStatus.PENDING);
         context.ProductionRequestSet.Add(productionRequest);
         await context.SaveChangesAsync();
         var service = BuildService(context);
@@ -643,75 +646,11 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
-    public async Task MarkFeasibleAsync_WhenPendingReview_UpdatesStatusAndNote()
+    public async Task StartAsync_WhenPending_UpdatesStatusAndActualStartDate()
     {
         await using var context = CreateContext();
         var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        var productionRequest = CreateProductionRequest(
-            data.ProjectId,
-            data.OrderId,
-            _productionId,
-            ProductionRequestStatus.PENDING_REVIEW);
-        productionRequest.Note = "Initial";
-        context.ProductionRequestSet.Add(productionRequest);
-        await context.SaveChangesAsync();
-        var service = BuildService(context);
-
-        var result = await service.MarkFeasibleAsync(
-            productionRequest.ProductionRequestId,
-            _productionId,
-            new MarkProductionRequestFeasibleDto { Note = "All materials available" });
-
-        Assert.Equal(200, result.Status);
-        Assert.Equal("FEASIBLE", result.Data!.Status);
-        Assert.Contains("All materials available", context.ProductionRequestSet.Single().Note, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task MarkFeasibleAsync_WhenInvalid_ReturnsExpectedError()
-    {
-        await using var context = CreateContext();
-        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        var productionRequest = CreateProductionRequest(
-            data.ProjectId,
-            data.OrderId,
-            _productionId,
-            ProductionRequestStatus.FEASIBLE);
-        context.ProductionRequestSet.Add(productionRequest);
-        await context.SaveChangesAsync();
-        var service = BuildService(context);
-
-        var unauthorized = await service.MarkFeasibleAsync(
-            productionRequest.ProductionRequestId,
-            Guid.Empty,
-            new MarkProductionRequestFeasibleDto());
-        var forbidden = await service.MarkFeasibleAsync(
-            productionRequest.ProductionRequestId,
-            _salesId,
-            new MarkProductionRequestFeasibleDto());
-        var missing = await service.MarkFeasibleAsync(
-            Guid.NewGuid(),
-            _productionId,
-            new MarkProductionRequestFeasibleDto());
-        var invalidTransition = await service.MarkFeasibleAsync(
-            productionRequest.ProductionRequestId,
-            _productionId,
-            new MarkProductionRequestFeasibleDto());
-
-        Assert.Equal(401, unauthorized.Status);
-        Assert.Equal(403, forbidden.Status);
-        Assert.Equal(404, missing.Status);
-        Assert.Equal(ProductionErrorCodes.ProductionRequestNotFound, missing.ErrorCode);
-        Assert.Equal(400, invalidTransition.Status);
-        Assert.Equal(ProductionErrorCodes.InvalidProductionRequestTransition, invalidTransition.ErrorCode);
-    }
-
-    [Fact]
-    public async Task StartAsync_WhenFeasible_UpdatesStatusAndActualStartDate()
-    {
-        await using var context = CreateContext();
-        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        var productionRequest = CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.FEASIBLE);
+        var productionRequest = CreateProductionRequest(data.ProjectId, data.OrderId, _productionId, ProductionRequestStatus.PENDING);
         context.ProductionRequestSet.Add(productionRequest);
         await context.SaveChangesAsync();
         var service = BuildService(context);
@@ -737,7 +676,7 @@ public sealed class ProductionRequestServiceTests
             data.ProjectId,
             data.OrderId,
             _productionId,
-            ProductionRequestStatus.PENDING_REVIEW);
+            ProductionRequestStatus.COMPLETED);
         context.ProductionRequestSet.Add(productionRequest);
         await context.SaveChangesAsync();
         var service = BuildService(context);
@@ -907,7 +846,8 @@ public sealed class ProductionRequestServiceTests
         var seeded = SeedCompletionScenario(context);
         await context.SaveChangesAsync();
         var dispatcher = new CapturingNotificationDispatcher();
-        var service = BuildService(context, dispatcher);
+        var phaseDeadlines = new CapturingProjectPhaseDeadlineService();
+        var service = BuildService(context, dispatcher, phaseDeadlines);
 
         var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
 
@@ -923,6 +863,8 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(OrderItemStatus.READY, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CompletedOrderItemId).Status);
         Assert.Equal(OrderItemStatus.UNAVAILABLE, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CancelledOrderItemId).Status);
         Assert.Equal(ProjectStatus.READY_FOR_DELIVERY, context.ProjectSet.Single().Status);
+        Assert.Equal(seeded.ProjectId, phaseDeadlines.ProjectId);
+        Assert.Equal(ProjectPhaseType.PRODUCTION, phaseDeadlines.Phase);
         Assert.Contains(
             dispatcher.Dispatches,
             dispatch => dispatch.Type == NotificationType.ProductionRequestCompleted &&
@@ -1027,7 +969,7 @@ public sealed class ProductionRequestServiceTests
     {
         await using var context = CreateContext();
         var seeded = SeedCompletionScenario(context);
-        context.ProductionRequestSet.Local.Single().Status = ProductionRequestStatus.FEASIBLE;
+        context.ProductionRequestSet.Local.Single().Status = ProductionRequestStatus.PENDING;
         await context.SaveChangesAsync();
         var service = BuildService(context);
 
@@ -1046,7 +988,8 @@ public sealed class ProductionRequestServiceTests
 
     private static ProductionRequestService BuildService(
         AppDbContext context,
-        INotificationDispatcher? dispatcher = null)
+        INotificationDispatcher? dispatcher = null,
+        IProjectPhaseDeadlineService? phaseDeadlines = null)
     {
         return new ProductionRequestService(
             new ProductionRequestRepository(context),
@@ -1056,7 +999,8 @@ public sealed class ProductionRequestServiceTests
             new ProductionRequestServiceDependencies(
                 new InMemoryUnitOfWork(context),
                 dispatcher,
-                logger: null));
+                logger: null,
+                phaseDeadlines));
     }
 
     private SeededData SeedBase(AppDbContext context, OrderStatus orderStatus, PaymentStatus paymentStatus)
@@ -1219,6 +1163,7 @@ public sealed class ProductionRequestServiceTests
         context.ProductionItemSet.AddRange(completedProductionItem, cancelledProductionItem);
 
         return new SeededCompletion(
+            data.ProjectId,
             productionRequest.ProductionRequestId,
             completedItem.OrderItemId,
             cancelledItem.OrderItemId);
@@ -1374,11 +1319,46 @@ public sealed class ProductionRequestServiceTests
         }
     }
 
+    private sealed class CapturingProjectPhaseDeadlineService : IProjectPhaseDeadlineService
+    {
+        public Guid ProjectId { get; private set; }
+        public ProjectPhaseType Phase { get; private set; }
+
+        public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpsertProjectPhaseDeadlinesRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+        }
+
+        public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+        }
+
+        public Task MarkCompletedOnceAsync(
+            Guid projectId,
+            ProjectPhaseType phase,
+            DateTime completedAt,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            Phase = phase;
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed record SeededData(Guid ProjectId, Guid OrderId);
 
     private sealed record SeededProductionItem(Guid ProductionItemId);
 
     private sealed record SeededCompletion(
+        Guid ProjectId,
         Guid ProductionRequestId,
         Guid CompletedOrderItemId,
         Guid CancelledOrderItemId);

@@ -5,11 +5,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.CustomizationRequests;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Proposals;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Services.Proposals;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -1986,9 +1989,11 @@ public sealed class ProposalServiceTests
             Status = ProposalStatus.REVISION_REQUESTED,
             RevisionNote = "Adjust lighting."
         });
+        var phaseDeadlines = new CapturingProjectPhaseDeadlineService();
         var service = CreateService(
             repository,
-            new FakeProjectRepository("DESIGNER", project));
+            new FakeProjectRepository("DESIGNER", project),
+            phaseDeadlines: phaseDeadlines);
 
         var result = await service.PublishAsync(proposalId, designerId, new PublishProposalRequestDto());
 
@@ -1996,6 +2001,8 @@ public sealed class ProposalServiceTests
         Assert.Equal(ProposalStatus.PUBLISHED, result.Data!.ProposalStatus);
         Assert.Equal(ProposalStatus.PUBLISHED, repository.Proposals[0].Status);
         Assert.NotNull(repository.Proposals[0].PublishedAt);
+        Assert.Equal(detail.ProjectId, phaseDeadlines.ProjectId);
+        Assert.Equal(ProjectPhaseType.PROPOSAL, phaseDeadlines.Phase);
     }
 
     [Fact]
@@ -2341,7 +2348,8 @@ public sealed class ProposalServiceTests
         IUnitOfWork? unitOfWork = null,
         ApplicationRoomPlannerSceneRepository? roomPlannerScenes = null,
         INotificationDispatcher? notifications = null,
-        ICustomizationRequestRepository? customizationRequests = null)
+        ICustomizationRequestRepository? customizationRequests = null,
+        IProjectPhaseDeadlineService? phaseDeadlines = null)
     {
         return new ProposalService(
             proposals,
@@ -2351,7 +2359,8 @@ public sealed class ProposalServiceTests
             new ProposalServiceDependencies(
                 roomPlannerScenes,
                 notifications,
-                customizationRequests: customizationRequests));
+                customizationRequests: customizationRequests,
+                phaseDeadlines: phaseDeadlines));
     }
 
     private static CreateProposalRequestDto ValidCreateRequest()
@@ -3231,6 +3240,42 @@ public sealed class ProposalServiceTests
             CancellationToken cancellationToken = default)
         {
             throw new InvalidOperationException("Notification failed.");
+        }
+    }
+
+    private sealed class CapturingProjectPhaseDeadlineService : IProjectPhaseDeadlineService
+    {
+        public Guid ProjectId { get; private set; }
+        public ProjectPhaseType Phase { get; private set; }
+        public DateTime CompletedAt { get; private set; }
+
+        public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpsertProjectPhaseDeadlinesRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+        }
+
+        public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+        }
+
+        public Task MarkCompletedOnceAsync(
+            Guid projectId,
+            ProjectPhaseType phase,
+            DateTime completedAt,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            Phase = phase;
+            CompletedAt = completedAt;
+            return Task.CompletedTask;
         }
     }
 

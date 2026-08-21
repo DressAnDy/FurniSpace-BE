@@ -120,7 +120,7 @@ public sealed class RoomPlannerSceneServiceTests
     }
 
     [Fact]
-    public async Task SaveSceneAsync_PublishedProposal_ReturnsProposalNotEditable()
+    public async Task SaveSceneAsync_PublishedProposal_SavesScene()
     {
         var sql = new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.PUBLISHED) };
         var documents = new FakeSceneDocumentRepository();
@@ -128,9 +128,8 @@ public sealed class RoomPlannerSceneServiceTests
 
         var result = await service.SaveSceneAsync(SceneId, CreateSaveRequest(), DesignerId, "DESIGNER");
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal("PROPOSAL_NOT_EDITABLE", result.ErrorCode);
-        Assert.Null(documents.UpsertedDocument);
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(documents.UpsertedDocument);
     }
 
     [Fact]
@@ -635,6 +634,89 @@ public sealed class RoomPlannerSceneServiceTests
         Assert.Equal(ProjectAreaId, result.Data.BlueprintLayout!.Floors[0].ProjectAreaId);
         Assert.StartsWith("floor-", result.Data.BlueprintLayout.Floors[0].Id, StringComparison.Ordinal);
         Assert.Empty(result.Data.Objects);
+    }
+
+    [Fact]
+    public async Task GetSceneAsync_ForStandardArea_InitializesLockedRectangleFromAreaDimensions()
+    {
+        var context = CreateContext(mongoSceneId: null);
+        context.SceneAreas = [CreateSceneAreaWithLayout(width: 8m, length: 6m, height: 3.2m, isSpecialLayout: false)];
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = context },
+            new FakeSceneDocumentRepository());
+
+        var result = await service.GetSceneAsync(SceneId, DesignerId, "DESIGNER");
+
+        var floor = result.Data!.BlueprintLayout!.Floors[0];
+        Assert.False(result.Data.Areas[0].IsSpecialLayout);
+        Assert.Equal(4, floor.Points.Count);
+        Assert.Equal(4, floor.Walls.Count);
+        Assert.All(floor.Walls, wall => Assert.True(wall.Locked));
+        Assert.Contains(floor.Points, point => point.X == 8m && point.Z == 6m);
+        Assert.Equal(3.2m, floor.FloorHeight);
+    }
+
+    [Fact]
+    public async Task GetSceneAsync_ForSpecialArea_ReturnsPrimaryBlueprintWithoutFixedRectangle()
+    {
+        var fileId = Guid.NewGuid();
+        var context = CreateContext(mongoSceneId: null);
+        context.SceneAreas = [CreateSceneAreaWithLayout(width: 8m, length: 6m, height: 3.2m, isSpecialLayout: true)];
+        var projectFiles = new FakeProjectFileRepository();
+        projectFiles.CatalogFilesByReferenceId[ProjectAreaId] =
+        [
+            new CatalogFileReadModel
+            {
+                FileId = fileId,
+                FileLinkId = Guid.NewGuid(),
+                ReferenceId = ProjectAreaId,
+                FileType = FileType.FLOOR_PLAN,
+                OriginalFileName = "area-blueprint.pdf",
+                FileUrl = "https://storage.test/area-blueprint.pdf",
+                MimeType = "application/pdf",
+                Visibility = FileVisibility.STAFF_ONLY,
+                IsPrimary = true,
+                DisplayOrder = 1,
+                UploadedAt = DateTime.UtcNow
+            }
+        ];
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = context },
+            new FakeSceneDocumentRepository(),
+            projectFiles: projectFiles);
+
+        var result = await service.GetSceneAsync(SceneId, DesignerId, "DESIGNER");
+
+        var floor = result.Data!.BlueprintLayout!.Floors[0];
+        Assert.True(result.Data.Areas[0].IsSpecialLayout);
+        Assert.Empty(floor.Points);
+        Assert.Empty(floor.Walls);
+        var blueprint = Assert.Single(result.Data.AreaBlueprints);
+        Assert.Equal(fileId, blueprint.FileId);
+        Assert.True(blueprint.IsPrimary);
+    }
+
+    [Fact]
+    public async Task SaveSceneAsync_ForStandardAreaWithEditedOuterBoundary_ReturnsInvalidGeometry()
+    {
+        var context = CreateContext();
+        context.SceneAreas = [CreateSceneAreaWithLayout(width: 8m, length: 6m, height: 3.2m, isSpecialLayout: false)];
+        var request = CreateSaveRequest();
+        request.BlueprintLayout!.Floors[0].Points =
+        [
+            new RoomPlannerPoint2Document { PointId = "p1", X = 0m, Z = 0m },
+            new RoomPlannerPoint2Document { PointId = "p2", X = 9m, Z = 0m },
+            new RoomPlannerPoint2Document { PointId = "p3", X = 9m, Z = 6m },
+            new RoomPlannerPoint2Document { PointId = "p4", X = 0m, Z = 6m }
+        ];
+        var documents = new FakeSceneDocumentRepository();
+        var service = CreateService(new FakeSqlSceneRepository { Context = context }, documents);
+
+        var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_BLUEPRINT_GEOMETRY", result.ErrorCode);
+        Assert.Null(documents.UpsertedDocument);
     }
 
     [Fact]
@@ -1313,6 +1395,26 @@ public sealed class RoomPlannerSceneServiceTests
             ProjectAreaId = ProjectAreaId,
             ProjectId = projectId ?? ProjectId,
             AreaName = "Main cafe area",
+            SortOrder = 0
+        };
+
+    private static ProposalSceneAreaReadModel CreateSceneAreaWithLayout(
+        decimal width,
+        decimal length,
+        decimal height,
+        bool isSpecialLayout) =>
+        new()
+        {
+            ProposalSceneAreaId = Guid.NewGuid(),
+            SceneId = SceneId,
+            ProjectAreaId = ProjectAreaId,
+            ProjectId = ProjectId,
+            AreaName = "Main cafe area",
+            IsSpecialLayout = isSpecialLayout,
+            Width = width,
+            Length = length,
+            Height = height,
+            AreaSqm = width * length,
             SortOrder = 0
         };
 

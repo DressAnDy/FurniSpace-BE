@@ -16,15 +16,13 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
 
     private static readonly ProductionRequestStatus[] ActiveRequestStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
+        ProductionRequestStatus.PENDING,
         ProductionRequestStatus.IN_PRODUCTION
     ];
 
     private static readonly ProductionRequestStatus[] ScheduleReadRequestStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
+        ProductionRequestStatus.PENDING,
         ProductionRequestStatus.IN_PRODUCTION,
         ProductionRequestStatus.COMPLETED
     ];
@@ -53,6 +51,39 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         return DbContext.ProductionRequestSet.AnyAsync(
             request => request.OrderId == orderId,
             cancellationToken);
+    }
+
+    public async Task<bool> IsOrderProductionCompletedAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestIds = await DbContext.ProductionRequestSet
+            .Where(request => request.OrderId == orderId)
+            .Select(request => new
+            {
+                request.ProductionRequestId,
+                request.Status
+            })
+            .ToListAsync(cancellationToken);
+
+        if (requestIds.Count == 0 ||
+            requestIds.Any(request => request.Status != ProductionRequestStatus.COMPLETED))
+        {
+            return false;
+        }
+
+        var productionRequestIds = requestIds
+            .Select(request => request.ProductionRequestId)
+            .ToList();
+        var hasUnfinishedItems = await DbContext.ProductionItemSet.AnyAsync(
+            item =>
+                productionRequestIds.Contains(item.ProductionRequestId) &&
+                item.Status.HasValue &&
+                item.Status.Value != ProductionItemStatus.COMPLETED &&
+                item.Status.Value != ProductionItemStatus.CANCELLED,
+            cancellationToken);
+
+        return !hasUnfinishedItems;
     }
 
     public Task<int> CountCreatedOnAsync(
@@ -126,7 +157,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                 ActiveRequestStatuses.Contains(request.Status.Value))
             let pendingReviewCount = DbContext.ProductionRequestSet.Count(request =>
                 request.AssignedTo == account.AccountId &&
-                request.Status == ProductionRequestStatus.PENDING_REVIEW)
+                request.Status == ProductionRequestStatus.PENDING)
             let inProductionCount = DbContext.ProductionRequestSet.Count(request =>
                 request.AssignedTo == account.AccountId &&
                 request.Status == ProductionRequestStatus.IN_PRODUCTION)

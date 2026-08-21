@@ -18,6 +18,7 @@ public static class OrderErrorCodes
     public const string DeliveryNotCompleted = "DELIVERY_NOT_COMPLETED";
     public const string DeliverableItemsNotReady = "DELIVERABLE_ITEMS_NOT_READY";
     public const string DeliverableItemsNotDelivered = "DELIVERABLE_ITEMS_NOT_DELIVERED";
+    public const string ProductionNotCompleted = "PRODUCTION_NOT_COMPLETED";
     public const string DeliveryAlreadyCompleted = "DELIVERY_ALREADY_COMPLETED";
     public const string OrderAlreadyDelivered = "ORDER_ALREADY_DELIVERED";
     public const string NegativeRemainingAmount = "NEGATIVE_REMAINING_AMOUNT";

@@ -12,6 +12,7 @@ public class ProjectArea
     public string AreaName { get; set; } = null!;
     public ProjectAreaType? AreaType { get; set; }
     public int? FloorNumber { get; set; }
+    public bool IsSpecialLayout { get; set; }
     public string? Description { get; set; }
     public decimal? AreaSqm { get; set; }
     public decimal? Width { get; set; }

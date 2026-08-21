@@ -51,6 +51,22 @@ public sealed class ProjectAreaRepository : GenericRepository<ProjectArea>, IPro
             cancellationToken);
     }
 
+    public Task<bool> ActiveFloorNumberExistsAsync(
+        Guid projectId,
+        int floorNumber,
+        Guid? excludedProjectAreaId = null,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProjectAreaSet.AnyAsync(
+            area =>
+                area.ProjectId == projectId &&
+                area.AreaType == ProjectAreaType.FLOOR &&
+                area.Status != ProjectAreaStatus.CANCELLED &&
+                area.FloorNumber == floorNumber &&
+                (!excludedProjectAreaId.HasValue || area.ProjectAreaId != excludedProjectAreaId.Value),
+            cancellationToken);
+    }
+
     public async Task<bool> HasActiveUsageAsync(
         Guid projectAreaId,
         CancellationToken cancellationToken = default)
@@ -100,6 +116,7 @@ public sealed class ProjectAreaRepository : GenericRepository<ProjectArea>, IPro
                     AreaName = area.AreaName,
                     AreaType = area.AreaType,
                     FloorNumber = area.FloorNumber,
+                    IsSpecialLayout = area.IsSpecialLayout,
                     Description = area.Description,
                     AreaSqm = area.AreaSqm,
                     Width = area.Width,

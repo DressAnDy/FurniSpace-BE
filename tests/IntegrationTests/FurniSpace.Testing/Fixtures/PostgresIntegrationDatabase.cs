@@ -94,6 +94,7 @@ public sealed class PostgresIntegrationDatabase : IAsyncDisposable
         builder.MapEnum<ProjectStatus>("project_status", translator);
         builder.MapEnum<ProjectAreaType>("project_area_type", translator);
         builder.MapEnum<ProjectAreaStatus>("project_area_status", translator);
+        builder.MapEnum<ProjectPhaseType>("project_phase_type", translator);
         builder.MapEnum<ProjectScheduleType>("project_schedule_type", translator);
         builder.MapEnum<ProjectScheduleStatus>("project_schedule_status", translator);
         builder.MapEnum<ProposalStatus>("proposal_status", translator);
@@ -123,5 +124,7 @@ public sealed class PostgresIntegrationDatabase : IAsyncDisposable
         builder.MapEnum<FileType>("file_type", translator);
         builder.MapEnum<ProductStatus>("product_status", translator);
         builder.MapEnum<ProductVersionType>("product_version_type", translator);
+        builder.MapEnum<LayoutAssetType>("layout_asset_type", translator);
+        builder.MapEnum<LayoutAssetStatus>("layout_asset_status", translator);
     }
 }

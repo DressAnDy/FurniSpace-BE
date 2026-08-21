@@ -118,6 +118,7 @@ public class AppDbContext : DbContext
     public DbSet<ProjectChatMessage> ProjectChatMessageSet => Set<ProjectChatMessage>();
     public DbSet<ProjectArea> ProjectAreaSet => Set<ProjectArea>();
     public DbSet<ProjectPhaseTimeline> ProjectPhaseTimelineSet => Set<ProjectPhaseTimeline>();
+    public DbSet<ProjectPhaseDeadline> ProjectPhaseDeadlineSet => Set<ProjectPhaseDeadline>();
     public DbSet<ProjectSchedule> ProjectScheduleSet => Set<ProjectSchedule>();
     public DbSet<Proposal> ProposalSet => Set<Proposal>();
     public DbSet<ProposalScene> ProposalSceneSet => Set<ProposalScene>();
@@ -192,6 +193,7 @@ public class AppDbContext : DbContext
         ConfigureProjectChatMessages(modelBuilder);
         ConfigureProjectAreas(modelBuilder);
         ConfigureProjectPhaseTimelines(modelBuilder);
+        ConfigureProjectPhaseDeadlines(modelBuilder);
         ConfigureProjectSchedules(modelBuilder);
         ConfigureProposals(modelBuilder);
         ConfigureProposalScenes(modelBuilder);
@@ -590,6 +592,34 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.Phase);
             entity.HasIndex(e => e.DueDate);
             entity.HasIndex(e => new { e.ProjectId, e.Phase }).IsUnique();
+            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UpdatedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureProjectPhaseDeadlines(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ProjectPhaseDeadline>(entity =>
+        {
+            entity.ToTable("project_phase_deadlines");
+            entity.HasKey(e => e.ProjectPhaseDeadlineId);
+            entity.Property(e => e.ProjectPhaseDeadlineId)
+                .HasColumnName("project_phase_deadline_id")
+                .HasColumnType(UuidColumnType);
+            entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.Phase).HasColumnName("phase").HasColumnType(ProjectPhaseTypeColumnType).IsRequired();
+            entity.Property(e => e.DueDate).HasColumnName("due_date").HasColumnType(DateColumnType).IsRequired();
+            entity.Property(e => e.CompletedAt).HasColumnName("completed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasColumnType(UuidColumnType);
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.HasIndex(e => e.ProjectId).HasDatabaseName("idx_project_phase_deadlines_project");
+            entity.HasIndex(e => e.DueDate).HasDatabaseName("idx_project_phase_deadlines_due_date");
+            entity.HasIndex(e => new { e.ProjectId, e.Phase })
+                .IsUnique()
+                .HasDatabaseName("uq_project_phase_deadlines_project_phase");
             entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UpdatedBy).OnDelete(DeleteBehavior.Restrict);

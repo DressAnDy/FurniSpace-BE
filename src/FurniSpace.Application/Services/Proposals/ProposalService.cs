@@ -7,6 +7,7 @@ using FurniSpace.Application.DTOs.Proposals;
 using FurniSpace.Application.DTOs.Quotations;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Application.Interfaces.Quotations;
 using FurniSpace.Domain.Entities;
@@ -31,6 +32,7 @@ public sealed class ProposalService : IProposalService
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<ProposalService>? _logger;
     private readonly IQuotationService? _quotations;
+    private readonly IProjectPhaseDeadlineService? _phaseDeadlines;
 
     public ProposalService(
         IProposalRepository proposals,
@@ -48,6 +50,7 @@ public sealed class ProposalService : IProposalService
         _notifications = dependencies?.Notifications;
         _logger = dependencies?.Logger;
         _quotations = dependencies?.Quotations;
+        _phaseDeadlines = dependencies?.PhaseDeadlines;
     }
 
     public async Task<ServiceResult<ProposalDto>> CreateAsync(
@@ -1036,6 +1039,14 @@ public sealed class ProposalService : IProposalService
             proposalEntity.Status = ProposalStatus.PUBLISHED;
             proposalEntity.PublishedAt = now;
             proposalEntity.UpdatedAt = now;
+            if (_phaseDeadlines is not null)
+            {
+                await _phaseDeadlines.MarkCompletedOnceAsync(
+                    proposal.ProjectId,
+                    ProjectPhaseType.PROPOSAL,
+                    now,
+                    cancellationToken);
+            }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);

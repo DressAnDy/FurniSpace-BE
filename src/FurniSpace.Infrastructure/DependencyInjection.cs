@@ -79,6 +79,7 @@ public static class DependencyInjection
         services.AddScoped<IProjectWorkflowRepository, ProjectWorkflowRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IProjectScheduleRepository, ProjectScheduleRepository>();
+        services.AddScoped<IProjectPhaseDeadlineRepository, ProjectPhaseDeadlineRepository>();
         services.AddScoped<IProjectAreaRepository, ProjectAreaRepository>();
         services.AddScoped<IProposalRepository, ProposalRepository>();
         services.AddScoped<IQuotationRepository, QuotationRepository>();

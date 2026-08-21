@@ -6,6 +6,7 @@ using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Production;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -608,6 +609,14 @@ public sealed class ProductionRequestService : IProductionRequestService
                 now,
                 cancellationToken);
             CompleteWorkflow(productionRequest, order, project, now);
+            if (_dependencies.PhaseDeadlines is not null)
+            {
+                await _dependencies.PhaseDeadlines.MarkCompletedOnceAsync(
+                    project.ProjectId,
+                    ProjectPhaseType.PRODUCTION,
+                    now,
+                    cancellationToken);
+            }
             await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
             await _dependencies.UnitOfWork.CommitTransactionAsync(cancellationToken);
         }
@@ -1429,16 +1438,19 @@ public sealed class ProductionRequestServiceDependencies
     public ProductionRequestServiceDependencies(
         IUnitOfWork unitOfWork,
         INotificationDispatcher? notifications,
-        ILogger<ProductionRequestService>? logger)
+        ILogger<ProductionRequestService>? logger,
+        IProjectPhaseDeadlineService? phaseDeadlines = null)
     {
         UnitOfWork = unitOfWork;
         Notifications = notifications;
         Logger = logger;
+        PhaseDeadlines = phaseDeadlines;
     }
 
     public IUnitOfWork UnitOfWork { get; }
     public INotificationDispatcher? Notifications { get; }
     public ILogger<ProductionRequestService>? Logger { get; }
+    public IProjectPhaseDeadlineService? PhaseDeadlines { get; }
 }
 
 public static class ProductionErrorCodes

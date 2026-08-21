@@ -124,7 +124,8 @@ public static class DependencyInjection
             return new ProductionRequestServiceDependencies(
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetService<INotificationDispatcher>(),
-                sp.GetService<ILogger<ProductionRequestService>>());
+                sp.GetService<ILogger<ProductionRequestService>>(),
+                sp.GetService<IProjectPhaseDeadlineService>());
         });
         services.AddScoped<IProductionRequestService, ProductionRequestService>();
         services.AddScoped<ProposalServiceDependencies>(sp =>
@@ -134,7 +135,8 @@ public static class DependencyInjection
                 sp.GetService<INotificationDispatcher>(),
                 sp.GetService<ILogger<ProposalService>>(),
                 sp.GetService<FurniSpace.Infrastructure.Repositories.IRepository.ICustomizationRequestRepository>(),
-                sp.GetService<IQuotationService>());
+                sp.GetService<IQuotationService>(),
+                sp.GetService<IProjectPhaseDeadlineService>());
         });
         services.AddScoped<IProposalService, ProposalService>();
         services.AddScoped<QuotationRecalculationService>();
@@ -252,6 +254,7 @@ public static class DependencyInjection
         services.AddScoped<IEmailOtpStore, EmailOtpStore>();
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
+        services.AddScoped<IProjectPhaseDeadlineService, ProjectPhaseDeadlineService>();
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
         services.AddScoped<IProjectAreaService, ProjectAreaService>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepositoryAdapter>();

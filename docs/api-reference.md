@@ -855,6 +855,8 @@ Route: `projects`
 | PATCH | `/projects/{projectId}/rejection` | SALES, ADMIN | Reject project |
 | POST | `/projects/{projectId}/reopen-proposal` | CUSTOMER, SALES, ADMIN | Roll back to proposal consulting before deposit paid |
 | PATCH | `/projects/{projectId}/designer-assignment` | SALES, ADMIN | Assign designer |
+| GET | `/projects/{projectId}/phase-deadlines` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN | Read proposal/production phase deadline tracking |
+| PUT | `/projects/{projectId}/phase-deadlines` | SALES, ADMIN | Create/update proposal and production due dates |
 | GET | `/projects/{projectId}/catalog/products` | DESIGNER, ADMIN | Project-eligible catalog list — see [§8b](#8b-catalog--designer-project-catalog) |
 | GET | `/projects/{projectId}/catalog/products/{productId}` | DESIGNER, ADMIN | Eligible product detail |
 | GET | `/projects/{projectId}/catalog/product-versions/{productVersionId}` | DESIGNER, ADMIN | Eligible version detail |
@@ -907,6 +909,69 @@ Route: `projects`
 | `status` | string? |
 | `roleScope` | string? |
 | `keyword` | string? |
+
+### Phase deadlines
+
+Create or update an internal execution plan for the project.
+
+```json
+{
+  "proposalDueDate": "2026-09-10",
+  "productionDueDate": "2026-09-25"
+}
+```
+
+**Rules**
+
+- Only assigned Sales or Admin can `PUT`.
+- Customer, assigned Sales, assigned Designer, assigned Production staff, and Admin can `GET`.
+- `PUT` requires project status `IN_CONSULTATION`.
+- `proposalDueDate <= productionDueDate`.
+- When project `targetCompletionDate` exists, `productionDueDate <= targetCompletionDate`.
+- Backend stores exactly one row per `projectId + phase`; repeated `PUT` updates existing rows and preserves original `createdBy` / `createdAt`.
+
+**Response** (`ProjectPhaseDeadlinePlanDto`)
+
+```json
+{
+  "projectId": "uuid",
+  "targetCompletionDate": "2026-09-30",
+  "deadlines": [
+    {
+      "phase": "PROPOSAL",
+      "dueDate": "2026-09-10",
+      "completedAt": null,
+      "status": "ON_TRACK",
+      "overdueDays": 0
+    },
+    {
+      "phase": "PRODUCTION",
+      "dueDate": "2026-09-25",
+      "completedAt": null,
+      "status": "PLANNED",
+      "overdueDays": 0
+    }
+  ]
+}
+```
+
+`phase`: initial model only supports `PROPOSAL` and `PRODUCTION`.
+
+`status` is derived at read time, not persisted:
+
+- `PLANNED`: future phase that is not the first open phase.
+- `ON_TRACK`: first open phase whose due date has not passed.
+- `OVERDUE`: open phase where today is after `dueDate`.
+- `COMPLETED_ON_TIME`: `completedAt.Date <= dueDate`.
+- `COMPLETED_LATE`: `completedAt.Date > dueDate`.
+
+Completion hooks:
+
+- Publishing a proposal (`Proposal.Status -> PUBLISHED`) sets the project `PROPOSAL` deadline `completedAt` once.
+- Completing a production request (`ProductionRequest.Status -> COMPLETED`) sets the project `PRODUCTION` deadline `completedAt` once.
+- Repeated workflow calls do not reset the original completion timestamp.
+
+Common error codes: `INVALID_PROJECT_STATUS`, `INVALID_PHASE_DEADLINE_RANGE`, `PHASE_DEADLINE_EXCEEDS_TARGET`.
 
 ### Sales assignment
 
@@ -1698,6 +1763,34 @@ Route: `project-schedules` (+ absolute create alias)
 ```
 
 `scheduleType`: `MEASUREMENT`, `CONSULTATION`, `DESIGN_REVIEW`, `DELIVERY`, `HANDOVER`, `OTHER`
+
+### Create / update overlap validation
+
+Create and update preserve existing authorization and lifecycle rules, and additionally reject overlapping active schedules for the same `assignedStaffId` across all projects.
+
+Conflict formula:
+
+```text
+newStart < existingEnd AND newEnd > existingStart
+```
+
+Active schedules considered for overlap: `PENDING_CONFIRMATION`, `CONFIRMED`.
+
+Ignored schedules: `COMPLETED`, `CANCELLED`.
+
+Adjacent schedules are allowed, for example `08:00-10:00` followed by `10:00-12:00`.
+
+Update checks the effective updated time/staff and excludes the schedule being updated.
+
+Conflict response:
+
+```json
+{
+  "status": 409,
+  "message": "Assigned staff already has an overlapping active schedule.",
+  "errorCode": "STAFF_SCHEDULE_OVERLAP"
+}
+```
 
 ### Update status
 

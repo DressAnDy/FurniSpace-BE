@@ -5,10 +5,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Services.Production;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -907,7 +910,8 @@ public sealed class ProductionRequestServiceTests
         var seeded = SeedCompletionScenario(context);
         await context.SaveChangesAsync();
         var dispatcher = new CapturingNotificationDispatcher();
-        var service = BuildService(context, dispatcher);
+        var phaseDeadlines = new CapturingProjectPhaseDeadlineService();
+        var service = BuildService(context, dispatcher, phaseDeadlines);
 
         var result = await service.CompleteAsync(seeded.ProductionRequestId, _productionId);
 
@@ -923,6 +927,8 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(OrderItemStatus.READY, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CompletedOrderItemId).Status);
         Assert.Equal(OrderItemStatus.UNAVAILABLE, context.OrderItemSet.Single(item => item.OrderItemId == seeded.CancelledOrderItemId).Status);
         Assert.Equal(ProjectStatus.READY_FOR_DELIVERY, context.ProjectSet.Single().Status);
+        Assert.Equal(seeded.ProjectId, phaseDeadlines.ProjectId);
+        Assert.Equal(ProjectPhaseType.PRODUCTION, phaseDeadlines.Phase);
         Assert.Contains(
             dispatcher.Dispatches,
             dispatch => dispatch.Type == NotificationType.ProductionRequestCompleted &&
@@ -1046,7 +1052,8 @@ public sealed class ProductionRequestServiceTests
 
     private static ProductionRequestService BuildService(
         AppDbContext context,
-        INotificationDispatcher? dispatcher = null)
+        INotificationDispatcher? dispatcher = null,
+        IProjectPhaseDeadlineService? phaseDeadlines = null)
     {
         return new ProductionRequestService(
             new ProductionRequestRepository(context),
@@ -1056,7 +1063,8 @@ public sealed class ProductionRequestServiceTests
             new ProductionRequestServiceDependencies(
                 new InMemoryUnitOfWork(context),
                 dispatcher,
-                logger: null));
+                logger: null,
+                phaseDeadlines));
     }
 
     private SeededData SeedBase(AppDbContext context, OrderStatus orderStatus, PaymentStatus paymentStatus)
@@ -1219,6 +1227,7 @@ public sealed class ProductionRequestServiceTests
         context.ProductionItemSet.AddRange(completedProductionItem, cancelledProductionItem);
 
         return new SeededCompletion(
+            data.ProjectId,
             productionRequest.ProductionRequestId,
             completedItem.OrderItemId,
             cancelledItem.OrderItemId);
@@ -1374,11 +1383,46 @@ public sealed class ProductionRequestServiceTests
         }
     }
 
+    private sealed class CapturingProjectPhaseDeadlineService : IProjectPhaseDeadlineService
+    {
+        public Guid ProjectId { get; private set; }
+        public ProjectPhaseType Phase { get; private set; }
+
+        public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpsertProjectPhaseDeadlinesRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+        }
+
+        public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+        }
+
+        public Task MarkCompletedOnceAsync(
+            Guid projectId,
+            ProjectPhaseType phase,
+            DateTime completedAt,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            Phase = phase;
+            return Task.CompletedTask;
+        }
+    }
+
     private sealed record SeededData(Guid ProjectId, Guid OrderId);
 
     private sealed record SeededProductionItem(Guid ProductionItemId);
 
     private sealed record SeededCompletion(
+        Guid ProjectId,
         Guid ProductionRequestId,
         Guid CompletedOrderItemId,
         Guid CancelledOrderItemId);

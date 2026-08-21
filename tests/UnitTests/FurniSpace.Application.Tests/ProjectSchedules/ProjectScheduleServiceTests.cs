@@ -332,6 +332,112 @@ public sealed class ProjectScheduleServiceTests
     // ── SCH-02: GetList ─────────────────────────────────────────────────────────
 
     [Fact]
+    public async Task CreateAsync_WhenSameStaffHasOverlappingSameProjectSchedule_ReturnsConflict()
+    {
+        var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var scheduleRepo = new FakeProjectScheduleRepository();
+        var existingStart = DateTime.UtcNow.AddDays(2);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            project.ProjectId,
+            staffId,
+            ProjectScheduleStatus.CONFIRMED,
+            existingStart,
+            existingStart.AddHours(2)));
+        var request = ValidCreateRequest();
+        request.AssignedStaffId = staffId;
+        request.ScheduledStart = existingStart.AddMinutes(30);
+        request.ScheduledEnd = existingStart.AddHours(3);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, ScheduleRepo = scheduleRepo });
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.StaffScheduleOverlap, result.ErrorCode);
+        Assert.Equal(0, scheduleRepo.AddCallCount);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenSameStaffHasOverlappingCrossProjectSchedule_ReturnsConflict()
+    {
+        var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var scheduleRepo = new FakeProjectScheduleRepository();
+        var existingStart = DateTime.UtcNow.AddDays(2);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            Guid.NewGuid(),
+            staffId,
+            ProjectScheduleStatus.PENDING_CONFIRMATION,
+            existingStart,
+            existingStart.AddHours(2)));
+        var request = ValidCreateRequest();
+        request.AssignedStaffId = staffId;
+        request.ScheduledStart = existingStart.AddHours(1);
+        request.ScheduledEnd = existingStart.AddHours(3);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, ScheduleRepo = scheduleRepo });
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.StaffScheduleOverlap, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenSameStaffScheduleIsAdjacent_ReturnsCreated()
+    {
+        var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var scheduleRepo = new FakeProjectScheduleRepository();
+        var existingStart = DateTime.UtcNow.AddDays(2);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            Guid.NewGuid(),
+            staffId,
+            ProjectScheduleStatus.CONFIRMED,
+            existingStart,
+            existingStart.AddHours(2)));
+        var request = ValidCreateRequest();
+        request.AssignedStaffId = staffId;
+        request.ScheduledStart = existingStart.AddHours(2);
+        request.ScheduledEnd = existingStart.AddHours(4);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, ScheduleRepo = scheduleRepo });
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, scheduleRepo.AddCallCount);
+    }
+
+    [Theory]
+    [InlineData(ProjectScheduleStatus.COMPLETED)]
+    [InlineData(ProjectScheduleStatus.CANCELLED)]
+    public async Task CreateAsync_WhenSameStaffOverlapIsInactive_ReturnsCreated(ProjectScheduleStatus status)
+    {
+        var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var scheduleRepo = new FakeProjectScheduleRepository();
+        var existingStart = DateTime.UtcNow.AddDays(2);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            Guid.NewGuid(),
+            staffId,
+            status,
+            existingStart,
+            existingStart.AddHours(2)));
+        var request = ValidCreateRequest();
+        request.AssignedStaffId = staffId;
+        request.ScheduledStart = existingStart.AddMinutes(30);
+        request.ScheduledEnd = existingStart.AddHours(3);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, ScheduleRepo = scheduleRepo });
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(201, result.Status);
+    }
+
+    [Fact]
     public async Task GetListByProjectAsync_ReturnsUnauthorized_WhenUserIdIsEmpty()
     {
         var service = BuildService(new() { Role = "SALES" });
@@ -723,6 +829,84 @@ public sealed class ProjectScheduleServiceTests
     // ── SCH-05: UpdateStatus ────────────────────────────────────────────────────
 
     [Fact]
+    public async Task UpdateAsync_WhenReassignedStaffHasOverlap_ReturnsConflict()
+    {
+        var salesId = Guid.NewGuid();
+        var originalStaffId = Guid.NewGuid();
+        var newStaffId = Guid.NewGuid();
+        var start = DateTime.UtcNow.AddDays(2);
+        var schedule = CreateScheduleEntity(
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduledStart: start,
+            scheduleType: ProjectScheduleType.CONSULTATION);
+        schedule.AssignedStaffId = originalStaffId;
+        schedule.ScheduledEnd = start.AddHours(2);
+        var detail = CreateScheduleDetail(
+            scheduleId: schedule.ScheduleId,
+            assignedSalesId: salesId,
+            assignedStaffId: originalStaffId,
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleType: ProjectScheduleType.CONSULTATION,
+            scheduledStart: start,
+            scheduledEnd: start.AddHours(2));
+        var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            Guid.NewGuid(),
+            newStaffId,
+            ProjectScheduleStatus.CONFIRMED,
+            start.AddHours(1),
+            start.AddHours(3)));
+        var service = BuildService(new() { Role = "SALES", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
+
+        var result = await service.UpdateAsync(schedule.ScheduleId, salesId, new UpdateProjectScheduleRequestDto
+        {
+            AssignedStaffId = newStaffId
+        });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.StaffScheduleOverlap, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenOnlyCurrentScheduleOverlaps_ExcludesItself()
+    {
+        var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var start = DateTime.UtcNow.AddDays(2);
+        var schedule = CreateScheduleEntity(
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduledStart: start,
+            scheduleType: ProjectScheduleType.CONSULTATION);
+        schedule.AssignedStaffId = staffId;
+        schedule.ScheduledEnd = start.AddHours(2);
+        var detail = CreateScheduleDetail(
+            scheduleId: schedule.ScheduleId,
+            assignedSalesId: salesId,
+            assignedStaffId: staffId,
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleType: ProjectScheduleType.CONSULTATION,
+            scheduledStart: start,
+            scheduledEnd: start.AddHours(2));
+        var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            detail.ProjectId,
+            staffId,
+            ProjectScheduleStatus.CONFIRMED,
+            start,
+            start.AddHours(2),
+            schedule.ScheduleId));
+        var service = BuildService(new() { Role = "SALES", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
+
+        var result = await service.UpdateAsync(schedule.ScheduleId, salesId, new UpdateProjectScheduleRequestDto
+        {
+            ScheduledStart = start.AddHours(3),
+            ScheduledEnd = start.AddHours(4)
+        });
+
+        Assert.Equal(200, result.Status);
+    }
+
+    [Fact]
     public async Task UpdateStatusAsync_ReturnsBadRequest_WhenStatusIsAlreadyTerminal()
     {
         var detail = CreateScheduleDetail(status: ProjectScheduleStatus.CANCELLED);
@@ -1070,7 +1254,9 @@ public sealed class ProjectScheduleServiceTests
         Guid? assignedDesignerId = null,
         Guid? assignedStaffId = null,
         ProjectScheduleStatus status = ProjectScheduleStatus.PENDING_CONFIRMATION,
-        ProjectScheduleType scheduleType = ProjectScheduleType.MEASUREMENT)
+        ProjectScheduleType scheduleType = ProjectScheduleType.MEASUREMENT,
+        DateTime? scheduledStart = null,
+        DateTime? scheduledEnd = null)
     {
         return new ProjectScheduleDetailReadModel
         {
@@ -1083,8 +1269,32 @@ public sealed class ProjectScheduleServiceTests
             AssignedStaffId = assignedStaffId,
             ScheduleType = scheduleType,
             Title = "Test Schedule",
-            ScheduledStart = DateTime.UtcNow.AddDays(1),
+            ScheduledStart = scheduledStart ?? DateTime.UtcNow.AddDays(1),
+            ScheduledEnd = scheduledEnd,
             Status = status
+        };
+    }
+
+    private static ProjectSchedule CreateScheduleEntity(
+        Guid projectId,
+        Guid staffId,
+        ProjectScheduleStatus status,
+        DateTime scheduledStart,
+        DateTime? scheduledEnd,
+        Guid? scheduleId = null)
+    {
+        return new ProjectSchedule
+        {
+            ScheduleId = scheduleId ?? Guid.NewGuid(),
+            ProjectId = projectId,
+            ScheduleType = ProjectScheduleType.CONSULTATION,
+            Title = "Existing schedule",
+            AssignedStaffId = staffId,
+            ScheduledStart = scheduledStart,
+            ScheduledEnd = scheduledEnd,
+            Status = status,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
     }
 
@@ -1157,6 +1367,11 @@ public sealed class ProjectScheduleServiceTests
         public bool HasAssignedSchedule { get; set; }
         public bool HasConfirmedDeliverySchedule { get; set; }
 
+        public void AddExistingSchedule(ProjectSchedule schedule)
+        {
+            _entities.Add(schedule);
+        }
+
         public Task<bool> HasCompletedMeasurementScheduleAsync(
             Guid projectId,
             CancellationToken cancellationToken = default)
@@ -1200,6 +1415,24 @@ public sealed class ProjectScheduleServiceTests
                 schedule.ScheduleType == ProjectScheduleType.DELIVERY &&
                 schedule.Status is ProjectScheduleStatus.PENDING_CONFIRMATION
                     or ProjectScheduleStatus.CONFIRMED));
+        }
+
+        public Task<bool> HasActiveStaffOverlapAsync(
+            Guid assignedStaffId,
+            DateTime scheduledStart,
+            DateTime? scheduledEnd,
+            Guid? excludedScheduleId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var newEnd = scheduledEnd ?? scheduledStart;
+            var hasOverlap = _entities.Any(schedule =>
+                schedule.AssignedStaffId == assignedStaffId &&
+                schedule.ScheduleId != excludedScheduleId &&
+                schedule.Status is ProjectScheduleStatus.PENDING_CONFIRMATION or ProjectScheduleStatus.CONFIRMED &&
+                scheduledStart < (schedule.ScheduledEnd ?? schedule.ScheduledStart) &&
+                newEnd > schedule.ScheduledStart);
+
+            return Task.FromResult(hasOverlap);
         }
 
         public Task<ProjectScheduleDetailReadModel?> GetDetailAsync(

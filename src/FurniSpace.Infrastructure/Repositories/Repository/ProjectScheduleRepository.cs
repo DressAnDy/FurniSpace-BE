@@ -244,6 +244,33 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
         return maxDate;
     }
 
+    public Task<bool> HasActiveStaffOverlapAsync(
+        Guid assignedStaffId,
+        DateTime scheduledStart,
+        DateTime? scheduledEnd,
+        Guid? excludedScheduleId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var newEnd = scheduledEnd ?? scheduledStart;
+        var query = DbContext.ProjectScheduleSet
+            .Where(schedule =>
+                schedule.AssignedStaffId == assignedStaffId &&
+                (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
+                 schedule.Status == ProjectScheduleStatus.CONFIRMED));
+
+        if (excludedScheduleId.HasValue)
+        {
+            var scheduleId = excludedScheduleId.Value;
+            query = query.Where(schedule => schedule.ScheduleId != scheduleId);
+        }
+
+        return query.AnyAsync(
+            schedule =>
+                scheduledStart < (schedule.ScheduledEnd ?? schedule.ScheduledStart) &&
+                newEnd > schedule.ScheduledStart,
+            cancellationToken);
+    }
+
     private static DateOnly? MaxDateOnly(DateOnly? current, DateOnly candidate)
     {
         return !current.HasValue || candidate > current.Value

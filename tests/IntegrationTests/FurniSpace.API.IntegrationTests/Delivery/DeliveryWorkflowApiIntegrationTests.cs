@@ -41,7 +41,7 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         Assert.Equal(2, completion.DeliveredItemCount);
 
         var confirmation = await ConfirmDeliveryAsync(scenario);
-        Assert.Equal(nameof(OrderStatus.DELIVERED), confirmation.OrderStatus);
+        Assert.Equal(nameof(OrderStatus.FINAL_PAYMENT_PENDING), confirmation.OrderStatus);
         Assert.Equal(nameof(ProjectStatus.DELIVERED), confirmation.ProjectStatus);
         Assert.NotNull(confirmation.CustomerConfirmedDeliveryAt);
 
@@ -52,7 +52,7 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         var secondItem = await verification.OrderItemSet.FindAsync(scenario.SecondOrderItemId);
         var pendingItem = await verification.OrderItemSet.FindAsync(scenario.PendingOrderItemId);
 
-        Assert.Equal(OrderStatus.DELIVERED, order?.Status);
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, order?.Status);
         Assert.NotNull(order?.CustomerConfirmedDeliveryAt);
         Assert.Equal(ProjectStatus.DELIVERED, project?.Status);
         Assert.Equal(OrderItemStatus.DELIVERED, firstItem?.Status);
@@ -60,6 +60,12 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         Assert.NotNull(firstItem?.DeliveredAt);
         Assert.NotNull(secondItem?.DeliveredAt);
         Assert.Equal(OrderItemStatus.PENDING, pendingItem?.Status);
+        Assert.Equal(
+            1,
+            await verification.PaymentSet.CountAsync(payment =>
+                payment.OrderId == scenario.OrderId &&
+                payment.PaymentType == PaymentType.REMAINING_PAYMENT &&
+                payment.Status == PaymentStatus.PENDING));
     }
 
     [Fact]

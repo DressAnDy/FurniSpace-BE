@@ -360,7 +360,7 @@ public sealed class OrderService : IOrderService
         }
 
         var now = DateTime.UtcNow;
-        Payment? remainingPayment = null;
+        var remainingPaymentNotifications = new List<Payment>();
         await UnitOfWorkTransactions.ExecuteAsync(
             _unitOfWork,
             async transactionCancellationToken =>
@@ -370,10 +370,14 @@ public sealed class OrderService : IOrderService
                 project.Status = ProjectStatus.DELIVERED;
                 project.UpdatedAt = now;
 
-                remainingPayment = await ApplyPostDeliveryFinancialStateAsync(
+                var remainingPayment = await ApplyPostDeliveryFinancialStateAsync(
                     order,
                     now,
                     transactionCancellationToken);
+                if (remainingPayment is not null)
+                {
+                    remainingPaymentNotifications.Add(remainingPayment);
+                }
 
                 _orders.Update(order);
                 _projects.Update(project);
@@ -393,12 +397,12 @@ public sealed class OrderService : IOrderService
             project,
             OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
             cancellationToken);
-        if (remainingPayment is not null)
+        foreach (var payment in remainingPaymentNotifications)
         {
             await PaymentNotificationSupport.TryDispatchCreatedAsync(
                 _notifications,
                 _logger,
-                remainingPayment,
+                payment,
                 cancellationToken);
         }
 

@@ -88,13 +88,16 @@ public sealed class ProjectFileService : IProjectFileService
         }
 
         return await UploadLinkedFileAsync(
-            projectId,
-            ProjectReferenceType,
-            projectId,
-            currentUserId,
-            roleName,
-            request,
-            "Project file uploaded successfully.",
+            new LinkedFileUploadContext
+            {
+                ProjectId = projectId,
+                ReferenceType = ProjectReferenceType,
+                ReferenceId = projectId,
+                CurrentUserId = currentUserId,
+                RoleName = roleName,
+                Request = request,
+                SuccessMessage = "Project file uploaded successfully."
+            },
             cancellationToken);
     }
 
@@ -142,13 +145,16 @@ public sealed class ProjectFileService : IProjectFileService
         }
 
         return await UploadLinkedFileAsync(
-            project.ProjectId,
-            ProjectAreaReferenceType,
-            projectAreaId,
-            currentUserId,
-            roleName,
-            request,
-            "Project area file uploaded successfully.",
+            new LinkedFileUploadContext
+            {
+                ProjectId = project.ProjectId,
+                ReferenceType = ProjectAreaReferenceType,
+                ReferenceId = projectAreaId,
+                CurrentUserId = currentUserId,
+                RoleName = roleName,
+                Request = request,
+                SuccessMessage = "Project area file uploaded successfully."
+            },
             cancellationToken);
     }
 
@@ -733,22 +739,17 @@ public sealed class ProjectFileService : IProjectFileService
     }
 
     private async Task<ServiceResult<ProjectFileUploadResponseDto>> UploadLinkedFileAsync(
-        Guid projectId,
-        string referenceType,
-        Guid referenceId,
-        Guid currentUserId,
-        string roleName,
-        UploadProjectFileRequestDto request,
-        string successMessage,
+        LinkedFileUploadContext context,
         CancellationToken cancellationToken)
     {
         var now = DateTime.UtcNow;
         var fileId = Guid.NewGuid();
         var fileLinkId = Guid.NewGuid();
+        var request = context.Request;
         var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
         var generatedFileName = BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = BuildProjectObjectName(projectId, generatedFileName);
-        var visibility = ResolveVisibility(request.Visibility, roleName);
+        var objectName = BuildProjectObjectName(context.ProjectId, generatedFileName);
+        var visibility = ResolveVisibility(request.Visibility, context.RoleName);
 
         var uploadResult = await _storage.UploadAsync(
             new StorageUploadRequest
@@ -761,7 +762,7 @@ public sealed class ProjectFileService : IProjectFileService
 
         var storedFile = CreateStoredFile(
             fileId,
-            currentUserId,
+            context.CurrentUserId,
             originalFileName,
             generatedFileName,
             request,
@@ -770,10 +771,7 @@ public sealed class ProjectFileService : IProjectFileService
         var fileLink = CreateFileLink(
             fileLinkId,
             fileId,
-            referenceType,
-            referenceId,
-            currentUserId,
-            request,
+            context,
             visibility,
             now);
 
@@ -802,8 +800,8 @@ public sealed class ProjectFileService : IProjectFileService
         await SyncProjectFileIndexAsync(fileId, cancellationToken);
 
         return ServiceResult<ProjectFileUploadResponseDto>.Created(
-            BuildUploadResponse(projectId, referenceType, referenceId, storedFile, fileLink, uploadResult),
-            successMessage);
+            BuildUploadResponse(context.ProjectId, context.ReferenceType, context.ReferenceId, storedFile, fileLink, uploadResult),
+            context.SuccessMessage);
     }
 
     private async Task ClearOtherPrimaryProjectAreaLinksAsync(
@@ -853,24 +851,21 @@ public sealed class ProjectFileService : IProjectFileService
     private static FileLink CreateFileLink(
         Guid fileLinkId,
         Guid fileId,
-        string referenceType,
-        Guid referenceId,
-        Guid currentUserId,
-        UploadProjectFileRequestDto request,
+        LinkedFileUploadContext context,
         FileVisibility visibility,
         DateTime now) =>
         new()
         {
             FileLinkId = fileLinkId,
             FileId = fileId,
-            ReferenceType = referenceType,
-            ReferenceId = referenceId,
-            FileType = request.FileType,
+            ReferenceType = context.ReferenceType,
+            ReferenceId = context.ReferenceId,
+            FileType = context.Request.FileType,
             Visibility = visibility,
-            IsPrimary = request.IsPrimary,
-            DisplayOrder = request.DisplayOrder,
-            Description = NormalizeOptional(request.Note),
-            CreatedBy = currentUserId,
+            IsPrimary = context.Request.IsPrimary,
+            DisplayOrder = context.Request.DisplayOrder,
+            Description = NormalizeOptional(context.Request.Note),
+            CreatedBy = context.CurrentUserId,
             CreatedAt = now
         };
 
@@ -1301,5 +1296,22 @@ public sealed class ProjectFileService : IProjectFileService
     private Task SyncProjectFileIndexAsync(Guid fileId, CancellationToken cancellationToken)
     {
         return _projectFileSearchIndexer?.SyncFileAsync(fileId, cancellationToken) ?? Task.CompletedTask;
+    }
+
+    private sealed class LinkedFileUploadContext
+    {
+        public Guid ProjectId { get; init; }
+
+        public required string ReferenceType { get; init; }
+
+        public Guid ReferenceId { get; init; }
+
+        public Guid CurrentUserId { get; init; }
+
+        public required string RoleName { get; init; }
+
+        public required UploadProjectFileRequestDto Request { get; init; }
+
+        public required string SuccessMessage { get; init; }
     }
 }

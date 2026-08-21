@@ -415,6 +415,13 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         public required FileLink Link { get; init; }
     }
 
+    private sealed class ProjectAreaAccessJoin
+    {
+        public Guid ProjectAreaId { get; init; }
+
+        public required ProjectFileAccessReadModel ProjectAccess { get; init; }
+    }
+
     private IQueryable<FileMetadataReadModel> BuildFileMetadataQuery()
     {
         return BuildLinkedFileMetadataQuery()
@@ -423,20 +430,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
 
     private IQueryable<FileMetadataReadModel> BuildLinkedFileMetadataQuery()
     {
-        var projectAreaAccess =
-            DbContext.ProjectAreaSet.Join(
-                DbContext.ProjectSet,
-                area => area.ProjectId,
-                project => project.ProjectId,
-                (area, project) => new
-                {
-                    area.ProjectAreaId,
-                    project.ProjectId,
-                    project.CustomerId,
-                    project.AssignedSalesId,
-                    project.AssignedDesignerId,
-                    project.Status
-                });
+        var projectAreaAccess = BuildProjectAreaAccessQuery();
 
         return DbContext.StoredFileSet
             .Join(
@@ -494,17 +488,39 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                     Status = joined.file.Status,
                     DisplayOrder = joined.link.DisplayOrder,
                     IsPrimary = joined.link.IsPrimary,
-                    ProjectAccess = joined.project == null && areaProject == null
-                        ? null
-                        : new ProjectFileAccessReadModel
+                    ProjectAccess = joined.project != null
+                        ? new ProjectFileAccessReadModel
                         {
-                            ProjectId = joined.project == null ? areaProject!.ProjectId : joined.project.ProjectId,
-                            CustomerId = joined.project == null ? areaProject!.CustomerId : joined.project.CustomerId,
-                            AssignedSalesId = joined.project == null ? areaProject!.AssignedSalesId : joined.project.AssignedSalesId,
-                            AssignedDesignerId = joined.project == null ? areaProject!.AssignedDesignerId : joined.project.AssignedDesignerId,
-                            Status = joined.project == null ? areaProject!.Status : joined.project.Status
+                            ProjectId = joined.project.ProjectId,
+                            CustomerId = joined.project.CustomerId,
+                            AssignedSalesId = joined.project.AssignedSalesId,
+                            AssignedDesignerId = joined.project.AssignedDesignerId,
+                            Status = joined.project.Status
                         }
+                        : areaProject == null
+                            ? null
+                            : areaProject.ProjectAccess
                 });
+    }
+
+    private IQueryable<ProjectAreaAccessJoin> BuildProjectAreaAccessQuery()
+    {
+        return DbContext.ProjectAreaSet.Join(
+            DbContext.ProjectSet,
+            area => area.ProjectId,
+            project => project.ProjectId,
+            (area, project) => new ProjectAreaAccessJoin
+            {
+                ProjectAreaId = area.ProjectAreaId,
+                ProjectAccess = new ProjectFileAccessReadModel
+                {
+                    ProjectId = project.ProjectId,
+                    CustomerId = project.CustomerId,
+                    AssignedSalesId = project.AssignedSalesId,
+                    AssignedDesignerId = project.AssignedDesignerId,
+                    Status = project.Status
+                }
+            });
     }
 
     private IQueryable<FileMetadataReadModel> BuildUnlinkedFileMetadataQuery()

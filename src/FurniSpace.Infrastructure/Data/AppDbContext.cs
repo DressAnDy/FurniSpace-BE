@@ -72,6 +72,7 @@ public class AppDbContext : DbContext
     private const string LayoutAssetStatusColumnType = "layout_asset_status";
     private const string CreatedAtColumnName = "created_at";
     private const string UpdatedAtColumnName = "updated_at";
+    private const string CompletedAtColumnName = "completed_at";
     private const string StatusColumnName = "status";
     private const string ProjectIdColumnName = "project_id";
     private const string DescriptionColumnName = "description";
@@ -439,7 +440,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.SalesAssignedAt).HasColumnName("sales_assigned_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.ApprovedAt).HasColumnName("approved_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.DesignerAssignedAt).HasColumnName("designer_assigned_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CompletedAt).HasColumnName("completed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CompletedAt).HasColumnName(CompletedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.RejectedAt).HasColumnName(RejectedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.RejectionReason).HasColumnName("rejection_reason").HasColumnType(TextColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
@@ -583,7 +584,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.Phase).HasColumnName("phase").HasColumnType(ProjectPhaseTypeColumnType).IsRequired();
             entity.Property(e => e.DueDate).HasColumnName("due_date").HasColumnType(DateColumnType).IsRequired();
             entity.Property(e => e.StartedAt).HasColumnName("started_at").HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CompletedAt).HasColumnName("completed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CompletedAt).HasColumnName(CompletedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasColumnType(UuidColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
@@ -610,7 +611,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.Phase).HasColumnName("phase").HasColumnType(ProjectPhaseTypeColumnType).IsRequired();
             entity.Property(e => e.DueDate).HasColumnName("due_date").HasColumnType(DateColumnType).IsRequired();
-            entity.Property(e => e.CompletedAt).HasColumnName("completed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CompletedAt).HasColumnName(CompletedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasColumnType(UuidColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
@@ -1195,7 +1196,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductionNote).HasColumnName("production_note").HasColumnType(TextColumnType);
             entity.Property(e => e.CancellationReason).HasColumnName(CancellationReasonColumnName).HasColumnType(TextColumnType);
             entity.Property(e => e.EstimatedCompletionDate).HasColumnName("estimated_completion_date").HasColumnType(DateColumnType);
-            entity.Property(e => e.CompletedAt).HasColumnName("completed_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CompletedAt).HasColumnName(CompletedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => new { e.ProductionRequestId, e.OrderItemId }).IsUnique();
             entity.HasOne<ProductionRequest>().WithMany().HasForeignKey(e => e.ProductionRequestId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<OrderItem>().WithMany().HasForeignKey(e => e.OrderItemId).OnDelete(DeleteBehavior.Restrict);

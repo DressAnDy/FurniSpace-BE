@@ -211,7 +211,9 @@ public sealed class ProductionScheduleAccessApiIntegrationTests : IAsyncLifetime
         bool assignDesigner = false)
     {
         await using var context = _fixture.Database.CreateDbContext();
-        var delivery = await DeliveryScenarioSeeder.SeedReadyForDeliveryOrderAsync(context);
+        var delivery = await DeliveryScenarioSeeder.SeedReadyForDeliveryOrderAsync(
+            context,
+            seedCompletedProduction: false);
         var otherProduction = await CoreAccountSeeder.SeedAccountAsync(context, CoreRoles.Production);
         var designer = assignDesigner
             ? await CoreAccountSeeder.SeedAccountAsync(context, CoreRoles.Designer)

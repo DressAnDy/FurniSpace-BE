@@ -295,8 +295,7 @@ internal static class ProjectWorkflowComposer
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var openStatuses = new HashSet<ProductionRequestStatus>
         {
-            ProductionRequestStatus.PENDING_REVIEW,
-            ProductionRequestStatus.FEASIBLE,
+            ProductionRequestStatus.PENDING,
             ProductionRequestStatus.IN_PRODUCTION
         };
 

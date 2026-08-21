@@ -12,4 +12,5 @@ public static class ProjectScheduleErrorCodes
     public const string ScheduleDateExceedsTarget = "SCHEDULE_DATE_EXCEEDS_TARGET";
     public const string ActiveDeliveryScheduleExists = "ACTIVE_DELIVERY_SCHEDULE_EXISTS";
     public const string DeliveryScheduleNotAllowedAfterCompletion = "DELIVERY_SCHEDULE_NOT_ALLOWED_AFTER_COMPLETION";
+    public const string StaffScheduleOverlap = "STAFF_SCHEDULE_OVERLAP";
 }

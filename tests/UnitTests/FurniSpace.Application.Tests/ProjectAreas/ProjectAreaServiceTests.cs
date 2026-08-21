@@ -37,6 +37,7 @@ public sealed class ProjectAreaServiceTests
         Assert.Equal("Main Cafe Area", result.Data.AreaName);
         Assert.Equal(ProjectAreaType.ZONE, result.Data.AreaType);
         Assert.Equal(ProjectAreaStatus.DRAFT, result.Data.Status);
+        Assert.False(result.Data.IsSpecialLayout);
         Assert.Equal(1, areaRepo.AddCallCount);
     }
 
@@ -97,6 +98,194 @@ public sealed class ProjectAreaServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(ProjectAreaErrorCodes.InvalidAreaDimension, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_StandardLayoutWithMismatchedArea_ReturnsInvalidAreaDimension()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+        var request = ValidCreateRequest();
+        request.AreaSqm = 99m;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidAreaDimension, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SpecialLayoutAcceptsNullWidthAndLength()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var areaRepo = new FakeProjectAreaRepository();
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+        var request = ValidCreateRequest();
+        request.IsSpecialLayout = true;
+        request.Width = null;
+        request.Length = null;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(201, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.True(result.Data.IsSpecialLayout);
+        Assert.Null(areaRepo.EntityById?.Width);
+        Assert.Null(areaRepo.EntityById?.Length);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SpecialLayoutWithoutHeight_ReturnsInvalidAreaDimension()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+        var request = ValidCreateRequest();
+        request.IsSpecialLayout = true;
+        request.Height = null;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidAreaDimension, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_FloorWithoutFloorNumber_ReturnsInvalidFloorNumber()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId, numberOfFloors: 2);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+        var request = ValidFloorRequest();
+        request.FloorNumber = null;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidFloorNumber, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_FloorExceedingProjectFloorCount_ReturnsInvalidFloorNumber()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId, numberOfFloors: 2);
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project });
+        var request = ValidFloorRequest();
+        request.FloorNumber = 3;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidFloorNumber, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_DuplicateActiveFloorNumber_ReturnsDuplicateFloorNumber()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId, numberOfFloors: 2);
+        var areaRepo = new FakeProjectAreaRepository
+        {
+            ListItems = [CreateFloorDetail(project.ProjectId, floorNumber: 1)]
+        };
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, ValidFloorRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.DuplicateFloorNumber, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_DuplicateCancelledFloorNumber_CreatesProjectArea()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId, numberOfFloors: 2);
+        var areaRepo = new FakeProjectAreaRepository
+        {
+            ListItems =
+            [
+                CreateFloorDetail(project.ProjectId, floorNumber: 1, status: ProjectAreaStatus.CANCELLED)
+            ]
+        };
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, ValidFloorRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, areaRepo.AddCallCount);
+    }
+
+    [Fact]
+    public async Task CreateAsync_FloorWithParent_ReturnsInvalidParentArea()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId, numberOfFloors: 2);
+        var parent = CreateAreaDetail(project.ProjectId, areaType: ProjectAreaType.FLOOR, floorNumber: 2);
+        var areaRepo = new FakeProjectAreaRepository { ListItems = [parent] };
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+        var request = ValidFloorRequest();
+        request.ParentAreaId = parent.ProjectAreaId;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidParentArea, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_RoomWithFloorParent_CreatesProjectArea()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var parent = CreateAreaDetail(project.ProjectId, areaType: ProjectAreaType.FLOOR);
+        var areaRepo = new FakeProjectAreaRepository { ListItems = [parent] };
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+        var request = ValidCreateRequest();
+        request.AreaType = ProjectAreaType.ROOM;
+        request.ParentAreaId = parent.ProjectAreaId;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(201, result.Status);
+    }
+
+    [Fact]
+    public async Task CreateAsync_RoomWithoutFloorParent_ReturnsInvalidParentArea()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var parent = CreateAreaDetail(project.ProjectId, areaType: ProjectAreaType.ZONE);
+        var areaRepo = new FakeProjectAreaRepository { ListItems = [parent] };
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+        var request = ValidCreateRequest();
+        request.AreaType = ProjectAreaType.ROOM;
+        request.ParentAreaId = parent.ProjectAreaId;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidParentArea, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ZoneWithOtherParent_ReturnsInvalidParentArea()
+    {
+        var salesId = Guid.NewGuid();
+        var project = CreateProject(assignedSalesId: salesId);
+        var parent = CreateAreaDetail(project.ProjectId, areaType: ProjectAreaType.OTHER);
+        var areaRepo = new FakeProjectAreaRepository { ListItems = [parent] };
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+        var request = ValidCreateRequest();
+        request.ParentAreaId = parent.ProjectAreaId;
+
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidParentArea, result.ErrorCode);
     }
 
     [Fact]
@@ -418,6 +607,136 @@ public sealed class ProjectAreaServiceTests
     }
 
     [Fact]
+    public async Task UpdateAsync_SpecialToStandardWithoutStandardDimensions_ReturnsInvalidAreaDimension()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        entity.IsSpecialLayout = true;
+        entity.Width = null;
+        entity.Length = null;
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        detail.IsSpecialLayout = true;
+        detail.Width = null;
+        detail.Length = null;
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            AreaRepo = new FakeProjectAreaRepository { Detail = detail, EntityById = entity }
+        });
+
+        var result = await service.UpdateAsync(entity.ProjectAreaId, salesId, new UpdateProjectAreaRequestDto
+        {
+            IsSpecialLayout = false
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidAreaDimension, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_SpecialToStandardWithValidDimensions_UpdatesArea()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        entity.IsSpecialLayout = true;
+        entity.Width = null;
+        entity.Length = null;
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        detail.IsSpecialLayout = true;
+        detail.Width = null;
+        detail.Length = null;
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            AreaRepo = new FakeProjectAreaRepository { Detail = detail, EntityById = entity }
+        });
+
+        var result = await service.UpdateAsync(entity.ProjectAreaId, salesId, new UpdateProjectAreaRequestDto
+        {
+            IsSpecialLayout = false,
+            AreaSqm = 20m,
+            Width = 5m,
+            Length = 4m,
+            Height = 3m
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.False(entity.IsSpecialLayout);
+        Assert.Equal(20m, entity.AreaSqm);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FloorExceedingProjectFloorCount_ReturnsInvalidFloorNumber()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        var project = CreateProject(assignedSalesId: salesId, numberOfFloors: 2, projectId: entity.ProjectId);
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        var areaRepo = new FakeProjectAreaRepository { Detail = detail, EntityById = entity };
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+
+        var result = await service.UpdateAsync(entity.ProjectAreaId, salesId, new UpdateProjectAreaRequestDto
+        {
+            AreaType = ProjectAreaType.FLOOR,
+            FloorNumber = 3
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidFloorNumber, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_DuplicateActiveFloorNumber_ReturnsDuplicateFloorNumber()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        var project = CreateProject(assignedSalesId: salesId, numberOfFloors: 2, projectId: entity.ProjectId);
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        var areaRepo = new FakeProjectAreaRepository
+        {
+            Detail = detail,
+            EntityById = entity,
+            ListItems = [CreateFloorDetail(entity.ProjectId, floorNumber: 1)]
+        };
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+
+        var result = await service.UpdateAsync(entity.ProjectAreaId, salesId, new UpdateProjectAreaRequestDto
+        {
+            AreaType = ProjectAreaType.FLOOR,
+            FloorNumber = 1
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.DuplicateFloorNumber, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ToRoomWithZoneParent_ReturnsInvalidParentArea()
+    {
+        var salesId = Guid.NewGuid();
+        var entity = CreateAreaEntity();
+        var project = CreateProject(assignedSalesId: salesId, projectId: entity.ProjectId);
+        var parent = CreateAreaDetail(entity.ProjectId, areaType: ProjectAreaType.ZONE);
+        var detail = CreateAreaDetail(entity.ProjectId, entity.ProjectAreaId, assignedSalesId: salesId);
+        var areaRepo = new FakeProjectAreaRepository
+        {
+            Detail = detail,
+            EntityById = entity,
+            ListItems = [parent]
+        };
+        var service = BuildService(new() { Role = "SALES", ProjectDetail = project, AreaRepo = areaRepo });
+
+        var result = await service.UpdateAsync(entity.ProjectAreaId, salesId, new UpdateProjectAreaRequestDto
+        {
+            AreaType = ProjectAreaType.ROOM,
+            ParentAreaId = parent.ProjectAreaId
+        });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectAreaErrorCodes.InvalidParentArea, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task CancelAsync_AlreadyCancelled_ReturnsProjectAreaAlreadyCancelled()
     {
         var salesId = Guid.NewGuid();
@@ -461,11 +780,23 @@ public sealed class ProjectAreaServiceTests
     {
         options ??= new AreaServiceTestOptions();
         var areaRepo = options.AreaRepo ?? new FakeProjectAreaRepository();
-        var projectRepo = new FakeProjectRepository(options.Role, options.ProjectDetail);
+        var projectDetail = options.ProjectDetail ?? CreateProjectFromAreaDetail(areaRepo.Detail);
+        var projectRepo = new FakeProjectRepository(options.Role, projectDetail);
         return new ProjectAreaService(
             areaRepo,
             projectRepo,
             TestUnitOfWork.ForSaveChanges(areaRepo.SaveChangesAsync));
+    }
+
+    private static ProjectDetailReadModel? CreateProjectFromAreaDetail(ProjectAreaDetailReadModel? detail)
+    {
+        return detail is null
+            ? null
+            : CreateProject(
+                projectId: detail.ProjectId,
+                customerId: detail.CustomerId,
+                assignedSalesId: detail.AssignedSalesId,
+                assignedDesignerId: detail.AssignedDesignerId);
     }
 
     private static CreateProjectAreaRequestDto ValidCreateRequest() => new()
@@ -481,18 +812,31 @@ public sealed class ProjectAreaServiceTests
         Status = ProjectAreaStatus.DRAFT
     };
 
+    private static CreateProjectAreaRequestDto ValidFloorRequest()
+    {
+        var request = ValidCreateRequest();
+        request.AreaName = "Floor 1";
+        request.AreaType = ProjectAreaType.FLOOR;
+        request.FloorNumber = 1;
+        request.ParentAreaId = null;
+        return request;
+    }
+
     private static ProjectDetailReadModel CreateProject(
+        Guid? projectId = null,
         Guid? customerId = null,
         Guid? assignedSalesId = null,
-        Guid? assignedDesignerId = null)
+        Guid? assignedDesignerId = null,
+        int? numberOfFloors = 2)
     {
         return new ProjectDetailReadModel
         {
-            ProjectId = Guid.NewGuid(),
+            ProjectId = projectId ?? Guid.NewGuid(),
             CustomerId = customerId ?? Guid.NewGuid(),
             AssignedSalesId = assignedSalesId,
             AssignedDesignerId = assignedDesignerId,
-            ProjectName = "Test Project"
+            ProjectName = "Test Project",
+            NumberOfFloors = numberOfFloors
         };
     }
 
@@ -504,6 +848,10 @@ public sealed class ProjectAreaServiceTests
             ProjectId = projectId ?? Guid.NewGuid(),
             AreaName = "Main Cafe Area",
             AreaType = ProjectAreaType.ZONE,
+            AreaSqm = 45.5m,
+            Width = 6.5m,
+            Length = 7.0m,
+            Height = 3.2m,
             Status = ProjectAreaStatus.DRAFT,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -515,7 +863,10 @@ public sealed class ProjectAreaServiceTests
         Guid? projectAreaId = null,
         Guid? customerId = null,
         Guid? assignedSalesId = null,
-        Guid? assignedDesignerId = null)
+        Guid? assignedDesignerId = null,
+        ProjectAreaType? areaType = ProjectAreaType.ZONE,
+        int? floorNumber = 1,
+        ProjectAreaStatus? status = ProjectAreaStatus.DRAFT)
     {
         return new ProjectAreaDetailReadModel
         {
@@ -525,11 +876,28 @@ public sealed class ProjectAreaServiceTests
             AssignedSalesId = assignedSalesId,
             AssignedDesignerId = assignedDesignerId,
             AreaName = "Main Cafe Area",
-            AreaType = ProjectAreaType.ZONE,
-            Status = ProjectAreaStatus.DRAFT,
+            AreaType = areaType,
+            FloorNumber = floorNumber,
+            AreaSqm = 45.5m,
+            Width = 6.5m,
+            Length = 7.0m,
+            Height = 3.2m,
+            Status = status,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
+    }
+
+    private static ProjectAreaDetailReadModel CreateFloorDetail(
+        Guid projectId,
+        int floorNumber,
+        ProjectAreaStatus status = ProjectAreaStatus.DRAFT)
+    {
+        return CreateAreaDetail(
+            projectId,
+            areaType: ProjectAreaType.FLOOR,
+            floorNumber: floorNumber,
+            status: status);
     }
 
     private sealed class FakeProjectAreaRepository : IProjectAreaRepository
@@ -550,7 +918,8 @@ public sealed class ProjectAreaServiceTests
                 return Task.FromResult<ProjectAreaDetailReadModel?>(Detail);
             }
 
-            return Task.FromResult<ProjectAreaDetailReadModel?>(null);
+            return Task.FromResult<ProjectAreaDetailReadModel?>(
+                ListItems.FirstOrDefault(item => item.ProjectAreaId == projectAreaId));
         }
 
         public Task<IReadOnlyList<ProjectAreaDetailReadModel>> GetListByProjectAsync(
@@ -571,12 +940,27 @@ public sealed class ProjectAreaServiceTests
             Guid projectId,
             CancellationToken cancellationToken = default)
         {
-            if (Detail?.ProjectAreaId == projectAreaId && Detail.ProjectId == projectId)
-            {
-                return Task.FromResult(true);
-            }
+            return Task.FromResult(
+                (Detail?.ProjectAreaId == projectAreaId && Detail.ProjectId == projectId) ||
+                ListItems.Any(item => item.ProjectAreaId == projectAreaId && item.ProjectId == projectId));
+        }
 
-            return Task.FromResult(false);
+        public Task<bool> ActiveFloorNumberExistsAsync(
+            Guid projectId,
+            int floorNumber,
+            Guid? excludedProjectAreaId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var items = Detail is null
+                ? ListItems
+                : ListItems.Concat([Detail]).ToList();
+
+            return Task.FromResult(items.Any(item =>
+                item.ProjectId == projectId &&
+                item.AreaType == ProjectAreaType.FLOOR &&
+                item.Status != ProjectAreaStatus.CANCELLED &&
+                item.FloorNumber == floorNumber &&
+                (!excludedProjectAreaId.HasValue || item.ProjectAreaId != excludedProjectAreaId.Value)));
         }
 
         public Task<bool> HasActiveUsageAsync(
@@ -619,6 +1003,11 @@ public sealed class ProjectAreaServiceTests
                 ProjectId = entity.ProjectId,
                 AreaName = entity.AreaName,
                 AreaType = entity.AreaType,
+                IsSpecialLayout = entity.IsSpecialLayout,
+                AreaSqm = entity.AreaSqm,
+                Width = entity.Width,
+                Length = entity.Length,
+                Height = entity.Height,
                 Status = entity.Status,
                 CreatedAt = entity.CreatedAt,
                 UpdatedAt = entity.UpdatedAt

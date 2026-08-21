@@ -87,90 +87,75 @@ public sealed class ProjectFileService : IProjectFileService
             return ServiceResult<ProjectFileUploadResponseDto>.Forbidden("You do not have access to upload files to this project.");
         }
 
-        var now = DateTime.UtcNow;
-        var fileId = Guid.NewGuid();
-        var fileLinkId = Guid.NewGuid();
-        var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
-        var generatedFileName = BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = BuildProjectObjectName(projectId, generatedFileName);
-        var visibility = ResolveVisibility(request.Visibility, roleName);
-
-        var uploadResult = await _storage.UploadAsync(
-            new StorageUploadRequest
+        return await UploadLinkedFileAsync(
+            new LinkedFileUploadContext
             {
-                Content = request.Content,
-                ObjectName = objectName,
-                ContentType = NormalizeContentType(request.ContentType)
+                ProjectId = projectId,
+                ReferenceType = ProjectReferenceType,
+                ReferenceId = projectId,
+                CurrentUserId = currentUserId,
+                RoleName = roleName,
+                Request = request,
+                SuccessMessage = "Project file uploaded successfully."
             },
             cancellationToken);
+    }
 
-        var storedFile = new StoredFile
+    public async Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectAreaFileAsync(
+        Guid projectAreaId,
+        Guid currentUserId,
+        UploadProjectFileRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectAreaId == Guid.Empty)
         {
-            FileId = fileId,
-            UploadedBy = currentUserId,
-            OriginalFileName = originalFileName,
-            StoredFileName = generatedFileName,
-            FileUrl = uploadResult.PublicUrl,
-            StoragePath = uploadResult.ObjectName,
-            MimeType = NormalizeContentType(request.ContentType),
-            FileExtension = NormalizeExtension(originalFileName),
-            FileSizeBytes = request.FileSizeBytes,
-            Status = FileStatus.ACTIVE,
-            UploadedAt = now
-        };
-
-        var fileLink = new FileLink
-        {
-            FileLinkId = fileLinkId,
-            FileId = fileId,
-            ReferenceType = ProjectReferenceType,
-            ReferenceId = projectId,
-            FileType = request.FileType,
-            Visibility = visibility,
-            Description = NormalizeOptional(request.Note),
-            CreatedBy = currentUserId,
-            CreatedAt = now
-        };
-
-        try
-        {
-            await ExecuteInTransactionAsync(
-                async ct =>
-                {
-                    await _projectFiles.AddAsync(storedFile, ct);
-                    await _projectFiles.AddFileLinkAsync(fileLink, ct);
-                    await _unitOfWork.SaveChangesAsync(ct);
-                },
-                cancellationToken);
-        }
-        catch
-        {
-            await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
-            throw;
+            return ServiceResult<ProjectFileUploadResponseDto>.BadRequest("Project area id is required.");
         }
 
-        await SyncProjectFileIndexAsync(fileId, cancellationToken);
-
-        var response = new ProjectFileUploadResponseDto
+        if (currentUserId == Guid.Empty)
         {
-            FileId = fileId,
-            FileLinkId = fileLinkId,
-            ProjectId = projectId,
-            OriginalFileName = originalFileName,
-            FileName = storedFile.StoredFileName,
-            FileType = request.FileType,
-            MimeType = storedFile.MimeType,
-            FileSize = storedFile.FileSizeBytes,
-            StoragePath = storedFile.StoragePath,
-            PublicUrl = uploadResult.PublicUrl,
-            Visibility = visibility,
-            UploadedBy = currentUserId,
-            UploadedAt = storedFile.UploadedAt
-        };
+            return ServiceResult<ProjectFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
+        }
 
-        return ServiceResult<ProjectFileUploadResponseDto>.Created(
-            response,
-            "Project file uploaded successfully.");
+        var validationErrors = ValidateRequest(request);
+        validationErrors.AddRange(ValidateProjectAreaFileRequest(request));
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.BadRequest(validationErrors);
+        }
+
+        var roleName = await _projectFiles.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(roleName))
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
+        }
+
+        var project = await _projectFiles.GetReferenceProjectAccessAsync(
+            ProjectAreaReferenceType,
+            projectAreaId,
+            cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.NotFound("Project area not found.");
+        }
+
+        if (!CanManageAreaFiles(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Forbidden("You do not have access to upload files to this project area.");
+        }
+
+        return await UploadLinkedFileAsync(
+            new LinkedFileUploadContext
+            {
+                ProjectId = project.ProjectId,
+                ReferenceType = ProjectAreaReferenceType,
+                ReferenceId = projectAreaId,
+                CurrentUserId = currentUserId,
+                RoleName = roleName,
+                Request = request,
+                SuccessMessage = "Project area file uploaded successfully."
+            },
+            cancellationToken);
     }
 
     public async Task<ServiceResult<FileDetailResponseDto>> GetFileDetailAsync(
@@ -267,6 +252,143 @@ public sealed class ProjectFileService : IProjectFileService
                 Total = page.Total
             },
             "Project files retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectFilesResponseDto>> GetProjectAreaFilesAsync(
+        Guid projectAreaId,
+        Guid currentUserId,
+        ProjectFilesQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectAreaId == Guid.Empty)
+        {
+            return ServiceResult<ProjectFilesResponseDto>.BadRequest("Project area id is required.");
+        }
+
+        var pageErrors = ValidatePagination(query.Page, query.Limit);
+        if (pageErrors.Count > 0)
+        {
+            return ServiceResult<ProjectFilesResponseDto>.BadRequest(pageErrors);
+        }
+
+        var roleName = await GetRequiredRoleNameAsync(currentUserId, cancellationToken);
+        if (roleName is null)
+        {
+            return ServiceResult<ProjectFilesResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
+        }
+
+        var project = await _projectFiles.GetReferenceProjectAccessAsync(
+            ProjectAreaReferenceType,
+            projectAreaId,
+            cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectFilesResponseDto>.NotFound("Project area not found.");
+        }
+
+        if (!CanAccessProject(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectFilesResponseDto>.Forbidden("You do not have access to view files for this project area.");
+        }
+
+        var page = await _projectFiles.GetFilesByReferenceAsync(
+            new FileReferenceQueryReadModel
+            {
+                ReferenceType = ProjectAreaReferenceType,
+                ReferenceId = projectAreaId,
+                FileType = query.FileType,
+                Visibility = query.Visibility,
+                CustomerVisibleOnly = IsCustomer(roleName),
+                CustomerAccountId = IsCustomer(roleName) ? currentUserId : null,
+                Page = query.Page,
+                Limit = query.Limit
+            },
+            cancellationToken);
+
+        return ServiceResult<ProjectFilesResponseDto>.Success(
+            new ProjectFilesResponseDto
+            {
+                Items = page.Items.Adapt<List<FileListItemDto>>(),
+                Page = query.Page,
+                Limit = query.Limit,
+                Total = page.Total
+            },
+            "Project area files retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectAreaFilePrimaryResponseDto>> SetProjectAreaPrimaryFileAsync(
+        Guid projectAreaId,
+        Guid fileId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectAreaId == Guid.Empty || fileId == Guid.Empty)
+        {
+            return ServiceResult<ProjectAreaFilePrimaryResponseDto>.BadRequest("Project area id and file id are required.");
+        }
+
+        var roleName = await GetRequiredRoleNameAsync(currentUserId, cancellationToken);
+        if (roleName is null)
+        {
+            return ServiceResult<ProjectAreaFilePrimaryResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
+        }
+
+        var project = await _projectFiles.GetReferenceProjectAccessAsync(
+            ProjectAreaReferenceType,
+            projectAreaId,
+            cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectAreaFilePrimaryResponseDto>.NotFound("Project area not found.");
+        }
+
+        if (!CanManageAreaFiles(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectAreaFilePrimaryResponseDto>.Forbidden("You do not have access to update files for this project area.");
+        }
+
+        var selectedLink = await _projectFiles.GetFileLinkEntityAsync(
+            ProjectAreaReferenceType,
+            projectAreaId,
+            fileId,
+            cancellationToken);
+        if (selectedLink is null)
+        {
+            return ServiceResult<ProjectAreaFilePrimaryResponseDto>.NotFound(FileNotFoundMessage);
+        }
+
+        if (!IsSupportedProjectAreaFileType(selectedLink.FileType))
+        {
+            return ServiceResult<ProjectAreaFilePrimaryResponseDto>.BadRequest("Only project area blueprint file types can be set as primary.");
+        }
+
+        var links = await _projectFiles.GetFileLinkEntitiesByReferenceAsync(
+            ProjectAreaReferenceType,
+            projectAreaId,
+            cancellationToken);
+
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                foreach (var link in links.Where(link => IsSupportedProjectAreaFileType(link.FileType)))
+                {
+                    link.IsPrimary = link.FileId == fileId;
+                }
+
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
+
+        return ServiceResult<ProjectAreaFilePrimaryResponseDto>.Success(
+            new ProjectAreaFilePrimaryResponseDto
+            {
+                ProjectAreaId = projectAreaId,
+                FileId = fileId,
+                FileLinkId = selectedLink.FileLinkId,
+                FileType = selectedLink.FileType,
+                IsPrimary = true
+            },
+            "Primary project area file updated successfully.");
     }
 
     public async Task<ServiceResult<ProjectFileSearchResponseDto>> SearchProjectFilesAsync(
@@ -600,6 +722,181 @@ public sealed class ProjectFileService : IProjectFileService
         return errors;
     }
 
+    private static List<string> ValidateProjectAreaFileRequest(UploadProjectFileRequestDto request)
+    {
+        var errors = new List<string>();
+        if (!IsSupportedProjectAreaFileType(request.FileType))
+        {
+            errors.Add("Project area file type is not supported.");
+        }
+
+        if (request.DisplayOrder.HasValue && request.DisplayOrder.Value < 0)
+        {
+            errors.Add("Display order must not be negative.");
+        }
+
+        return errors;
+    }
+
+    private async Task<ServiceResult<ProjectFileUploadResponseDto>> UploadLinkedFileAsync(
+        LinkedFileUploadContext context,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        var fileId = Guid.NewGuid();
+        var fileLinkId = Guid.NewGuid();
+        var request = context.Request;
+        var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
+        var generatedFileName = BuildGeneratedFileName(fileId, originalFileName);
+        var objectName = BuildProjectObjectName(context.ProjectId, generatedFileName);
+        var visibility = ResolveVisibility(request.Visibility, context.RoleName);
+
+        var uploadResult = await _storage.UploadAsync(
+            new StorageUploadRequest
+            {
+                Content = request.Content,
+                ObjectName = objectName,
+                ContentType = NormalizeContentType(request.ContentType)
+            },
+            cancellationToken);
+
+        var storedFile = CreateStoredFile(
+            fileId,
+            context.CurrentUserId,
+            originalFileName,
+            generatedFileName,
+            request,
+            uploadResult,
+            now);
+        var fileLink = CreateFileLink(
+            fileLinkId,
+            fileId,
+            context,
+            visibility,
+            now);
+
+        try
+        {
+            await ExecuteInTransactionAsync(
+                async ct =>
+                {
+                    await _projectFiles.AddAsync(storedFile, ct);
+                    await _projectFiles.AddFileLinkAsync(fileLink, ct);
+                    if (fileLink.IsPrimary == true)
+                    {
+                        await ClearOtherPrimaryProjectAreaLinksAsync(fileLink, ct);
+                    }
+
+                    await _unitOfWork.SaveChangesAsync(ct);
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
+            throw;
+        }
+
+        await SyncProjectFileIndexAsync(fileId, cancellationToken);
+
+        return ServiceResult<ProjectFileUploadResponseDto>.Created(
+            BuildUploadResponse(context.ProjectId, context.ReferenceType, context.ReferenceId, storedFile, fileLink, uploadResult),
+            context.SuccessMessage);
+    }
+
+    private async Task ClearOtherPrimaryProjectAreaLinksAsync(
+        FileLink primaryLink,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(primaryLink.ReferenceType, ProjectAreaReferenceType, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var links = await _projectFiles.GetFileLinkEntitiesByReferenceAsync(
+            ProjectAreaReferenceType,
+            primaryLink.ReferenceId,
+            cancellationToken);
+        foreach (var link in links.Where(link =>
+                     link.FileLinkId != primaryLink.FileLinkId &&
+                     IsSupportedProjectAreaFileType(link.FileType)))
+        {
+            link.IsPrimary = false;
+        }
+    }
+
+    private static StoredFile CreateStoredFile(
+        Guid fileId,
+        Guid currentUserId,
+        string originalFileName,
+        string generatedFileName,
+        UploadProjectFileRequestDto request,
+        StorageUploadResult uploadResult,
+        DateTime now) =>
+        new()
+        {
+            FileId = fileId,
+            UploadedBy = currentUserId,
+            OriginalFileName = originalFileName,
+            StoredFileName = generatedFileName,
+            FileUrl = uploadResult.PublicUrl,
+            StoragePath = uploadResult.ObjectName,
+            MimeType = NormalizeContentType(request.ContentType),
+            FileExtension = NormalizeExtension(originalFileName),
+            FileSizeBytes = request.FileSizeBytes,
+            Status = FileStatus.ACTIVE,
+            UploadedAt = now
+        };
+
+    private static FileLink CreateFileLink(
+        Guid fileLinkId,
+        Guid fileId,
+        LinkedFileUploadContext context,
+        FileVisibility visibility,
+        DateTime now) =>
+        new()
+        {
+            FileLinkId = fileLinkId,
+            FileId = fileId,
+            ReferenceType = context.ReferenceType,
+            ReferenceId = context.ReferenceId,
+            FileType = context.Request.FileType,
+            Visibility = visibility,
+            IsPrimary = context.Request.IsPrimary,
+            DisplayOrder = context.Request.DisplayOrder,
+            Description = NormalizeOptional(context.Request.Note),
+            CreatedBy = context.CurrentUserId,
+            CreatedAt = now
+        };
+
+    private static ProjectFileUploadResponseDto BuildUploadResponse(
+        Guid projectId,
+        string referenceType,
+        Guid referenceId,
+        StoredFile storedFile,
+        FileLink fileLink,
+        StorageUploadResult uploadResult) =>
+        new()
+        {
+            FileId = storedFile.FileId,
+            FileLinkId = fileLink.FileLinkId,
+            ProjectId = projectId,
+            ReferenceType = referenceType,
+            ReferenceId = referenceId,
+            OriginalFileName = storedFile.OriginalFileName,
+            FileName = storedFile.StoredFileName,
+            FileType = fileLink.FileType ?? FileType.OTHER,
+            MimeType = storedFile.MimeType,
+            FileSize = storedFile.FileSizeBytes,
+            StoragePath = storedFile.StoragePath,
+            PublicUrl = uploadResult.PublicUrl,
+            Visibility = fileLink.Visibility ?? FileVisibility.PRIVATE,
+            IsPrimary = fileLink.IsPrimary == true,
+            DisplayOrder = fileLink.DisplayOrder,
+            UploadedBy = storedFile.UploadedBy,
+            UploadedAt = storedFile.UploadedAt
+        };
+
     private static List<string> ValidatePagination(int page, int limit)
     {
         var errors = new List<string>();
@@ -701,6 +998,20 @@ public sealed class ProjectFileService : IProjectFileService
             project.AssignedDesignerId,
             currentUserId,
             roleName);
+    }
+
+    private static bool CanManageAreaFiles(
+        ProjectFileAccessReadModel project,
+        Guid currentUserId,
+        string roleName)
+    {
+        return roleName.ToUpperInvariant() switch
+        {
+            ApplicationRoles.Admin => true,
+            ApplicationRoles.Sales => project.AssignedSalesId == currentUserId,
+            ApplicationRoles.Designer => project.AssignedDesignerId == currentUserId,
+            _ => false
+        };
     }
 
     private static bool CanViewFile(
@@ -808,6 +1119,15 @@ public sealed class ProjectFileService : IProjectFileService
         return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase)
             ? FileVisibility.CUSTOMER_VISIBLE
             : FileVisibility.STAFF_ONLY;
+    }
+
+    private static bool IsSupportedProjectAreaFileType(FileType? fileType)
+    {
+        return fileType is FileType.FLOOR_PLAN
+            or FileType.PDF_DRAWING
+            or FileType.REFERENCE_IMAGE
+            or FileType.LIDAR_SCAN
+            or FileType.MEASUREMENT_REPORT;
     }
 
     private string BuildProjectObjectName(Guid projectId, string generatedFileName)
@@ -976,5 +1296,22 @@ public sealed class ProjectFileService : IProjectFileService
     private Task SyncProjectFileIndexAsync(Guid fileId, CancellationToken cancellationToken)
     {
         return _projectFileSearchIndexer?.SyncFileAsync(fileId, cancellationToken) ?? Task.CompletedTask;
+    }
+
+    private sealed class LinkedFileUploadContext
+    {
+        public Guid ProjectId { get; init; }
+
+        public required string ReferenceType { get; init; }
+
+        public Guid ReferenceId { get; init; }
+
+        public Guid CurrentUserId { get; init; }
+
+        public required string RoleName { get; init; }
+
+        public required UploadProjectFileRequestDto Request { get; init; }
+
+        public required string SuccessMessage { get; init; }
     }
 }

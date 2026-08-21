@@ -114,15 +114,7 @@ public static class DashboardNextActionResolver
 
         return status switch
         {
-            ProductionRequestStatus.PENDING_REVIEW => new DashboardNextActionResult(
-                GroupProduction,
-                status.ToString(),
-                "Review production request",
-                DashboardActionPaths.ProductionRequest(productionRequestId),
-                BoostIfOverdue(PriorityHigh, dueBucket),
-                null),
-
-            ProductionRequestStatus.FEASIBLE => new DashboardNextActionResult(
+            ProductionRequestStatus.PENDING => new DashboardNextActionResult(
                 GroupProduction,
                 status.ToString(),
                 "Start production",

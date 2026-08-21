@@ -28,6 +28,7 @@ public sealed class ProjectFileRepositoryTests
         var quotationAccess = await repository.GetReferenceProjectAccessAsync("QUOTATION", data.QuotationId);
         var orderAccess = await repository.GetReferenceProjectAccessAsync("ORDER", data.OrderId);
         var productVersionAccess = await repository.GetReferenceProjectAccessAsync("PRODUCT_VERSION", data.ProductVersionId);
+        var projectAreaAccess = await repository.GetReferenceProjectAccessAsync("PROJECT_AREA", data.ProjectAreaId);
         var unknownAccess = await repository.GetReferenceProjectAccessAsync("UNKNOWN", Guid.NewGuid());
         var role = await repository.GetAccountRoleNameAsync(data.CustomerId);
 
@@ -37,6 +38,7 @@ public sealed class ProjectFileRepositoryTests
         Assert.Equal(data.ProjectId, quotationAccess?.ProjectId);
         Assert.Equal(data.ProjectId, orderAccess?.ProjectId);
         Assert.Equal(data.ProjectId, productVersionAccess?.ProjectId);
+        Assert.Equal(data.ProjectId, projectAreaAccess?.ProjectId);
         Assert.Null(unknownAccess);
         Assert.Equal("CUSTOMER", role);
     }
@@ -78,6 +80,17 @@ public sealed class ProjectFileRepositoryTests
             Limit = 5
         });
         var catalogFiles = await repository.GetCatalogFilesByReferencesAsync(" project ", [data.ProjectId], customerVisibleOnly: true);
+        var areaReferencePage = await repository.GetFilesByReferenceAsync(new FileReferenceQueryReadModel
+        {
+            ReferenceType = "PROJECT_AREA",
+            ReferenceId = data.ProjectAreaId,
+            CustomerVisibleOnly = false,
+            Page = 1,
+            Limit = 5
+        });
+        var areaCatalogFiles = await repository.GetCatalogFilesByReferencesAsync("PROJECT_AREA", [data.ProjectAreaId], customerVisibleOnly: false);
+        var areaFileLink = await repository.GetFileLinkEntityAsync("PROJECT_AREA", data.ProjectAreaId, data.ProjectAreaFileId);
+        var areaFileLinks = await repository.GetFileLinkEntitiesByReferenceAsync("PROJECT_AREA", data.ProjectAreaId);
         var noCatalogFiles = await repository.GetCatalogFilesByReferencesAsync("PROJECT", [], customerVisibleOnly: false);
         var previewCount = await repository.CountProductPreviewFilesAsync(data.ProductId);
         var previews = await repository.GetProductPreviewFilesAsync(data.ProductId);
@@ -92,6 +105,11 @@ public sealed class ProjectFileRepositoryTests
         Assert.Equal(2, referencePage.Total);
         Assert.Equal(2, referencePage.Items.Count);
         Assert.Single(catalogFiles);
+        Assert.Single(areaReferencePage.Items);
+        Assert.Single(areaCatalogFiles);
+        Assert.NotNull(areaFileLink);
+        Assert.Single(areaFileLinks);
+        Assert.True(areaFileLink.IsPrimary);
         Assert.Empty(noCatalogFiles);
         Assert.Equal(1, previewCount);
         Assert.Single(previews);
@@ -102,6 +120,7 @@ public sealed class ProjectFileRepositoryTests
         Assert.NotNull(searchItem);
         Assert.Equal(data.ProjectId, searchItem.ProjectId);
         Assert.Contains(searchPage, item => item.FileId == data.FileId);
+        Assert.Contains(searchPage, item => item.FileId == data.ProjectAreaFileId);
         Assert.True(hasMeasurements);
     }
 
@@ -149,6 +168,8 @@ public sealed class ProjectFileRepositoryTests
         var unlinkedFileId = Guid.NewGuid();
         var productId = Guid.NewGuid();
         var productVersionId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var projectAreaFileId = Guid.NewGuid();
         var productPreviewFileId = Guid.NewGuid();
         var versionPreviewFileId = Guid.NewGuid();
         var fileLinkId = Guid.NewGuid();
@@ -169,6 +190,14 @@ public sealed class ProjectFileRepositoryTests
             CustomerId = customerId,
             ProjectName = "Kitchen",
             Status = ProjectStatus.SUBMITTED
+        });
+        context.ProjectAreaSet.Add(new ProjectArea
+        {
+            ProjectAreaId = projectAreaId,
+            ProjectId = projectId,
+            AreaName = "Ground Floor",
+            AreaType = ProjectAreaType.ROOM,
+            Status = ProjectAreaStatus.VERIFIED
         });
         context.ProjectScheduleSet.Add(new ProjectSchedule
         {
@@ -229,6 +258,7 @@ public sealed class ProjectFileRepositoryTests
             CreateFile(fileId, customerId, "floor-plan.pdf", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-5)),
             CreateFile(privateFileId, customerId, "private-note.pdf", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-4)),
             CreateFile(unlinkedFileId, customerId, "loose.pdf", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-3)),
+            CreateFile(projectAreaFileId, customerId, "area-blueprint.pdf", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-2)),
             CreateFile(productPreviewFileId, customerId, "preview.jpg", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-2)),
             CreateFile(versionPreviewFileId, customerId, "version-preview.jpg", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-1)));
         context.FileLinkSet.AddRange(
@@ -240,6 +270,19 @@ public sealed class ProjectFileRepositoryTests
                 ReferenceId = projectId,
                 FileType = FileType.FLOOR_PLAN,
                 Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                CreatedBy = customerId,
+                CreatedAt = DateTime.UtcNow
+            },
+            new FileLink
+            {
+                FileLinkId = Guid.NewGuid(),
+                FileId = projectAreaFileId,
+                ReferenceType = "PROJECT_AREA",
+                ReferenceId = projectAreaId,
+                FileType = FileType.FLOOR_PLAN,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                IsPrimary = true,
+                DisplayOrder = 1,
                 CreatedBy = customerId,
                 CreatedAt = DateTime.UtcNow
             },
@@ -290,6 +333,8 @@ public sealed class ProjectFileRepositoryTests
             unlinkedFileId,
             productId,
             productVersionId,
+            projectAreaId,
+            projectAreaFileId,
             productPreviewFileId,
             versionPreviewFileId,
             fileLinkId);
@@ -329,6 +374,8 @@ public sealed class ProjectFileRepositoryTests
         Guid UnlinkedFileId,
         Guid ProductId,
         Guid ProductVersionId,
+        Guid ProjectAreaId,
+        Guid ProjectAreaFileId,
         Guid ProductPreviewFileId,
         Guid VersionPreviewFileId,
         Guid FileLinkId);

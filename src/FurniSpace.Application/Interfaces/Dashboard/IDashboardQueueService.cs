@@ -34,4 +34,9 @@ public interface IDashboardQueueService
         Guid currentUserId,
         DashboardQueueQueryDto query,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectPhaseDeadlineRiskResponseDto>> GetProjectPhaseDeadlineRisksAsync(
+        Guid currentUserId,
+        ProjectPhaseDeadlineRiskQueryDto query,
+        CancellationToken cancellationToken = default);
 }

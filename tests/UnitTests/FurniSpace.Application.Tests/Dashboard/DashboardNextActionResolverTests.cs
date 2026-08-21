@@ -170,8 +170,7 @@ public sealed class DashboardNextActionResolverTests
     }
 
     [Theory]
-    [InlineData(ProductionRequestStatus.PENDING_REVIEW, "Review production request")]
-    [InlineData(ProductionRequestStatus.FEASIBLE, "Start production")]
+    [InlineData(ProductionRequestStatus.PENDING, "Start production")]
     [InlineData(ProductionRequestStatus.IN_PRODUCTION, "Continue / complete production")]
     [InlineData(ProductionRequestStatus.COMPLETED, "Completed")]
     [InlineData(ProductionRequestStatus.CANCELLED, "Cancelled")]

@@ -190,6 +190,82 @@ public sealed class ProjectScheduleRepositoryTests
     }
 
     [Fact]
+    public async Task HasActiveStaffOverlapAsync_ReturnsTrueForCrossProjectOverlap()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+        var overlappingStart = DateTime.UtcNow.AddDays(2).AddMinutes(30);
+
+        var hasOverlap = await repository.HasActiveStaffOverlapAsync(
+            data.ProductionId,
+            overlappingStart,
+            overlappingStart.AddHours(1));
+
+        Assert.True(hasOverlap);
+    }
+
+    [Fact]
+    public async Task HasActiveStaffOverlapAsync_AllowsAdjacentAndIgnoresInactiveOrExcluded()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var staffId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var activeStart = DateTime.UtcNow.AddDays(5);
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Overlap project",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Tables",
+            Status = ProjectStatus.IN_CONSULTATION
+        });
+        context.ProjectScheduleSet.AddRange(
+            new ProjectSchedule
+            {
+                ScheduleId = scheduleId,
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.CONSULTATION,
+                Title = "Active",
+                AssignedStaffId = staffId,
+                ScheduledStart = activeStart,
+                ScheduledEnd = activeStart.AddHours(2),
+                Status = ProjectScheduleStatus.CONFIRMED,
+                CreatedAt = DateTime.UtcNow
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = data.ProjectId,
+                ScheduleType = ProjectScheduleType.CONSULTATION,
+                Title = "Completed overlap",
+                AssignedStaffId = staffId,
+                ScheduledStart = activeStart.AddMinutes(30),
+                ScheduledEnd = activeStart.AddHours(3),
+                Status = ProjectScheduleStatus.COMPLETED,
+                CreatedAt = DateTime.UtcNow
+            });
+        await context.SaveChangesAsync();
+        var repository = new ProjectScheduleRepository(context);
+
+        var adjacent = await repository.HasActiveStaffOverlapAsync(
+            staffId,
+            activeStart.AddHours(2),
+            activeStart.AddHours(3));
+        var excluded = await repository.HasActiveStaffOverlapAsync(
+            staffId,
+            activeStart.AddMinutes(30),
+            activeStart.AddHours(1),
+            scheduleId);
+
+        Assert.False(adjacent);
+        Assert.False(excluded);
+    }
+
+    [Fact]
     public async Task GetMaxOperationalScheduleDateAsync_ReturnsLatestNonCancelledScheduleDate()
     {
         await using var context = CreateContext();
@@ -264,8 +340,13 @@ public sealed class ProjectScheduleRepositoryTests
         IProjectScheduleRepository repository = new MinimalProjectScheduleRepository();
 
         var hasActive = await repository.HasActiveDeliveryScheduleAsync(Guid.NewGuid());
+        var hasOverlap = await repository.HasActiveStaffOverlapAsync(
+            Guid.NewGuid(),
+            DateTime.UtcNow.AddHours(1),
+            DateTime.UtcNow.AddHours(2));
 
         Assert.False(hasActive);
+        Assert.False(hasOverlap);
     }
 
     private static AppDbContext CreateContext()
@@ -306,6 +387,7 @@ public sealed class ProjectScheduleRepositoryTests
                 Title = "Delivery",
                 AssignedStaffId = productionId,
                 ScheduledStart = DateTime.UtcNow.AddDays(2),
+                ScheduledEnd = DateTime.UtcNow.AddDays(2).AddHours(2),
                 Status = ProjectScheduleStatus.CONFIRMED,
                 CreatedAt = DateTime.UtcNow
             },

@@ -27,6 +27,8 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_status", new[] { "ACTIVE", "ARCHIVED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_type", new[] { "SPACE_IMAGE", "FLOOR_PLAN", "REFERENCE_IMAGE", "BRAND_ASSET", "CAD_FILE", "PDF_DRAWING", "MEASUREMENT_REPORT", "LIDAR_SCAN", "MODEL_3D", "TEXTURE", "PRODUCT_PREVIEW", "PROPOSAL_PREVIEW", "PROPOSAL_FILE", "QUOTATION_FILE", "ORDER_DOCUMENT", "PRODUCTION_FILE", "DELIVERY_PHOTO", "DELIVERY_NOTE", "REVIEW_IMAGE", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_visibility", new[] { "CUSTOMER_VISIBLE", "STAFF_ONLY", "PRIVATE" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "layout_asset_status", new[] { "ACTIVE", "INACTIVE", "ARCHIVED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "layout_asset_type", new[] { "WALL_MATERIAL", "FLOOR_MATERIAL", "STAIR", "DOOR", "WINDOW", "COLUMN", "BEAM", "DECORATIVE_WALL", "DECORATIVE_FLOOR", "DECORATIVE_OBJECT", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "notification_status", new[] { "UNREAD", "READ" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_item_status", new[] { "PENDING", "IN_PRODUCTION", "READY", "UNAVAILABLE", "DELIVERED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_status", new[] { "CREATED", "DEPOSIT_PENDING", "DEPOSIT_PAID", "IN_PRODUCTION", "READY_FOR_DELIVERY", "DELIVERING", "DELIVERED", "FINAL_PAYMENT_PENDING", "COMPLETED", "CANCELLED" });
@@ -40,12 +42,13 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "product_version_type", new[] { "STANDARD", "CUSTOM", "PROJECT_SPECIFIC" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_feasibility_status", new[] { "PENDING", "FEASIBLE", "NOT_FEASIBLE" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_item_status", new[] { "PENDING", "IN_PRODUCTION", "COMPLETED", "CANCELLED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_request_status", new[] { "PENDING_REVIEW", "FEASIBLE", "IN_PRODUCTION", "COMPLETED", "CANCELLED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_request_status", new[] { "PENDING", "IN_PRODUCTION", "COMPLETED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_area_status", new[] { "DRAFT", "NEED_MEASUREMENT", "MEASURED", "VERIFIED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_area_type", new[] { "STORE", "FLOOR", "ROOM", "ZONE", "OUTDOOR_AREA", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_chat_message_type", new[] { "TEXT", "FILE", "SYSTEM" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_chat_status", new[] { "OPEN", "CLOSED", "ARCHIVED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_chat_type", new[] { "SALES", "DESIGNER", "PRODUCTION", "DELIVERY", "GENERAL", "INTERNAL" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_phase_type", new[] { "CONSULTATION", "MEASUREMENT", "PROPOSAL", "QUOTATION", "PRODUCTION", "DELIVERY", "HANDOVER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_schedule_status", new[] { "PENDING_CONFIRMATION", "CONFIRMED", "COMPLETED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_schedule_type", new[] { "MEASUREMENT", "CONSULTATION", "DESIGN_REVIEW", "DELIVERY", "HANDOVER", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_status", new[] { "SUBMITTED", "IN_CONSULTATION", "NEED_BASIC_INFORMATION", "WAITING_FOR_DESIGNER_ASSIGNMENT", "MEASUREMENT_REQUIRED", "SPACE_VERIFIED", "PROPOSAL_CONSULTING", "PROPOSAL_SELECTED", "QUOTATION_SENT", "QUOTATION_REVISION_REQUESTED", "ORDER_CONFIRMED", "IN_PRODUCTION", "READY_FOR_DELIVERY", "DELIVERING", "DELIVERED", "COMPLETED", "REJECTED" });
@@ -504,6 +507,63 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDatabaseName("idx_file_links_reference_type_order");
 
                     b.ToTable("file_links", (string)null);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.LayoutAsset", b =>
+                {
+                    b.Property<Guid>("LayoutAssetId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("layout_asset_id");
+
+                    b.Property<string>("AssetCode")
+                        .IsRequired()
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("asset_code");
+
+                    b.Property<string>("AssetName")
+                        .IsRequired()
+                        .HasColumnType("varchar(150)")
+                        .HasColumnName("asset_name");
+
+                    b.Property<LayoutAssetType>("AssetType")
+                        .HasColumnType("layout_asset_type")
+                        .HasColumnName("asset_type");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<LayoutAssetStatus>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("layout_asset_status")
+                        .HasColumnName("status")
+                        .HasDefaultValueSql("'ACTIVE'::layout_asset_status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("LayoutAssetId");
+
+                    b.HasIndex("AssetCode")
+                        .IsUnique();
+
+                    b.HasIndex("AssetType");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("layout_assets", (string)null);
                 });
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.Notification", b =>
@@ -1407,7 +1467,7 @@ namespace FurniSpace.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("production_request_status")
                         .HasColumnName("status")
-                        .HasDefaultValueSql("'PENDING_REVIEW'::production_request_status");
+                        .HasDefaultValueSql("'PENDING'::production_request_status");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -1607,6 +1667,12 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("numeric(10,2)")
                         .HasColumnName("height");
 
+                    b.Property<bool>("IsSpecialLayout")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_special_layout");
+
                     b.Property<decimal?>("Length")
                         .HasColumnType("numeric(10,2)")
                         .HasColumnName("length");
@@ -1644,6 +1710,11 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasIndex("ParentAreaId");
 
                     b.HasIndex("ProjectId");
+
+                    b.HasIndex("ProjectId", "FloorNumber")
+                        .IsUnique()
+                        .HasDatabaseName("uq_project_active_floor_number")
+                        .HasFilter("area_type = 'FLOOR' AND status <> 'CANCELLED'");
 
                     b.ToTable("project_areas", (string)null);
                 });
@@ -1752,6 +1823,125 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasDatabaseName("idx_chat_messages_chat_list_sort");
 
                     b.ToTable("project_chat_messages", (string)null);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.ProjectPhaseDeadline", b =>
+                {
+                    b.Property<Guid>("ProjectPhaseDeadlineId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_phase_deadline_id");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("due_date");
+
+                    b.Property<ProjectPhaseType>("Phase")
+                        .HasColumnType("project_phase_type")
+                        .HasColumnName("phase");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("ProjectPhaseDeadlineId");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("DueDate")
+                        .HasDatabaseName("idx_project_phase_deadlines_due_date");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("idx_project_phase_deadlines_project");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("ProjectId", "Phase")
+                        .IsUnique()
+                        .HasDatabaseName("uq_project_phase_deadlines_project_phase");
+
+                    b.ToTable("project_phase_deadlines", (string)null);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.ProjectPhaseTimeline", b =>
+                {
+                    b.Property<Guid>("ProjectPhaseTimelineId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_phase_timeline_id");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_at");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly>("DueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("due_date");
+
+                    b.Property<ProjectPhaseType>("Phase")
+                        .HasColumnType("project_phase_type")
+                        .HasColumnName("phase");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("ProjectPhaseTimelineId");
+
+                    b.HasIndex("CreatedBy");
+
+                    b.HasIndex("DueDate");
+
+                    b.HasIndex("Phase");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("UpdatedBy");
+
+                    b.HasIndex("ProjectId", "Phase")
+                        .IsUnique();
+
+                    b.ToTable("project_phase_timelines", (string)null);
                 });
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.ProjectReview", b =>
@@ -2752,6 +2942,14 @@ namespace FurniSpace.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("FurniSpace.Domain.Entities.LayoutAsset", b =>
+                {
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("FurniSpace.Domain.Entities.Notification", b =>
                 {
                     b.HasOne("FurniSpace.Domain.Entities.Project", null)
@@ -3009,6 +3207,46 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasOne("FurniSpace.Domain.Entities.Account", null)
                         .WithMany()
                         .HasForeignKey("SenderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.ProjectPhaseDeadline", b =>
+                {
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.ProjectPhaseTimeline", b =>
+                {
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("UpdatedBy")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 

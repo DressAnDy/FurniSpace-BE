@@ -12,6 +12,8 @@ public sealed class FileListItemDto
     public long FileSize { get; set; }
     public string PublicUrl { get; set; } = string.Empty;
     public FileVisibility? Visibility { get; set; }
+    public bool? IsPrimary { get; set; }
+    public int? DisplayOrder { get; set; }
     public Guid UploadedBy { get; set; }
     public DateTime UploadedAt { get; set; }
 }

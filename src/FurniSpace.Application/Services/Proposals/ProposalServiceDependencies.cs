@@ -1,4 +1,5 @@
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Quotations;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Logging;
@@ -13,13 +14,15 @@ public sealed class ProposalServiceDependencies
         INotificationDispatcher? notifications = null,
         ILogger<ProposalService>? logger = null,
         ICustomizationRequestRepository? customizationRequests = null,
-        IQuotationService? quotations = null)
+        IQuotationService? quotations = null,
+        IProjectPhaseDeadlineService? phaseDeadlines = null)
     {
         RoomPlannerScenes = roomPlannerScenes;
         Notifications = notifications;
         Logger = logger;
         CustomizationRequests = customizationRequests;
         Quotations = quotations;
+        PhaseDeadlines = phaseDeadlines;
     }
 
     public RoomPlannerSceneRepository? RoomPlannerScenes { get; }
@@ -27,4 +30,5 @@ public sealed class ProposalServiceDependencies
     public ILogger<ProposalService>? Logger { get; }
     public ICustomizationRequestRepository? CustomizationRequests { get; }
     public IQuotationService? Quotations { get; }
+    public IProjectPhaseDeadlineService? PhaseDeadlines { get; }
 }

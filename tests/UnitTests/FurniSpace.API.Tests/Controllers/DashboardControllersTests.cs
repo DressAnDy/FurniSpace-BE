@@ -241,5 +241,17 @@ public sealed class DashboardControllersTests
                 new ProductionDashboardKpisDto { PendingReview = 3 },
                 "ok"));
         }
+
+        public Task<ServiceResult<ProjectPhaseDeadlineRiskResponseDto>> GetProjectPhaseDeadlineRisksAsync(
+            Guid currentUserId,
+            ProjectPhaseDeadlineRiskQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastUserId = currentUserId;
+            LastCall = "deadline-risks";
+            return Task.FromResult(ServiceResult<ProjectPhaseDeadlineRiskResponseDto>.Success(
+                new ProjectPhaseDeadlineRiskResponseDto(),
+                "ok"));
+        }
     }
 }

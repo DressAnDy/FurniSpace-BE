@@ -855,6 +855,8 @@ Route: `projects`
 | PATCH | `/projects/{projectId}/rejection` | SALES, ADMIN | Reject project |
 | POST | `/projects/{projectId}/reopen-proposal` | CUSTOMER, SALES, ADMIN | Roll back to proposal consulting before deposit paid |
 | PATCH | `/projects/{projectId}/designer-assignment` | SALES, ADMIN | Assign designer |
+| GET | `/projects/{projectId}/phase-deadlines` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN | Read proposal/production phase deadline tracking |
+| PUT | `/projects/{projectId}/phase-deadlines` | SALES, ADMIN | Create/update proposal and production due dates |
 | GET | `/projects/{projectId}/catalog/products` | DESIGNER, ADMIN | Project-eligible catalog list — see [§8b](#8b-catalog--designer-project-catalog) |
 | GET | `/projects/{projectId}/catalog/products/{productId}` | DESIGNER, ADMIN | Eligible product detail |
 | GET | `/projects/{projectId}/catalog/product-versions/{productVersionId}` | DESIGNER, ADMIN | Eligible version detail |
@@ -907,6 +909,69 @@ Route: `projects`
 | `status` | string? |
 | `roleScope` | string? |
 | `keyword` | string? |
+
+### Phase deadlines
+
+Create or update an internal execution plan for the project.
+
+```json
+{
+  "proposalDueDate": "2026-09-10",
+  "productionDueDate": "2026-09-25"
+}
+```
+
+**Rules**
+
+- Only assigned Sales or Admin can `PUT`.
+- Customer, assigned Sales, assigned Designer, assigned Production staff, and Admin can `GET`.
+- `PUT` requires project status `IN_CONSULTATION`.
+- `proposalDueDate <= productionDueDate`.
+- When project `targetCompletionDate` exists, `productionDueDate <= targetCompletionDate`.
+- Backend stores exactly one row per `projectId + phase`; repeated `PUT` updates existing rows and preserves original `createdBy` / `createdAt`.
+
+**Response** (`ProjectPhaseDeadlinePlanDto`)
+
+```json
+{
+  "projectId": "uuid",
+  "targetCompletionDate": "2026-09-30",
+  "deadlines": [
+    {
+      "phase": "PROPOSAL",
+      "dueDate": "2026-09-10",
+      "completedAt": null,
+      "status": "ON_TRACK",
+      "overdueDays": 0
+    },
+    {
+      "phase": "PRODUCTION",
+      "dueDate": "2026-09-25",
+      "completedAt": null,
+      "status": "PLANNED",
+      "overdueDays": 0
+    }
+  ]
+}
+```
+
+`phase`: initial model only supports `PROPOSAL` and `PRODUCTION`.
+
+`status` is derived at read time, not persisted:
+
+- `PLANNED`: future phase that is not the first open phase.
+- `ON_TRACK`: first open phase whose due date has not passed.
+- `OVERDUE`: open phase where today is after `dueDate`.
+- `COMPLETED_ON_TIME`: `completedAt.Date <= dueDate`.
+- `COMPLETED_LATE`: `completedAt.Date > dueDate`.
+
+Completion hooks:
+
+- Publishing a proposal (`Proposal.Status -> PUBLISHED`) sets the project `PROPOSAL` deadline `completedAt` once.
+- Completing a production request (`ProductionRequest.Status -> COMPLETED`) sets the project `PRODUCTION` deadline `completedAt` once.
+- Repeated workflow calls do not reset the original completion timestamp.
+
+Common error codes: `INVALID_PROJECT_STATUS`, `INVALID_PHASE_DEADLINE_RANGE`, `PHASE_DEADLINE_EXCEEDS_TARGET`.
 
 ### Sales assignment
 
@@ -1416,9 +1481,17 @@ Absolute routes on `OrdersController`.
 
 **Delivery flow (single full delivery per order):**
 
-1. All deliverable order items must be `READY` before `start-delivery`.
-2. Staff calls `complete-delivery` once while order is `DELIVERING` — every deliverable `READY` item becomes `DELIVERED` with backend-set `deliveredAt` / `deliveredBy`.
-3. Customer calls `confirm-delivery` once at order level — sets `customerConfirmedDeliveryAt` and moves order/project to `DELIVERED`.
+1. The related production request must be `COMPLETED` before `start-delivery`, `complete-delivery`, or `confirm-delivery`; otherwise the API returns `409 PRODUCTION_NOT_COMPLETED`.
+2. All active product order items must be `READY` before `start-delivery`. Items still `PENDING` / `IN_PRODUCTION` are blocking and are not silently excluded.
+3. Staff calls `complete-delivery` once while order is `DELIVERING` — every deliverable `READY` item becomes `DELIVERED` with backend-set `deliveredAt` / `deliveredBy`.
+4. Customer calls `confirm-delivery` once at order level — sets `customerConfirmedDeliveryAt`, moves project to `DELIVERED`, recalculates order payment summary, and finalizes the next financial state.
+
+After `confirm-delivery`:
+
+- If `remainingAmount > 0`, backend creates or reuses an active `REMAINING_PAYMENT`, sets order status to `FINAL_PAYMENT_PENDING`, and sends the customer an in-app/realtime payment notification.
+- If `remainingAmount = 0`, backend sets order status to `COMPLETED`, keeps project status as `DELIVERED`, and does not create a zero-value payment.
+- Auto-created remaining payments use server-side expiry (`createdAt + 7 days`) and are not tied to `project.targetCompletionDate`.
+- `PATCH /orders/{orderId}/prepare-final-payment` is retained as a Sales/Admin fallback/recovery endpoint; FE normal delivery confirmation flow should not depend on it.
 
 At most **one active** `DELIVERY` schedule (`PENDING_CONFIRMATION` or `CONFIRMED`) per project. Partial / incremental delivery is not supported.
 
@@ -1698,6 +1771,34 @@ Route: `project-schedules` (+ absolute create alias)
 ```
 
 `scheduleType`: `MEASUREMENT`, `CONSULTATION`, `DESIGN_REVIEW`, `DELIVERY`, `HANDOVER`, `OTHER`
+
+### Create / update overlap validation
+
+Create and update preserve existing authorization and lifecycle rules, and additionally reject overlapping active schedules for the same `assignedStaffId` across all projects.
+
+Conflict formula:
+
+```text
+newStart < existingEnd AND newEnd > existingStart
+```
+
+Active schedules considered for overlap: `PENDING_CONFIRMATION`, `CONFIRMED`.
+
+Ignored schedules: `COMPLETED`, `CANCELLED`.
+
+Adjacent schedules are allowed, for example `08:00-10:00` followed by `10:00-12:00`.
+
+Update checks the effective updated time/staff and excludes the schedule being updated.
+
+Conflict response:
+
+```json
+{
+  "status": 409,
+  "message": "Assigned staff already has an overlapping active schedule.",
+  "errorCode": "STAFF_SCHEDULE_OVERLAP"
+}
+```
 
 ### Update status
 
@@ -2614,6 +2715,8 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 | GET | `/api/dashboard/designer/kpis` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/production/queue` | PRODUCTION, ADMIN |
 | GET | `/api/dashboard/production/kpis` | PRODUCTION, ADMIN |
+| GET | `/dashboard/project-phase-deadlines` | SALES, DESIGNER, PRODUCTION, ADMIN |
+| GET | `/api/dashboard/project-phase-deadlines` | SALES, DESIGNER, PRODUCTION, ADMIN |
 
 ### Common query params
 
@@ -2659,15 +2762,71 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 
 `dueBucket`: `OVERDUE` | `TODAY` | `THIS_WEEK` | `LATER` (null when no due date).
 
-Sales next-action uses project status plus latest non-cancelled order (deposit / remaining payment / delivery confirm). Designer queue is status-first for design-active work. Production queue wraps active production requests (`PENDING_REVIEW`, `FEASIBLE`, `IN_PRODUCTION`).
+Sales next-action uses project status plus latest non-cancelled order (deposit / remaining payment / delivery confirm). Designer queue is status-first for design-active work. Production queue wraps active production requests (`PENDING`, `IN_PRODUCTION`).
 
 ### KPI responses
 
-**Sales:** `newRequests`, `waitingCustomer`, `paymentFollowUp`, `overdueTasks`, `activeProjects`  
-**Designer:** `measurementDue`, `proposalsInProgress`, `revisionRequested`, `overdueTasks`  
+**Sales:** `newRequests`, `waitingCustomer`, `paymentFollowUp`, `overdueTasks`, `activeProjects`
+
+**Designer:** `measurementDue`, `proposalsInProgress`, `revisionRequested`, `overdueTasks`
+
 **Production:** `pendingReview`, `inProduction`, `readyToComplete`, `overdueTasks`
+`pendingReview` now counts production requests in `PENDING`. `readyToComplete` is legacy and remains `0` in the simplified production lifecycle.
 
 KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local).
+
+### Project phase deadline risks
+
+Read-only dashboard endpoint for Sales/Admin/Designer/Production to see proposal and production phase deadlines planned through `PUT /projects/{projectId}/phase-deadlines`. This endpoint does not infer deadlines from hardcoded SLA values and does not use the project-wide `targetCompletionDate` KPI.
+
+**Query params**
+
+| Param | Values / notes |
+| --- | --- |
+| `phase` | optional `PROPOSAL` or `PRODUCTION` |
+| `status` | optional `OVERDUE`, `ON_TRACK`, `COMPLETED_ON_TIME`, `COMPLETED_LATE` |
+| `salesId` | optional assigned Sales filter |
+| `designerId` | optional assigned Designer filter |
+| `from`, `to` | optional due-date range, inclusive, `yyyy-MM-dd` |
+| `page`, `limit` | default `1` / `20`, max `100` |
+
+**Response**
+
+```json
+{
+  "items": [
+    {
+      "projectId": "uuid",
+      "projectCode": "PRJ-001",
+      "projectName": "Coffee Shop A",
+      "phase": "PROPOSAL",
+      "dueDate": "2026-09-10",
+      "completedAt": null,
+      "projectStatus": "IN_CONSULTATION",
+      "assignedSalesId": "uuid-sales",
+      "assignedSalesName": "Sales One",
+      "assignedDesignerId": "uuid-designer",
+      "assignedDesignerName": "Designer One",
+      "assignedProductionId": "uuid-production",
+      "assignedProductionName": "Production One",
+      "status": "OVERDUE",
+      "group": "Overdue Proposal",
+      "days": 3
+    }
+  ],
+  "countsByGroup": {
+    "Overdue Proposal": 1,
+    "Due Soon": 2
+  },
+  "page": 1,
+  "limit": 20,
+  "total": 3
+}
+```
+
+`group` values: `Overdue Proposal`, `Overdue Production`, `Due Soon`, `Completed Late`, `On Track`.
+
+`days` means days overdue for `OVERDUE`, days late for `COMPLETED_LATE`, and days remaining for `ON_TRACK` / due-soon rows.
 
 ---
 
@@ -2678,7 +2837,6 @@ KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not pa
 | GET | `/production-requests` | PRODUCTION, SALES, ADMIN |
 | GET | `/production-requests/{id}` | same |
 | PATCH | `/production-requests/{id}/assign` | SALES, ADMIN |
-| PATCH | `/production-requests/{id}/mark-feasible` | PRODUCTION, ADMIN |
 | PATCH | `/production-requests/{id}/start` | PRODUCTION, ADMIN |
 | PATCH | `/production-requests/{id}/complete` | PRODUCTION, ADMIN |
 | PATCH | `/production-items/{id}/status` | PRODUCTION, ADMIN |
@@ -2697,12 +2855,6 @@ Create production request: `POST /orders/{orderId}/production-request` (§13).
   "assignedTo": "...",
   "assignmentNote": "Priority batch"
 }
-```
-
-### Mark feasible
-
-```json
-{ "note": "Materials in stock" }
 ```
 
 ### Start
@@ -2724,7 +2876,9 @@ Optional body (ignored for date assignment — server sets `actualStartDate` to 
 ```
 
 `ProductionItemStatus`: `PENDING`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED`  
-`ProductionRequestStatus`: `PENDING_REVIEW`, `FEASIBLE`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED`
+`ProductionRequestStatus`: `PENDING`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED`
+
+Production request lifecycle is `PENDING -> IN_PRODUCTION -> COMPLETED`. New production requests are created as `PENDING`; `PATCH /production-requests/{id}/start` accepts only `PENDING` requests and moves them to `IN_PRODUCTION`. The previous production request `mark-feasible` step is removed from normal API flow because feasibility review belongs to customization production review.
 
 When completing production, each item must be `COMPLETED` or `CANCELLED`. Cancelled production items map the linked order item to **`UNAVAILABLE`** (with `unavailableReason` from production cancellation) — no order financial adjustment is required. Server sets `actualCompletionDate` on complete.
 
@@ -2805,7 +2959,7 @@ All values are JSON strings matching C# member names.
 | `CustomizationStatus` | `SUBMITTED`, `REVIEWING`, `ACCEPTED`, `CANCELLED` |
 | `CustomizationVersionStatus` | `DRAFT`, `REVIEWING`, `ACCEPTED`, `PRODUCTION_REJECTED`, `WITHDRAWN` |
 | `ProductionFeasibilityStatus` | `PENDING`, `FEASIBLE`, `NOT_FEASIBLE` |
-| `ProductionRequestStatus` | `PENDING_REVIEW`, `FEASIBLE`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED` |
+| `ProductionRequestStatus` | `PENDING`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED` |
 | `ProductionItemStatus` | `PENDING`, `IN_PRODUCTION`, `COMPLETED`, `CANCELLED` |
 | `ProductStatus` | `ACTIVE`, `INACTIVE`, `ARCHIVED` |
 | `ProductVersionType` | `STANDARD`, `CUSTOM`, `PROJECT_SPECIFIC` |

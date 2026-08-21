@@ -9,12 +9,14 @@ internal static class ProjectFileServiceConstants
 {
     internal const string ProjectFileIndexName = "project-files";
     internal const string ProjectReferenceType = "PROJECT";
+    internal const string ProjectAreaReferenceType = "PROJECT_AREA";
     internal const string InactiveOrMissingRoleMessage = "Authenticated account is not active or has no role.";
     internal const string FileNotFoundMessage = "File not found.";
 
     internal static readonly HashSet<string> SupportedReferenceTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         ProjectReferenceType,
+        ProjectAreaReferenceType,
         "PROJECT_SCHEDULE",
         "PROPOSAL",
         "QUOTATION",

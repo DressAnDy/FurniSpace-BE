@@ -10,6 +10,7 @@ public abstract class ProjectAreaBaseDto<TAreaType, TStatus>
     public string AreaName { get; set; } = string.Empty;
     public TAreaType AreaType { get; set; } = default!;
     public int? FloorNumber { get; set; }
+    public bool IsSpecialLayout { get; set; }
     public string? Description { get; set; }
     public decimal? AreaSqm { get; set; }
     public decimal? Width { get; set; }

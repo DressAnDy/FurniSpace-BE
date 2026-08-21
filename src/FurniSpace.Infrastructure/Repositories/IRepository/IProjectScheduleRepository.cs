@@ -55,4 +55,14 @@ public interface IProjectScheduleRepository : IGenericRepository<ProjectSchedule
     {
         return Task.FromResult<DateOnly?>(null);
     }
+
+    Task<bool> HasActiveStaffOverlapAsync(
+        Guid assignedStaffId,
+        DateTime scheduledStart,
+        DateTime? scheduledEnd,
+        Guid? excludedScheduleId = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
 }

@@ -10,5 +10,7 @@ public sealed class UploadProjectFileRequestDto
     public long FileSizeBytes { get; init; }
     public FileType FileType { get; init; } = FileType.OTHER;
     public FileVisibility? Visibility { get; init; }
+    public bool? IsPrimary { get; init; }
+    public int? DisplayOrder { get; init; }
     public string? Note { get; init; }
 }

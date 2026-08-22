@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Enums;
+using FurniSpace.Application.DTOs.Orders;
 
 namespace FurniSpace.Application.DTOs.Projects;
 
@@ -23,4 +24,5 @@ public sealed class ProjectDto
     public ProjectStatus? Status { get; set; }
     public DateTime? SubmittedAt { get; set; }
     public List<ProjectPhaseDeadlineItemDto>? PhaseDeadlines { get; set; }
+    public ProjectDeliverySummaryDto? DeliverySummary { get; set; }
 }

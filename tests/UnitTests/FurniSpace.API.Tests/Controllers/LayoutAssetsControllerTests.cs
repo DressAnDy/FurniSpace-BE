@@ -127,6 +127,33 @@ public sealed class LayoutAssetsControllerTests
     }
 
     [Fact]
+    public async Task GetAll_WithQueryFilters_PassesQueryToService()
+    {
+        var service = new FakeLayoutAssetService(
+            listResult: ServiceResult<LayoutAssetListResponseDto>.Success(new LayoutAssetListResponseDto()));
+        var controller = new LayoutAssetsController(service);
+
+        var query = new LayoutAssetQueryDto
+        {
+            AssetType = LayoutAssetType.STAIR,
+            Status = LayoutAssetStatus.ACTIVE,
+            Search = "stair",
+            Page = 2,
+            PageSize = 10
+        };
+        var actionResult = await controller.GetAll(query);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.NotNull(service.LastQuery);
+        Assert.Equal(LayoutAssetType.STAIR, service.LastQuery.AssetType);
+        Assert.Equal(LayoutAssetStatus.ACTIVE, service.LastQuery.Status);
+        Assert.Equal("stair", service.LastQuery.Search);
+        Assert.Equal(2, service.LastQuery.Page);
+        Assert.Equal(10, service.LastQuery.PageSize);
+    }
+
+    [Fact]
     public async Task Create_WithoutUser_ReturnsUnauthorized()
     {
         var controller = new LayoutAssetsController(new FakeLayoutAssetService())
@@ -210,6 +237,8 @@ public sealed class LayoutAssetsControllerTests
 
         public CreateLayoutAssetRequestDto? CreateRequest { get; private set; }
 
+        public LayoutAssetQueryDto? LastQuery { get; private set; }
+
         public Guid LastLayoutAssetId { get; private set; }
 
         public Task<ServiceResult<LayoutAssetDto>> CreateAsync(
@@ -225,6 +254,7 @@ public sealed class LayoutAssetsControllerTests
             LayoutAssetQueryDto query,
             CancellationToken cancellationToken = default)
         {
+            LastQuery = query;
             return Task.FromResult(_listResult ?? ServiceResult<LayoutAssetListResponseDto>.Unauthorized());
         }
 

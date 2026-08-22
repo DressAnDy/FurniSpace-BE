@@ -1,10 +1,13 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.Constants.Common;
+using FurniSpace.Application.Constants.Orders;
 using FurniSpace.Application.DTOs.Orders;
 using static FurniSpace.Application.Constants.Orders.OrderServiceConstants;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using Mapster;
 using System.Linq;
 
@@ -21,6 +24,13 @@ public sealed partial class OrderService
         if (currentUserId == Guid.Empty)
         {
             return ServiceResult<DeliveryDetailDto>.Unauthorized();
+        }
+
+        if (request.ProjectScheduleId == Guid.Empty)
+        {
+            return BadRequest<DeliveryDetailDto>(
+                OrderErrorCodes.ProjectScheduleIdRequired,
+                "Project schedule id is required for delivery batch creation.");
         }
 
         if (request.Items.Count == 0)
@@ -40,6 +50,7 @@ public sealed partial class OrderService
         }
 
         var order = access.Order!;
+        var project = access.Project!;
         var productionError = await ValidateProductionCompletedForDeliveryAsync<DeliveryDetailDto>(
             order.OrderId,
             cancellationToken);
@@ -48,11 +59,24 @@ public sealed partial class OrderService
             return productionError;
         }
 
-        if (order.Status != OrderStatus.DELIVERING)
+        if (order.Status is not (OrderStatus.READY_FOR_DELIVERY or OrderStatus.DELIVERING))
         {
             return BadRequest<DeliveryDetailDto>(
-                OrderErrorCodes.OrderNotDelivering,
-                "Order must be DELIVERING before a delivery batch can be created.");
+                OrderErrorCodes.InvalidOrderStatus,
+                "Order must be READY_FOR_DELIVERY or DELIVERING before a delivery batch can be created.");
+        }
+
+        var scheduleDetail = await _schedules.GetDetailAsync(request.ProjectScheduleId, cancellationToken);
+        var scheduleError = await ValidateDeliveryBatchScheduleAsync<DeliveryDetailDto>(
+            scheduleDetail,
+            order,
+            project.ProjectId,
+            currentUserId,
+            access.Role,
+            cancellationToken);
+        if (scheduleError is not null)
+        {
+            return scheduleError;
         }
 
         var duplicateItem = request.Items
@@ -73,12 +97,14 @@ public sealed partial class OrderService
             return validationError;
         }
 
+        var isFirstBatch = order.Status == OrderStatus.READY_FOR_DELIVERY;
         var now = DateTime.UtcNow;
         var deliveryId = Guid.NewGuid();
         var delivery = new Delivery
         {
             DeliveryId = deliveryId,
             OrderId = order.OrderId,
+            ProjectScheduleId = request.ProjectScheduleId,
             Status = DeliveryStatus.IN_PROGRESS,
             CreatedBy = currentUserId,
             Note = request.Note,
@@ -90,6 +116,14 @@ public sealed partial class OrderService
             _unitOfWork,
             async transactionCancellationToken =>
             {
+                if (isFirstBatch)
+                {
+                    order.Status = OrderStatus.DELIVERING;
+                    project.Status = ProjectStatus.DELIVERING;
+                    project.UpdatedAt = now;
+                    _projects.Update(project);
+                }
+
                 await _deliveries.AddAsync(delivery, transactionCancellationToken);
                 foreach (var item in request.Items)
                 {
@@ -110,6 +144,22 @@ public sealed partial class OrderService
                 await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
             },
             cancellationToken);
+
+        if (isFirstBatch)
+        {
+            await OrderNotificationSupport.TryDispatchUpdatedAsync(
+                _notifications,
+                _logger,
+                order,
+                project,
+                cancellationToken);
+            await OrderNotificationSupport.TryDispatchProjectStatusChangedAsync(
+                _notifications,
+                _logger,
+                project,
+                OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
+                cancellationToken);
+        }
 
         var detail = await _deliveries.GetDetailAsync(order.OrderId, deliveryId, cancellationToken);
         return ServiceResult<DeliveryDetailDto>.Created(
@@ -194,6 +244,7 @@ public sealed partial class OrderService
         }
 
         var order = access.Order!;
+        var project = access.Project!;
         var productionError = await ValidateProductionCompletedForDeliveryAsync<DeliveryBatchCompletionDto>(
             order.OrderId,
             cancellationToken);
@@ -231,6 +282,23 @@ public sealed partial class OrderService
                 "Only in-progress delivery batches can be completed.");
         }
 
+        if (!delivery.ProjectScheduleId.HasValue)
+        {
+            return BadRequest<DeliveryBatchCompletionDto>(
+                OrderErrorCodes.DeliveryScheduleInvalid,
+                "Delivery batch must be linked to a delivery schedule.");
+        }
+
+        var schedule = await _schedules.GetByIdAsync(delivery.ProjectScheduleId.Value, cancellationToken);
+        if (schedule is null ||
+            schedule.ScheduleType != ProjectScheduleType.DELIVERY ||
+            schedule.Status != ProjectScheduleStatus.CONFIRMED)
+        {
+            return BadRequest<DeliveryBatchCompletionDto>(
+                OrderErrorCodes.DeliveryScheduleInvalid,
+                "Linked delivery schedule must exist and be confirmed.");
+        }
+
         var deliveryItems = await _deliveries.GetItemsByDeliveryAsync(deliveryId, cancellationToken);
         if (deliveryItems.Count == 0)
         {
@@ -239,8 +307,7 @@ public sealed partial class OrderService
                 "Delivery batch has no items to complete.");
         }
 
-        var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
-        var orderItemsById = orderItems.ToDictionary(item => item.OrderItemId);
+        var orderItemIds = deliveryItems.Select(item => item.OrderItemId).ToList();
         var now = DateTime.UtcNow;
         var updatedCount = 0;
 
@@ -248,9 +315,12 @@ public sealed partial class OrderService
             _unitOfWork,
             async transactionCancellationToken =>
             {
+                var lockedItems = await _orders.GetItemsByIdsForUpdateAsync(orderItemIds, transactionCancellationToken);
+                var lockedItemsById = lockedItems.ToDictionary(item => item.OrderItemId);
+
                 foreach (var deliveryItem in deliveryItems)
                 {
-                    if (!orderItemsById.TryGetValue(deliveryItem.OrderItemId, out var orderItem))
+                    if (!lockedItemsById.TryGetValue(deliveryItem.OrderItemId, out var orderItem))
                     {
                         throw new InvalidOperationException(OrderErrorCodes.OrderItemNotFound);
                     }
@@ -264,19 +334,33 @@ public sealed partial class OrderService
                 delivery.CompletedBy = currentUserId;
                 delivery.CompletedAt = now;
                 delivery.UpdatedAt = now;
+
+                schedule.Status = ProjectScheduleStatus.COMPLETED;
+                schedule.CompletedAt = now;
+                schedule.UpdatedAt = now;
+
                 order.UpdatedAt = now;
 
                 _deliveries.Update(delivery);
+                _schedules.Update(schedule);
                 _orders.Update(order);
                 await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
             },
             cancellationToken);
 
+        var remainingQuantity = await _orders.GetTotalRemainingDeliverableQuantityAsync(
+            order.OrderId,
+            cancellationToken);
+        if (remainingQuantity == 0)
+        {
+            await CancelUnusedFutureDeliverySchedulesAsync(project.ProjectId, now, cancellationToken);
+        }
+
         await OrderNotificationSupport.TryDispatchUpdatedAsync(
             _notifications,
             _logger,
             order,
-            access.Project!,
+            project,
             cancellationToken);
 
         return ServiceResult<DeliveryBatchCompletionDto>.Success(
@@ -284,7 +368,43 @@ public sealed partial class OrderService
             "Delivery batch completed successfully.");
     }
 
-    private async Task<(Order? Order, Project? Project, ServiceResult<T>? Error)> ValidateDeliveryBatchStaffAccessAsync<T>(
+    public async Task<ServiceResult<OrderDeliveryTrackingDto>> GetDeliveryTrackingAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<OrderDeliveryTrackingDto>.Unauthorized();
+        }
+
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound<OrderDeliveryTrackingDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var accessError = await ValidateDeliveryTrackingAccessAsync<OrderDeliveryTrackingDto>(
+            order,
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var tracking = await _deliveries.GetTrackingByOrderAsync(orderId, order.ProjectId, cancellationToken);
+        if (tracking is null)
+        {
+            return NotFound<OrderDeliveryTrackingDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        return ServiceResult<OrderDeliveryTrackingDto>.Success(
+            tracking.Adapt<OrderDeliveryTrackingDto>(),
+            "Delivery tracking retrieved successfully.");
+    }
+
+    private async Task<(Order? Order, Project? Project, string? Role, ServiceResult<T>? Error)> ValidateDeliveryBatchStaffAccessAsync<T>(
         Guid orderId,
         Guid currentUserId,
         CancellationToken cancellationToken)
@@ -292,22 +412,82 @@ public sealed partial class OrderService
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
         if (order is null)
         {
-            return (null, null, NotFound<T>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage));
+            return (null, null, null, NotFound<T>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage));
         }
 
         var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
         if (project is null)
         {
-            return (null, null, NotFound<T>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage));
+            return (null, null, null, NotFound<T>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage));
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanStartDelivery(role, project.AssignedSalesId, currentUserId))
+        if (role == ApplicationRoles.Admin)
         {
-            return (null, null, ServiceResult<T>.Forbidden(ForbiddenMessage));
+            return (order, project, role, null);
         }
 
-        return (order, project, null);
+        if (role == ApplicationRoles.Production &&
+            await _productionRequests.HasAssignedCompletedProductionForProjectAsync(
+                project.ProjectId,
+                currentUserId,
+                cancellationToken))
+        {
+            return (order, project, role, null);
+        }
+
+        return (null, null, null, ServiceResult<T>.Forbidden(ForbiddenMessage));
+    }
+
+    private async Task<ServiceResult<T>?> ValidateDeliveryBatchScheduleAsync<T>(
+        ProjectScheduleDetailReadModel? schedule,
+        Order order,
+        Guid projectId,
+        Guid currentUserId,
+        string? role,
+        CancellationToken cancellationToken)
+    {
+        if (schedule is null || schedule.ProjectId != projectId)
+        {
+            return NotFound<T>(OrderErrorCodes.DeliveryScheduleInvalid, "Delivery schedule not found for this project.");
+        }
+
+        if (schedule.ScheduleType != ProjectScheduleType.DELIVERY)
+        {
+            return BadRequest<T>(
+                OrderErrorCodes.DeliveryScheduleInvalid,
+                "Referenced schedule must be a delivery schedule.");
+        }
+
+        if (schedule.Status != ProjectScheduleStatus.CONFIRMED)
+        {
+            return BadRequest<T>(
+                OrderErrorCodes.DeliveryScheduleNotConfirmed,
+                "Delivery schedule must be confirmed before batch creation.");
+        }
+
+        if (DateTime.UtcNow < schedule.ScheduledStart.Subtract(OrderDeliveryConstants.ScheduleStartTolerance))
+        {
+            return BadRequest<T>(
+                OrderErrorCodes.DeliveryScheduleNotStarted,
+                "Delivery batch cannot start before the scheduled start time.");
+        }
+
+        if (await _deliveries.ExistsByProjectScheduleIdAsync(schedule.ScheduleId, cancellationToken))
+        {
+            return ServiceResult<T>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliveryScheduleAlreadyUsed,
+                    "This delivery schedule is already linked to a delivery batch."));
+        }
+
+        if (role != ApplicationRoles.Admin &&
+            schedule.AssignedStaffId != currentUserId)
+        {
+            return ServiceResult<T>.Forbidden(ForbiddenMessage);
+        }
+
+        return null;
     }
 
     private async Task<ServiceResult<T>?> ValidateDeliveryBatchReadAccessAsync<T>(
@@ -321,6 +501,14 @@ public sealed partial class OrderService
             return NotFound<T>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
         }
 
+        return await ValidateDeliveryTrackingAccessAsync<T>(order, currentUserId, cancellationToken);
+    }
+
+    private async Task<ServiceResult<T>?> ValidateDeliveryTrackingAccessAsync<T>(
+        Order order,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
         var project = await _projects.GetDetailAsync(order.ProjectId, cancellationToken);
         if (project is null)
         {
@@ -328,7 +516,31 @@ public sealed partial class OrderService
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!OrderAccessEvaluator.CanViewOrder(
+        if (role == ApplicationRoles.Admin)
+        {
+            return null;
+        }
+
+        if (role == ApplicationRoles.Customer && project.CustomerId == currentUserId)
+        {
+            return null;
+        }
+
+        if (role == ApplicationRoles.Sales && project.AssignedSalesId == currentUserId)
+        {
+            return null;
+        }
+
+        if (role == ApplicationRoles.Production &&
+            await _productionRequests.HasViewableAssignedRequestAsync(
+                project.ProjectId,
+                currentUserId,
+                cancellationToken))
+        {
+            return null;
+        }
+
+        if (OrderAccessEvaluator.CanViewOrder(
                 role,
                 project.CustomerId,
                 project.AssignedSalesId,
@@ -336,10 +548,39 @@ public sealed partial class OrderService
                 currentUserId,
                 order.Status))
         {
-            return ServiceResult<T>.Forbidden(ForbiddenMessage);
+            return null;
         }
 
-        return null;
+        return ServiceResult<T>.Forbidden(ForbiddenMessage);
+    }
+
+    private async Task CancelUnusedFutureDeliverySchedulesAsync(
+        Guid projectId,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var schedules = await _schedules.GetUnusedFutureDeliverySchedulesAsync(projectId, cancellationToken);
+        if (schedules.Count == 0)
+        {
+            return;
+        }
+
+        await UnitOfWorkTransactions.ExecuteAsync(
+            _unitOfWork,
+            async transactionCancellationToken =>
+            {
+                foreach (var schedule in schedules)
+                {
+                    schedule.Status = ProjectScheduleStatus.CANCELLED;
+                    schedule.CancelledAt = now;
+                    schedule.UpdatedAt = now;
+                    schedule.InternalNote = OrderDeliveryConstants.AllItemsAlreadyDeliveredCancellationNote;
+                    _schedules.Update(schedule);
+                }
+
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            },
+            cancellationToken);
     }
 
     private static ServiceResult<DeliveryDetailDto>? ValidateDeliveryBatchItems(
@@ -389,15 +630,20 @@ public sealed partial class OrderService
         DateTime now)
     {
         var quantity = orderItem.Quantity ?? 0;
-        var newDeliveredQuantity = orderItem.DeliveredQuantity + increment;
+        var previousDeliveredQuantity = orderItem.DeliveredQuantity;
+        var newDeliveredQuantity = previousDeliveredQuantity + increment;
         if (newDeliveredQuantity < 0 || newDeliveredQuantity > quantity)
         {
             throw new InvalidOperationException(OrderErrorCodes.InvalidDeliveryQuantity);
         }
 
         orderItem.DeliveredQuantity = newDeliveredQuantity;
-        orderItem.DeliveredAt = now;
-        orderItem.DeliveredBy = currentUserId;
+        if (previousDeliveredQuantity < quantity && newDeliveredQuantity >= quantity)
+        {
+            orderItem.DeliveredAt = now;
+            orderItem.DeliveredBy = currentUserId;
+        }
+
         orderItem.Status = newDeliveredQuantity < quantity
             ? OrderItemStatus.PARTIALLY_DELIVERED
             : OrderItemStatus.READY;

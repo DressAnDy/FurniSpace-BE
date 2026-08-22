@@ -6,6 +6,7 @@ using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.Accounts.AccountServiceConstants;
 using static FurniSpace.Application.Constants.Projects.ProjectServiceConstants;
+using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Payments;
@@ -44,6 +45,7 @@ public sealed class ProjectService : IProjectService
     private readonly IProposalRepository _proposals;
     private readonly IProductionRequestRepository _productionRequests;
     private readonly IProjectScheduleRepository _schedules;
+    private readonly IDeliveryRepository _deliveries;
     private readonly IProjectPhaseDeadlineService _phaseDeadlines;
 
     public ProjectService(
@@ -64,6 +66,7 @@ public sealed class ProjectService : IProjectService
         _proposals = dependencies.Proposals;
         _productionRequests = dependencies.ProductionRequests;
         _schedules = dependencies.Schedules;
+        _deliveries = dependencies.Deliveries;
         _phaseDeadlines = dependencies.PhaseDeadlines;
     }
 
@@ -583,6 +586,12 @@ public sealed class ProjectService : IProjectService
         if (phasePlan.Status == 200 && phasePlan.Data is not null)
         {
             dto.PhaseDeadlines = phasePlan.Data.Deadlines;
+        }
+
+        var deliverySummary = await _deliveries.GetProjectDeliverySummaryAsync(projectId, cancellationToken);
+        if (deliverySummary is not null)
+        {
+            dto.DeliverySummary = deliverySummary.Adapt<ProjectDeliverySummaryDto>();
         }
 
         return ServiceResult<ProjectDto>.Success(

@@ -65,4 +65,25 @@ public interface IProjectScheduleRepository : IGenericRepository<ProjectSchedule
     {
         return Task.FromResult(false);
     }
+
+    Task<IReadOnlyList<ProjectSchedule>> GetUnusedFutureDeliverySchedulesAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<ProjectSchedule>>([]);
+    }
+
+    Task<bool> HasUnresolvedConfirmedDeliveryScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
+    Task<bool> HasLinkedInProgressDeliveryAsync(
+        Guid scheduleId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
 }

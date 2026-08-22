@@ -265,6 +265,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProposalRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProductionRequestRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectScheduleRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IDeliveryRepository>(),
                 sp.GetRequiredService<IProjectPhaseDeadlineService>());
         });
         services.AddScoped<IAuthService, AuthService>();

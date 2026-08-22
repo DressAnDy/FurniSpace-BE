@@ -192,6 +192,31 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
             deliverableItems.All(IsFullyDelivered);
     }
 
+    public async Task<int> GetTotalRemainingDeliverableQuantityAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var items = await GetItemsByOrderAsync(orderId, cancellationToken);
+        return items
+            .Where(IsDeliverableItem)
+            .Sum(item => Math.Max(0, (item.Quantity ?? 0) - item.DeliveredQuantity));
+    }
+
+    public async Task<IReadOnlyList<OrderItem>> GetItemsByIdsForUpdateAsync(
+        IReadOnlyCollection<Guid> orderItemIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (orderItemIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await DbContext.OrderItemSet
+            .FromSqlInterpolated(
+                $"SELECT * FROM order_items WHERE order_item_id = ANY({orderItemIds.ToArray()}) FOR UPDATE")
+            .ToListAsync(cancellationToken);
+    }
+
     private static bool IsFullyDelivered(OrderItem item)
     {
         if (item.Status == OrderItemStatus.DELIVERED)

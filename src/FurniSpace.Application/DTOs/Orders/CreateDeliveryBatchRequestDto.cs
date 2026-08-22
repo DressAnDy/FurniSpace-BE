@@ -9,6 +9,7 @@ public sealed class CreateDeliveryBatchItemRequestDto
 
 public sealed class CreateDeliveryBatchRequestDto
 {
+    public Guid ProjectScheduleId { get; init; }
     public string? Note { get; init; }
     public IReadOnlyList<CreateDeliveryBatchItemRequestDto> Items { get; init; } = [];
 }

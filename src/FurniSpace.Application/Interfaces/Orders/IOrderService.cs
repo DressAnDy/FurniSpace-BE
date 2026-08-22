@@ -89,4 +89,12 @@ public interface IOrderService
     {
         return Task.FromResult(ServiceResult<DeliveryBatchCompletionDto>.Unauthorized());
     }
+
+    Task<ServiceResult<OrderDeliveryTrackingDto>> GetDeliveryTrackingAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<OrderDeliveryTrackingDto>.Unauthorized());
+    }
 }

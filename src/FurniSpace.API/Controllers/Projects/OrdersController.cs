@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.Orders;
@@ -100,7 +101,8 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,ADMIN")]
+    [Authorize(Roles = "ADMIN")]
+    [Obsolete("Use POST /orders/{orderId}/deliveries with a confirmed delivery schedule instead.")]
     [HttpPatch("orders/{orderId:guid}/prepare-final-payment")]
     public async Task<IActionResult> PrepareFinalPayment(
         Guid orderId,
@@ -156,7 +158,8 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [Authorize(Roles = "ADMIN")]
+    [Obsolete("Use POST /orders/{orderId}/deliveries with a confirmed delivery schedule instead.")]
     [HttpPatch("orders/{orderId:guid}/start-delivery")]
     public async Task<IActionResult> StartDelivery(
         Guid orderId,
@@ -174,7 +177,8 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [Authorize(Roles = "ADMIN")]
+    [Obsolete("Use POST /orders/{orderId}/deliveries with a confirmed delivery schedule instead.")]
     [HttpPatch("orders/{orderId:guid}/complete-delivery")]
     public async Task<IActionResult> CompleteDelivery(
         Guid orderId,
@@ -282,6 +286,21 @@ public sealed class OrdersController : BaseApiController
             deliveryId,
             currentUserId,
             cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,PRODUCTION,ADMIN")]
+    [HttpGet("orders/{orderId:guid}/delivery-tracking")]
+    public async Task<IActionResult> GetDeliveryTracking(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.GetDeliveryTrackingAsync(orderId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 

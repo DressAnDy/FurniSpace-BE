@@ -286,6 +286,229 @@ public sealed class LayoutAssetServiceTests
         Assert.Equal(2, result.Data.Files.Count);
     }
 
+    [Fact]
+    public async Task GetAllAsync_WithFilters_ReturnsPagedResults()
+    {
+        var repository = new FakeLayoutAssetRepository { Detail = CreateAsset(Guid.Parse("77777777-7777-7777-7777-777777777777")) };
+        var service = CreateService(repository);
+
+        var result = await service.GetAllAsync(new LayoutAssetQueryDto
+        {
+            AssetType = LayoutAssetType.STAIR,
+            Status = LayoutAssetStatus.ACTIVE,
+            Search = " stair ",
+            Page = 2,
+            PageSize = 10
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, repository.LastPage);
+        Assert.Equal(10, repository.LastPageSize);
+        Assert.Equal(LayoutAssetType.STAIR, repository.LastAssetType);
+        Assert.Equal(LayoutAssetStatus.ACTIVE, repository.LastStatus);
+        Assert.Equal("stair", repository.LastSearch);
+    }
+
+    [Fact]
+    public async Task GetFilesAsync_WithExistingAsset_ReturnsFiles()
+    {
+        var assetId = Guid.Parse("88888888-8888-8888-8888-888888888888");
+        var fileId = Guid.Parse("99999999-9999-9999-9999-999999999999");
+        var repository = new FakeLayoutAssetRepository { Detail = CreateAsset(assetId) };
+        var fileRepository = new FakeLayoutAssetFileRepository
+        {
+            CatalogFiles =
+            [
+                new CatalogFileReadModel
+                {
+                    FileId = fileId,
+                    ReferenceId = assetId,
+                    ReferenceType = CatalogFileReferenceTypes.LayoutAsset,
+                    FileType = FileType.PREVIEW,
+                    OriginalFileName = "preview.webp",
+                    FileUrl = "https://example.com/preview.webp",
+                    MimeType = "image/webp",
+                    Status = FileStatus.ACTIVE,
+                    IsPrimary = true,
+                    UploadedAt = DateTime.UtcNow
+                }
+            ]
+        };
+        var service = CreateService(repository, fileRepository);
+
+        var result = await service.GetFilesAsync(assetId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!);
+        Assert.Equal(fileId, result.Data[0].FileId);
+    }
+
+    [Fact]
+    public async Task GetFilesAsync_WhenAssetNotFound_ReturnsNotFound()
+    {
+        var service = CreateService(new FakeLayoutAssetRepository());
+
+        var result = await service.GetFilesAsync(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+
+        Assert.Equal(404, result.Status);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithValidPreviewFile_CreatesFile()
+    {
+        var assetId = Guid.Parse("12121212-1212-1212-1212-121212121212");
+        var userId = Guid.Parse("13131313-1313-1313-1313-131313131313");
+        var repository = new FakeLayoutAssetRepository { Detail = CreateAsset(assetId) };
+        var fileRepository = new FakeLayoutAssetFileRepository();
+        var service = CreateService(repository, fileRepository);
+
+        var result = await service.UploadFileAsync(
+            assetId,
+            userId,
+            new UploadCatalogFileRequestDto
+            {
+                Content = new MemoryStream([1, 2, 3, 4]),
+                OriginalFileName = "preview.webp",
+                ContentType = "image/webp",
+                FileSizeBytes = 4,
+                FileType = FileType.PREVIEW,
+                Description = "Main preview"
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, fileRepository.AddStoredFileCallCount);
+        Assert.Equal(1, fileRepository.AddFileLinkCallCount);
+        Assert.Equal(1, fileRepository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WhenAssetNotFound_ReturnsNotFound()
+    {
+        var service = CreateService(new FakeLayoutAssetRepository());
+
+        var result = await service.UploadFileAsync(
+            Guid.Parse("14141414-1414-1414-1414-141414141414"),
+            Guid.NewGuid(),
+            new UploadCatalogFileRequestDto
+            {
+                Content = new MemoryStream([1]),
+                OriginalFileName = "preview.webp",
+                ContentType = "image/webp",
+                FileSizeBytes = 1,
+                FileType = FileType.PREVIEW
+            });
+
+        Assert.Equal(404, result.Status);
+    }
+
+    [Fact]
+    public async Task UploadFileAsync_WithoutUser_ReturnsUnauthorized()
+    {
+        var assetId = Guid.Parse("15151515-1515-1515-1515-151515151515");
+        var service = CreateService(new FakeLayoutAssetRepository { Detail = CreateAsset(assetId) });
+
+        var result = await service.UploadFileAsync(
+            assetId,
+            Guid.Empty,
+            new UploadCatalogFileRequestDto
+            {
+                Content = new MemoryStream([1]),
+                OriginalFileName = "preview.webp",
+                ContentType = "image/webp",
+                FileSizeBytes = 1,
+                FileType = FileType.PREVIEW
+            });
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task DeleteFileAsync_WithValidFile_RemovesFileAndStorage()
+    {
+        var assetId = Guid.Parse("16161616-1616-1616-1616-161616161616");
+        var fileId = Guid.Parse("17171717-1717-1717-1717-171717171717");
+        var repository = new FakeLayoutAssetRepository { Detail = CreateAsset(assetId) };
+        var storage = new FakeFileStorageService();
+        var fileRepository = new FakeLayoutAssetFileRepository
+        {
+            SelectedLink = new FileLink
+            {
+                FileLinkId = Guid.NewGuid(),
+                FileId = fileId,
+                ReferenceType = CatalogFileReferenceTypes.LayoutAsset,
+                ReferenceId = assetId,
+                FileType = FileType.PREVIEW,
+                IsPrimary = true
+            },
+            FileById = new StoredFile
+            {
+                FileId = fileId,
+                FileUrl = "https://example.com/preview.webp",
+                OriginalFileName = "preview.webp",
+                MimeType = "image/webp",
+                StoragePath = "layout-assets/preview.webp",
+                Status = FileStatus.ACTIVE
+            },
+            FileLinksByFileId =
+            [
+                new FileLink
+                {
+                    FileLinkId = Guid.NewGuid(),
+                    FileId = fileId,
+                    ReferenceType = CatalogFileReferenceTypes.LayoutAsset,
+                    ReferenceId = assetId,
+                    FileType = FileType.PREVIEW
+                }
+            ]
+        };
+        var service = CreateService(repository, fileRepository, storage);
+
+        var result = await service.DeleteFileAsync(assetId, fileId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(fileId, result.Data!.FileId);
+        Assert.True(fileRepository.FileRemoved);
+        Assert.Equal("layout-assets/preview.webp", storage.LastDeletedObjectName);
+    }
+
+    [Fact]
+    public async Task SetPrimaryFileAsync_WithIneligibleFileType_ReturnsBadRequest()
+    {
+        var assetId = Guid.Parse("18181818-1818-1818-1818-181818181818");
+        var fileId = Guid.Parse("19191919-1919-1919-1919-191919191919");
+        var repository = new FakeLayoutAssetRepository { Detail = CreateAsset(assetId) };
+        var fileRepository = new FakeLayoutAssetFileRepository
+        {
+            SelectedLink = new FileLink
+            {
+                FileLinkId = Guid.NewGuid(),
+                FileId = fileId,
+                ReferenceType = CatalogFileReferenceTypes.LayoutAsset,
+                ReferenceId = assetId,
+                FileType = FileType.OTHER
+            }
+        };
+        var service = CreateService(repository, fileRepository);
+
+        var result = await service.SetPrimaryFileAsync(assetId, fileId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(LayoutAssetErrorCodes.InvalidFileType, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SetPrimaryFileAsync_WhenFileNotFound_ReturnsNotFound()
+    {
+        var assetId = Guid.Parse("20202020-2020-2020-2020-202020202020");
+        var repository = new FakeLayoutAssetRepository { Detail = CreateAsset(assetId) };
+        var service = CreateService(repository, new FakeLayoutAssetFileRepository());
+
+        var result = await service.SetPrimaryFileAsync(assetId, Guid.Parse("21212121-2121-2121-2121-212121212121"));
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(LayoutAssetErrorCodes.FileNotFound, result.Message);
+    }
+
     private static LayoutAsset CreateAsset(Guid assetId)
     {
         return new LayoutAsset
@@ -302,9 +525,11 @@ public sealed class LayoutAssetServiceTests
 
     private static LayoutAssetService CreateService(
         FakeLayoutAssetRepository repository,
-        FakeLayoutAssetFileRepository? fileRepository = null)
+        FakeLayoutAssetFileRepository? fileRepository = null,
+        FakeFileStorageService? storage = null)
     {
         var files = fileRepository ?? new FakeLayoutAssetFileRepository();
+        var fileStorage = storage ?? new FakeFileStorageService();
         return new LayoutAssetService(
             repository,
             files,
@@ -315,7 +540,7 @@ public sealed class LayoutAssetServiceTests
                 return Task.FromResult(1);
             }),
             new LayoutAssetServiceDependencies(
-                new FakeFileStorageService(),
+                fileStorage,
                 new FileUploadSettings
                 {
                     MaxFileSizeBytes = 1024 * 1024,
@@ -336,6 +561,11 @@ public sealed class LayoutAssetServiceTests
         public int AddCallCount { get; private set; }
         public int SaveChangesCallCount { get; set; }
         public LayoutAssetStatus? Status { get; private set; }
+        public LayoutAssetType? LastAssetType { get; private set; }
+        public LayoutAssetStatus? LastStatus { get; private set; }
+        public string? LastSearch { get; private set; }
+        public int LastPage { get; private set; }
+        public int LastPageSize { get; private set; }
 
         public Task AddAsync(LayoutAsset layoutAsset, CancellationToken cancellationToken = default)
         {
@@ -375,7 +605,12 @@ public sealed class LayoutAssetServiceTests
             int pageSize,
             CancellationToken cancellationToken = default)
         {
+            LastAssetType = assetType;
             Status = status;
+            LastStatus = status;
+            LastSearch = search;
+            LastPage = page;
+            LastPageSize = pageSize;
             return Task.FromResult<IReadOnlyList<LayoutAsset>>(Detail is null ? [] : [Detail]);
         }
 
@@ -385,7 +620,10 @@ public sealed class LayoutAssetServiceTests
             string? search,
             CancellationToken cancellationToken = default)
         {
+            LastAssetType = assetType;
             Status = status;
+            LastStatus = status;
+            LastSearch = search;
             return Task.FromResult(Detail is null ? 0 : 1);
         }
 
@@ -401,7 +639,12 @@ public sealed class LayoutAssetServiceTests
         public IReadOnlyList<CatalogFileReadModel> CatalogFiles { get; set; } = [];
         public FileLink? SelectedLink { get; set; }
         public List<FileLink> ReferenceLinks { get; set; } = [];
+        public StoredFile? FileById { get; set; }
+        public List<FileLink> FileLinksByFileId { get; set; } = [];
         public int SaveChangesCallCount { get; set; }
+        public int AddStoredFileCallCount { get; private set; }
+        public int AddFileLinkCallCount { get; private set; }
+        public bool FileRemoved { get; private set; }
 
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
@@ -409,7 +652,11 @@ public sealed class LayoutAssetServiceTests
             return Task.FromResult(1);
         }
 
-        public Task AddAsync(StoredFile entity, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddAsync(StoredFile entity, CancellationToken cancellationToken = default)
+        {
+            AddStoredFileCallCount++;
+            return Task.CompletedTask;
+        }
 
         public Task AddRangeAsync(IEnumerable<StoredFile> entities, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
@@ -423,10 +670,15 @@ public sealed class LayoutAssetServiceTests
         {
         }
 
-        public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
+        {
+            AddFileLinkCallCount++;
+            return Task.CompletedTask;
+        }
 
         public void Remove(StoredFile entity)
         {
+            FileRemoved = true;
         }
 
         public void RemoveFileLinks(IEnumerable<FileLink> fileLinks)
@@ -435,7 +687,7 @@ public sealed class LayoutAssetServiceTests
 
         public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult<StoredFile?>(null);
+            return Task.FromResult(FileById?.FileId == id ? FileById : null);
         }
 
         public Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
@@ -468,7 +720,7 @@ public sealed class LayoutAssetServiceTests
             Guid fileId,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult<IReadOnlyList<FileLink>>([]);
+            return Task.FromResult<IReadOnlyList<FileLink>>(FileLinksByFileId);
         }
 
         public Task<ProjectFileAccessReadModel?> GetProjectAccessAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -567,6 +819,8 @@ public sealed class LayoutAssetServiceTests
 
     private sealed class FakeFileStorageService : IFileStorageService
     {
+        public string? LastDeletedObjectName { get; private set; }
+
         public Task<StorageUploadResult> UploadAsync(StorageUploadRequest request, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new StorageUploadResult
@@ -578,6 +832,7 @@ public sealed class LayoutAssetServiceTests
 
         public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default)
         {
+            LastDeletedObjectName = objectName;
             return Task.CompletedTask;
         }
     }

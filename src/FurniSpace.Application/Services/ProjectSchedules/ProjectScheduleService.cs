@@ -2,6 +2,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Constants.Common;
+using FurniSpace.Application.Constants.Orders;
 using static FurniSpace.Application.Constants.ProjectSchedules.ProjectScheduleServiceConstants;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -23,6 +24,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private readonly IProjectFileRepository _files;
     private readonly IOrderRepository _orders;
     private readonly IProductionRequestRepository _productionRequests;
+    private readonly IDeliveryRepository _deliveries;
     private readonly INotificationDispatcher _dispatcher;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ProjectWorkflowSettings _workflowSettings;
@@ -33,6 +35,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         IProjectFileRepository files,
         IOrderRepository orders,
         IProductionRequestRepository productionRequests,
+        IDeliveryRepository deliveries,
         ProjectScheduleServiceDependencies dependencies)
     {
         _schedules = schedules;
@@ -40,6 +43,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         _files = files;
         _orders = orders;
         _productionRequests = productionRequests;
+        _deliveries = deliveries;
         _dispatcher = dependencies.Dispatcher;
         _unitOfWork = dependencies.UnitOfWork;
         _workflowSettings = dependencies.WorkflowSettings;
@@ -76,6 +80,12 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (role == ApplicationRoles.Sales && project.AssignedSalesId != currentUserId)
         {
             return ServiceResult<ProjectScheduleDto>.Forbidden("You are not the assigned Sales for this project.");
+        }
+
+        if (request.ScheduleType == ProjectScheduleType.DELIVERY && role == ApplicationRoles.Sales)
+        {
+            return ServiceResult<ProjectScheduleDto>.Forbidden(
+                "Sales cannot create delivery schedules through the normal flow.");
         }
 
         var businessRuleError = await ValidateCreateScheduleBusinessRulesAsync(
@@ -289,6 +299,16 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return transitionError;
         }
 
+        if (newStatus == ProjectScheduleStatus.CANCELLED &&
+            detail.ScheduleType == ProjectScheduleType.DELIVERY &&
+            await _schedules.HasLinkedInProgressDeliveryAsync(detail.ScheduleId, cancellationToken))
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.DeliveryInProgressBlocksScheduleCancel,
+                    "Delivery schedule cannot be cancelled while its delivery batch is in progress."));
+        }
+
         var completionError = await ValidateScheduleCompletionRequirementsAsync(
             detail,
             newStatus,
@@ -332,6 +352,18 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (newStatus != ProjectScheduleStatus.COMPLETED)
         {
             return null;
+        }
+
+        if (detail.ScheduleType == ProjectScheduleType.DELIVERY)
+        {
+            var linkedDelivery = await _deliveries.GetByProjectScheduleIdAsync(detail.ScheduleId, cancellationToken);
+            if (linkedDelivery is null || linkedDelivery.Status != DeliveryStatus.COMPLETED)
+            {
+                return ServiceResult<ProjectScheduleDto>.Failure(
+                    Error.Validation(
+                        ProjectScheduleErrorCodes.DeliveryScheduleRequiresCompletedBatch,
+                        "Delivery schedule can only be completed after its linked delivery batch is completed."));
+            }
         }
 
         if (detail.ScheduleType == ProjectScheduleType.MEASUREMENT &&
@@ -547,9 +579,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         var now = DateTime.UtcNow;
-        if (request.ScheduledStart <= now)
+        var scheduleStartError = ValidateScheduledStart(request.ScheduleType, request.ScheduledStart, now);
+        if (scheduleStartError is not null)
         {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time must not be in the past.");
+            return scheduleStartError;
         }
 
         if (request.ScheduledEnd.HasValue && request.ScheduledEnd.Value <= request.ScheduledStart)
@@ -580,6 +613,21 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         if (request.ScheduleType == ProjectScheduleType.DELIVERY)
         {
+            if (role == ApplicationRoles.Production)
+            {
+                var productionCompleted = await _productionRequests.HasAssignedCompletedProductionForProjectAsync(
+                    projectId,
+                    currentUserId,
+                    cancellationToken);
+                if (!productionCompleted)
+                {
+                    return ServiceResult<ProjectScheduleDto>.Failure(
+                        Error.Validation(
+                            ProjectScheduleErrorCodes.ProductionNotCompletedForDeliverySchedule,
+                            "Production must be completed before creating a delivery schedule."));
+                }
+            }
+
             var deliveryError = await ValidateDeliveryScheduleCreateAsync(project, cancellationToken);
             if (deliveryError is not null)
             {
@@ -706,12 +754,35 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             project.ProjectId,
             DeliveryReadyOrderStatuses,
             cancellationToken);
-        return hasReadyOrder
-            ? null
-            : ServiceResult<ProjectScheduleDto>.Failure(
+        if (!hasReadyOrder)
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
                 Error.BadRequest(
                     ProjectScheduleErrorCodes.OrderNotReadyForDelivery,
                     "Project and order must be ready for delivery before creating a delivery schedule."));
+        }
+
+        var order = await _orders.GetLatestByProjectInStatusesAsync(
+            project.ProjectId,
+            DeliveryReadyOrderStatuses,
+            cancellationToken);
+        if (order is null)
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.OrderNotReadyForDelivery,
+                    "Project and order must be ready for delivery before creating a delivery schedule."));
+        }
+
+        var remainingQuantity = await _orders.GetTotalRemainingDeliverableQuantityAsync(
+            order.OrderId,
+            cancellationToken);
+        return remainingQuantity > 0
+            ? null
+            : ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.NoRemainingDeliveryQuantity,
+                    "All deliverable quantities have already been delivered."));
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateUpdatePermission(
@@ -799,9 +870,16 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         ProjectScheduleDetailReadModel detail,
         CancellationToken cancellationToken)
     {
-        if (request.ScheduledStart.HasValue && request.ScheduledStart.Value <= DateTime.UtcNow)
+        if (request.ScheduledStart.HasValue)
         {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time must not be in the past.");
+            var scheduleStartError = ValidateScheduledStart(
+                detail.ScheduleType,
+                request.ScheduledStart.Value,
+                DateTime.UtcNow);
+            if (scheduleStartError is not null)
+            {
+                return scheduleStartError;
+            }
         }
 
         var effectiveStart = request.ScheduledStart ?? detail.ScheduledStart;
@@ -858,6 +936,23 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 Error.Conflict(
                     ProjectScheduleErrorCodes.StaffScheduleOverlap,
                     "Assigned staff already has an overlapping active schedule."))
+            : null;
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateScheduledStart(
+        ProjectScheduleType? scheduleType,
+        DateTime scheduledStart,
+        DateTime now)
+    {
+        if (scheduleType == ProjectScheduleType.DELIVERY)
+        {
+            return scheduledStart < now.Subtract(OrderDeliveryConstants.ScheduleStartTolerance)
+                ? ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time is too far in the past.")
+                : null;
+        }
+
+        return scheduledStart <= now
+            ? ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled start time must not be in the past.")
             : null;
     }
 

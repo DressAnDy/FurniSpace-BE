@@ -1045,6 +1045,7 @@ public class AppDbContext : DbContext
             entity.HasKey(e => e.DeliveryId);
             entity.Property(e => e.DeliveryId).HasColumnName("delivery_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.OrderId).HasColumnName(OrderIdColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.ProjectScheduleId).HasColumnName("project_schedule_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(DeliveryStatusColumnType).HasDefaultValueSql("'IN_PROGRESS'::delivery_status");
             entity.Property(e => e.CreatedBy).HasColumnName("created_by").HasColumnType(UuidColumnType);
             entity.Property(e => e.CompletedBy).HasColumnName("completed_by").HasColumnType(UuidColumnType);
@@ -1053,7 +1054,13 @@ public class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.CompletedAt).HasColumnName(CompletedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => e.OrderId).HasDatabaseName("idx_deliveries_order_id");
+            entity.HasIndex(e => e.ProjectScheduleId).HasDatabaseName("idx_deliveries_project_schedule_id");
+            entity.HasIndex(e => e.ProjectScheduleId)
+                .IsUnique()
+                .HasDatabaseName("ux_deliveries_project_schedule_id")
+                .HasFilter("project_schedule_id IS NOT NULL");
             entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProjectSchedule>().WithMany().HasForeignKey(e => e.ProjectScheduleId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CompletedBy).OnDelete(DeleteBehavior.Restrict);
         });

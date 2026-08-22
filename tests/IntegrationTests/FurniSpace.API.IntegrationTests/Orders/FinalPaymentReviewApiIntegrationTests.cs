@@ -137,11 +137,17 @@ public sealed class FinalPaymentReviewApiIntegrationTests : IAsyncLifetime
             await context.SaveChangesAsync();
         }
 
+        await using var adminContext = _fixture.Database.CreateDbContext();
+        var admin = await CoreAccountSeeder.SeedAccountAsync(
+            adminContext,
+            CoreRoles.Admin,
+            $"final-payment-admin-{Guid.NewGuid():N}@integration.test");
+
         using var request = IntegrationHttp.Authenticated(
             HttpMethod.Patch,
             $"/orders/{scenario.OrderId}/prepare-final-payment",
-            scenario.SalesAccountId,
-            CoreRoles.Sales);
+            admin.AccountId,
+            CoreRoles.Admin);
 
         var response = await _fixture.Client.SendAsync(request);
 
@@ -163,11 +169,17 @@ public sealed class FinalPaymentReviewApiIntegrationTests : IAsyncLifetime
     private async Task<OrderFinalPaymentPreparationDto> PrepareFinalPaymentAsync(
         FinalPaymentOrderScenario scenario)
     {
+        await using var context = _fixture.Database.CreateDbContext();
+        var admin = await CoreAccountSeeder.SeedAccountAsync(
+            context,
+            CoreRoles.Admin,
+            $"final-payment-admin-{Guid.NewGuid():N}@integration.test");
+
         using var request = IntegrationHttp.Authenticated(
             HttpMethod.Patch,
             $"/orders/{scenario.OrderId}/prepare-final-payment",
-            scenario.SalesAccountId,
-            CoreRoles.Sales);
+            admin.AccountId,
+            CoreRoles.Admin);
 
         var response = await _fixture.Client.SendAsync(request);
         return await ReadDataAsync<OrderFinalPaymentPreparationDto>(response, HttpStatusCode.OK);

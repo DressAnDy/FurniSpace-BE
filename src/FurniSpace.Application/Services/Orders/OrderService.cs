@@ -11,6 +11,7 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Orders;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 using Microsoft.Extensions.Logging;
@@ -120,6 +121,13 @@ public sealed partial class OrderService : IOrderService
             return ServiceResult<OrderDeliveryStartDto>.Unauthorized();
         }
 
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.AdminRole)
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Forbidden(
+                "Legacy start-delivery is restricted to Admin recovery.");
+        }
+
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
         if (order is null)
         {
@@ -130,12 +138,6 @@ public sealed partial class OrderService : IOrderService
         if (project is null)
         {
             return NotFound<OrderDeliveryStartDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanStartDelivery(role, project.AssignedSalesId, currentUserId))
-        {
-            return ServiceResult<OrderDeliveryStartDto>.Forbidden(ForbiddenMessage);
         }
 
         if (order.Status == OrderStatus.DELIVERING)
@@ -223,6 +225,13 @@ public sealed partial class OrderService : IOrderService
             return ServiceResult<OrderDeliveryCompletionDto>.Unauthorized();
         }
 
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.AdminRole)
+        {
+            return ServiceResult<OrderDeliveryCompletionDto>.Forbidden(
+                "Legacy complete-delivery is restricted to Admin recovery.");
+        }
+
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
         if (order is null)
         {
@@ -233,12 +242,6 @@ public sealed partial class OrderService : IOrderService
         if (project is null)
         {
             return NotFound<OrderDeliveryCompletionDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanStartDelivery(role, project.AssignedSalesId, currentUserId))
-        {
-            return ServiceResult<OrderDeliveryCompletionDto>.Forbidden(ForbiddenMessage);
         }
 
         if (order.Status != OrderStatus.DELIVERING)
@@ -367,6 +370,22 @@ public sealed partial class OrderService : IOrderService
                 "Order must be DELIVERING before delivery can be confirmed.");
         }
 
+        if (await _deliveries.HasInProgressDeliveryAsync(order.OrderId, cancellationToken))
+        {
+            return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliveryBatchInProgress,
+                    "Delivery confirmation is blocked while a delivery batch is in progress."));
+        }
+
+        if (await _schedules.HasUnresolvedConfirmedDeliveryScheduleAsync(order.ProjectId, cancellationToken))
+        {
+            return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.UnresolvedDeliverySchedule,
+                    "Delivery confirmation is blocked while confirmed delivery schedules remain unresolved."));
+        }
+
         if (!await _orders.AllDeliverableItemsDeliveredAsync(order.OrderId, cancellationToken))
         {
             return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
@@ -444,19 +463,17 @@ public sealed partial class OrderService : IOrderService
             return ServiceResult<OrderFinalPaymentPreparationDto>.Unauthorized();
         }
 
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.AdminRole)
+        {
+            return ServiceResult<OrderFinalPaymentPreparationDto>.Forbidden(
+                "Legacy prepare-final-payment is restricted to Admin recovery.");
+        }
+
         var detail = await _orders.GetDetailAsync(orderId, cancellationToken);
         if (detail is null)
         {
             return NotFound<OrderFinalPaymentPreparationDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
-                role,
-                detail.AssignedSalesId,
-                currentUserId))
-        {
-            return ServiceResult<OrderFinalPaymentPreparationDto>.Forbidden(ForbiddenMessage);
         }
 
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);

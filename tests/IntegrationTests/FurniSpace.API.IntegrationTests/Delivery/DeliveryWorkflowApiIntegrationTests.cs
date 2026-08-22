@@ -28,17 +28,18 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
-    public async Task DeliveryWorkflow_WhenStaffCompletesAndCustomerConfirms_MovesOrderAndProjectDelivered()
+    public async Task DeliveryWorkflow_WhenBatchCompletesAndCustomerConfirms_MovesOrderAndProjectDelivered()
     {
         var scenario = await SeedScenarioAsync();
         var schedule = await CreateDeliveryScheduleAsync(scenario, "Morning delivery");
 
         await ConfirmScheduleAsync(scenario, schedule.ScheduleId);
-        await StartDeliveryAsync(scenario);
+        await AdvanceScheduleStartToPastAsync(schedule.ScheduleId);
 
-        var completion = await CompleteDeliveryAsync(scenario);
-        Assert.Equal(nameof(OrderStatus.DELIVERING), completion.OrderStatus);
-        Assert.Equal(2, completion.DeliveredItemCount);
+        var batch = await CreateDeliveryBatchAsync(scenario, schedule.ScheduleId);
+        var completion = await CompleteDeliveryBatchAsync(scenario, batch.DeliveryId);
+        Assert.Equal(DeliveryStatus.COMPLETED, completion.Status);
+        Assert.Equal(2, completion.UpdatedItemCount);
 
         var confirmation = await ConfirmDeliveryAsync(scenario);
         Assert.Equal(nameof(OrderStatus.FINAL_PAYMENT_PENDING), confirmation.OrderStatus);
@@ -51,6 +52,7 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         var firstItem = await verification.OrderItemSet.FindAsync(scenario.FirstOrderItemId);
         var secondItem = await verification.OrderItemSet.FindAsync(scenario.SecondOrderItemId);
         var pendingItem = await verification.OrderItemSet.FindAsync(scenario.PendingOrderItemId);
+        var linkedSchedule = await verification.ProjectScheduleSet.FindAsync(schedule.ScheduleId);
 
         Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, order?.Status);
         Assert.NotNull(order?.CustomerConfirmedDeliveryAt);
@@ -60,6 +62,7 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         Assert.NotNull(firstItem?.DeliveredAt);
         Assert.NotNull(secondItem?.DeliveredAt);
         Assert.Equal(OrderItemStatus.PENDING, pendingItem?.Status);
+        Assert.Equal(ProjectScheduleStatus.COMPLETED, linkedSchedule?.Status);
         Assert.Equal(
             1,
             await verification.PaymentSet.CountAsync(payment =>
@@ -69,16 +72,29 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task StartDelivery_WhenNoConfirmedDeliverySchedule_ReturnsBadRequest()
+    public async Task CreateDeliveryBatch_WhenScheduleNotConfirmed_ReturnsBadRequest()
     {
         var scenario = await SeedScenarioAsync();
-        await CreateDeliveryScheduleAsync(scenario, "Unconfirmed delivery");
+        var schedule = await CreateDeliveryScheduleAsync(scenario, "Unconfirmed delivery");
+        await AdvanceScheduleStartToPastAsync(schedule.ScheduleId);
 
-        using var request = IntegrationHttp.Authenticated(
-            HttpMethod.Patch,
-            $"/orders/{scenario.OrderId}/start-delivery",
-            scenario.SalesAccountId,
-            CoreRoles.Sales);
+        using var request = IntegrationHttp.AuthenticatedJson(
+            HttpMethod.Post,
+            $"/orders/{scenario.OrderId}/deliveries",
+            scenario.ProductionAccountId,
+            CoreRoles.Production,
+            new CreateDeliveryBatchRequestDto
+            {
+                ProjectScheduleId = schedule.ScheduleId,
+                Items =
+                [
+                    new CreateDeliveryBatchItemRequestDto
+                    {
+                        OrderItemId = scenario.FirstOrderItemId,
+                        Quantity = 1
+                    }
+                ]
+            });
 
         var response = await _fixture.Client.SendAsync(request);
 
@@ -95,7 +111,8 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         var schedule = await CreateDeliveryScheduleAsync(scenario, "Incomplete delivery");
 
         await ConfirmScheduleAsync(scenario, schedule.ScheduleId);
-        await StartDeliveryAsync(scenario);
+        await AdvanceScheduleStartToPastAsync(schedule.ScheduleId);
+        await CreateDeliveryBatchAsync(scenario, schedule.ScheduleId);
 
         using var request = IntegrationHttp.Authenticated(
             HttpMethod.Patch,
@@ -109,21 +126,38 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CompletingDeliveryScheduleAlone_DoesNotMarkOrderDelivered()
+    public async Task CompleteDeliverySchedule_WhenBatchNotCompleted_ReturnsBadRequest()
     {
         var scenario = await SeedScenarioAsync();
         var schedule = await CreateDeliveryScheduleAsync(scenario, "Schedule only delivery");
 
         await ConfirmScheduleAsync(scenario, schedule.ScheduleId);
-        await StartDeliveryAsync(scenario);
-        await CompleteScheduleAsync(scenario, schedule.ScheduleId);
+        await AdvanceScheduleStartToPastAsync(schedule.ScheduleId);
+        await CreateDeliveryBatchAsync(scenario, schedule.ScheduleId);
+
+        using var request = IntegrationHttp.AuthenticatedJson(
+            HttpMethod.Patch,
+            $"/project-schedules/{schedule.ScheduleId}/status",
+            scenario.ProductionAccountId,
+            CoreRoles.Production,
+            new UpdateProjectScheduleStatusRequestDto
+            {
+                Status = ProjectScheduleStatus.COMPLETED,
+                Note = "Attempt schedule-only completion"
+            });
+
+        var response = await _fixture.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
         await using var verification = _fixture.Database.CreateDbContext();
         var order = await verification.OrderSet.FindAsync(scenario.OrderId);
         var project = await verification.ProjectSet.FindAsync(scenario.ProjectId);
+        var linkedSchedule = await verification.ProjectScheduleSet.FindAsync(schedule.ScheduleId);
 
         Assert.Equal(OrderStatus.DELIVERING, order?.Status);
         Assert.Equal(ProjectStatus.DELIVERING, project?.Status);
+        Assert.Equal(ProjectScheduleStatus.CONFIRMED, linkedSchedule?.Status);
     }
 
     private async Task<DeliveryOrderScenario> SeedScenarioAsync()
@@ -139,16 +173,16 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         using var request = IntegrationHttp.AuthenticatedJson(
             HttpMethod.Post,
             $"/projects/{scenario.ProjectId}/schedules",
-            scenario.SalesAccountId,
-            CoreRoles.Sales,
+            scenario.ProductionAccountId,
+            CoreRoles.Production,
             new CreateProjectScheduleRequestDto
             {
                 ScheduleType = ProjectScheduleType.DELIVERY,
                 Title = title,
                 Description = "Delivery appointment",
                 AssignedStaffId = scenario.ProductionAccountId,
-                ScheduledStart = DateTime.UtcNow.AddDays(1),
-                ScheduledEnd = DateTime.UtcNow.AddDays(1).AddHours(2),
+                ScheduledStart = DateTime.UtcNow,
+                ScheduledEnd = DateTime.UtcNow.AddHours(2),
                 Location = "Customer site"
             });
 
@@ -177,16 +211,6 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         await context.SaveChangesAsync();
     }
 
-    private async Task CompleteScheduleAsync(DeliveryOrderScenario scenario, Guid scheduleId)
-    {
-        await AdvanceScheduleStartToPastAsync(scheduleId);
-        await UpdateScheduleStatusAsync(
-            scenario.ProductionAccountId,
-            CoreRoles.Production,
-            scheduleId,
-            ProjectScheduleStatus.COMPLETED);
-    }
-
     private async Task UpdateScheduleStatusAsync(
         Guid userId,
         string role,
@@ -209,30 +233,52 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         Assert.Equal(status, schedule.Status);
     }
 
-    private async Task StartDeliveryAsync(DeliveryOrderScenario scenario)
+    private async Task<DeliveryDetailDto> CreateDeliveryBatchAsync(
+        DeliveryOrderScenario scenario,
+        Guid scheduleId)
     {
-        using var request = IntegrationHttp.Authenticated(
-            HttpMethod.Patch,
-            $"/orders/{scenario.OrderId}/start-delivery",
-            scenario.SalesAccountId,
-            CoreRoles.Sales);
+        using var request = IntegrationHttp.AuthenticatedJson(
+            HttpMethod.Post,
+            $"/orders/{scenario.OrderId}/deliveries",
+            scenario.ProductionAccountId,
+            CoreRoles.Production,
+            new CreateDeliveryBatchRequestDto
+            {
+                ProjectScheduleId = scheduleId,
+                Items =
+                [
+                    new CreateDeliveryBatchItemRequestDto
+                    {
+                        OrderItemId = scenario.FirstOrderItemId,
+                        Quantity = 2
+                    },
+                    new CreateDeliveryBatchItemRequestDto
+                    {
+                        OrderItemId = scenario.SecondOrderItemId,
+                        Quantity = 1
+                    }
+                ]
+            });
 
         var response = await _fixture.Client.SendAsync(request);
-        var delivery = await ReadDataAsync<OrderDeliveryStartDto>(response, HttpStatusCode.OK);
-        Assert.Equal(nameof(OrderStatus.DELIVERING), delivery.OrderStatus);
-        Assert.Equal(nameof(ProjectStatus.DELIVERING), delivery.ProjectStatus);
+        var batch = await ReadDataAsync<DeliveryDetailDto>(response, HttpStatusCode.Created);
+        Assert.Equal(DeliveryStatus.IN_PROGRESS, batch.Status);
+        Assert.Equal(scheduleId, batch.ProjectScheduleId);
+        return batch;
     }
 
-    private async Task<OrderDeliveryCompletionDto> CompleteDeliveryAsync(DeliveryOrderScenario scenario)
+    private async Task<DeliveryBatchCompletionDto> CompleteDeliveryBatchAsync(
+        DeliveryOrderScenario scenario,
+        Guid deliveryId)
     {
         using var request = IntegrationHttp.Authenticated(
             HttpMethod.Patch,
-            $"/orders/{scenario.OrderId}/complete-delivery",
-            scenario.SalesAccountId,
-            CoreRoles.Sales);
+            $"/orders/{scenario.OrderId}/deliveries/{deliveryId}/complete",
+            scenario.ProductionAccountId,
+            CoreRoles.Production);
 
         var response = await _fixture.Client.SendAsync(request);
-        return await ReadDataAsync<OrderDeliveryCompletionDto>(response, HttpStatusCode.OK);
+        return await ReadDataAsync<DeliveryBatchCompletionDto>(response, HttpStatusCode.OK);
     }
 
     private async Task<OrderDeliveryConfirmationDto> ConfirmDeliveryAsync(DeliveryOrderScenario scenario)

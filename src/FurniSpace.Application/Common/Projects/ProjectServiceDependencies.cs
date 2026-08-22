@@ -24,4 +24,5 @@ public sealed record ProjectServiceDependencies(
     IProposalRepository Proposals,
     IProductionRequestRepository ProductionRequests,
     IProjectScheduleRepository Schedules,
+    IDeliveryRepository Deliveries,
     IProjectPhaseDeadlineService PhaseDeadlines);

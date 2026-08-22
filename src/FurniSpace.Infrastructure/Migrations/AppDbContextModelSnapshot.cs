@@ -953,6 +953,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("order_id");
 
+                    b.Property<Guid?>("ProjectScheduleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_schedule_id");
+
                     b.Property<DeliveryStatus?>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("delivery_status")
@@ -971,6 +975,14 @@ namespace FurniSpace.Infrastructure.Migrations
 
                     b.HasIndex("OrderId")
                         .HasDatabaseName("idx_deliveries_order_id");
+
+                    b.HasIndex("ProjectScheduleId")
+                        .HasDatabaseName("idx_deliveries_project_schedule_id");
+
+                    b.HasIndex("ProjectScheduleId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_deliveries_project_schedule_id")
+                        .HasFilter("project_schedule_id IS NOT NULL");
 
                     b.ToTable("deliveries", (string)null);
                 });

@@ -19,6 +19,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Payments;
+using FurniSpace.Infrastructure.ReadModels.Orders;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Options;
@@ -48,6 +49,8 @@ internal sealed class ProjectServiceFactoryOptions
     public IProductionRequestRepository? ProductionRequests { get; init; }
 
     public IProjectScheduleRepository? Schedules { get; init; }
+
+    public IDeliveryRepository? Deliveries { get; init; }
 
     public IProjectPhaseDeadlineService? PhaseDeadlines { get; init; }
 }
@@ -83,6 +86,7 @@ internal static class ProjectServiceTestFactory
                 options.Proposals ?? new FakeProjectReopenProposalRepository(),
                 options.ProductionRequests ?? new FakeProjectProductionRequestRepository(),
                 options.Schedules ?? transitionFakes.Schedules,
+                options.Deliveries ?? new FakeProjectDeliveryRepository(),
                 options.PhaseDeadlines ?? new FakeProjectPhaseDeadlineService()));
     }
 }
@@ -1058,4 +1062,19 @@ internal sealed class FakeProjectReopenPaymentRepository : IPaymentRepository
     public Task<Payment?> GetByOrderAndTypeAsync(Guid orderId, PaymentType paymentType, CancellationToken cancellationToken = default) => Task.FromResult<Payment?>(null);
     public Task<Payment?> GetByProjectAndTypeAsync(Guid projectId, PaymentType paymentType, CancellationToken cancellationToken = default) => Task.FromResult<Payment?>(null);
     public Task<decimal> SumOrderScopedPaidAmountAsync(Guid orderId, CancellationToken cancellationToken = default) => Task.FromResult(0m);
+}
+
+internal sealed class FakeProjectDeliveryRepository : IDeliveryRepository
+{
+    public Task AddAsync(Delivery delivery, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task AddItemAsync(DeliveryItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task<DeliveryDetailReadModel?> GetDetailAsync(Guid orderId, Guid deliveryId, CancellationToken cancellationToken = default)
+        => Task.FromResult<DeliveryDetailReadModel?>(null);
+    public Task<IReadOnlyList<DeliveryListItemReadModel>> GetByOrderAsync(Guid orderId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<DeliveryListItemReadModel>>([]);
+    public Task<Delivery?> GetByIdAsync(Guid deliveryId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Delivery?>(null);
+    public Task<IReadOnlyList<DeliveryItem>> GetItemsByDeliveryAsync(Guid deliveryId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<DeliveryItem>>([]);
+    public void Update(Delivery delivery) { }
 }

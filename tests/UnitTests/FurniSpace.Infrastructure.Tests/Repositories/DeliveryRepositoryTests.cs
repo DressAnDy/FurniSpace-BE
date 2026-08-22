@@ -67,6 +67,70 @@ public sealed class DeliveryRepositoryTests
     }
 
     [Fact]
+    public async Task GetDetailAsync_ReturnsLinkedScheduleSummary()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var scheduleId = Guid.NewGuid();
+        var scheduledStart = DateTime.UtcNow.AddHours(1);
+        var delivery = await context.DeliverySet.SingleAsync(delivery => delivery.DeliveryId == data.NewerDeliveryId);
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = scheduleId,
+            ProjectId = Guid.NewGuid(),
+            ScheduleType = ProjectScheduleType.DELIVERY,
+            Status = ProjectScheduleStatus.CONFIRMED,
+            AssignedStaffId = Guid.NewGuid(),
+            ScheduledStart = scheduledStart,
+            ScheduledEnd = scheduledStart.AddHours(2),
+            Title = "Batch delivery"
+        });
+        delivery.ProjectScheduleId = scheduleId;
+        await context.SaveChangesAsync();
+        var repository = new DeliveryRepository(context);
+
+        var detail = await repository.GetDetailAsync(data.OrderId, data.NewerDeliveryId);
+
+        Assert.NotNull(detail);
+        Assert.Equal(scheduleId, detail!.ProjectScheduleId);
+        Assert.NotNull(detail.Schedule);
+        Assert.Equal(scheduleId, detail.Schedule!.ProjectScheduleId);
+        Assert.Equal(ProjectScheduleStatus.CONFIRMED, detail.Schedule.Status);
+        Assert.Equal(scheduledStart, detail.Schedule.ScheduledStart);
+    }
+
+    [Fact]
+    public async Task GetByOrderAsync_ReturnsLinkedScheduleSummary()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var scheduleId = Guid.NewGuid();
+        var scheduledStart = DateTime.UtcNow.AddHours(1);
+        var delivery = await context.DeliverySet.SingleAsync(delivery => delivery.DeliveryId == data.NewerDeliveryId);
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = scheduleId,
+            ProjectId = Guid.NewGuid(),
+            ScheduleType = ProjectScheduleType.DELIVERY,
+            Status = ProjectScheduleStatus.CONFIRMED,
+            AssignedStaffId = Guid.NewGuid(),
+            ScheduledStart = scheduledStart,
+            ScheduledEnd = scheduledStart.AddHours(2),
+            Title = "Batch delivery"
+        });
+        delivery.ProjectScheduleId = scheduleId;
+        await context.SaveChangesAsync();
+        var repository = new DeliveryRepository(context);
+
+        var items = await repository.GetByOrderAsync(data.OrderId);
+
+        var inProgress = Assert.Single(items, item => item.DeliveryId == data.NewerDeliveryId);
+        Assert.Equal(scheduleId, inProgress.ProjectScheduleId);
+        Assert.NotNull(inProgress.Schedule);
+        Assert.Equal(scheduleId, inProgress.Schedule!.ProjectScheduleId);
+    }
+
+    [Fact]
     public async Task GetItemsByDeliveryAsync_ReturnsOrderedItems()
     {
         await using var context = CreateContext();

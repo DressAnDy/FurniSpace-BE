@@ -702,13 +702,43 @@ public sealed class RoomPlannerSceneServiceTests
         var context = CreateContext();
         context.SceneAreas = [CreateSceneAreaWithLayout(width: 8m, length: 6m, height: 3.2m, isSpecialLayout: false)];
         var request = CreateSaveRequest();
-        request.BlueprintLayout!.Floors[0].Points =
-        [
-            new RoomPlannerPoint2Document { PointId = "p1", X = 0m, Z = 0m },
-            new RoomPlannerPoint2Document { PointId = "p2", X = 9m, Z = 0m },
-            new RoomPlannerPoint2Document { PointId = "p3", X = 9m, Z = 6m },
-            new RoomPlannerPoint2Document { PointId = "p4", X = 0m, Z = 6m }
-        ];
+        SetFloorRectangle(request.BlueprintLayout!.Floors[0], minX: 0m, minZ: 0m, width: 9m, length: 6m);
+        var documents = new FakeSceneDocumentRepository();
+        var service = CreateService(new FakeSqlSceneRepository { Context = context }, documents);
+
+        var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_BLUEPRINT_GEOMETRY", result.ErrorCode);
+        Assert.Null(documents.UpsertedDocument);
+    }
+
+    [Fact]
+    public async Task SaveSceneAsync_ForStandardAreaWithCenteredBoundary_SavesScene()
+    {
+        var context = CreateContext();
+        context.SceneAreas = [CreateSceneAreaWithLayout(width: 8m, length: 6m, height: 3.2m, isSpecialLayout: false)];
+        var request = CreateSaveRequest();
+        SetFloorRectangle(request.BlueprintLayout!.Floors[0], minX: -4m, minZ: -3m, width: 8m, length: 6m);
+        var documents = new FakeSceneDocumentRepository();
+        var service = CreateService(new FakeSqlSceneRepository { Context = context }, documents);
+
+        var result = await service.SaveSceneAsync(SceneId, request, DesignerId, "DESIGNER");
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(documents.UpsertedDocument);
+        Assert.Equal(-4m, documents.UpsertedDocument.BlueprintLayout!.Floors[0].Points[0].X);
+        Assert.Equal(3m, documents.UpsertedDocument.BlueprintLayout.Floors[0].Points[2].Z);
+    }
+
+    [Fact]
+    public async Task SaveSceneAsync_ForStandardAreaWithNonRectangularBoundary_ReturnsInvalidGeometry()
+    {
+        var context = CreateContext();
+        context.SceneAreas = [CreateSceneAreaWithLayout(width: 8m, length: 6m, height: 3.2m, isSpecialLayout: false)];
+        var request = CreateSaveRequest();
+        SetFloorRectangle(request.BlueprintLayout!.Floors[0], minX: -4m, minZ: -3m, width: 8m, length: 6m);
+        request.BlueprintLayout.Floors[0].Points[3].Z = 0m;
         var documents = new FakeSceneDocumentRepository();
         var service = CreateService(new FakeSqlSceneRepository { Context = context }, documents);
 
@@ -1362,6 +1392,45 @@ public sealed class RoomPlannerSceneServiceTests
             Lighting = new RoomPlannerLightingDocument { Preset = "DEFAULT", AmbientIntensity = 0.8m },
             Validation = new RoomPlannerValidationDocument { Status = "VALID" },
             EditorState = new RoomPlannerEditorStateDocument { ActiveTool = "SELECT", ViewMode = "THREE_D" }
+        };
+
+    private static void SetFloorRectangle(
+        RoomPlannerBlueprintFloorDocument floor,
+        decimal minX,
+        decimal minZ,
+        decimal width,
+        decimal length)
+    {
+        var maxX = minX + width;
+        var maxZ = minZ + length;
+        floor.Points =
+        [
+            new RoomPlannerPoint2Document { PointId = "p1", X = minX, Z = minZ },
+            new RoomPlannerPoint2Document { PointId = "p2", X = maxX, Z = minZ },
+            new RoomPlannerPoint2Document { PointId = "p3", X = maxX, Z = maxZ },
+            new RoomPlannerPoint2Document { PointId = "p4", X = minX, Z = maxZ }
+        ];
+        floor.Walls =
+        [
+            CreateBlueprintWall("w1", "p1", "p2"),
+            CreateBlueprintWall("w2", "p2", "p3"),
+            CreateBlueprintWall("w3", "p3", "p4"),
+            CreateBlueprintWall("w4", "p4", "p1")
+        ];
+    }
+
+    private static RoomPlannerWallDocument CreateBlueprintWall(
+        string wallId,
+        string startPointId,
+        string endPointId) =>
+        new()
+        {
+            WallId = wallId,
+            StartPointId = startPointId,
+            EndPointId = endPointId,
+            Height = 3m,
+            Thickness = 0.1m,
+            Visible = true
         };
 
     private static RoomPlannerSceneDocument CreateDocument(string id)

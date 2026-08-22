@@ -26,6 +26,7 @@ public sealed class OrderServiceInterfaceDefaultsTests
         Assert.Equal(401, (await service.GetDeliveriesAsync(Guid.NewGuid(), Guid.NewGuid())).Status);
         Assert.Equal(401, (await service.GetDeliveryDetailAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid())).Status);
         Assert.Equal(401, (await service.CompleteDeliveryBatchAsync(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid())).Status);
+        Assert.Equal(401, (await service.GetDeliveryTrackingAsync(Guid.NewGuid(), Guid.NewGuid())).Status);
     }
 
     private sealed class MinimalOrderService : IOrderService

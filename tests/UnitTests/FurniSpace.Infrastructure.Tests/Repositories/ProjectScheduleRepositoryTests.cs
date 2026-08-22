@@ -479,6 +479,22 @@ public sealed class ProjectScheduleRepositoryTests
     }
 
     [Fact]
+    public async Task ProjectScheduleRepositoryInterfaceDefaults_ReturnConfiguredFallbacks()
+    {
+        IProjectScheduleRepository repository = new MinimalProjectScheduleRepository();
+
+        Assert.False(await repository.HasActiveDeliveryScheduleAsync(Guid.NewGuid()));
+        Assert.False(await repository.HasActiveStaffOverlapAsync(
+            Guid.NewGuid(),
+            DateTime.UtcNow,
+            DateTime.UtcNow.AddHours(1)));
+        Assert.Null(await repository.GetMaxOperationalScheduleDateAsync(Guid.NewGuid()));
+        Assert.False(await repository.HasLinkedInProgressDeliveryAsync(Guid.NewGuid()));
+        Assert.Empty(await repository.GetUnusedFutureDeliverySchedulesAsync(Guid.NewGuid()));
+        Assert.False(await repository.HasUnresolvedConfirmedDeliveryScheduleAsync(Guid.NewGuid()));
+    }
+
+    [Fact]
     public async Task HasActiveDeliveryScheduleAsync_DefaultInterfaceImplementation_ReturnsFalse()
     {
         IProjectScheduleRepository repository = new MinimalProjectScheduleRepository();

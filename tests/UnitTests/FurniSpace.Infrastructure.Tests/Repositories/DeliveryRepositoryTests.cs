@@ -1,11 +1,15 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
+using FurniSpace.Infrastructure.ReadModels.Orders;
+using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Repositories.Repository;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
@@ -262,6 +266,18 @@ public sealed class DeliveryRepositoryTests
         Assert.False(hasInProgress);
     }
 
+    [Fact]
+    public async Task DeliveryRepositoryInterfaceDefaults_ReturnConfiguredFallbacks()
+    {
+        IDeliveryRepository repository = new MinimalDeliveryRepository();
+
+        Assert.Null(await repository.GetByProjectScheduleIdAsync(Guid.NewGuid()));
+        Assert.False(await repository.ExistsByProjectScheduleIdAsync(Guid.NewGuid()));
+        Assert.False(await repository.HasInProgressDeliveryAsync(Guid.NewGuid()));
+        Assert.Null(await repository.GetTrackingByOrderAsync(Guid.NewGuid(), Guid.NewGuid()));
+        Assert.Null(await repository.GetProjectDeliverySummaryAsync(Guid.NewGuid()));
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -467,4 +483,34 @@ public sealed class DeliveryRepositoryTests
         Guid OrderId,
         Guid CompletedScheduleId,
         Guid CompletedDeliveryId);
+
+    private sealed class MinimalDeliveryRepository : IDeliveryRepository
+    {
+        public Task AddAsync(Delivery delivery, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task AddItemAsync(DeliveryItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<DeliveryDetailReadModel?> GetDetailAsync(
+            Guid orderId,
+            Guid deliveryId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<DeliveryDetailReadModel?>(null);
+
+        public Task<IReadOnlyList<DeliveryListItemReadModel>> GetByOrderAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<DeliveryListItemReadModel>>([]);
+
+        public Task<Delivery?> GetByIdAsync(Guid deliveryId, CancellationToken cancellationToken = default)
+            => Task.FromResult<Delivery?>(null);
+
+        public Task<IReadOnlyList<DeliveryItem>> GetItemsByDeliveryAsync(
+            Guid deliveryId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<DeliveryItem>>([]);
+
+        public void Update(Delivery delivery)
+        {
+        }
+    }
 }

@@ -6,6 +6,7 @@ using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.Accounts.AccountServiceConstants;
 using static FurniSpace.Application.Constants.Projects.ProjectServiceConstants;
+using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Payments;
@@ -44,6 +45,8 @@ public sealed class ProjectService : IProjectService
     private readonly IProposalRepository _proposals;
     private readonly IProductionRequestRepository _productionRequests;
     private readonly IProjectScheduleRepository _schedules;
+    private readonly IDeliveryRepository _deliveries;
+    private readonly IProjectPhaseDeadlineService _phaseDeadlines;
 
     public ProjectService(
         IProjectRepository projects,
@@ -63,6 +66,8 @@ public sealed class ProjectService : IProjectService
         _proposals = dependencies.Proposals;
         _productionRequests = dependencies.ProductionRequests;
         _schedules = dependencies.Schedules;
+        _deliveries = dependencies.Deliveries;
+        _phaseDeadlines = dependencies.PhaseDeadlines;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(
@@ -571,13 +576,26 @@ public sealed class ProjectService : IProjectService
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanViewProjectDetail(project, currentUserId, roleName))
+        if (!await CanViewProjectDetailAsync(project, currentUserId, roleName, cancellationToken))
         {
             return ServiceResult<ProjectDto>.Forbidden("You do not have access to view this project.");
         }
 
+        var dto = project.Adapt<ProjectDto>();
+        var phasePlan = await _phaseDeadlines.GetAsync(projectId, currentUserId, cancellationToken);
+        if (phasePlan.Status == 200 && phasePlan.Data is not null)
+        {
+            dto.PhaseDeadlines = phasePlan.Data.Deadlines;
+        }
+
+        var deliverySummary = await _deliveries.GetProjectDeliverySummaryAsync(projectId, cancellationToken);
+        if (deliverySummary is not null)
+        {
+            dto.DeliverySummary = deliverySummary.Adapt<ProjectDeliverySummaryDto>();
+        }
+
         return ServiceResult<ProjectDto>.Success(
-            project.Adapt<ProjectDto>(),
+            dto,
             "Project detail retrieved successfully.");
     }
 
@@ -931,8 +949,18 @@ public sealed class ProjectService : IProjectService
 
         var oldStatus = project.Status;
         var newStatus = request.Status.Value;
+        var now = DateTime.UtcNow;
         project.Status = newStatus;
-        project.UpdatedAt = DateTime.UtcNow;
+        project.UpdatedAt = now;
+
+        if (newStatus == ProjectStatus.PROPOSAL_CONSULTING && oldStatus != ProjectStatus.PROPOSAL_CONSULTING)
+        {
+            await _phaseDeadlines.MarkStartedOnceAsync(
+                project.ProjectId,
+                ProjectPhaseType.PROPOSAL,
+                now,
+                cancellationToken);
+        }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
@@ -1528,10 +1556,11 @@ public sealed class ProjectService : IProjectService
             string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool CanViewProjectDetail(
+    private async Task<bool> CanViewProjectDetailAsync(
         ProjectDetailReadModel project,
         Guid currentUserId,
-        string? roleName)
+        string? roleName,
+        CancellationToken cancellationToken)
     {
         if (IsAdmin(roleName))
         {
@@ -1545,7 +1574,6 @@ public sealed class ProjectService : IProjectService
 
         if (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase))
         {
-            // Sales can inspect unassigned projects; once assigned, only assigned sales can view.
             if (!project.AssignedSalesId.HasValue && !project.AssignedDesignerId.HasValue)
             {
                 return true;
@@ -1559,8 +1587,17 @@ public sealed class ProjectService : IProjectService
             return project.AssignedDesignerId == currentUserId;
         }
 
+        if (string.Equals(roleName, ApplicationRoles.Production, StringComparison.OrdinalIgnoreCase))
+        {
+            return await _productionRequests.HasViewableAssignedRequestAsync(
+                project.ProjectId,
+                currentUserId,
+                cancellationToken);
+        }
+
         return false;
     }
+
 
     private static string? ValidateStatusUpdateNote(string? note)
     {

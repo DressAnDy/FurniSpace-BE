@@ -4,6 +4,8 @@ using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.DTOs.MeasurementImages;
+using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Enums;
@@ -19,15 +21,18 @@ public sealed class ProjectsController : BaseApiController
     private readonly IProjectService _projects;
     private readonly IProjectChatMessageService _chatMessages;
     private readonly IProposalService _proposals;
+    private readonly IMeasurementImageService _measurementImages;
 
     public ProjectsController(
         IProjectService projects,
         IProjectChatMessageService chatMessages,
-        IProposalService proposals)
+        IProposalService proposals,
+        IMeasurementImageService measurementImages)
     {
         _projects = projects;
         _chatMessages = chatMessages;
         _proposals = proposals;
+        _measurementImages = measurementImages;
     }
 
     [Authorize(Roles = "CUSTOMER")]
@@ -299,6 +304,38 @@ public sealed class ProjectsController : BaseApiController
             q,
             page,
             limit,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [HttpGet("{projectId:guid}/measurement-images")]
+    public async Task<IActionResult> GetMeasurementImages(
+        Guid projectId,
+        [FromQuery] Guid? scheduleId = null,
+        [FromQuery] Guid? projectAreaId = null,
+        [FromQuery] bool? assigned = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _measurementImages.GetProjectMeasurementImagesAsync(
+            projectId,
+            currentUserId,
+            new MeasurementImageGalleryQueryDto
+            {
+                ScheduleId = scheduleId,
+                ProjectAreaId = projectAreaId,
+                Assigned = assigned,
+                Page = page,
+                Limit = limit
+            },
             cancellationToken);
 
         return ToActionResult(result);

@@ -51,6 +51,7 @@ public class AppDbContext : DbContext
     private const string QuotationItemTypeColumnType = "quotation_item_type";
     private const string OrderStatusColumnType = "order_status";
     private const string OrderItemStatusColumnType = "order_item_status";
+    private const string DeliveryStatusColumnType = "delivery_status";
     private const string PaymentStatusColumnType = "payment_status";
     private const string PaymentTypeColumnType = "payment_type";
     private const string PaymentProviderColumnType = "payment_provider";
@@ -70,6 +71,8 @@ public class AppDbContext : DbContext
     private const string ProductVersionTypeColumnType = "product_version_type";
     private const string LayoutAssetTypeColumnType = "layout_asset_type";
     private const string LayoutAssetStatusColumnType = "layout_asset_status";
+    private const string ProjectShowcaseStatusColumnType = "project_showcase_status";
+    private const string ProjectShowcaseMediaTypeColumnType = "project_showcase_media_type";
     private const string CreatedAtColumnName = "created_at";
     private const string UpdatedAtColumnName = "updated_at";
     private const string CompletedAtColumnName = "completed_at";
@@ -119,7 +122,6 @@ public class AppDbContext : DbContext
     public DbSet<ProjectChatMessage> ProjectChatMessageSet => Set<ProjectChatMessage>();
     public DbSet<ProjectArea> ProjectAreaSet => Set<ProjectArea>();
     public DbSet<ProjectPhaseTimeline> ProjectPhaseTimelineSet => Set<ProjectPhaseTimeline>();
-    public DbSet<ProjectPhaseDeadline> ProjectPhaseDeadlineSet => Set<ProjectPhaseDeadline>();
     public DbSet<ProjectSchedule> ProjectScheduleSet => Set<ProjectSchedule>();
     public DbSet<Proposal> ProposalSet => Set<Proposal>();
     public DbSet<ProposalScene> ProposalSceneSet => Set<ProposalScene>();
@@ -132,11 +134,15 @@ public class AppDbContext : DbContext
     public DbSet<QuotationItem> QuotationItemSet => Set<QuotationItem>();
     public DbSet<Order> OrderSet => Set<Order>();
     public DbSet<OrderItem> OrderItemSet => Set<OrderItem>();
+    public DbSet<Delivery> DeliverySet => Set<Delivery>();
+    public DbSet<DeliveryItem> DeliveryItemSet => Set<DeliveryItem>();
     public DbSet<Payment> PaymentSet => Set<Payment>();
     public DbSet<PaymentTransaction> PaymentTransactionSet => Set<PaymentTransaction>();
     public DbSet<ProductionRequest> ProductionRequestSet => Set<ProductionRequest>();
     public DbSet<ProductionItem> ProductionItemSet => Set<ProductionItem>();
     public DbSet<ProjectReview> ProjectReviewSet => Set<ProjectReview>();
+    public DbSet<ProjectShowcase> ProjectShowcaseSet => Set<ProjectShowcase>();
+    public DbSet<ProjectShowcaseMedia> ProjectShowcaseMediaSet => Set<ProjectShowcaseMedia>();
     public DbSet<LayoutAsset> LayoutAssetSet => Set<LayoutAsset>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -159,7 +165,8 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:production_feasibility_status", "PENDING,FEASIBLE,NOT_FEASIBLE");
         modelBuilder.HasAnnotation("Npgsql:Enum:quotation_status", "DRAFT,SENT,REVISION_REQUESTED,REVISED,ACCEPTED,REJECTED,EXPIRED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:order_status", "CREATED,DEPOSIT_PENDING,DEPOSIT_PAID,IN_PRODUCTION,READY_FOR_DELIVERY,DELIVERING,DELIVERED,FINAL_PAYMENT_PENDING,COMPLETED,CANCELLED");
-        modelBuilder.HasAnnotation("Npgsql:Enum:order_item_status", "PENDING,IN_PRODUCTION,READY,UNAVAILABLE,DELIVERED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:order_item_status", "PENDING,IN_PRODUCTION,READY,PARTIALLY_DELIVERED,UNAVAILABLE,DELIVERED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:delivery_status", "IN_PROGRESS,COMPLETED");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_status", "PENDING,PROCESSING,PAID,CANCELLED,EXPIRED,REFUNDED");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_type", "PROJECT_START_FEE,DEPOSIT,REMAINING_PAYMENT,FULL_PAYMENT,REFUND,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_provider", "PAYOS,SEPAY,CASH,MANUAL_BANK_TRANSFER,OTHER");
@@ -174,11 +181,13 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_message_type", "TEXT,FILE,SYSTEM");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_status", "ACTIVE,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_visibility", "CUSTOMER_VISIBLE,STAFF_ONLY,PRIVATE");
-        modelBuilder.HasAnnotation("Npgsql:Enum:file_type", "SPACE_IMAGE,FLOOR_PLAN,REFERENCE_IMAGE,BRAND_ASSET,CAD_FILE,PDF_DRAWING,MEASUREMENT_REPORT,LIDAR_SCAN,MODEL_3D,TEXTURE,PRODUCT_PREVIEW,PROPOSAL_PREVIEW,PROPOSAL_FILE,QUOTATION_FILE,ORDER_DOCUMENT,PRODUCTION_FILE,DELIVERY_PHOTO,DELIVERY_NOTE,REVIEW_IMAGE,OTHER");
+        modelBuilder.HasAnnotation("Npgsql:Enum:file_type", "SPACE_IMAGE,FLOOR_PLAN,REFERENCE_IMAGE,BRAND_ASSET,CAD_FILE,PDF_DRAWING,MEASUREMENT_REPORT,LIDAR_SCAN,MODEL_3D,TEXTURE,PREVIEW,PRODUCT_PREVIEW,PROPOSAL_PREVIEW,PROPOSAL_FILE,QUOTATION_FILE,ORDER_DOCUMENT,PRODUCTION_FILE,DELIVERY_PHOTO,DELIVERY_NOTE,REVIEW_IMAGE,PORTFOLIO_IMAGE,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:product_status", "ACTIVE,INACTIVE,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:product_version_type", "STANDARD,CUSTOM,PROJECT_SPECIFIC");
         modelBuilder.HasAnnotation("Npgsql:Enum:layout_asset_type", "WALL_MATERIAL,FLOOR_MATERIAL,STAIR,DOOR,WINDOW,COLUMN,BEAM,DECORATIVE_WALL,DECORATIVE_FLOOR,DECORATIVE_OBJECT,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:layout_asset_status", "ACTIVE,INACTIVE,ARCHIVED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:project_showcase_status", "DRAFT,PENDING_REVIEW,PUBLISHED,ARCHIVED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:project_showcase_media_type", "BEFORE,AFTER,FINAL,DETAIL,OTHER");
 
         ConfigureRoles(modelBuilder);
         ConfigureAccounts(modelBuilder);
@@ -194,7 +203,6 @@ public class AppDbContext : DbContext
         ConfigureProjectChatMessages(modelBuilder);
         ConfigureProjectAreas(modelBuilder);
         ConfigureProjectPhaseTimelines(modelBuilder);
-        ConfigureProjectPhaseDeadlines(modelBuilder);
         ConfigureProjectSchedules(modelBuilder);
         ConfigureProposals(modelBuilder);
         ConfigureProposalScenes(modelBuilder);
@@ -207,11 +215,15 @@ public class AppDbContext : DbContext
         ConfigureQuotationItems(modelBuilder);
         ConfigureOrders(modelBuilder);
         ConfigureOrderItems(modelBuilder);
+        ConfigureDeliveries(modelBuilder);
+        ConfigureDeliveryItems(modelBuilder);
         ConfigurePayments(modelBuilder);
         ConfigurePaymentTransactions(modelBuilder);
         ConfigureProductionRequests(modelBuilder);
         ConfigureProductionItems(modelBuilder);
         ConfigureProjectReviews(modelBuilder);
+        ConfigureProjectShowcases(modelBuilder);
+        ConfigureProjectShowcaseMedia(modelBuilder);
         ConfigureLayoutAssets(modelBuilder);
     }
 
@@ -599,34 +611,6 @@ public class AppDbContext : DbContext
         });
     }
 
-    private static void ConfigureProjectPhaseDeadlines(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<ProjectPhaseDeadline>(entity =>
-        {
-            entity.ToTable("project_phase_deadlines");
-            entity.HasKey(e => e.ProjectPhaseDeadlineId);
-            entity.Property(e => e.ProjectPhaseDeadlineId)
-                .HasColumnName("project_phase_deadline_id")
-                .HasColumnType(UuidColumnType);
-            entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.Phase).HasColumnName("phase").HasColumnType(ProjectPhaseTypeColumnType).IsRequired();
-            entity.Property(e => e.DueDate).HasColumnName("due_date").HasColumnType(DateColumnType).IsRequired();
-            entity.Property(e => e.CompletedAt).HasColumnName(CompletedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
-            entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType).IsRequired();
-            entity.Property(e => e.UpdatedBy).HasColumnName("updated_by").HasColumnType(UuidColumnType);
-            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
-            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
-            entity.HasIndex(e => e.ProjectId).HasDatabaseName("idx_project_phase_deadlines_project");
-            entity.HasIndex(e => e.DueDate).HasDatabaseName("idx_project_phase_deadlines_due_date");
-            entity.HasIndex(e => new { e.ProjectId, e.Phase })
-                .IsUnique()
-                .HasDatabaseName("uq_project_phase_deadlines_project_phase");
-            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UpdatedBy).OnDelete(DeleteBehavior.Restrict);
-        });
-    }
-
     private static void ConfigureProjectSchedules(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<ProjectSchedule>(entity =>
@@ -650,6 +634,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.CancelledAt).HasColumnName(CancelledAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CompletedAt).HasColumnName("completed_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => new { e.ProjectId, e.ScheduledStart })
                 .HasDatabaseName("idx_project_schedules_project_sort")
                 .IsDescending(false, true);
@@ -1031,6 +1016,7 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ProductVersionNameSnapshot).HasColumnName(ProductVersionNameSnapshotColumnName).HasColumnType(Varchar150ColumnType);
             entity.Property(e => e.ProductVersionCodeSnapshot).HasColumnName("product_version_code_snapshot").HasColumnType(Varchar50ColumnType);
             entity.Property(e => e.Quantity).HasColumnName(QuantityColumnName).HasColumnType(IntegerColumnType).HasDefaultValue(1).IsRequired();
+            entity.Property(e => e.DeliveredQuantity).HasColumnName("delivered_quantity").HasColumnType(IntegerColumnType).HasDefaultValue(0).IsRequired();
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(OrderItemStatusColumnType).HasDefaultValueSql("'PENDING'::order_item_status");
             entity.Property(e => e.UnitPrice).HasColumnName("unit_price").HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
             entity.Property(e => e.DiscountAmount).HasColumnName(DiscountAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
@@ -1048,6 +1034,53 @@ public class AppDbContext : DbContext
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.DeliveredBy).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.UnavailableConfirmedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureDeliveries(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<Delivery>(entity =>
+        {
+            entity.ToTable("deliveries");
+            entity.HasKey(e => e.DeliveryId);
+            entity.Property(e => e.DeliveryId).HasColumnName("delivery_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.OrderId).HasColumnName(OrderIdColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.ProjectScheduleId).HasColumnName("project_schedule_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(DeliveryStatusColumnType).HasDefaultValueSql("'IN_PROGRESS'::delivery_status");
+            entity.Property(e => e.CreatedBy).HasColumnName("created_by").HasColumnType(UuidColumnType);
+            entity.Property(e => e.CompletedBy).HasColumnName("completed_by").HasColumnType(UuidColumnType);
+            entity.Property(e => e.Note).HasColumnName(NoteColumnName).HasColumnType(TextColumnType);
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CompletedAt).HasColumnName(CompletedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.HasIndex(e => e.OrderId).HasDatabaseName("idx_deliveries_order_id");
+            entity.HasIndex(e => e.ProjectScheduleId).HasDatabaseName("idx_deliveries_project_schedule_id");
+            entity.HasIndex(e => e.ProjectScheduleId)
+                .IsUnique()
+                .HasDatabaseName("ux_deliveries_project_schedule_id")
+                .HasFilter("project_schedule_id IS NOT NULL");
+            entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProjectSchedule>().WithMany().HasForeignKey(e => e.ProjectScheduleId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CompletedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureDeliveryItems(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DeliveryItem>(entity =>
+        {
+            entity.ToTable("delivery_items");
+            entity.HasKey(e => e.DeliveryItemId);
+            entity.Property(e => e.DeliveryItemId).HasColumnName("delivery_item_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.DeliveryId).HasColumnName("delivery_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.OrderItemId).HasColumnName("order_item_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.Quantity).HasColumnName(QuantityColumnName).HasColumnType(IntegerColumnType).IsRequired();
+            entity.Property(e => e.Note).HasColumnName(NoteColumnName).HasColumnType(TextColumnType);
+            entity.HasIndex(e => e.DeliveryId).HasDatabaseName("idx_delivery_items_delivery_id");
+            entity.HasIndex(e => e.OrderItemId).HasDatabaseName("idx_delivery_items_order_item_id");
+            entity.HasOne<Delivery>().WithMany().HasForeignKey(e => e.DeliveryId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<OrderItem>().WithMany().HasForeignKey(e => e.OrderItemId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 
@@ -1219,6 +1252,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ServiceQualityRating).HasColumnName("service_quality_rating").HasColumnType(IntegerColumnType);
             entity.Property(e => e.DeliveryRating).HasColumnName("delivery_rating").HasColumnType(IntegerColumnType);
             entity.Property(e => e.Comment).HasColumnName("comment").HasColumnType(TextColumnType);
+            entity.Property(e => e.AllowPublicDisplay).HasColumnName("allow_public_display").HasColumnType(BooleanColumnType).HasDefaultValue(false).IsRequired();
+            entity.Property(e => e.PublicDisplayConsentAt).HasColumnName("public_display_consent_at").HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => e.ProjectId).IsUnique();
@@ -1247,6 +1282,62 @@ public class AppDbContext : DbContext
             entity.HasIndex(e => e.AssetType);
             entity.HasIndex(e => e.Status);
             entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureProjectShowcases(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ProjectShowcase>(entity =>
+        {
+            entity.ToTable("project_showcases");
+            entity.HasKey(e => e.ProjectShowcaseId);
+            entity.Property(e => e.ProjectShowcaseId).HasColumnName("project_showcase_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.FeaturedReviewId).HasColumnName("featured_review_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.Title).HasColumnName(TitleColumnName).HasColumnType(Varchar150ColumnType).IsRequired();
+            entity.Property(e => e.Slug).HasColumnName("slug").HasColumnType(Varchar255ColumnType).IsRequired();
+            entity.Property(e => e.Summary).HasColumnName("summary").HasColumnType(TextColumnType);
+            entity.Property(e => e.Description).HasColumnName(DescriptionColumnName).HasColumnType(TextColumnType);
+            entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(ProjectShowcaseStatusColumnType).HasDefaultValueSql("'DRAFT'::project_showcase_status").IsRequired();
+            entity.Property(e => e.CreatedBy).HasColumnName(CreatedByColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.ApprovedBy).HasColumnName("approved_by").HasColumnType(UuidColumnType);
+            entity.Property(e => e.PublishedBy).HasColumnName("published_by").HasColumnType(UuidColumnType);
+            entity.Property(e => e.ApprovedAt).HasColumnName("approved_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.PublishedAt).HasColumnName("published_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.ArchivedAt).HasColumnName("archived_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.HasIndex(e => e.ProjectId).IsUnique();
+            entity.HasIndex(e => e.Slug).IsUnique();
+            entity.HasIndex(e => e.Status);
+            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProjectReview>().WithMany().HasForeignKey(e => e.FeaturedReviewId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.CreatedBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ApprovedBy).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.PublishedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureProjectShowcaseMedia(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ProjectShowcaseMedia>(entity =>
+        {
+            entity.ToTable("project_showcase_media");
+            entity.HasKey(e => e.ProjectShowcaseMediaId);
+            entity.Property(e => e.ProjectShowcaseMediaId).HasColumnName("project_showcase_media_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.ProjectShowcaseId).HasColumnName("project_showcase_id").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.FileId).HasColumnName("file_id").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.MediaType).HasColumnName("media_type").HasColumnType(ProjectShowcaseMediaTypeColumnType).IsRequired();
+            entity.Property(e => e.Title).HasColumnName(TitleColumnName).HasColumnType(Varchar150ColumnType);
+            entity.Property(e => e.Caption).HasColumnName("caption").HasColumnType(TextColumnType);
+            entity.Property(e => e.IsCover).HasColumnName("is_cover").HasColumnType(BooleanColumnType).HasDefaultValue(false).IsRequired();
+            entity.Property(e => e.DisplayOrder).HasColumnName("display_order").HasColumnType(IntegerColumnType).IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.HasIndex(e => new { e.ProjectShowcaseId, e.DisplayOrder });
+            entity.HasIndex(e => new { e.ProjectShowcaseId, e.FileId }).IsUnique();
+            entity.HasOne<ProjectShowcase>().WithMany().HasForeignKey(e => e.ProjectShowcaseId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<StoredFile>().WithMany().HasForeignKey(e => e.FileId).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

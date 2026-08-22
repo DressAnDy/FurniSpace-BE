@@ -13,4 +13,10 @@ public static class ProjectScheduleErrorCodes
     public const string ActiveDeliveryScheduleExists = "ACTIVE_DELIVERY_SCHEDULE_EXISTS";
     public const string DeliveryScheduleNotAllowedAfterCompletion = "DELIVERY_SCHEDULE_NOT_ALLOWED_AFTER_COMPLETION";
     public const string StaffScheduleOverlap = "STAFF_SCHEDULE_OVERLAP";
+    public const string ScheduleCompleteBeforeStart = "SCHEDULE_COMPLETE_BEFORE_START";
+    public const string SalesCannotCreateDeliverySchedule = "SALES_CANNOT_CREATE_DELIVERY_SCHEDULE";
+    public const string NoRemainingDeliveryQuantity = "NO_REMAINING_DELIVERY_QUANTITY";
+    public const string ProductionNotCompletedForDeliverySchedule = "PRODUCTION_NOT_COMPLETED_FOR_DELIVERY_SCHEDULE";
+    public const string DeliveryScheduleRequiresCompletedBatch = "DELIVERY_SCHEDULE_REQUIRES_COMPLETED_BATCH";
+    public const string DeliveryInProgressBlocksScheduleCancel = "DELIVERY_IN_PROGRESS_BLOCKS_SCHEDULE_CANCEL";
 }

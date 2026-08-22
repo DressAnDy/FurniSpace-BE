@@ -2,7 +2,9 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.Application.DTOs.MeasurementImages;
 using FurniSpace.Application.DTOs.ProjectSchedules;
+using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -15,10 +17,14 @@ namespace FurniSpace.API.Controllers.Projects;
 public sealed class ProjectSchedulesController : BaseApiController
 {
     private readonly IProjectScheduleService _schedules;
+    private readonly IMeasurementImageService _measurementImages;
 
-    public ProjectSchedulesController(IProjectScheduleService schedules)
+    public ProjectSchedulesController(
+        IProjectScheduleService schedules,
+        IMeasurementImageService measurementImages)
     {
         _schedules = schedules;
+        _measurementImages = measurementImages;
     }
 
     [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
@@ -150,6 +156,57 @@ public sealed class ProjectSchedulesController : BaseApiController
         }
 
         var result = await _schedules.DeleteAsync(scheduleId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpPost("{scheduleId:guid}/measurement-images")]
+    public async Task<IActionResult> RegisterMeasurementImage(
+        Guid scheduleId,
+        [FromBody] RegisterMeasurementImageRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _measurementImages.RegisterMeasurementImageAsync(
+            scheduleId,
+            currentUserId,
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [HttpGet("{scheduleId:guid}/measurement-images")]
+    public async Task<IActionResult> GetMeasurementImages(
+        Guid scheduleId,
+        [FromQuery] Guid? projectAreaId = null,
+        [FromQuery] bool? assigned = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _measurementImages.GetScheduleMeasurementImagesAsync(
+            scheduleId,
+            currentUserId,
+            new MeasurementImageGalleryQueryDto
+            {
+                ProjectAreaId = projectAreaId,
+                Assigned = assigned,
+                Page = page,
+                Limit = limit
+            },
+            cancellationToken);
+
         return ToActionResult(result);
     }
 

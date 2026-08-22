@@ -263,7 +263,7 @@ public sealed class DashboardQueueReadRepositoryTests
     {
         await using var context = CreateContext();
         var seed = await SeedAsync(context);
-        context.ProjectPhaseDeadlineSet.AddRange(
+        context.ProjectPhaseTimelineSet.AddRange(
             CreatePhaseDeadline(seed.SalesProjectId, ProjectPhaseType.PROPOSAL, new DateOnly(2026, 8, 15), seed.SalesId, seed.Now),
             CreatePhaseDeadline(seed.SalesProjectId, ProjectPhaseType.PRODUCTION, new DateOnly(2026, 8, 25), seed.SalesId, seed.Now));
         await context.SaveChangesAsync();
@@ -292,7 +292,7 @@ public sealed class DashboardQueueReadRepositoryTests
     {
         await using var context = CreateContext();
         var seed = await SeedAsync(context);
-        context.ProjectPhaseDeadlineSet.Add(
+        context.ProjectPhaseTimelineSet.Add(
             CreatePhaseDeadline(seed.DesignerProjectId, ProjectPhaseType.PRODUCTION, new DateOnly(2026, 9, 20), seed.SalesId, seed.Now));
         await context.SaveChangesAsync();
         var repository = new DashboardQueueReadRepository(context);
@@ -448,16 +448,16 @@ public sealed class DashboardQueueReadRepositoryTests
         };
     }
 
-    private static ProjectPhaseDeadline CreatePhaseDeadline(
+    private static ProjectPhaseTimeline CreatePhaseDeadline(
         Guid projectId,
         ProjectPhaseType phase,
         DateOnly dueDate,
         Guid createdBy,
         DateTime now)
     {
-        return new ProjectPhaseDeadline
+        return new ProjectPhaseTimeline
         {
-            ProjectPhaseDeadlineId = Guid.NewGuid(),
+            ProjectPhaseTimelineId = Guid.NewGuid(),
             ProjectId = projectId,
             Phase = phase,
             DueDate = dueDate,

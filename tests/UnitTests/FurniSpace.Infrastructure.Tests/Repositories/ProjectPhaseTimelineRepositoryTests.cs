@@ -12,38 +12,38 @@ using Xunit;
 
 namespace FurniSpace.Infrastructure.Tests.Repositories;
 
-public sealed class ProjectPhaseDeadlineRepositoryTests
+public sealed class ProjectPhaseTimelineRepositoryTests
 {
     [Fact]
-    public async Task GetByProjectAsync_ReturnsDeadlinesOrderedByDueDate()
+    public async Task GetByProjectAsync_ReturnsTimelinesOrderedByDueDate()
     {
         await using var context = CreateContext();
         var projectId = Guid.NewGuid();
-        var production = CreateDeadline(projectId, ProjectPhaseType.PRODUCTION, new DateOnly(2026, 9, 25));
-        var proposal = CreateDeadline(projectId, ProjectPhaseType.PROPOSAL, new DateOnly(2026, 9, 10));
-        context.ProjectPhaseDeadlineSet.AddRange(production, proposal, CreateDeadline(Guid.NewGuid(), ProjectPhaseType.PROPOSAL, new DateOnly(2026, 9, 1)));
+        var production = CreateTimeline(projectId, ProjectPhaseType.PRODUCTION, new DateOnly(2026, 9, 25));
+        var proposal = CreateTimeline(projectId, ProjectPhaseType.PROPOSAL, new DateOnly(2026, 9, 10));
+        context.ProjectPhaseTimelineSet.AddRange(production, proposal, CreateTimeline(Guid.NewGuid(), ProjectPhaseType.PROPOSAL, new DateOnly(2026, 9, 1)));
         await context.SaveChangesAsync();
-        var repository = new ProjectPhaseDeadlineRepository(context);
+        var repository = new ProjectPhaseTimelineRepository(context);
 
         var result = await repository.GetByProjectAsync(projectId);
 
-        Assert.Equal([proposal.ProjectPhaseDeadlineId, production.ProjectPhaseDeadlineId], result.Select(item => item.ProjectPhaseDeadlineId));
+        Assert.Equal([proposal.ProjectPhaseTimelineId, production.ProjectPhaseTimelineId], result.Select(item => item.ProjectPhaseTimelineId));
     }
 
     [Fact]
-    public async Task GetByProjectAndPhaseAsync_ReturnsMatchingDeadline()
+    public async Task GetByProjectAndPhaseAsync_ReturnsMatchingTimeline()
     {
         await using var context = CreateContext();
         var projectId = Guid.NewGuid();
-        var deadline = CreateDeadline(projectId, ProjectPhaseType.PROPOSAL, new DateOnly(2026, 9, 10));
-        context.ProjectPhaseDeadlineSet.Add(deadline);
+        var timeline = CreateTimeline(projectId, ProjectPhaseType.PROPOSAL, new DateOnly(2026, 9, 10));
+        context.ProjectPhaseTimelineSet.Add(timeline);
         await context.SaveChangesAsync();
-        var repository = new ProjectPhaseDeadlineRepository(context);
+        var repository = new ProjectPhaseTimelineRepository(context);
 
         var result = await repository.GetByProjectAndPhaseAsync(projectId, ProjectPhaseType.PROPOSAL);
 
         Assert.NotNull(result);
-        Assert.Equal(deadline.ProjectPhaseDeadlineId, result.ProjectPhaseDeadlineId);
+        Assert.Equal(timeline.ProjectPhaseTimelineId, result.ProjectPhaseTimelineId);
     }
 
     private static AppDbContext CreateContext()
@@ -53,14 +53,14 @@ public sealed class ProjectPhaseDeadlineRepositoryTests
             .Options);
     }
 
-    private static ProjectPhaseDeadline CreateDeadline(
+    private static ProjectPhaseTimeline CreateTimeline(
         Guid projectId,
         ProjectPhaseType phase,
         DateOnly dueDate)
     {
-        return new ProjectPhaseDeadline
+        return new ProjectPhaseTimeline
         {
-            ProjectPhaseDeadlineId = Guid.NewGuid(),
+            ProjectPhaseTimelineId = Guid.NewGuid(),
             ProjectId = projectId,
             Phase = phase,
             DueDate = dueDate,

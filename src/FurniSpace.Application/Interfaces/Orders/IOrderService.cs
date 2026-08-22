@@ -54,4 +54,47 @@ public interface IOrderService
     {
         return Task.FromResult(ServiceResult<OrderCompletionDto>.Unauthorized());
     }
+
+    Task<ServiceResult<DeliveryDetailDto>> CreateDeliveryBatchAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CreateDeliveryBatchRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<DeliveryDetailDto>.Unauthorized());
+    }
+
+    Task<ServiceResult<DeliveryListResponseDto>> GetDeliveriesAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<DeliveryListResponseDto>.Unauthorized());
+    }
+
+    Task<ServiceResult<DeliveryDetailDto>> GetDeliveryDetailAsync(
+        Guid orderId,
+        Guid deliveryId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<DeliveryDetailDto>.Unauthorized());
+    }
+
+    Task<ServiceResult<DeliveryBatchCompletionDto>> CompleteDeliveryBatchAsync(
+        Guid orderId,
+        Guid deliveryId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<DeliveryBatchCompletionDto>.Unauthorized());
+    }
+
+    Task<ServiceResult<OrderDeliveryTrackingDto>> GetDeliveryTrackingAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<OrderDeliveryTrackingDto>.Unauthorized());
+    }
 }

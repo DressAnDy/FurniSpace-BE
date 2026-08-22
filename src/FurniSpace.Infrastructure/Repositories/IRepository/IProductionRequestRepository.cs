@@ -59,6 +59,14 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         Guid productionAccountId,
         CancellationToken cancellationToken = default);
 
+    Task<bool> HasAssignedCompletedProductionForProjectAsync(
+        Guid projectId,
+        Guid productionAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
     Task<ProductionRequestDetailReadModel?> GetDetailAsync(
         Guid productionRequestId,
         CancellationToken cancellationToken = default);

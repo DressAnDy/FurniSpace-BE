@@ -184,24 +184,24 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         ProjectPhaseDeadlineRiskQueryReadModel query,
         CancellationToken cancellationToken = default)
     {
-        var deadlines = _db.ProjectPhaseDeadlineSet.AsQueryable();
+        var timelines = _db.ProjectPhaseTimelineSet.AsQueryable();
 
         if (query.Phase.HasValue)
         {
-            deadlines = deadlines.Where(deadline => deadline.Phase == query.Phase.Value);
+            timelines = timelines.Where(timeline => timeline.Phase == query.Phase.Value);
         }
 
         if (query.From.HasValue)
         {
-            deadlines = deadlines.Where(deadline => deadline.DueDate >= query.From.Value);
+            timelines = timelines.Where(timeline => timeline.DueDate >= query.From.Value);
         }
 
         if (query.To.HasValue)
         {
-            deadlines = deadlines.Where(deadline => deadline.DueDate <= query.To.Value);
+            timelines = timelines.Where(timeline => timeline.DueDate <= query.To.Value);
         }
 
-        return PhaseDeadlineRiskRows(deadlines, query).ToListAsync(cancellationToken);
+        return PhaseDeadlineRiskRows(timelines, query).ToListAsync(cancellationToken);
     }
 
     private IQueryable<Domain.Entities.Project> BuildSalesProjectQuery(DashboardQueueFilterReadModel filter)
@@ -447,23 +447,23 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
     }
 
     private IQueryable<ProjectPhaseDeadlineRiskRowReadModel> PhaseDeadlineRiskRows(
-        IQueryable<Domain.Entities.ProjectPhaseDeadline> deadlines,
+        IQueryable<Domain.Entities.ProjectPhaseTimeline> timelines,
         ProjectPhaseDeadlineRiskQueryReadModel query)
     {
         var rows =
-            from deadline in deadlines
-            join project in _db.ProjectSet on deadline.ProjectId equals project.ProjectId
+            from timeline in timelines
+            join project in _db.ProjectSet on timeline.ProjectId equals project.ProjectId
             where (!query.SalesId.HasValue || project.AssignedSalesId == query.SalesId.Value) &&
                   (!query.DesignerId.HasValue || project.AssignedDesignerId == query.DesignerId.Value)
-            orderby deadline.DueDate, deadline.Phase, project.ProjectCode
+            orderby timeline.DueDate, timeline.Phase, project.ProjectCode
             select new ProjectPhaseDeadlineRiskRowReadModel
             {
                 ProjectId = project.ProjectId,
                 ProjectCode = project.ProjectCode,
                 ProjectName = project.ProjectName,
-                Phase = deadline.Phase,
-                DueDate = deadline.DueDate,
-                CompletedAt = deadline.CompletedAt,
+                Phase = timeline.Phase,
+                DueDate = timeline.DueDate,
+                CompletedAt = timeline.CompletedAt,
                 ProjectStatus = project.Status,
                 AssignedSalesId = project.AssignedSalesId,
                 AssignedSalesName = project.AssignedSalesId.HasValue

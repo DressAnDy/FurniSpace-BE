@@ -13,6 +13,7 @@ public class OrderItem
     public string? ProductVersionNameSnapshot { get; set; }
     public string? ProductVersionCodeSnapshot { get; set; }
     public int? Quantity { get; set; }
+    public int DeliveredQuantity { get; set; }
     public OrderItemStatus? Status { get; set; }
     public decimal? UnitPrice { get; set; }
     public decimal? DiscountAmount { get; set; }

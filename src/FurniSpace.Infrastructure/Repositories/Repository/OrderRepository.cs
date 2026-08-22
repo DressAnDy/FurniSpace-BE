@@ -177,7 +177,9 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
         var items = await GetItemsByOrderAsync(orderId, cancellationToken);
         var deliverableItems = items.Where(IsDeliverableItem).ToList();
         return deliverableItems.Count > 0 &&
-            deliverableItems.All(item => item.Status == OrderItemStatus.READY);
+            deliverableItems.All(item =>
+                item.Status == OrderItemStatus.READY &&
+                item.DeliveredQuantity == 0);
     }
 
     public async Task<bool> AllDeliverableItemsDeliveredAsync(
@@ -187,7 +189,43 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
         var items = await GetItemsByOrderAsync(orderId, cancellationToken);
         var deliverableItems = items.Where(IsDeliverableItem).ToList();
         return deliverableItems.Count > 0 &&
-            deliverableItems.All(item => item.Status == OrderItemStatus.DELIVERED);
+            deliverableItems.All(IsFullyDelivered);
+    }
+
+    public async Task<int> GetTotalRemainingDeliverableQuantityAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var items = await GetItemsByOrderAsync(orderId, cancellationToken);
+        return items
+            .Where(IsDeliverableItem)
+            .Sum(item => Math.Max(0, (item.Quantity ?? 0) - item.DeliveredQuantity));
+    }
+
+    public async Task<IReadOnlyList<OrderItem>> GetItemsByIdsForUpdateAsync(
+        IReadOnlyCollection<Guid> orderItemIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (orderItemIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await DbContext.OrderItemSet
+            .FromSqlInterpolated(
+                $"SELECT * FROM order_items WHERE order_item_id = ANY({orderItemIds.ToArray()}) FOR UPDATE")
+            .ToListAsync(cancellationToken);
+    }
+
+    private static bool IsFullyDelivered(OrderItem item)
+    {
+        if (item.Status == OrderItemStatus.DELIVERED)
+        {
+            return true;
+        }
+
+        var quantity = item.Quantity ?? 0;
+        return quantity > 0 && item.DeliveredQuantity >= quantity;
     }
 
     private static bool IsDeliverableItem(OrderItem item)
@@ -246,6 +284,7 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                     ProductNameSnapshot = pair.orderItem.ProductNameSnapshot,
                     ItemName = quotationItem != null ? quotationItem.ItemName : pair.orderItem.ProductNameSnapshot,
                     Quantity = pair.orderItem.Quantity,
+                    DeliveredQuantity = pair.orderItem.DeliveredQuantity,
                     Status = pair.orderItem.Status,
                     DeliveredAt = pair.orderItem.DeliveredAt,
                     DeliveredBy = pair.orderItem.DeliveredBy,

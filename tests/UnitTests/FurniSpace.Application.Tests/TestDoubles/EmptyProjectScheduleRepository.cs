@@ -14,6 +14,18 @@ namespace FurniSpace.Application.Tests.TestDoubles;
 
 internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepository
 {
+    public ProjectScheduleDetailReadModel? ScheduleDetail { get; init; }
+
+    public ProjectSchedule? ScheduleEntity { get; init; }
+
+    public bool ConfirmedDeliverySchedule { get; init; }
+
+    public bool HasUnresolvedConfirmedDeliverySchedule { get; init; }
+
+    public bool HasLinkedInProgressDelivery { get; init; }
+
+    public IReadOnlyList<ProjectSchedule> UnusedFutureDeliverySchedules { get; init; } = [];
+
     public IQueryable<ProjectSchedule> Query()
     {
         return Enumerable.Empty<ProjectSchedule>().AsQueryable();
@@ -21,6 +33,11 @@ internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepositor
 
     public Task<ProjectSchedule?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        if (ScheduleEntity?.ScheduleId == id)
+        {
+            return Task.FromResult<ProjectSchedule?>(ScheduleEntity);
+        }
+
         return Task.FromResult<ProjectSchedule?>(null);
     }
 
@@ -41,7 +58,10 @@ internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepositor
 
     public void Update(ProjectSchedule entity)
     {
+        UpdatedSchedules.Add(entity);
     }
+
+    public List<ProjectSchedule> UpdatedSchedules { get; } = [];
 
     public void Remove(ProjectSchedule entity)
     {
@@ -56,7 +76,7 @@ internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepositor
         Guid scheduleId,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult<ProjectScheduleDetailReadModel?>(null);
+        return Task.FromResult(ScheduleDetail?.ScheduleId == scheduleId ? ScheduleDetail : null);
     }
 
     public Task<(IReadOnlyList<ProjectScheduleListItemReadModel> Items, int Total)> GetListByProjectAsync(
@@ -98,12 +118,38 @@ internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepositor
         return Task.FromResult(false);
     }
 
-    public bool ConfirmedDeliverySchedule { get; init; }
-
     public Task<bool> HasConfirmedDeliveryScheduleAsync(
         Guid projectId,
         CancellationToken cancellationToken = default)
     {
         return Task.FromResult(ConfirmedDeliverySchedule);
+    }
+
+    public Task<bool> HasActiveDeliveryScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ConfirmedDeliverySchedule);
+    }
+
+    public Task<bool> HasUnresolvedConfirmedDeliveryScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(HasUnresolvedConfirmedDeliverySchedule);
+    }
+
+    public Task<bool> HasLinkedInProgressDeliveryAsync(
+        Guid scheduleId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(HasLinkedInProgressDelivery);
+    }
+
+    public Task<IReadOnlyList<ProjectSchedule>> GetUnusedFutureDeliverySchedulesAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(UnusedFutureDeliverySchedules);
     }
 }

@@ -71,6 +71,15 @@ public sealed class MeasurementScheduleApiIntegrationTests : IAsyncLifetime
         var confirmResponse = await _fixture.Client.SendAsync(confirmRequest);
         Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
 
+        await using (var advanceContext = _fixture.Database.CreateDbContext())
+        {
+            var scheduleToAdvance = await advanceContext.ProjectScheduleSet
+                .SingleAsync(schedule => schedule.ScheduleId == created.Data.ScheduleId);
+            scheduleToAdvance.ScheduledStart = DateTime.UtcNow.AddHours(-2);
+            scheduleToAdvance.ScheduledEnd = DateTime.UtcNow.AddHours(-1);
+            await advanceContext.SaveChangesAsync();
+        }
+
         using var completeRequest = IntegrationHttp.AuthenticatedJson(
             HttpMethod.Patch,
             $"/project-schedules/{created.Data.ScheduleId}/status",

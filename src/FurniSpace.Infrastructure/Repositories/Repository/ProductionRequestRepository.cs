@@ -237,6 +237,19 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             cancellationToken);
     }
 
+    public Task<bool> HasAssignedCompletedProductionForProjectAsync(
+        Guid projectId,
+        Guid productionAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProductionRequestSet.AnyAsync(
+            request =>
+                request.ProjectId == projectId &&
+                request.AssignedTo == productionAccountId &&
+                request.Status == ProductionRequestStatus.COMPLETED,
+            cancellationToken);
+    }
+
     public async Task<ProductionRequestDetailReadModel?> GetDetailAsync(
         Guid productionRequestId,
         CancellationToken cancellationToken = default)

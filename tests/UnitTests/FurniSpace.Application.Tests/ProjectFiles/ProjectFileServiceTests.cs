@@ -637,6 +637,7 @@ public sealed class ProjectFileServiceTests
             repository,
             products ?? new FakeCatalogProductRepository(),
             productVersions ?? new FakeCatalogProductVersionRepository(),
+            new FakeLayoutAssetRepository(),
             new ProjectFileServiceDependencies(
                 global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
                 storage,
@@ -1003,6 +1004,12 @@ public sealed class ProjectFileServiceTests
             IReadOnlyCollection<FileType> fileTypes,
             CancellationToken cancellationToken = default)
             => Task.FromResult(false);
+
+        public Task<ProjectLinkedFileReadModel?> GetProjectLinkedActiveFileAsync(
+            Guid projectId,
+            Guid fileId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProjectLinkedFileReadModel?>(null);
     }
 
     private sealed class FakeCatalogProductRepository : IProductRepository
@@ -1071,5 +1078,41 @@ public sealed class ProjectFileServiceTests
             IReadOnlyCollection<Guid> productVersionIds,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyDictionary<Guid, decimal?>>(new Dictionary<Guid, decimal?>());
+    }
+
+    private sealed class FakeLayoutAssetRepository : ILayoutAssetRepository
+    {
+        public Task AddAsync(LayoutAsset layoutAsset, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<LayoutAsset?> GetByIdAsync(Guid layoutAssetId, CancellationToken cancellationToken = default)
+            => Task.FromResult<LayoutAsset?>(null);
+
+        public Task<LayoutAsset?> GetForUpdateAsync(Guid layoutAssetId, CancellationToken cancellationToken = default)
+            => Task.FromResult<LayoutAsset?>(null);
+
+        public Task<bool> AssetCodeExistsAsync(string normalizedAssetCode, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> AssetCodeExistsExceptAsync(
+            string normalizedAssetCode,
+            Guid layoutAssetId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<IReadOnlyList<LayoutAsset>> GetPagedAsync(
+            LayoutAssetType? assetType,
+            LayoutAssetStatus? status,
+            string? search,
+            int page,
+            int pageSize,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<LayoutAsset>>([]);
+
+        public Task<int> CountAsync(
+            LayoutAssetType? assetType,
+            LayoutAssetStatus? status,
+            string? search,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
     }
 }

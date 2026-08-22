@@ -11,19 +11,21 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Orders;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 using Microsoft.Extensions.Logging;
 
 namespace FurniSpace.Application.Services.Orders;
 
-public sealed class OrderService : IOrderService
+public sealed partial class OrderService : IOrderService
 {
     private readonly IOrderRepository _orders;
     private readonly IProjectRepository _projects;
     private readonly IPaymentRepository _payments;
     private readonly IProductionRequestRepository _productionRequests;
     private readonly IProjectScheduleRepository _schedules;
+    private readonly IDeliveryRepository _deliveries;
     private readonly IUnitOfWork _unitOfWork;
     private readonly SePayOptions _sePayOptions;
     private readonly INotificationDispatcher? _notifications;
@@ -41,6 +43,7 @@ public sealed class OrderService : IOrderService
         _payments = payments;
         _productionRequests = dependencies.ProductionRequests;
         _schedules = dependencies.Schedules;
+        _deliveries = dependencies.Deliveries;
         _unitOfWork = dependencies.UnitOfWork;
         _sePayOptions = dependencies.SePayOptions;
         _notifications = dependencies.Notifications;
@@ -118,6 +121,13 @@ public sealed class OrderService : IOrderService
             return ServiceResult<OrderDeliveryStartDto>.Unauthorized();
         }
 
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.AdminRole)
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Forbidden(
+                "Legacy start-delivery is restricted to Admin recovery.");
+        }
+
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
         if (order is null)
         {
@@ -128,12 +138,6 @@ public sealed class OrderService : IOrderService
         if (project is null)
         {
             return NotFound<OrderDeliveryStartDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanStartDelivery(role, project.AssignedSalesId, currentUserId))
-        {
-            return ServiceResult<OrderDeliveryStartDto>.Forbidden(ForbiddenMessage);
         }
 
         if (order.Status == OrderStatus.DELIVERING)
@@ -221,6 +225,13 @@ public sealed class OrderService : IOrderService
             return ServiceResult<OrderDeliveryCompletionDto>.Unauthorized();
         }
 
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.AdminRole)
+        {
+            return ServiceResult<OrderDeliveryCompletionDto>.Forbidden(
+                "Legacy complete-delivery is restricted to Admin recovery.");
+        }
+
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
         if (order is null)
         {
@@ -231,12 +242,6 @@ public sealed class OrderService : IOrderService
         if (project is null)
         {
             return NotFound<OrderDeliveryCompletionDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanStartDelivery(role, project.AssignedSalesId, currentUserId))
-        {
-            return ServiceResult<OrderDeliveryCompletionDto>.Forbidden(ForbiddenMessage);
         }
 
         if (order.Status != OrderStatus.DELIVERING)
@@ -261,7 +266,18 @@ public sealed class OrderService : IOrderService
                 "Delivery already completed for all deliverable items.");
         }
 
-        if (!await _orders.AllDeliverableItemsReadyAsync(order.OrderId, cancellationToken))
+        var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+        var batchItems = orderItems
+            .Where(IsBatchEligibleOrderItem)
+            .Select(item => new CreateDeliveryBatchItemRequestDto
+            {
+                OrderItemId = item.OrderItemId,
+                Quantity = GetRemainingDeliverableQuantity(item)
+            })
+            .Where(item => item.Quantity > 0)
+            .ToList();
+
+        if (batchItems.Count == 0)
         {
             return ServiceResult<OrderDeliveryCompletionDto>.Failure(
                 Error.Conflict(
@@ -269,31 +285,34 @@ public sealed class OrderService : IOrderService
                     "All deliverable order items must be READY before delivery can be completed."));
         }
 
-        var now = DateTime.UtcNow;
-        var items = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
-        var deliveredCount = 0;
-        foreach (var item in items.Where(IsActiveDeliveryItem))
+        var createResult = await CreateDeliveryBatchAsync(
+            orderId,
+            currentUserId,
+            new CreateDeliveryBatchRequestDto { Items = batchItems },
+            cancellationToken);
+        if (createResult.Status is not (200 or 201) || createResult.Data is null)
         {
-            item.Status = OrderItemStatus.DELIVERED;
-            item.DeliveredAt = now;
-            item.DeliveredBy = currentUserId;
-            _orders.UpdateItem(item);
-            deliveredCount++;
+            return ServiceResult<OrderDeliveryCompletionDto>.Failure(
+                Error.BadRequest(
+                    createResult.ErrorCode ?? OrderErrorCodes.InvalidOrderStatus,
+                    createResult.Message ?? "Unable to create delivery batch for legacy completion."));
         }
 
-        order.UpdatedAt = now;
-        _orders.Update(order);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        await OrderNotificationSupport.TryDispatchUpdatedAsync(
-            _notifications,
-            _logger,
-            order,
-            project,
+        var completeResult = await CompleteDeliveryBatchAsync(
+            orderId,
+            createResult.Data.DeliveryId,
+            currentUserId,
             cancellationToken);
+        if (completeResult.Status != 200 || completeResult.Data is null)
+        {
+            return ServiceResult<OrderDeliveryCompletionDto>.Failure(
+                Error.BadRequest(
+                    completeResult.ErrorCode ?? OrderErrorCodes.DeliveryNotCompleted,
+                    completeResult.Message ?? "Unable to complete delivery batch for legacy completion."));
+        }
 
         return ServiceResult<OrderDeliveryCompletionDto>.Success(
-            ToDeliveryCompletionDto(order, project, deliveredCount),
+            ToDeliveryCompletionDto(order, project, completeResult.Data.UpdatedItemCount),
             "Delivery completed successfully.");
     }
 
@@ -351,6 +370,22 @@ public sealed class OrderService : IOrderService
                 "Order must be DELIVERING before delivery can be confirmed.");
         }
 
+        if (await _deliveries.HasInProgressDeliveryAsync(order.OrderId, cancellationToken))
+        {
+            return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliveryBatchInProgress,
+                    "Delivery confirmation is blocked while a delivery batch is in progress."));
+        }
+
+        if (await _schedules.HasUnresolvedConfirmedDeliveryScheduleAsync(order.ProjectId, cancellationToken))
+        {
+            return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.UnresolvedDeliverySchedule,
+                    "Delivery confirmation is blocked while confirmed delivery schedules remain unresolved."));
+        }
+
         if (!await _orders.AllDeliverableItemsDeliveredAsync(order.OrderId, cancellationToken))
         {
             return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
@@ -359,12 +394,19 @@ public sealed class OrderService : IOrderService
                     "All deliverable order items must be delivered before confirmation."));
         }
 
+        var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
         var now = DateTime.UtcNow;
         var remainingPaymentNotifications = new List<Payment>();
         await UnitOfWorkTransactions.ExecuteAsync(
             _unitOfWork,
             async transactionCancellationToken =>
             {
+                foreach (var item in orderItems.Where(IsProductLineItem))
+                {
+                    item.Status = OrderItemStatus.DELIVERED;
+                    _orders.UpdateItem(item);
+                }
+
                 order.CustomerConfirmedDeliveryAt = now;
                 order.UpdatedAt = now;
                 project.Status = ProjectStatus.DELIVERED;
@@ -421,19 +463,17 @@ public sealed class OrderService : IOrderService
             return ServiceResult<OrderFinalPaymentPreparationDto>.Unauthorized();
         }
 
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.AdminRole)
+        {
+            return ServiceResult<OrderFinalPaymentPreparationDto>.Forbidden(
+                "Legacy prepare-final-payment is restricted to Admin recovery.");
+        }
+
         var detail = await _orders.GetDetailAsync(orderId, cancellationToken);
         if (detail is null)
         {
             return NotFound<OrderFinalPaymentPreparationDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
-                role,
-                detail.AssignedSalesId,
-                currentUserId))
-        {
-            return ServiceResult<OrderFinalPaymentPreparationDto>.Forbidden(ForbiddenMessage);
         }
 
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
@@ -732,12 +772,6 @@ public sealed class OrderService : IOrderService
             item.Status is not (OrderItemStatus.UNAVAILABLE or OrderItemStatus.CANCELLED);
     }
 
-    private static bool IsActiveDeliveryItem(OrderItem item)
-    {
-        return IsProductLineItem(item) &&
-            item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED;
-    }
-
     private static bool IsDeliveryAlreadyConfirmed(Order order)
     {
         return order.CustomerConfirmedDeliveryAt.HasValue &&
@@ -821,15 +855,6 @@ public sealed class OrderService : IOrderService
             ProjectStatus = project.Status?.ToString() ?? string.Empty,
             CompletedAt = completedAt
         };
-    }
-
-    private static bool CanStartDelivery(
-        string? role,
-        Guid? assignedSalesId,
-        Guid currentUserId)
-    {
-        return role is ProjectAssignmentAccessEvaluator.AdminRole or OrderAccessEvaluator.ProductionRole ||
-            role == ProjectAssignmentAccessEvaluator.SalesRole && assignedSalesId == currentUserId;
     }
 
     private static ServiceResult<T> BadRequest<T>(string errorCode, string message)

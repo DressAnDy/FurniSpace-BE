@@ -68,6 +68,44 @@ public sealed class QuotationRepositoryTests
     }
 
     [Fact]
+    public async Task GetDetailAsync_ReturnsDepositAmount()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        var quotation = MakeQuotation(projectId, QuotationStatus.DRAFT, versionNo: 1);
+        quotation.TotalAmount = 1_000m;
+        quotation.DepositAmount = 300m;
+        SeedProject(context, projectId);
+        context.QuotationSet.Add(quotation);
+        await context.SaveChangesAsync();
+        var repository = new QuotationRepository(context);
+
+        var result = await repository.GetDetailAsync(quotation.QuotationId);
+
+        Assert.NotNull(result);
+        Assert.Equal(300m, result!.DepositAmount);
+    }
+
+    [Fact]
+    public async Task GetByProjectAsync_ReturnsDepositAmount()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        var quotation = MakeQuotation(projectId, QuotationStatus.DRAFT, versionNo: 1);
+        quotation.TotalAmount = 500m;
+        quotation.DepositAmount = 150m;
+        SeedProject(context, projectId);
+        context.QuotationSet.Add(quotation);
+        await context.SaveChangesAsync();
+        var repository = new QuotationRepository(context);
+
+        var result = await repository.GetByProjectAsync(new QuotationQueryReadModel { ProjectId = projectId });
+
+        var item = Assert.Single(result);
+        Assert.Equal(150m, item.DepositAmount);
+    }
+
+    [Fact]
     public async Task GetSelectedProposalAsync_ReturnsOnlySelectedProposal()
     {
         await using var context = CreateContext();

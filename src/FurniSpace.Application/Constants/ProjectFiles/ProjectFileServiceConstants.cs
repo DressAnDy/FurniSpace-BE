@@ -22,13 +22,15 @@ internal static class ProjectFileServiceConstants
         "QUOTATION",
         "ORDER",
         CatalogFileReferenceTypes.Product,
-        CatalogFileReferenceTypes.ProductVersion
+        CatalogFileReferenceTypes.ProductVersion,
+        CatalogFileReferenceTypes.LayoutAsset
     };
 
     internal static readonly HashSet<string> CatalogReferenceTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         CatalogFileReferenceTypes.Product,
-        CatalogFileReferenceTypes.ProductVersion
+        CatalogFileReferenceTypes.ProductVersion,
+        CatalogFileReferenceTypes.LayoutAsset
     };
 
     internal static readonly IReadOnlyDictionary<ProjectStatus, int> ProjectStatusRanks = ProjectStatusRankings.Values;

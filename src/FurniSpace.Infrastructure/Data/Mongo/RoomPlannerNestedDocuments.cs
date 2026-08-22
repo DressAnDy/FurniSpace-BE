@@ -36,6 +36,7 @@ public sealed class RoomPlannerWallDocument
 
 public sealed class RoomPlannerFloorDocument
 {
+    public Guid? LayoutAssetId { get; set; }
     public string? MaterialId { get; set; }
     public string? Color { get; set; }
     public string? MaterialCode { get; set; }
@@ -60,12 +61,15 @@ public sealed class RoomPlannerBlueprintLayoutDocument
 public sealed class RoomPlannerBlueprintFloorDocument
     : RoomPlannerBlueprintFloorBase<RoomPlannerPoint2Document, RoomPlannerWallDocument>
 {
+    public RoomPlannerFloorDocument? FloorStyle { get; set; }
+
     public bool ContainsWall(string wallId) =>
         Walls.Any(wall => string.Equals(wall.WallId, wallId, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class RoomPlannerStyleDocument
 {
+    public Guid? LayoutAssetId { get; set; }
     public string? MaterialId { get; set; }
     public string? Color { get; set; }
     public string? MaterialCode { get; set; }
@@ -169,6 +173,7 @@ public sealed class RoomPlannerValidationIssueDocument
     public string Code { get; set; } = string.Empty;
     public string? Severity { get; set; }
     public string? ObjectId { get; set; }
+    public Guid? LayoutAssetId { get; set; }
     public string Message { get; set; } = string.Empty;
 }
 

@@ -1,5 +1,7 @@
 #nullable enable
 
+#pragma warning disable CS0618 // Obsolete legacy delivery endpoints under test
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -52,12 +54,12 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
-    public void PrepareFinalPayment_RequiresSalesOrAdmin()
+    public void PrepareFinalPayment_RequiresAdminOnly()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.PrepareFinalPayment));
 
         Assert.NotNull(authorize);
-        Assert.Equal("SALES,ADMIN", authorize.Roles);
+        Assert.Equal("ADMIN", authorize.Roles);
     }
 
     [Fact]
@@ -79,21 +81,77 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
-    public void StartDelivery_RequiresSalesProductionOrAdmin()
+    public void CreateDeliveryBatch_RequiresSalesProductionOrAdmin()
     {
-        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.StartDelivery));
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.CreateDeliveryBatch));
 
         Assert.NotNull(authorize);
         Assert.Equal("SALES,PRODUCTION,ADMIN", authorize.Roles);
     }
 
     [Fact]
-    public void CompleteDelivery_RequiresSalesProductionOrAdmin()
+    public async Task CreateDeliveryBatch_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var service = new FakeOrderService(
+            createDeliveryBatchResult: ServiceResult<DeliveryDetailDto>.Created(
+                new DeliveryDetailDto { DeliveryId = deliveryId, OrderId = orderId },
+                "Created"));
+        var controller = CreateController(
+            service,
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            Guid.NewGuid());
+
+        var result = await controller.CreateDeliveryBatch(
+            orderId,
+            new CreateDeliveryBatchRequestDto
+            {
+                Items = [new CreateDeliveryBatchItemRequestDto { OrderItemId = Guid.NewGuid(), Quantity = 1 }]
+            });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(orderId, service.OrderId);
+        Assert.NotNull(service.CreateDeliveryBatchRequest);
+    }
+
+    [Fact]
+    public async Task GetDeliveries_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var service = new FakeOrderService(
+            getDeliveriesResult: ServiceResult<DeliveryListResponseDto>.Success(new DeliveryListResponseDto()));
+        var controller = CreateController(
+            service,
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            Guid.NewGuid());
+
+        var result = await controller.GetDeliveries(orderId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, service.OrderId);
+    }
+
+    [Fact]
+    public void StartDelivery_RequiresAdminOnly()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.StartDelivery));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public void CompleteDelivery_RequiresAdminOnly()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.CompleteDelivery));
 
         Assert.NotNull(authorize);
-        Assert.Equal("SALES,PRODUCTION,ADMIN", authorize.Roles);
+        Assert.Equal("ADMIN", authorize.Roles);
     }
 
     [Fact]
@@ -399,6 +457,171 @@ public sealed class OrdersControllerTests
         Assert.IsType<UnauthorizedResult>(result);
     }
 
+    [Fact]
+    public void GetDeliveryDetail_RequiresProjectRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.GetDeliveryDetail));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,SALES,PRODUCTION,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public void CompleteDeliveryBatch_RequiresSalesProductionOrAdmin()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.CompleteDeliveryBatch));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,PRODUCTION,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task GetDeliveryDetail_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var service = new FakeOrderService(
+            getDeliveryDetailResult: ServiceResult<DeliveryDetailDto>.Success(
+                new DeliveryDetailDto { DeliveryId = deliveryId, OrderId = orderId }));
+        var controller = CreateController(
+            service,
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            Guid.NewGuid());
+
+        var result = await controller.GetDeliveryDetail(orderId, deliveryId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, service.OrderId);
+    }
+
+    [Fact]
+    public async Task GetDeliveryDetail_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.GetDeliveryDetail(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task CompleteDeliveryBatch_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var service = new FakeOrderService(
+            completeDeliveryBatchResult: ServiceResult<DeliveryBatchCompletionDto>.Success(
+                new DeliveryBatchCompletionDto { DeliveryId = deliveryId, OrderId = orderId },
+                "completed"));
+        var controller = CreateController(
+            service,
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            Guid.NewGuid());
+
+        var result = await controller.CompleteDeliveryBatch(orderId, deliveryId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, service.OrderId);
+    }
+
+    [Fact]
+    public void GetDeliveryTracking_RequiresProjectRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.GetDeliveryTracking));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,SALES,PRODUCTION,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task GetDeliveryTracking_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var orderService = new FakeOrderService(
+            getDeliveryTrackingResult: ServiceResult<OrderDeliveryTrackingDto>.Success(
+                new OrderDeliveryTrackingDto
+                {
+                    OrderId = orderId,
+                    Summary = new OrderDeliveryTrackingSummaryDto { RemainingQuantity = 4 }
+                },
+                "tracked"));
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
+
+        var result = await controller.GetDeliveryTracking(orderId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, orderService.OrderId);
+        Assert.Equal(userId, orderService.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task GetDeliveryTracking_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.GetDeliveryTracking(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task CompleteDeliveryBatch_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.CompleteDeliveryBatch(Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task CreateDeliveryBatch_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.CreateDeliveryBatch(
+            Guid.NewGuid(),
+            new CreateDeliveryBatchRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task GetDeliveries_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.GetDeliveries(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
     private static AuthorizeAttribute? GetMethodAuthorizeAttribute(string methodName)
     {
         var method = typeof(OrdersController)
@@ -521,6 +744,11 @@ public sealed class OrdersControllerTests
         private readonly ServiceResult<OrderDeliveryConfirmationDto>? _confirmDeliveryResult;
         private readonly ServiceResult<OrderFinalPaymentPreparationDto>? _prepareFinalPaymentResult;
         private readonly ServiceResult<OrderCompletionDto>? _completeResult;
+        private readonly ServiceResult<DeliveryDetailDto>? _createDeliveryBatchResult;
+        private readonly ServiceResult<DeliveryListResponseDto>? _getDeliveriesResult;
+        private readonly ServiceResult<DeliveryDetailDto>? _getDeliveryDetailResult;
+        private readonly ServiceResult<DeliveryBatchCompletionDto>? _completeDeliveryBatchResult;
+        private readonly ServiceResult<OrderDeliveryTrackingDto>? _getDeliveryTrackingResult;
 
         public FakeOrderService(
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
@@ -529,7 +757,12 @@ public sealed class OrdersControllerTests
             ServiceResult<OrderDeliveryCompletionDto>? completeDeliveryResult = null,
             ServiceResult<OrderDeliveryConfirmationDto>? confirmDeliveryResult = null,
             ServiceResult<OrderFinalPaymentPreparationDto>? prepareFinalPaymentResult = null,
-            ServiceResult<OrderCompletionDto>? completeResult = null)
+            ServiceResult<OrderCompletionDto>? completeResult = null,
+            ServiceResult<DeliveryDetailDto>? createDeliveryBatchResult = null,
+            ServiceResult<DeliveryListResponseDto>? getDeliveriesResult = null,
+            ServiceResult<DeliveryDetailDto>? getDeliveryDetailResult = null,
+            ServiceResult<DeliveryBatchCompletionDto>? completeDeliveryBatchResult = null,
+            ServiceResult<OrderDeliveryTrackingDto>? getDeliveryTrackingResult = null)
         {
             _getByProjectResult = getByProjectResult;
             _getDetailResult = getDetailResult;
@@ -538,10 +771,16 @@ public sealed class OrdersControllerTests
             _confirmDeliveryResult = confirmDeliveryResult;
             _prepareFinalPaymentResult = prepareFinalPaymentResult;
             _completeResult = completeResult;
+            _createDeliveryBatchResult = createDeliveryBatchResult;
+            _getDeliveriesResult = getDeliveriesResult;
+            _getDeliveryDetailResult = getDeliveryDetailResult;
+            _completeDeliveryBatchResult = completeDeliveryBatchResult;
+            _getDeliveryTrackingResult = getDeliveryTrackingResult;
         }
 
         public Guid OrderId { get; private set; }
         public Guid CurrentUserId { get; private set; }
+        public CreateDeliveryBatchRequestDto? CreateDeliveryBatchRequest { get; private set; }
 
         public Task<ServiceResult<OrderListResponseDto>> GetByProjectAsync(
             Guid projectId,
@@ -614,6 +853,65 @@ public sealed class OrdersControllerTests
             CurrentUserId = currentUserId;
             return Task.FromResult(
                 _completeResult ?? ServiceResult<OrderCompletionDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<DeliveryDetailDto>> CreateDeliveryBatchAsync(
+            Guid orderId,
+            Guid currentUserId,
+            CreateDeliveryBatchRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            CreateDeliveryBatchRequest = request;
+            return Task.FromResult(
+                _createDeliveryBatchResult ?? ServiceResult<DeliveryDetailDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<DeliveryListResponseDto>> GetDeliveriesAsync(
+            Guid orderId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(
+                _getDeliveriesResult ?? ServiceResult<DeliveryListResponseDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<DeliveryDetailDto>> GetDeliveryDetailAsync(
+            Guid orderId,
+            Guid deliveryId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(
+                _getDeliveryDetailResult ?? ServiceResult<DeliveryDetailDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<DeliveryBatchCompletionDto>> CompleteDeliveryBatchAsync(
+            Guid orderId,
+            Guid deliveryId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(
+                _completeDeliveryBatchResult ?? ServiceResult<DeliveryBatchCompletionDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderDeliveryTrackingDto>> GetDeliveryTrackingAsync(
+            Guid orderId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(
+                _getDeliveryTrackingResult ?? ServiceResult<OrderDeliveryTrackingDto>.Unauthorized());
         }
     }
 

@@ -288,6 +288,8 @@ public sealed class QuotationServiceTests
         Assert.Equal(FinancialConstants.DefaultVatRate, quotations.AddedQuotations[0].VatRate);
         Assert.Equal(16m, quotations.AddedQuotations[0].VatAmount);
         Assert.Equal(216m, quotations.AddedQuotations[0].TotalAmount);
+        Assert.Equal(64m, quotations.AddedQuotations[0].DepositAmount);
+        Assert.Equal(64m, result.Data!.DepositAmount);
         Assert.Equal(200m, quotations.AddedItems[0].GrossAmount);
         Assert.Equal(200m, quotations.AddedItems[0].TotalAmount);
     }
@@ -1495,6 +1497,7 @@ public sealed class QuotationServiceTests
                     VatRate = item.VatRate,
                     VatAmount = item.VatAmount,
                     TotalAmount = item.TotalAmount,
+                    DepositAmount = item.DepositAmount,
                     Currency = item.Currency,
                     Status = item.Status,
                     Items = AddedItems.Select(added => new QuotationItemReadModel

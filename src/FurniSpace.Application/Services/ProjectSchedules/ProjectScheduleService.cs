@@ -289,8 +289,52 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return transitionError;
         }
 
-        if (newStatus == ProjectScheduleStatus.COMPLETED &&
-            detail.ScheduleType == ProjectScheduleType.MEASUREMENT &&
+        var completionError = await ValidateScheduleCompletionRequirementsAsync(
+            detail,
+            newStatus,
+            cancellationToken);
+        if (completionError is not null)
+        {
+            return completionError;
+        }
+
+        var schedule = await _schedules.GetByIdAsync(scheduleId, cancellationToken);
+        if (schedule is null)
+        {
+            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
+        }
+
+        ApplyScheduleStatusUpdate(schedule, newStatus);
+
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                _schedules.Update(schedule);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
+
+        await DispatchStatusChangedAsync(schedule, detail, newStatus, cancellationToken);
+
+        var response = schedule.Adapt<ProjectScheduleDto>();
+        await EnrichMeasurementCompletionResponseAsync(response, detail, newStatus, cancellationToken);
+
+        return ServiceResult<ProjectScheduleDto>.Success(
+            response,
+            $"Schedule status updated to {newStatus}.");
+    }
+
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateScheduleCompletionRequirementsAsync(
+        ProjectScheduleDetailReadModel detail,
+        ProjectScheduleStatus newStatus,
+        CancellationToken cancellationToken)
+    {
+        if (newStatus != ProjectScheduleStatus.COMPLETED)
+        {
+            return null;
+        }
+
+        if (detail.ScheduleType == ProjectScheduleType.MEASUREMENT &&
             _workflowSettings.RequireMeasurementFileOnScheduleComplete)
         {
             var fileError = await ProjectMeasurementGate.ValidateMeasurementFilesAsync(
@@ -303,7 +347,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             }
         }
 
-        if (newStatus == ProjectScheduleStatus.COMPLETED && DateTime.UtcNow < detail.ScheduledStart)
+        if (DateTime.UtcNow < detail.ScheduledStart)
         {
             return ServiceResult<ProjectScheduleDto>.Failure(
                 Error.Validation(
@@ -311,12 +355,11 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     "Schedule cannot be completed before its scheduled start time."));
         }
 
-        var schedule = await _schedules.GetByIdAsync(scheduleId, cancellationToken);
-        if (schedule is null)
-        {
-            return ServiceResult<ProjectScheduleDto>.NotFound(ScheduleNotFoundMessage);
-        }
+        return null;
+    }
 
+    private static void ApplyScheduleStatusUpdate(ProjectSchedule schedule, ProjectScheduleStatus newStatus)
+    {
         var now = DateTime.UtcNow;
         schedule.Status = newStatus;
         schedule.UpdatedAt = now;
@@ -330,36 +373,32 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         {
             schedule.CompletedAt = now;
         }
+    }
 
-        await ExecuteInTransactionAsync(
-            async ct =>
-            {
-                _schedules.Update(schedule);
-                await _unitOfWork.SaveChangesAsync(ct);
-            },
-            cancellationToken);
-
-        await DispatchStatusChangedAsync(schedule, detail, newStatus, cancellationToken);
-
-        var response = schedule.Adapt<ProjectScheduleDto>();
-        if (newStatus == ProjectScheduleStatus.COMPLETED &&
-            detail.ScheduleType == ProjectScheduleType.MEASUREMENT)
+    private async Task EnrichMeasurementCompletionResponseAsync(
+        ProjectScheduleDto response,
+        ProjectScheduleDetailReadModel detail,
+        ProjectScheduleStatus newStatus,
+        CancellationToken cancellationToken)
+    {
+        if (newStatus != ProjectScheduleStatus.COMPLETED ||
+            detail.ScheduleType != ProjectScheduleType.MEASUREMENT)
         {
-            var project = await _projects.GetByIdAsync(detail.ProjectId, cancellationToken);
-            if (project is not null)
-            {
-                var hasCompletedMeasurement = await _schedules.HasCompletedMeasurementScheduleAsync(
-                    detail.ProjectId,
-                    cancellationToken);
-                response.CanMoveToProposalConsulting = ProjectMeasurementGate.CanMoveToProposalConsulting(
-                    project,
-                    hasCompletedMeasurement);
-            }
+            return;
         }
 
-        return ServiceResult<ProjectScheduleDto>.Success(
-            response,
-            $"Schedule status updated to {newStatus}.");
+        var project = await _projects.GetByIdAsync(detail.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return;
+        }
+
+        var hasCompletedMeasurement = await _schedules.HasCompletedMeasurementScheduleAsync(
+            detail.ProjectId,
+            cancellationToken);
+        response.CanMoveToProposalConsulting = ProjectMeasurementGate.CanMoveToProposalConsulting(
+            project,
+            hasCompletedMeasurement);
     }
 
     public async Task<ServiceResult<ProjectScheduleDto>> DeleteAsync(

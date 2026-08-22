@@ -1141,6 +1141,108 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
+    public async Task CreateDeliveryBatchAsync_WhenValid_CreatesInProgressBatch()
+    {
+        var orderId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.DELIVERING
+        };
+        var item = new OrderItem
+        {
+            OrderItemId = orderItemId,
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.READY,
+            Quantity = 4,
+            DeliveredQuantity = 0
+        };
+        var deliveries = new FakeDeliveryRepository();
+        deliveries.SetCreateDetailFactory(id => new DeliveryDetailReadModel
+        {
+            DeliveryId = id,
+            OrderId = orderId,
+            Status = DeliveryStatus.IN_PROGRESS,
+            ItemCount = 1
+        });
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            },
+            OrderItems = [item],
+            Deliveries = deliveries
+        });
+
+        var result = await service.CreateDeliveryBatchAsync(
+            orderId,
+            _salesId,
+            new CreateDeliveryBatchRequestDto
+            {
+                Items =
+                [
+                    new CreateDeliveryBatchItemRequestDto
+                    {
+                        OrderItemId = orderItemId,
+                        Quantity = 2
+                    }
+                ]
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(DeliveryStatus.IN_PROGRESS, result.Data!.Status);
+        Assert.Single(deliveries.AddedDeliveries);
+    }
+
+    [Fact]
+    public async Task GetDeliveriesAsync_WhenAuthorized_ReturnsDeliveryList()
+    {
+        var orderId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var deliveries = new FakeDeliveryRepository();
+        deliveries.SeedListItem(deliveryId, orderId, DeliveryStatus.COMPLETED, itemCount: 2);
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "SALES",
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                SalesId = _salesId,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            },
+            ProjectDetail = CreateProjectDetail(),
+            Deliveries = deliveries
+        });
+
+        var result = await service.GetDeliveriesAsync(orderId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(deliveryId, result.Data.Items[0].DeliveryId);
+    }
+
+    [Fact]
     public async Task CreateDeliveryBatchAsync_WhenQuantityExceedsRemaining_ReturnsConflict()
     {
         var orderId = Guid.NewGuid();
@@ -1856,8 +1958,40 @@ public sealed class OrderServiceTests
     {
         private readonly Dictionary<Guid, Delivery> _deliveries = new();
         private readonly Dictionary<Guid, List<DeliveryItem>> _items = new();
+        private Func<Guid, DeliveryDetailReadModel>? _createDetailFactory;
+
+        public IReadOnlyList<Delivery> AddedDeliveries => _deliveries.Values.ToList();
 
         public Delivery? GetDelivery(Guid deliveryId) => _deliveries.GetValueOrDefault(deliveryId);
+
+        public void SetCreateDetailFactory(Func<Guid, DeliveryDetailReadModel> factory)
+        {
+            _createDetailFactory = factory;
+        }
+
+        public void SeedListItem(
+            Guid deliveryId,
+            Guid orderId,
+            DeliveryStatus status,
+            int itemCount)
+        {
+            _deliveries[deliveryId] = new Delivery
+            {
+                DeliveryId = deliveryId,
+                OrderId = orderId,
+                Status = status,
+                CreatedAt = DateTime.UtcNow
+            };
+            _items[deliveryId] = Enumerable.Range(0, itemCount)
+                .Select(_ => new DeliveryItem
+                {
+                    DeliveryItemId = Guid.NewGuid(),
+                    DeliveryId = deliveryId,
+                    OrderItemId = Guid.NewGuid(),
+                    Quantity = 1
+                })
+                .ToList();
+        }
 
         public void SeedDelivery(
             Guid deliveryId,
@@ -1905,6 +2039,33 @@ public sealed class OrderServiceTests
             }
 
             var items = _items.GetValueOrDefault(deliveryId) ?? [];
+            if (_createDetailFactory is not null)
+            {
+                var created = _createDetailFactory(deliveryId);
+                var mappedItems = items.Select(item => new DeliveryItemReadModel
+                {
+                    DeliveryItemId = item.DeliveryItemId,
+                    DeliveryId = item.DeliveryId,
+                    OrderItemId = item.OrderItemId,
+                    Quantity = item.Quantity,
+                    Note = item.Note
+                }).ToList();
+
+                return Task.FromResult<DeliveryDetailReadModel?>(new DeliveryDetailReadModel
+                {
+                    DeliveryId = created.DeliveryId,
+                    OrderId = created.OrderId,
+                    Status = created.Status,
+                    CreatedBy = created.CreatedBy,
+                    CompletedBy = created.CompletedBy,
+                    Note = created.Note,
+                    CreatedAt = created.CreatedAt,
+                    CompletedAt = created.CompletedAt,
+                    ItemCount = mappedItems.Count,
+                    Items = mappedItems
+                });
+            }
+
             return Task.FromResult<DeliveryDetailReadModel?>(new DeliveryDetailReadModel
             {
                 DeliveryId = delivery.DeliveryId,

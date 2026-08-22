@@ -171,59 +171,13 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
         if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
         {
             return ServiceResult<ProjectShowcaseDto>.Failure(
-                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, "Archived showcases cannot be edited."));
+                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
         }
 
-        if (request.Title is not null)
+        var fieldUpdateError = await ApplyShowcaseFieldUpdatesAsync(showcase, request, cancellationToken);
+        if (fieldUpdateError is not null)
         {
-            var title = NormalizeRequiredText(request.Title);
-            if (title is null)
-            {
-                return ServiceResult<ProjectShowcaseDto>.BadRequest("Title cannot be empty.");
-            }
-
-            showcase.Title = title;
-        }
-
-        if (request.Summary is not null)
-        {
-            showcase.Summary = NormalizeOptionalText(request.Summary);
-        }
-
-        if (request.Description is not null)
-        {
-            showcase.Description = NormalizeOptionalText(request.Description);
-        }
-
-        if (request.Slug is not null)
-        {
-            var slug = NormalizeSlug(request.Slug);
-            if (slug is null)
-            {
-                return ServiceResult<ProjectShowcaseDto>.BadRequest("Slug is invalid.");
-            }
-
-            if (await _showcases.SlugExistsAsync(slug, showcase.ProjectShowcaseId, cancellationToken))
-            {
-                return ServiceResult<ProjectShowcaseDto>.Failure(
-                    Error.Conflict(ProjectShowcaseErrorCodes.SlugDuplicate, "Showcase slug already exists."));
-            }
-
-            showcase.Slug = slug;
-        }
-
-        if (request.FeaturedReviewId.HasValue)
-        {
-            var featuredReviewError = await ValidateFeaturedReviewAsync<ProjectShowcaseDto>(
-                showcase.ProjectId,
-                request.FeaturedReviewId,
-                cancellationToken);
-            if (featuredReviewError is not null)
-            {
-                return featuredReviewError;
-            }
-
-            showcase.FeaturedReviewId = request.FeaturedReviewId;
+            return fieldUpdateError;
         }
 
         showcase.UpdatedAt = DateTime.UtcNow;
@@ -509,6 +463,67 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
                 "Project showcase status transition is not allowed."));
     }
 
+    private async Task<ServiceResult<ProjectShowcaseDto>?> ApplyShowcaseFieldUpdatesAsync(
+        ProjectShowcase showcase,
+        UpdateProjectShowcaseRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Title is not null)
+        {
+            var title = NormalizeRequiredText(request.Title);
+            if (title is null)
+            {
+                return ServiceResult<ProjectShowcaseDto>.BadRequest("Title cannot be empty.");
+            }
+
+            showcase.Title = title;
+        }
+
+        if (request.Summary is not null)
+        {
+            showcase.Summary = NormalizeOptionalText(request.Summary);
+        }
+
+        if (request.Description is not null)
+        {
+            showcase.Description = NormalizeOptionalText(request.Description);
+        }
+
+        if (request.Slug is not null)
+        {
+            var slug = NormalizeSlug(request.Slug);
+            if (slug is null)
+            {
+                return ServiceResult<ProjectShowcaseDto>.BadRequest("Slug is invalid.");
+            }
+
+            if (await _showcases.SlugExistsAsync(slug, showcase.ProjectShowcaseId, cancellationToken))
+            {
+                return ServiceResult<ProjectShowcaseDto>.Failure(
+                    Error.Conflict(ProjectShowcaseErrorCodes.SlugDuplicate, "Showcase slug already exists."));
+            }
+
+            showcase.Slug = slug;
+        }
+
+        if (!request.FeaturedReviewId.HasValue)
+        {
+            return null;
+        }
+
+        var featuredReviewError = await ValidateFeaturedReviewAsync<ProjectShowcaseDto>(
+            showcase.ProjectId,
+            request.FeaturedReviewId,
+            cancellationToken);
+        if (featuredReviewError is not null)
+        {
+            return featuredReviewError;
+        }
+
+        showcase.FeaturedReviewId = request.FeaturedReviewId;
+        return null;
+    }
+
     private static bool CanView(
         ProjectShowcaseDetailReadModel? detail,
         Project? project,
@@ -520,7 +535,6 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
             return true;
         }
 
-        var customerId = detail?.CustomerId ?? project?.CustomerId;
         var salesId = detail?.AssignedSalesId ?? project?.AssignedSalesId;
         var designerId = detail?.AssignedDesignerId ?? project?.AssignedDesignerId;
 

@@ -49,7 +49,7 @@ public sealed partial class ProjectShowcaseService
         if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
         {
             return ServiceResult<ProjectShowcaseMediaDto>.Failure(
-                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, "Archived showcases cannot be edited."));
+                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
         }
 
         var fileValidation = await ValidateShowcaseFileAsync(showcase.ProjectId, request.FileId, cancellationToken);
@@ -121,7 +121,7 @@ public sealed partial class ProjectShowcaseService
         if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
         {
             return ServiceResult<ProjectShowcaseDto>.Failure(
-                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, "Archived showcases cannot be edited."));
+                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
         }
 
         var mediaItems = await _showcases.GetMediaForUpdateAsync(showcaseId, cancellationToken);
@@ -174,7 +174,7 @@ public sealed partial class ProjectShowcaseService
         if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
         {
             return ServiceResult<ProjectShowcaseMediaDto>.Failure(
-                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, "Archived showcases cannot be edited."));
+                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
         }
 
         var media = await _showcases.GetMediaForUpdateAsync(showcaseId, mediaId, cancellationToken);
@@ -222,7 +222,7 @@ public sealed partial class ProjectShowcaseService
         if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
         {
             return ServiceResult<ProjectShowcaseDto>.Failure(
-                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, "Archived showcases cannot be edited."));
+                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
         }
 
         var media = await _showcases.GetMediaForUpdateAsync(showcaseId, mediaId, cancellationToken);

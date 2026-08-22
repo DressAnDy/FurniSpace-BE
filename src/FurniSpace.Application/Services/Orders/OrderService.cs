@@ -755,12 +755,6 @@ public sealed partial class OrderService : IOrderService
             item.Status is not (OrderItemStatus.UNAVAILABLE or OrderItemStatus.CANCELLED);
     }
 
-    private static bool IsActiveDeliveryItem(OrderItem item)
-    {
-        return IsProductLineItem(item) &&
-            item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED;
-    }
-
     private static bool IsDeliveryAlreadyConfirmed(Order order)
     {
         return order.CustomerConfirmedDeliveryAt.HasValue &&

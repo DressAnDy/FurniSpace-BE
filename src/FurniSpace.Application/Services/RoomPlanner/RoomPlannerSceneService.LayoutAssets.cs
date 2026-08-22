@@ -317,9 +317,30 @@ public sealed partial class RoomPlannerSceneService
             return null;
         }
 
-        var assetsById = await LoadLayoutAssetsAsync(layoutAssetIds, cancellationToken);
+        var assetsById = await LoadLayoutAssetsAsync(_layoutAssets, layoutAssetIds, cancellationToken);
 
-        foreach (var sceneObject in request.Objects.Where(IsLayoutAssetObject))
+        var sceneObjectError = ValidateSceneObjectLayoutAssets(request.Objects, assetsById);
+        if (sceneObjectError is not null)
+        {
+            return sceneObjectError;
+        }
+
+        var blueprintError = ValidateBlueprintLayoutAssets(request.BlueprintLayout!.Floors, assetsById);
+        if (blueprintError is not null)
+        {
+            return blueprintError;
+        }
+
+        return ValidateFloorOpeningLayoutAssets(
+            ExtractFloorOpeningLevels(request.BlueprintLayout.Metadata),
+            assetsById);
+    }
+
+    private static Error? ValidateSceneObjectLayoutAssets(
+        IReadOnlyList<RoomPlannerObjectDocument> objects,
+        Dictionary<Guid, LayoutAsset> assetsById)
+    {
+        foreach (var sceneObject in objects.Where(IsLayoutAssetObject))
         {
             var assetError = ValidateActiveLayoutAsset(
                 assetsById,
@@ -331,7 +352,14 @@ public sealed partial class RoomPlannerSceneService
             }
         }
 
-        foreach (var floor in request.BlueprintLayout!.Floors)
+        return null;
+    }
+
+    private static Error? ValidateBlueprintLayoutAssets(
+        IReadOnlyList<RoomPlannerBlueprintFloorDocument> floors,
+        Dictionary<Guid, LayoutAsset> assetsById)
+    {
+        foreach (var floor in floors)
         {
             foreach (var wall in floor.Walls)
             {
@@ -350,20 +378,28 @@ public sealed partial class RoomPlannerSceneService
                 }
             }
 
-            if (floor.FloorStyle?.LayoutAssetId is Guid floorMaterialId)
+            if (floor.FloorStyle?.LayoutAssetId is not Guid floorMaterialId)
             {
-                var floorError = ValidateActiveLayoutAsset(
-                    assetsById,
-                    floorMaterialId,
-                    [LayoutAssetType.FLOOR_MATERIAL]);
-                if (floorError is not null)
-                {
-                    return floorError;
-                }
+                continue;
+            }
+
+            var floorError = ValidateActiveLayoutAsset(
+                assetsById,
+                floorMaterialId,
+                [LayoutAssetType.FLOOR_MATERIAL]);
+            if (floorError is not null)
+            {
+                return floorError;
             }
         }
 
-        var levels = ExtractFloorOpeningLevels(request.BlueprintLayout.Metadata);
+        return null;
+    }
+
+    private static Error? ValidateFloorOpeningLayoutAssets(
+        IReadOnlyList<IReadOnlyList<RoomPlannerFloorOpeningDocument>> levels,
+        Dictionary<Guid, LayoutAsset> assetsById)
+    {
         foreach (var openings in levels)
         {
             foreach (var opening in openings)
@@ -394,16 +430,32 @@ public sealed partial class RoomPlannerSceneService
     private static HashSet<Guid> CollectReferencedLayoutAssetIds(RoomPlannerScenePayloadDto request)
     {
         var layoutAssetIds = new HashSet<Guid>();
+        CollectObjectLayoutAssetIds(request.Objects, layoutAssetIds);
+        CollectBlueprintLayoutAssetIds(request.BlueprintLayout!.Floors, layoutAssetIds);
+        CollectFloorOpeningLayoutAssetIds(
+            ExtractFloorOpeningLevels(request.BlueprintLayout.Metadata),
+            layoutAssetIds);
+        return layoutAssetIds;
+    }
 
-        foreach (var sceneObject in request.Objects)
+    private static void CollectObjectLayoutAssetIds(
+        IReadOnlyList<RoomPlannerObjectDocument> objects,
+        HashSet<Guid> layoutAssetIds)
+    {
+        foreach (var sceneObject in objects)
         {
             if (sceneObject.LayoutAssetId is Guid objectAssetId && objectAssetId != Guid.Empty)
             {
                 layoutAssetIds.Add(objectAssetId);
             }
         }
+    }
 
-        foreach (var floor in request.BlueprintLayout!.Floors)
+    private static void CollectBlueprintLayoutAssetIds(
+        IReadOnlyList<RoomPlannerBlueprintFloorDocument> floors,
+        HashSet<Guid> layoutAssetIds)
+    {
+        foreach (var floor in floors)
         {
             foreach (var wall in floor.Walls)
             {
@@ -418,8 +470,13 @@ public sealed partial class RoomPlannerSceneService
                 layoutAssetIds.Add(floorAssetId);
             }
         }
+    }
 
-        foreach (var openings in ExtractFloorOpeningLevels(request.BlueprintLayout.Metadata))
+    private static void CollectFloorOpeningLayoutAssetIds(
+        IReadOnlyList<IReadOnlyList<RoomPlannerFloorOpeningDocument>> levels,
+        HashSet<Guid> layoutAssetIds)
+    {
+        foreach (var openings in levels)
         {
             foreach (var opening in openings)
             {
@@ -429,18 +486,17 @@ public sealed partial class RoomPlannerSceneService
                 }
             }
         }
-
-        return layoutAssetIds;
     }
 
-    private async Task<Dictionary<Guid, LayoutAsset>> LoadLayoutAssetsAsync(
+    private static async Task<Dictionary<Guid, LayoutAsset>> LoadLayoutAssetsAsync(
+        ILayoutAssetRepository layoutAssets,
         IEnumerable<Guid> layoutAssetIds,
         CancellationToken cancellationToken)
     {
         var assetsById = new Dictionary<Guid, LayoutAsset>();
         foreach (var layoutAssetId in layoutAssetIds)
         {
-            var asset = await _layoutAssets!.GetByIdAsync(layoutAssetId, cancellationToken);
+            var asset = await layoutAssets.GetByIdAsync(layoutAssetId, cancellationToken);
             if (asset is not null)
             {
                 assetsById[layoutAssetId] = asset;
@@ -451,9 +507,9 @@ public sealed partial class RoomPlannerSceneService
     }
 
     private static Error? ValidateActiveLayoutAsset(
-        IReadOnlyDictionary<Guid, LayoutAsset> assetsById,
+        Dictionary<Guid, LayoutAsset> assetsById,
         Guid layoutAssetId,
-        IReadOnlyCollection<LayoutAssetType> expectedTypes)
+        LayoutAssetType[] expectedTypes)
     {
         if (!assetsById.TryGetValue(layoutAssetId, out var asset))
         {
@@ -467,7 +523,7 @@ public sealed partial class RoomPlannerSceneService
                 "Referenced layout asset must be active.");
         }
 
-        if (expectedTypes.Count > 0 && !expectedTypes.Contains(asset.AssetType))
+        if (expectedTypes.Length > 0 && !expectedTypes.Contains(asset.AssetType))
         {
             return Error.BadRequest(
                 RoomPlannerSurfaceMaterialInvalidCode,
@@ -522,7 +578,7 @@ public sealed partial class RoomPlannerSceneService
             return;
         }
 
-        var assetsById = await LoadLayoutAssetsAsync(referencedAssets, cancellationToken);
+        var assetsById = await LoadLayoutAssetsAsync(_layoutAssets, referencedAssets, cancellationToken);
         foreach (var sceneObject in response.Objects.Where(objectDocument =>
                      objectDocument.LayoutAssetId is Guid layoutAssetId &&
                      layoutAssetId != Guid.Empty &&

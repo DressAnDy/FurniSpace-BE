@@ -16,4 +16,5 @@ internal static class ProjectShowcaseServiceConstants
     internal const string ViewForbiddenMessage = "You do not have access to view this project showcase.";
     internal const string PublishForbiddenMessage = "Only administrators can publish or archive project showcases.";
     internal const string SubmitForbiddenMessage = "You do not have access to submit this project showcase.";
+    internal const string ArchivedReadOnlyMessage = "Archived showcases cannot be edited.";
 }

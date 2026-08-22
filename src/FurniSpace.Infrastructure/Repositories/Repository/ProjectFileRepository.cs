@@ -825,83 +825,21 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         var page = Math.Max(query.Page, 1);
         var limit = Math.Max(query.Limit, 1);
 
-        var baseQuery = from file in DbContext.StoredFileSet
-            join scheduleLink in DbContext.FileLinkSet on file.FileId equals scheduleLink.FileId
-            join schedule in DbContext.ProjectScheduleSet on scheduleLink.ReferenceId equals schedule.ScheduleId
-            where scheduleLink.ReferenceType == scheduleReferenceType
-                && scheduleLink.FileType == FileType.SPACE_IMAGE
-                && schedule.ScheduleType == ProjectScheduleType.MEASUREMENT
-                && file.Status == FileStatus.ACTIVE
-            select new { file, scheduleLink, schedule };
-
-        if (query.ProjectId.HasValue)
-        {
-            var projectId = query.ProjectId.Value;
-            baseQuery = baseQuery.Where(item => item.schedule.ProjectId == projectId);
-        }
-
-        if (query.ScheduleId.HasValue)
-        {
-            var scheduleId = query.ScheduleId.Value;
-            baseQuery = baseQuery.Where(item => item.schedule.ScheduleId == scheduleId);
-        }
-
-        if (query.ProjectAreaId.HasValue)
-        {
-            var projectAreaId = query.ProjectAreaId.Value;
-            baseQuery = baseQuery.Where(item =>
-                DbContext.FileLinkSet.Any(areaLink =>
-                    areaLink.FileId == item.file.FileId &&
-                    areaLink.ReferenceType == areaReferenceType &&
-                    areaLink.ReferenceId == projectAreaId &&
-                    areaLink.FileType == FileType.SPACE_IMAGE));
-        }
-
-        if (query.Assigned == false)
-        {
-            baseQuery = baseQuery.Where(item =>
-                !DbContext.FileLinkSet.Any(areaLink =>
-                    areaLink.FileId == item.file.FileId &&
-                    areaLink.ReferenceType == areaReferenceType &&
-                    areaLink.FileType == FileType.SPACE_IMAGE));
-        }
-        else if (query.Assigned == true)
-        {
-            baseQuery = baseQuery.Where(item =>
-                DbContext.FileLinkSet.Any(areaLink =>
-                    areaLink.FileId == item.file.FileId &&
-                    areaLink.ReferenceType == areaReferenceType &&
-                    areaLink.FileType == FileType.SPACE_IMAGE));
-        }
-
-        if (query.CustomerVisibleOnly)
-        {
-            if (query.CustomerAccountId.HasValue)
-            {
-                var accountId = query.CustomerAccountId.Value;
-                baseQuery = baseQuery.Where(item =>
-                    item.scheduleLink.Visibility == FileVisibility.CUSTOMER_VISIBLE ||
-                    item.file.UploadedBy == accountId);
-            }
-            else
-            {
-                baseQuery = baseQuery.Where(item =>
-                    item.scheduleLink.Visibility == FileVisibility.CUSTOMER_VISIBLE);
-            }
-        }
+        var baseQuery = BuildMeasurementGalleryBaseQuery(scheduleReferenceType);
+        baseQuery = ApplyMeasurementGalleryFilters(baseQuery, query, areaReferenceType);
 
         var total = await baseQuery.CountAsync(cancellationToken);
         var pageItems = await baseQuery
-            .OrderByDescending(item => item.file.UploadedAt)
+            .OrderByDescending(item => item.File.UploadedAt)
             .Skip((page - 1) * limit)
             .Take(limit)
-            .Select(item => new
+            .Select(item => new MeasurementGalleryPageItemRow
             {
-                item.file.FileId,
-                item.file.FileUrl,
-                item.file.UploadedAt,
-                item.schedule.ScheduleId,
-                item.schedule.ScheduledStart
+                FileId = item.File.FileId,
+                FileUrl = item.File.FileUrl,
+                UploadedAt = item.File.UploadedAt,
+                ScheduleId = item.Schedule.ScheduleId,
+                ScheduledStart = item.Schedule.ScheduledStart
             })
             .ToListAsync(cancellationToken);
 
@@ -914,6 +852,110 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
             };
         }
 
+        return await BuildMeasurementGalleryPageAsync(pageItems, total, areaReferenceType, cancellationToken);
+    }
+
+    private IQueryable<MeasurementGalleryFilterRow> BuildMeasurementGalleryBaseQuery(string scheduleReferenceType)
+    {
+        return from file in DbContext.StoredFileSet
+            join scheduleLink in DbContext.FileLinkSet on file.FileId equals scheduleLink.FileId
+            join schedule in DbContext.ProjectScheduleSet on scheduleLink.ReferenceId equals schedule.ScheduleId
+            where scheduleLink.ReferenceType == scheduleReferenceType
+                && scheduleLink.FileType == FileType.SPACE_IMAGE
+                && schedule.ScheduleType == ProjectScheduleType.MEASUREMENT
+                && file.Status == FileStatus.ACTIVE
+            select new MeasurementGalleryFilterRow
+            {
+                File = file,
+                ScheduleLink = scheduleLink,
+                Schedule = schedule
+            };
+    }
+
+    private IQueryable<MeasurementGalleryFilterRow> ApplyMeasurementGalleryFilters(
+        IQueryable<MeasurementGalleryFilterRow> baseQuery,
+        MeasurementImageGalleryQueryReadModel query,
+        string areaReferenceType)
+    {
+        if (query.ProjectId.HasValue)
+        {
+            var projectId = query.ProjectId.Value;
+            baseQuery = baseQuery.Where(item => item.Schedule.ProjectId == projectId);
+        }
+
+        if (query.ScheduleId.HasValue)
+        {
+            var scheduleId = query.ScheduleId.Value;
+            baseQuery = baseQuery.Where(item => item.Schedule.ScheduleId == scheduleId);
+        }
+
+        if (query.ProjectAreaId.HasValue)
+        {
+            var projectAreaId = query.ProjectAreaId.Value;
+            baseQuery = baseQuery.Where(item =>
+                DbContext.FileLinkSet.Any(areaLink =>
+                    areaLink.FileId == item.File.FileId &&
+                    areaLink.ReferenceType == areaReferenceType &&
+                    areaLink.ReferenceId == projectAreaId &&
+                    areaLink.FileType == FileType.SPACE_IMAGE));
+        }
+
+        baseQuery = ApplyMeasurementGalleryAssignmentFilter(baseQuery, query.Assigned, areaReferenceType);
+        return ApplyMeasurementGalleryVisibilityFilter(baseQuery, query);
+    }
+
+    private IQueryable<MeasurementGalleryFilterRow> ApplyMeasurementGalleryAssignmentFilter(
+        IQueryable<MeasurementGalleryFilterRow> baseQuery,
+        bool? assigned,
+        string areaReferenceType)
+    {
+        if (assigned == false)
+        {
+            return baseQuery.Where(item =>
+                !DbContext.FileLinkSet.Any(areaLink =>
+                    areaLink.FileId == item.File.FileId &&
+                    areaLink.ReferenceType == areaReferenceType &&
+                    areaLink.FileType == FileType.SPACE_IMAGE));
+        }
+
+        if (assigned == true)
+        {
+            return baseQuery.Where(item =>
+                DbContext.FileLinkSet.Any(areaLink =>
+                    areaLink.FileId == item.File.FileId &&
+                    areaLink.ReferenceType == areaReferenceType &&
+                    areaLink.FileType == FileType.SPACE_IMAGE));
+        }
+
+        return baseQuery;
+    }
+
+    private IQueryable<MeasurementGalleryFilterRow> ApplyMeasurementGalleryVisibilityFilter(
+        IQueryable<MeasurementGalleryFilterRow> baseQuery,
+        MeasurementImageGalleryQueryReadModel query)
+    {
+        if (!query.CustomerVisibleOnly)
+        {
+            return baseQuery;
+        }
+
+        if (query.CustomerAccountId.HasValue)
+        {
+            var accountId = query.CustomerAccountId.Value;
+            return baseQuery.Where(item =>
+                item.ScheduleLink.Visibility == FileVisibility.CUSTOMER_VISIBLE ||
+                item.File.UploadedBy == accountId);
+        }
+
+        return baseQuery.Where(item => item.ScheduleLink.Visibility == FileVisibility.CUSTOMER_VISIBLE);
+    }
+
+    private async Task<MeasurementImageGalleryPageReadModel> BuildMeasurementGalleryPageAsync(
+        IReadOnlyList<MeasurementGalleryPageItemRow> pageItems,
+        int total,
+        string areaReferenceType,
+        CancellationToken cancellationToken)
+    {
         var fileIds = pageItems.Select(item => item.FileId).ToList();
         var areaAssignments = await (
             from areaLink in DbContext.FileLinkSet
@@ -957,6 +999,22 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
             Items = items,
             Total = total
         };
+    }
+
+    private sealed class MeasurementGalleryFilterRow
+    {
+        public StoredFile File { get; init; } = null!;
+        public FileLink ScheduleLink { get; init; } = null!;
+        public ProjectSchedule Schedule { get; init; } = null!;
+    }
+
+    private sealed class MeasurementGalleryPageItemRow
+    {
+        public Guid FileId { get; init; }
+        public string FileUrl { get; init; } = string.Empty;
+        public DateTime UploadedAt { get; init; }
+        public Guid ScheduleId { get; init; }
+        public DateTime ScheduledStart { get; init; }
     }
 
     public Task<bool> HasMeasurementScheduleLinkInProjectAsync(

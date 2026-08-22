@@ -1589,39 +1589,6 @@ public sealed class ProjectService : IProjectService
         return false;
     }
 
-    private static bool CanViewProjectDetail(
-        ProjectDetailReadModel project,
-        Guid currentUserId,
-        string? roleName)
-    {
-        if (IsAdmin(roleName))
-        {
-            return true;
-        }
-
-        if (IsCustomer(roleName))
-        {
-            return project.CustomerId == currentUserId;
-        }
-
-        if (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase))
-        {
-            // Sales can inspect unassigned projects; once assigned, only assigned sales can view.
-            if (!project.AssignedSalesId.HasValue && !project.AssignedDesignerId.HasValue)
-            {
-                return true;
-            }
-
-            return project.AssignedSalesId == currentUserId;
-        }
-
-        if (string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase))
-        {
-            return project.AssignedDesignerId == currentUserId;
-        }
-
-        return false;
-    }
 
     private static string? ValidateStatusUpdateNote(string? note)
     {

@@ -344,7 +344,7 @@ public sealed partial class OrderService
 
     private static ServiceResult<DeliveryDetailDto>? ValidateDeliveryBatchItems(
         IReadOnlyList<CreateDeliveryBatchItemRequestDto> items,
-        IReadOnlyDictionary<Guid, OrderItem> orderItemsById)
+        Dictionary<Guid, OrderItem> orderItemsById)
     {
         foreach (var item in items)
         {

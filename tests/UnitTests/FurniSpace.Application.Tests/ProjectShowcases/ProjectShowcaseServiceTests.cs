@@ -114,6 +114,27 @@ public sealed class ProjectShowcaseServiceTests
     }
 
     [Fact]
+    public async Task UpdateAsync_WhenArchived_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+        var showcase = await context.ProjectShowcaseSet.SingleAsync(
+            entity => entity.ProjectShowcaseId == createResult.Data!.ProjectShowcaseId);
+        showcase.Status = ProjectShowcaseStatus.ARCHIVED;
+        await context.SaveChangesAsync();
+
+        var result = await service.UpdateAsync(
+            showcase.ProjectShowcaseId,
+            SalesId,
+            new UpdateProjectShowcaseRequestDto { Title = "Updated title" });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.ArchivedReadOnly, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task AddMediaAsync_DesignerCanAttachMediaToAssignedProject()
     {
         await using var context = CreateContext();

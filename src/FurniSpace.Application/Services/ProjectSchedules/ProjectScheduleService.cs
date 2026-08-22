@@ -613,25 +613,15 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         if (request.ScheduleType == ProjectScheduleType.DELIVERY)
         {
-            if (role == ApplicationRoles.Production)
+            var deliveryScheduleError = await ValidateDeliveryScheduleCreationAsync(
+                role,
+                project,
+                projectId,
+                currentUserId,
+                cancellationToken);
+            if (deliveryScheduleError is not null)
             {
-                var productionCompleted = await _productionRequests.HasAssignedCompletedProductionForProjectAsync(
-                    projectId,
-                    currentUserId,
-                    cancellationToken);
-                if (!productionCompleted)
-                {
-                    return ServiceResult<ProjectScheduleDto>.Failure(
-                        Error.Validation(
-                            ProjectScheduleErrorCodes.ProductionNotCompletedForDeliverySchedule,
-                            "Production must be completed before creating a delivery schedule."));
-                }
-            }
-
-            var deliveryError = await ValidateDeliveryScheduleCreateAsync(project, cancellationToken);
-            if (deliveryError is not null)
-            {
-                return deliveryError;
+                return deliveryScheduleError;
             }
         }
 
@@ -728,6 +718,31 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         return null;
+    }
+
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateDeliveryScheduleCreationAsync(
+        string? role,
+        FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        if (role == ApplicationRoles.Production)
+        {
+            var productionCompleted = await _productionRequests.HasAssignedCompletedProductionForProjectAsync(
+                projectId,
+                currentUserId,
+                cancellationToken);
+            if (!productionCompleted)
+            {
+                return ServiceResult<ProjectScheduleDto>.Failure(
+                    Error.Validation(
+                        ProjectScheduleErrorCodes.ProductionNotCompletedForDeliverySchedule,
+                        "Production must be completed before creating a delivery schedule."));
+            }
+        }
+
+        return await ValidateDeliveryScheduleCreateAsync(project, cancellationToken);
     }
 
     private async Task<ServiceResult<ProjectScheduleDto>?> ValidateDeliveryScheduleCreateAsync(

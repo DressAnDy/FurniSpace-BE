@@ -58,7 +58,10 @@ internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepositor
 
     public void Update(ProjectSchedule entity)
     {
+        UpdatedSchedules.Add(entity);
     }
+
+    public List<ProjectSchedule> UpdatedSchedules { get; } = [];
 
     public void Remove(ProjectSchedule entity)
     {

@@ -69,7 +69,6 @@ public sealed partial class OrderService
         var scheduleDetail = await _schedules.GetDetailAsync(request.ProjectScheduleId, cancellationToken);
         var scheduleError = await ValidateDeliveryBatchScheduleAsync<DeliveryDetailDto>(
             scheduleDetail,
-            order,
             project.ProjectId,
             currentUserId,
             access.Role,
@@ -245,68 +244,18 @@ public sealed partial class OrderService
 
         var order = access.Order!;
         var project = access.Project!;
-        var productionError = await ValidateProductionCompletedForDeliveryAsync<DeliveryBatchCompletionDto>(
-            order.OrderId,
+        var resolveResult = await ResolveCompleteDeliveryBatchContextAsync(
+            order,
+            deliveryId,
             cancellationToken);
-        if (productionError is not null)
+        if (resolveResult.EarlyReturn is not null)
         {
-            return productionError;
+            return resolveResult.EarlyReturn;
         }
 
-        if (order.Status != OrderStatus.DELIVERING)
-        {
-            return BadRequest<DeliveryBatchCompletionDto>(
-                OrderErrorCodes.OrderNotDelivering,
-                "Order must be DELIVERING before a delivery batch can be completed.");
-        }
-
-        var delivery = await _deliveries.GetByIdAsync(deliveryId, cancellationToken);
-        if (delivery is null || delivery.OrderId != order.OrderId)
-        {
-            return NotFound<DeliveryBatchCompletionDto>(
-                OrderErrorCodes.DeliveryNotFound,
-                "Delivery batch not found.");
-        }
-
-        if (delivery.Status == DeliveryStatus.COMPLETED)
-        {
-            return ServiceResult<DeliveryBatchCompletionDto>.Success(
-                ToDeliveryBatchCompletionDto(delivery, 0),
-                "Delivery batch already completed.");
-        }
-
-        if (delivery.Status != DeliveryStatus.IN_PROGRESS)
-        {
-            return BadRequest<DeliveryBatchCompletionDto>(
-                OrderErrorCodes.DeliveryNotInProgress,
-                "Only in-progress delivery batches can be completed.");
-        }
-
-        if (!delivery.ProjectScheduleId.HasValue)
-        {
-            return BadRequest<DeliveryBatchCompletionDto>(
-                OrderErrorCodes.DeliveryScheduleInvalid,
-                "Delivery batch must be linked to a delivery schedule.");
-        }
-
-        var schedule = await _schedules.GetByIdAsync(delivery.ProjectScheduleId.Value, cancellationToken);
-        if (schedule is null ||
-            schedule.ScheduleType != ProjectScheduleType.DELIVERY ||
-            schedule.Status != ProjectScheduleStatus.CONFIRMED)
-        {
-            return BadRequest<DeliveryBatchCompletionDto>(
-                OrderErrorCodes.DeliveryScheduleInvalid,
-                "Linked delivery schedule must exist and be confirmed.");
-        }
-
+        var delivery = resolveResult.Delivery!;
+        var schedule = resolveResult.Schedule!;
         var deliveryItems = await _deliveries.GetItemsByDeliveryAsync(deliveryId, cancellationToken);
-        if (deliveryItems.Count == 0)
-        {
-            return BadRequest<DeliveryBatchCompletionDto>(
-                OrderErrorCodes.DeliveryBatchEmpty,
-                "Delivery batch has no items to complete.");
-        }
-
         var orderItemIds = deliveryItems.Select(item => item.OrderItemId).ToList();
         var now = DateTime.UtcNow;
         var updatedCount = 0;
@@ -439,9 +388,104 @@ public sealed partial class OrderService
         return (null, null, null, ServiceResult<T>.Forbidden(ForbiddenMessage));
     }
 
+    private sealed record CompleteDeliveryBatchContextResult(
+        Delivery? Delivery,
+        ProjectSchedule? Schedule,
+        ServiceResult<DeliveryBatchCompletionDto>? EarlyReturn);
+
+    private async Task<CompleteDeliveryBatchContextResult> ResolveCompleteDeliveryBatchContextAsync(
+        Order order,
+        Guid deliveryId,
+        CancellationToken cancellationToken)
+    {
+        var productionError = await ValidateProductionCompletedForDeliveryAsync<DeliveryBatchCompletionDto>(
+            order.OrderId,
+            cancellationToken);
+        if (productionError is not null)
+        {
+            return new CompleteDeliveryBatchContextResult(null, null, productionError);
+        }
+
+        if (order.Status != OrderStatus.DELIVERING)
+        {
+            return new CompleteDeliveryBatchContextResult(
+                null,
+                null,
+                BadRequest<DeliveryBatchCompletionDto>(
+                    OrderErrorCodes.OrderNotDelivering,
+                    "Order must be DELIVERING before a delivery batch can be completed."));
+        }
+
+        var delivery = await _deliveries.GetByIdAsync(deliveryId, cancellationToken);
+        if (delivery is null || delivery.OrderId != order.OrderId)
+        {
+            return new CompleteDeliveryBatchContextResult(
+                null,
+                null,
+                NotFound<DeliveryBatchCompletionDto>(
+                    OrderErrorCodes.DeliveryNotFound,
+                    "Delivery batch not found."));
+        }
+
+        if (delivery.Status == DeliveryStatus.COMPLETED)
+        {
+            return new CompleteDeliveryBatchContextResult(
+                null,
+                null,
+                ServiceResult<DeliveryBatchCompletionDto>.Success(
+                    ToDeliveryBatchCompletionDto(delivery, 0),
+                    "Delivery batch already completed."));
+        }
+
+        if (delivery.Status != DeliveryStatus.IN_PROGRESS)
+        {
+            return new CompleteDeliveryBatchContextResult(
+                null,
+                null,
+                BadRequest<DeliveryBatchCompletionDto>(
+                    OrderErrorCodes.DeliveryNotInProgress,
+                    "Only in-progress delivery batches can be completed."));
+        }
+
+        if (!delivery.ProjectScheduleId.HasValue)
+        {
+            return new CompleteDeliveryBatchContextResult(
+                null,
+                null,
+                BadRequest<DeliveryBatchCompletionDto>(
+                    OrderErrorCodes.DeliveryScheduleInvalid,
+                    "Delivery batch must be linked to a delivery schedule."));
+        }
+
+        var schedule = await _schedules.GetByIdAsync(delivery.ProjectScheduleId.Value, cancellationToken);
+        if (schedule is null ||
+            schedule.ScheduleType != ProjectScheduleType.DELIVERY ||
+            schedule.Status != ProjectScheduleStatus.CONFIRMED)
+        {
+            return new CompleteDeliveryBatchContextResult(
+                null,
+                null,
+                BadRequest<DeliveryBatchCompletionDto>(
+                    OrderErrorCodes.DeliveryScheduleInvalid,
+                    "Linked delivery schedule must exist and be confirmed."));
+        }
+
+        var deliveryItems = await _deliveries.GetItemsByDeliveryAsync(deliveryId, cancellationToken);
+        if (deliveryItems.Count == 0)
+        {
+            return new CompleteDeliveryBatchContextResult(
+                null,
+                null,
+                BadRequest<DeliveryBatchCompletionDto>(
+                    OrderErrorCodes.DeliveryBatchEmpty,
+                    "Delivery batch has no items to complete."));
+        }
+
+        return new CompleteDeliveryBatchContextResult(delivery, schedule, null);
+    }
+
     private async Task<ServiceResult<T>?> ValidateDeliveryBatchScheduleAsync<T>(
         ProjectScheduleDetailReadModel? schedule,
-        Order order,
         Guid projectId,
         Guid currentUserId,
         string? role,

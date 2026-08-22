@@ -930,7 +930,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         return baseQuery;
     }
 
-    private IQueryable<MeasurementGalleryFilterRow> ApplyMeasurementGalleryVisibilityFilter(
+    private static IQueryable<MeasurementGalleryFilterRow> ApplyMeasurementGalleryVisibilityFilter(
         IQueryable<MeasurementGalleryFilterRow> baseQuery,
         MeasurementImageGalleryQueryReadModel query)
     {

@@ -105,6 +105,163 @@ public sealed class DeliveryRepositoryTests
         Assert.Equal(DeliveryStatus.COMPLETED, updated.Status);
     }
 
+    [Fact]
+    public async Task GetTrackingByOrderAsync_ReturnsProgressAndTimeline()
+    {
+        await using var context = CreateContext();
+        var data = await SeedTrackingAsync(context);
+        var repository = new DeliveryRepository(context);
+
+        var tracking = await repository.GetTrackingByOrderAsync(data.OrderId, data.ProjectId);
+
+        Assert.NotNull(tracking);
+        Assert.Equal(OrderStatus.DELIVERING, tracking!.OrderStatus);
+        Assert.Equal(10, tracking.TotalOrderedQuantity);
+        Assert.Equal(3, tracking.TotalDeliveredQuantity);
+        Assert.Equal(7, tracking.RemainingQuantity);
+        Assert.Equal(30, tracking.DeliveryProgressPercent);
+        Assert.Equal(1, tracking.CompletedDeliveryCount);
+        Assert.Equal(1, tracking.UpcomingDeliveryCount);
+        Assert.NotNull(tracking.NextDeliveryAt);
+        Assert.Equal(2, tracking.Timeline.Count);
+        Assert.Equal("Custom Chair", tracking.Items[0].ProductName);
+        Assert.Equal(2, tracking.Timeline[0].Items.Count);
+    }
+
+    [Fact]
+    public async Task GetTrackingByOrderAsync_WhenOrderProjectMismatch_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        var data = await SeedTrackingAsync(context);
+        var repository = new DeliveryRepository(context);
+
+        var tracking = await repository.GetTrackingByOrderAsync(data.OrderId, Guid.NewGuid());
+
+        Assert.Null(tracking);
+    }
+
+    [Fact]
+    public async Task GetProjectDeliverySummaryAsync_ReturnsAggregatedQuantities()
+    {
+        await using var context = CreateContext();
+        var data = await SeedTrackingAsync(context);
+        var repository = new DeliveryRepository(context);
+
+        var summary = await repository.GetProjectDeliverySummaryAsync(data.ProjectId);
+
+        Assert.NotNull(summary);
+        Assert.Equal(ProjectStatus.DELIVERING, summary!.Status);
+        Assert.Equal(10, summary.TotalQuantity);
+        Assert.Equal(3, summary.DeliveredQuantity);
+        Assert.Equal(7, summary.RemainingQuantity);
+        Assert.Equal(30, summary.DeliveryProgressPercent);
+        Assert.NotNull(summary.NextDeliveryAt);
+    }
+
+    [Fact]
+    public async Task ExistsByProjectScheduleIdAsync_ReturnsTrueWhenLinked()
+    {
+        await using var context = CreateContext();
+        var data = await SeedTrackingAsync(context);
+        var repository = new DeliveryRepository(context);
+
+        var exists = await repository.ExistsByProjectScheduleIdAsync(data.CompletedScheduleId);
+
+        Assert.True(exists);
+    }
+
+    [Fact]
+    public async Task GetByProjectScheduleIdAsync_ReturnsLinkedDelivery()
+    {
+        await using var context = CreateContext();
+        var data = await SeedTrackingAsync(context);
+        var repository = new DeliveryRepository(context);
+
+        var delivery = await repository.GetByProjectScheduleIdAsync(data.CompletedScheduleId);
+
+        Assert.NotNull(delivery);
+        Assert.Equal(data.CompletedDeliveryId, delivery!.DeliveryId);
+    }
+
+    [Fact]
+    public async Task HasInProgressDeliveryAsync_ReturnsTrueWhenBatchInProgress()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new DeliveryRepository(context);
+
+        var hasInProgress = await repository.HasInProgressDeliveryAsync(data.OrderId);
+
+        Assert.True(hasInProgress);
+    }
+
+    [Fact]
+    public async Task GetProjectDeliverySummaryAsync_WhenProjectNotInDeliveryPhase_ReturnsNull()
+    {
+        await using var context = CreateContext();
+        var data = await SeedTrackingAsync(context);
+        context.ProjectSet.Single(project => project.ProjectId == data.ProjectId).Status = ProjectStatus.PROPOSAL_CONSULTING;
+        await context.SaveChangesAsync();
+        var repository = new DeliveryRepository(context);
+
+        var summary = await repository.GetProjectDeliverySummaryAsync(data.ProjectId);
+
+        Assert.Null(summary);
+    }
+
+    [Fact]
+    public async Task GetTrackingByOrderAsync_IncludesAutoCancelledScheduleReason()
+    {
+        await using var context = CreateContext();
+        var data = await SeedTrackingAsync(context);
+        var cancelledScheduleId = Guid.NewGuid();
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = cancelledScheduleId,
+            ProjectId = data.ProjectId,
+            ScheduleType = ProjectScheduleType.DELIVERY,
+            Status = ProjectScheduleStatus.CANCELLED,
+            ScheduledStart = DateTime.UtcNow.AddDays(-1),
+            InternalNote = "ALL_ITEMS_ALREADY_DELIVERED",
+            AssignedStaffId = Guid.NewGuid()
+        });
+        await context.SaveChangesAsync();
+        var repository = new DeliveryRepository(context);
+
+        var tracking = await repository.GetTrackingByOrderAsync(data.OrderId, data.ProjectId);
+
+        Assert.NotNull(tracking);
+        var cancelledEntry = Assert.Single(tracking!.Timeline, entry => entry.ProjectScheduleId == cancelledScheduleId);
+        Assert.Equal("ALL_ITEMS_ALREADY_DELIVERED", cancelledEntry.CancelReason);
+    }
+
+    [Fact]
+    public async Task ExistsByProjectScheduleIdAsync_ReturnsFalseWhenNotLinked()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new DeliveryRepository(context);
+
+        var exists = await repository.ExistsByProjectScheduleIdAsync(Guid.NewGuid());
+
+        Assert.False(exists);
+    }
+
+    [Fact]
+    public async Task HasInProgressDeliveryAsync_ReturnsFalseWhenOnlyCompleted()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var inProgress = context.DeliverySet.Single(delivery => delivery.Status == DeliveryStatus.IN_PROGRESS);
+        inProgress.Status = DeliveryStatus.COMPLETED;
+        await context.SaveChangesAsync();
+        var repository = new DeliveryRepository(context);
+
+        var hasInProgress = await repository.HasInProgressDeliveryAsync(data.OrderId);
+
+        Assert.False(hasInProgress);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
@@ -186,9 +343,128 @@ public sealed class DeliveryRepositoryTests
         return new SeededData(orderId, orderItemId, olderDeliveryId, newerDeliveryId);
     }
 
+    private static async Task<TrackingSeededData> SeedTrackingAsync(AppDbContext context)
+    {
+        var projectId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var quotationItemId = Guid.NewGuid();
+        var quotationId = Guid.NewGuid();
+        var completedScheduleId = Guid.NewGuid();
+        var upcomingScheduleId = Guid.NewGuid();
+        var completedDeliveryId = Guid.NewGuid();
+        var now = DateTime.UtcNow;
+
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            Status = ProjectStatus.DELIVERING,
+            ProjectCode = "PRJ-TRACK",
+            ProjectName = "Tracking Project"
+        });
+        context.QuotationItemSet.Add(new QuotationItem
+        {
+            QuotationItemId = quotationItemId,
+            QuotationId = quotationId,
+            ItemName = "Custom Chair",
+            Quantity = 10,
+            UnitPrice = 50m,
+            GrossAmount = 500m,
+            DiscountAmount = 0m,
+            TotalAmount = 500m
+        });
+        context.OrderSet.Add(new Order
+        {
+            OrderId = orderId,
+            ProjectId = projectId,
+            QuotationId = quotationId,
+            OrderCode = "ORD-TRACK",
+            CustomerId = Guid.NewGuid(),
+            VatRate = 0.08m,
+            VatAmount = 40m,
+            OriginalTotalAmount = 500m,
+            FinalTotalAmount = 500m,
+            Status = OrderStatus.DELIVERING
+        });
+        context.OrderItemSet.Add(new OrderItem
+        {
+            OrderItemId = orderItemId,
+            OrderId = orderId,
+            QuotationItemId = quotationItemId,
+            ProductVersionId = Guid.NewGuid(),
+            ProductNameSnapshot = "Chair",
+            Quantity = 10,
+            DeliveredQuantity = 3,
+            Status = OrderItemStatus.PARTIALLY_DELIVERED,
+            UnitPrice = 50m,
+            DiscountAmount = 0m,
+            SubtotalAmount = 500m
+        });
+        context.ProjectScheduleSet.AddRange(
+            new ProjectSchedule
+            {
+                ScheduleId = completedScheduleId,
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.DELIVERY,
+                Status = ProjectScheduleStatus.COMPLETED,
+                ScheduledStart = now.AddDays(-2),
+                ScheduledEnd = now.AddDays(-2).AddHours(2),
+                CompletedAt = now.AddDays(-1),
+                AssignedStaffId = Guid.NewGuid()
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = upcomingScheduleId,
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.DELIVERY,
+                Status = ProjectScheduleStatus.CONFIRMED,
+                ScheduledStart = now.AddDays(2),
+                ScheduledEnd = now.AddDays(2).AddHours(2),
+                AssignedStaffId = Guid.NewGuid()
+            });
+        context.DeliverySet.Add(new Delivery
+        {
+            DeliveryId = completedDeliveryId,
+            OrderId = orderId,
+            ProjectScheduleId = completedScheduleId,
+            Status = DeliveryStatus.COMPLETED,
+            CreatedAt = now.AddDays(-2),
+            CompletedAt = now.AddDays(-1)
+        });
+        context.DeliveryItemSet.AddRange(
+            new DeliveryItem
+            {
+                DeliveryItemId = Guid.NewGuid(),
+                DeliveryId = completedDeliveryId,
+                OrderItemId = orderItemId,
+                Quantity = 2
+            },
+            new DeliveryItem
+            {
+                DeliveryItemId = Guid.NewGuid(),
+                DeliveryId = completedDeliveryId,
+                OrderItemId = orderItemId,
+                Quantity = 1
+            });
+
+        await context.SaveChangesAsync();
+        return new TrackingSeededData(
+            projectId,
+            orderId,
+            completedScheduleId,
+            completedDeliveryId);
+    }
+
     private sealed record SeededData(
         Guid OrderId,
         Guid OrderItemId,
         Guid OlderDeliveryId,
         Guid NewerDeliveryId);
+
+    private sealed record TrackingSeededData(
+        Guid ProjectId,
+        Guid OrderId,
+        Guid CompletedScheduleId,
+        Guid CompletedDeliveryId);
 }

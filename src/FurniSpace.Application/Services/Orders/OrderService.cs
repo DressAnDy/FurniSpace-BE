@@ -857,15 +857,6 @@ public sealed partial class OrderService : IOrderService
         };
     }
 
-    private static bool CanStartDelivery(
-        string? role,
-        Guid? assignedSalesId,
-        Guid currentUserId)
-    {
-        return role is ProjectAssignmentAccessEvaluator.AdminRole or OrderAccessEvaluator.ProductionRole ||
-            role == ProjectAssignmentAccessEvaluator.SalesRole && assignedSalesId == currentUserId;
-    }
-
     private static ServiceResult<T> BadRequest<T>(string errorCode, string message)
     {
         return ServiceResult<T>.Failure(Error.BadRequest(errorCode, message));

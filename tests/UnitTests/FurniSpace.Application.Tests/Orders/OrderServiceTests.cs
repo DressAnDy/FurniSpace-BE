@@ -1369,6 +1369,549 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
+    public async Task GetDeliveryTrackingAsync_WhenAuthorized_ReturnsTracking()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.DELIVERING
+        };
+        var tracking = new OrderDeliveryTrackingReadModel
+        {
+            OrderId = orderId,
+            OrderStatus = OrderStatus.DELIVERING,
+            TotalOrderedQuantity = 10,
+            TotalDeliveredQuantity = 4,
+            RemainingQuantity = 6,
+            DeliveryProgressPercent = 40,
+            CompletedDeliveryCount = 1,
+            UpcomingDeliveryCount = 1
+        };
+        var deliveries = new FakeDeliveryRepository { Tracking = tracking };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            ProjectDetail = CreateProjectDetail(),
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            },
+            Deliveries = deliveries
+        });
+
+        var result = await service.GetDeliveryTrackingAsync(orderId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(orderId, result.Data!.OrderId);
+        Assert.Equal(40, result.Data.Summary.DeliveryProgressPercent);
+        Assert.Equal(6, result.Data.Summary.RemainingQuantity);
+    }
+
+    [Fact]
+    public async Task CompleteDeliveryBatchAsync_WhenAlreadyCompleted_ReturnsSuccessWithoutMutation()
+    {
+        var orderId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var deliveries = new FakeDeliveryRepository();
+        deliveries.SeedDelivery(
+            deliveryId,
+            orderId,
+            DeliveryStatus.COMPLETED,
+            [new DeliveryItem
+            {
+                DeliveryItemId = Guid.NewGuid(),
+                DeliveryId = deliveryId,
+                OrderItemId = Guid.NewGuid(),
+                Quantity = 1
+            }]);
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "ADMIN",
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = ProjectStatus.DELIVERING
+            },
+            Deliveries = deliveries,
+            IsProductionCompleted = true
+        });
+
+        var result = await service.CompleteDeliveryBatchAsync(orderId, deliveryId, _adminId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(DeliveryStatus.COMPLETED, deliveries.GetDelivery(deliveryId)!.Status);
+    }
+
+    [Fact]
+    public async Task CreateDeliveryBatchAsync_WhenFirstBatch_TransitionsOrderAndProjectToDelivering()
+    {
+        var orderId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var (scheduleDetail, scheduleEntity) = CreateConfirmedDeliverySchedule(_projectId, scheduleId, _productionId);
+        var project = new Project
+        {
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            AssignedSalesId = _salesId,
+            Status = ProjectStatus.READY_FOR_DELIVERY
+        };
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.READY_FOR_DELIVERY
+        };
+        var item = new OrderItem
+        {
+            OrderItemId = orderItemId,
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.READY,
+            Quantity = 3,
+            DeliveredQuantity = 0
+        };
+        var deliveries = new FakeDeliveryRepository();
+        deliveries.SetCreateDetailFactory(id => new DeliveryDetailReadModel
+        {
+            DeliveryId = id,
+            OrderId = orderId,
+            Status = DeliveryStatus.IN_PROGRESS,
+            ItemCount = 1
+        });
+        var notifications = new CapturingNotificationDispatcher();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "PRODUCTION",
+            Order = order,
+            Project = project,
+            OrderItems = [item],
+            Deliveries = deliveries,
+            ScheduleDetail = scheduleDetail,
+            ScheduleEntity = scheduleEntity,
+            Notifications = notifications
+        });
+
+        var result = await service.CreateDeliveryBatchAsync(
+            orderId,
+            _productionId,
+            new CreateDeliveryBatchRequestDto
+            {
+                ProjectScheduleId = scheduleId,
+                Items =
+                [
+                    new CreateDeliveryBatchItemRequestDto
+                    {
+                        OrderItemId = orderItemId,
+                        Quantity = 1
+                    }
+                ]
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(OrderStatus.DELIVERING, order.Status);
+        Assert.Equal(ProjectStatus.DELIVERING, project.Status);
+        Assert.Equal(2, notifications.Types.Count);
+    }
+
+    [Fact]
+    public async Task CreateDeliveryBatchAsync_WhenScheduleNotConfirmed_ReturnsBadRequest()
+    {
+        var orderId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var scheduleDetail = new ProjectScheduleDetailReadModel
+        {
+            ScheduleId = scheduleId,
+            ProjectId = _projectId,
+            ProjectName = "Test Project",
+            CustomerId = _customerId,
+            ScheduleType = ProjectScheduleType.DELIVERY,
+            Status = ProjectScheduleStatus.PENDING_CONFIRMATION,
+            AssignedStaffId = _productionId,
+            ScheduledStart = DateTime.UtcNow.AddMinutes(-1)
+        };
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "PRODUCTION",
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project { ProjectId = _projectId, CustomerId = _customerId, Status = ProjectStatus.DELIVERING },
+            ScheduleDetail = scheduleDetail
+        });
+
+        var result = await service.CreateDeliveryBatchAsync(
+            orderId,
+            _productionId,
+            new CreateDeliveryBatchRequestDto
+            {
+                ProjectScheduleId = scheduleId,
+                Items = [new CreateDeliveryBatchItemRequestDto { OrderItemId = Guid.NewGuid(), Quantity = 1 }]
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliveryScheduleNotConfirmed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateDeliveryBatchAsync_WhenScheduleAlreadyUsed_ReturnsConflict()
+    {
+        var orderId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var (scheduleDetail, scheduleEntity) = CreateConfirmedDeliverySchedule(_projectId, scheduleId, _productionId);
+        var deliveries = new FakeDeliveryRepository();
+        var existingDeliveryId = Guid.NewGuid();
+        deliveries.SeedDelivery(
+            existingDeliveryId,
+            orderId,
+            DeliveryStatus.COMPLETED,
+            [new DeliveryItem
+            {
+                DeliveryItemId = Guid.NewGuid(),
+                DeliveryId = existingDeliveryId,
+                OrderItemId = orderItemId,
+                Quantity = 1
+            }]);
+        deliveries.GetDelivery(existingDeliveryId)!.ProjectScheduleId = scheduleId;
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "PRODUCTION",
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project { ProjectId = _projectId, CustomerId = _customerId, Status = ProjectStatus.DELIVERING },
+            OrderItems =
+            [
+                new OrderItem
+                {
+                    OrderItemId = orderItemId,
+                    OrderId = orderId,
+                    ProductVersionId = Guid.NewGuid(),
+                    Status = OrderItemStatus.READY,
+                    Quantity = 5,
+                    DeliveredQuantity = 1
+                }
+            ],
+            Deliveries = deliveries,
+            ScheduleDetail = scheduleDetail,
+            ScheduleEntity = scheduleEntity
+        });
+
+        var result = await service.CreateDeliveryBatchAsync(
+            orderId,
+            _productionId,
+            new CreateDeliveryBatchRequestDto
+            {
+                ProjectScheduleId = scheduleId,
+                Items = [new CreateDeliveryBatchItemRequestDto { OrderItemId = orderItemId, Quantity = 1 }]
+            });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliveryScheduleAlreadyUsed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateDeliveryBatchAsync_WhenDuplicateItems_ReturnsBadRequest()
+    {
+        var orderId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var (scheduleDetail, scheduleEntity) = CreateConfirmedDeliverySchedule(_projectId, scheduleId, _productionId);
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "PRODUCTION",
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project { ProjectId = _projectId, CustomerId = _customerId, Status = ProjectStatus.DELIVERING },
+            OrderItems =
+            [
+                new OrderItem
+                {
+                    OrderItemId = orderItemId,
+                    OrderId = orderId,
+                    ProductVersionId = Guid.NewGuid(),
+                    Status = OrderItemStatus.READY,
+                    Quantity = 5
+                }
+            ],
+            ScheduleDetail = scheduleDetail,
+            ScheduleEntity = scheduleEntity
+        });
+
+        var result = await service.CreateDeliveryBatchAsync(
+            orderId,
+            _productionId,
+            new CreateDeliveryBatchRequestDto
+            {
+                ProjectScheduleId = scheduleId,
+                Items =
+                [
+                    new CreateDeliveryBatchItemRequestDto { OrderItemId = orderItemId, Quantity = 1 },
+                    new CreateDeliveryBatchItemRequestDto { OrderItemId = orderItemId, Quantity = 2 }
+                ]
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.DuplicateOrderItemInBatch, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetDeliveryDetailAsync_WhenFound_ReturnsDetail()
+    {
+        var orderId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var deliveries = new FakeDeliveryRepository();
+        deliveries.SeedListItem(deliveryId, orderId, DeliveryStatus.IN_PROGRESS, itemCount: 1);
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            ProjectDetail = CreateProjectDetail(),
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = OrderStatus.DELIVERING
+            },
+            Deliveries = deliveries
+        });
+
+        var result = await service.GetDeliveryDetailAsync(orderId, deliveryId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(deliveryId, result.Data!.DeliveryId);
+    }
+
+    [Fact]
+    public async Task GetDeliveryDetailAsync_WhenNotFound_ReturnsNotFound()
+    {
+        var orderId = Guid.NewGuid();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "ADMIN",
+            ProjectDetail = CreateProjectDetail(),
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = OrderStatus.DELIVERING
+            }
+        });
+
+        var result = await service.GetDeliveryDetailAsync(orderId, Guid.NewGuid(), _adminId);
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliveryNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetDeliveryTrackingAsync_WhenUserMissing_ReturnsUnauthorized()
+    {
+        var service = BuildService(new OrderServiceTestOptions { Role = "CUSTOMER" });
+
+        var result = await service.GetDeliveryTrackingAsync(Guid.NewGuid(), Guid.Empty);
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task GetDeliveryTrackingAsync_WhenForbidden_ReturnsForbidden()
+    {
+        var orderId = Guid.NewGuid();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            ProjectDetail = CreateProjectDetail(),
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = OrderStatus.DELIVERING
+            }
+        });
+
+        var result = await service.GetDeliveryTrackingAsync(orderId, Guid.NewGuid());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task CompleteDeliveryBatchAsync_WhenAllItemsDelivered_CancelsUnusedSchedules()
+    {
+        var orderId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var unusedScheduleId = Guid.NewGuid();
+        var (_, scheduleEntity) = CreateConfirmedDeliverySchedule(_projectId, scheduleId, _productionId);
+        var unusedSchedule = new ProjectSchedule
+        {
+            ScheduleId = unusedScheduleId,
+            ProjectId = _projectId,
+            ScheduleType = ProjectScheduleType.DELIVERY,
+            Status = ProjectScheduleStatus.CONFIRMED,
+            ScheduledStart = DateTime.UtcNow.AddDays(3),
+            Title = "Future delivery"
+        };
+        var scheduleRepo = new EmptyProjectScheduleRepository
+        {
+            ScheduleEntity = scheduleEntity,
+            UnusedFutureDeliverySchedules = [unusedSchedule]
+        };
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            Status = OrderStatus.DELIVERING
+        };
+        var item = new OrderItem
+        {
+            OrderItemId = orderItemId,
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.READY,
+            Quantity = 2,
+            DeliveredQuantity = 0
+        };
+        var deliveries = new FakeDeliveryRepository();
+        deliveries.SeedDelivery(
+            deliveryId,
+            orderId,
+            DeliveryStatus.IN_PROGRESS,
+            [new DeliveryItem
+            {
+                DeliveryItemId = Guid.NewGuid(),
+                DeliveryId = deliveryId,
+                OrderItemId = orderItemId,
+                Quantity = 2
+            }]);
+        deliveries.GetDelivery(deliveryId)!.ProjectScheduleId = scheduleId;
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "ADMIN",
+            Order = order,
+            Project = new Project { ProjectId = _projectId, CustomerId = _customerId, Status = ProjectStatus.DELIVERING },
+            OrderItems = [item],
+            Deliveries = deliveries,
+            Schedules = scheduleRepo
+        });
+
+        var result = await service.CompleteDeliveryBatchAsync(orderId, deliveryId, _adminId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectScheduleStatus.CANCELLED, unusedSchedule.Status);
+        Assert.Equal("ALL_ITEMS_ALREADY_DELIVERED", unusedSchedule.InternalNote);
+        Assert.Contains(scheduleRepo.UpdatedSchedules, schedule => schedule.ScheduleId == unusedScheduleId);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenBatchInProgress_ReturnsConflict()
+    {
+        var orderId = Guid.NewGuid();
+        var deliveries = new FakeDeliveryRepository();
+        deliveries.SeedDelivery(
+            Guid.NewGuid(),
+            orderId,
+            DeliveryStatus.IN_PROGRESS,
+            [new DeliveryItem
+            {
+                DeliveryItemId = Guid.NewGuid(),
+                DeliveryId = Guid.NewGuid(),
+                OrderItemId = Guid.NewGuid(),
+                Quantity = 1
+            }]);
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            ProjectDetail = CreateProjectDetail(),
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = ProjectStatus.DELIVERING
+            },
+            Deliveries = deliveries
+        });
+
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.DeliveryBatchInProgress, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ConfirmDeliveryAsync_WhenUnresolvedSchedule_ReturnsConflict()
+    {
+        var orderId = Guid.NewGuid();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            ProjectDetail = CreateProjectDetail(),
+            Order = new Order
+            {
+                OrderId = orderId,
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = OrderStatus.DELIVERING
+            },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                Status = ProjectStatus.DELIVERING
+            },
+            HasUnresolvedConfirmedDeliverySchedule = true
+        });
+
+        var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(OrderErrorCodes.UnresolvedDeliverySchedule, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task ConfirmDeliveryAsync_WhenPartialQuantityDelivered_ReturnsConflict()
     {
         var orderId = Guid.NewGuid();
@@ -1469,7 +2012,8 @@ public sealed class OrderServiceTests
                     ConfirmedDeliverySchedule = options.HasConfirmedDeliverySchedule,
                     ScheduleDetail = options.ScheduleDetail,
                     ScheduleEntity = options.ScheduleEntity,
-                    HasUnresolvedConfirmedDeliverySchedule = options.HasUnresolvedConfirmedDeliverySchedule
+                    HasUnresolvedConfirmedDeliverySchedule = options.HasUnresolvedConfirmedDeliverySchedule,
+                    UnusedFutureDeliverySchedules = options.UnusedFutureDeliverySchedules
                 },
                 options.Deliveries ?? new FakeDeliveryRepository(),
                 options.UnitOfWork,
@@ -1589,6 +2133,8 @@ public sealed class OrderServiceTests
         public bool HasUnresolvedConfirmedDeliverySchedule { get; init; }
 
         public bool HasAssignedCompletedProduction { get; init; } = true;
+
+        public IReadOnlyList<ProjectSchedule> UnusedFutureDeliverySchedules { get; init; } = [];
 
         public Guid ProductionUserId { get; init; }
     }
@@ -2064,7 +2610,9 @@ public sealed class OrderServiceTests
         private readonly Dictionary<Guid, List<DeliveryItem>> _items = new();
         private Func<Guid, DeliveryDetailReadModel>? _createDetailFactory;
 
-        public IReadOnlyList<Delivery> AddedDeliveries => _deliveries.Values.ToList();
+        public OrderDeliveryTrackingReadModel? Tracking { get; init; }
+
+        public List<Delivery> AddedDeliveries => _deliveries.Values.ToList();
 
         public Delivery? GetDelivery(Guid deliveryId) => _deliveries.GetValueOrDefault(deliveryId);
 
@@ -2218,6 +2766,23 @@ public sealed class OrderServiceTests
             Guid deliveryId,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<DeliveryItem>>(_items.GetValueOrDefault(deliveryId) ?? []);
+
+        public Task<OrderDeliveryTrackingReadModel?> GetTrackingByOrderAsync(
+            Guid orderId,
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(Tracking);
+
+        public Task<bool> ExistsByProjectScheduleIdAsync(
+            Guid projectScheduleId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_deliveries.Values.Any(delivery => delivery.ProjectScheduleId == projectScheduleId));
+
+        public Task<bool> HasInProgressDeliveryAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_deliveries.Values.Any(delivery =>
+                delivery.OrderId == orderId && delivery.Status == DeliveryStatus.IN_PROGRESS));
 
         public void Update(Delivery delivery)
         {

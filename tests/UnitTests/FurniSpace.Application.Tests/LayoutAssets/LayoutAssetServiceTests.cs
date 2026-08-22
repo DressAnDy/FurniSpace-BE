@@ -340,7 +340,7 @@ public sealed class LayoutAssetServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Single(result.Data!);
-        Assert.Equal(fileId, result.Data[0].FileId);
+        Assert.Equal(fileId, result.Data![0].FileId);
     }
 
     [Fact]

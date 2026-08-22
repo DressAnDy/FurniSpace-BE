@@ -1,5 +1,7 @@
 #nullable enable
 
+#pragma warning disable CS0618 // Obsolete legacy delivery endpoints under test
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -83,6 +85,7 @@ public sealed class OrdersControllerTests
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.CreateDeliveryBatch));
 
+        Assert.NotNull(authorize);
         Assert.Equal("SALES,PRODUCTION,ADMIN", authorize.Roles);
     }
 
@@ -530,6 +533,52 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
+    public void GetDeliveryTracking_RequiresProjectRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.GetDeliveryTracking));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,SALES,PRODUCTION,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task GetDeliveryTracking_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var orderService = new FakeOrderService(
+            getDeliveryTrackingResult: ServiceResult<OrderDeliveryTrackingDto>.Success(
+                new OrderDeliveryTrackingDto
+                {
+                    OrderId = orderId,
+                    Summary = new OrderDeliveryTrackingSummaryDto { RemainingQuantity = 4 }
+                },
+                "tracked"));
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
+
+        var result = await controller.GetDeliveryTracking(orderId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, orderService.OrderId);
+        Assert.Equal(userId, orderService.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task GetDeliveryTracking_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(
+            new FakeOrderService(),
+            new FakePaymentService(),
+            new FakeProductionRequestService(),
+            userId: null);
+
+        var result = await controller.GetDeliveryTracking(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
     public async Task CompleteDeliveryBatch_WithoutUser_ReturnsUnauthorized()
     {
         var controller = CreateController(
@@ -699,6 +748,7 @@ public sealed class OrdersControllerTests
         private readonly ServiceResult<DeliveryListResponseDto>? _getDeliveriesResult;
         private readonly ServiceResult<DeliveryDetailDto>? _getDeliveryDetailResult;
         private readonly ServiceResult<DeliveryBatchCompletionDto>? _completeDeliveryBatchResult;
+        private readonly ServiceResult<OrderDeliveryTrackingDto>? _getDeliveryTrackingResult;
 
         public FakeOrderService(
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
@@ -711,7 +761,8 @@ public sealed class OrdersControllerTests
             ServiceResult<DeliveryDetailDto>? createDeliveryBatchResult = null,
             ServiceResult<DeliveryListResponseDto>? getDeliveriesResult = null,
             ServiceResult<DeliveryDetailDto>? getDeliveryDetailResult = null,
-            ServiceResult<DeliveryBatchCompletionDto>? completeDeliveryBatchResult = null)
+            ServiceResult<DeliveryBatchCompletionDto>? completeDeliveryBatchResult = null,
+            ServiceResult<OrderDeliveryTrackingDto>? getDeliveryTrackingResult = null)
         {
             _getByProjectResult = getByProjectResult;
             _getDetailResult = getDetailResult;
@@ -724,6 +775,7 @@ public sealed class OrdersControllerTests
             _getDeliveriesResult = getDeliveriesResult;
             _getDeliveryDetailResult = getDeliveryDetailResult;
             _completeDeliveryBatchResult = completeDeliveryBatchResult;
+            _getDeliveryTrackingResult = getDeliveryTrackingResult;
         }
 
         public Guid OrderId { get; private set; }
@@ -849,6 +901,17 @@ public sealed class OrdersControllerTests
             CurrentUserId = currentUserId;
             return Task.FromResult(
                 _completeDeliveryBatchResult ?? ServiceResult<DeliveryBatchCompletionDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderDeliveryTrackingDto>> GetDeliveryTrackingAsync(
+            Guid orderId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(
+                _getDeliveryTrackingResult ?? ServiceResult<OrderDeliveryTrackingDto>.Unauthorized());
         }
     }
 

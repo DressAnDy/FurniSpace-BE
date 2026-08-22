@@ -21,6 +21,8 @@ namespace FurniSpace.Application.Services.RoomPlanner;
 
 public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 {
+    private const decimal StandardAreaGeometryToleranceMeters = 0.05m;
+
     private readonly RoomPlannerSqlSceneRepository _proposalScenes;
     private readonly ApplicationRoomPlannerSceneRepository _sceneDocuments;
     private readonly IUnitOfWork _unitOfWork;
@@ -719,21 +721,58 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         RoomPlannerBlueprintFloorDocument floor,
         Infrastructure.ReadModels.Proposals.ProposalSceneAreaReadModel area)
     {
-        var width = area.Width!.Value;
-        var length = area.Length!.Value;
-        var expectedPoints = new HashSet<(decimal X, decimal Z)>
+        if (floor.Points.Count != 4 || floor.Walls.Count < 4)
         {
-            (0m, 0m),
-            (width, 0m),
-            (width, length),
-            (0m, length)
-        };
-        var actualPoints = floor.Points
-            .Select(point => (point.X, point.Z))
-            .ToHashSet();
+            return false;
+        }
 
-        return actualPoints.SetEquals(expectedPoints) && floor.Walls.Count >= 4;
+        var minX = floor.Points.Min(point => point.X);
+        var maxX = floor.Points.Max(point => point.X);
+        var minZ = floor.Points.Min(point => point.Z);
+        var maxZ = floor.Points.Max(point => point.Z);
+        var actualWidth = maxX - minX;
+        var actualLength = maxZ - minZ;
+
+        return NearlyEqual(actualWidth, area.Width!.Value, StandardAreaGeometryToleranceMeters) &&
+            NearlyEqual(actualLength, area.Length!.Value, StandardAreaGeometryToleranceMeters) &&
+            IsAxisAlignedRectangle(floor.Points, minX, maxX, minZ, maxZ);
     }
+
+    private static bool IsAxisAlignedRectangle(
+        IEnumerable<RoomPlannerPoint2Document> points,
+        decimal minX,
+        decimal maxX,
+        decimal minZ,
+        decimal maxZ)
+    {
+        var corners = new HashSet<(int X, int Z)>();
+        foreach (var point in points)
+        {
+            var xEdge = ResolveEdge(point.X, minX, maxX);
+            var zEdge = ResolveEdge(point.Z, minZ, maxZ);
+            if (!xEdge.HasValue || !zEdge.HasValue)
+            {
+                return false;
+            }
+
+            corners.Add((xEdge.Value, zEdge.Value));
+        }
+
+        return corners.Count == 4;
+    }
+
+    private static int? ResolveEdge(decimal value, decimal min, decimal max)
+    {
+        if (NearlyEqual(value, min, StandardAreaGeometryToleranceMeters))
+        {
+            return 0;
+        }
+
+        return NearlyEqual(value, max, StandardAreaGeometryToleranceMeters) ? 1 : null;
+    }
+
+    private static bool NearlyEqual(decimal actual, decimal expected, decimal tolerance) =>
+        Math.Abs(actual - expected) <= tolerance;
 
     private static Error? ValidateFloorMappings(
         RoomPlannerBlueprintLayoutDocument blueprintLayout,

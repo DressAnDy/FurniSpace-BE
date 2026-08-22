@@ -138,6 +138,31 @@ public sealed class LayoutAssetServiceTests
     }
 
     [Fact]
+    public async Task UpdateAsync_WithValidRequest_UpdatesMetadata()
+    {
+        var assetId = Guid.Parse("55555555-5555-5555-5555-555555555555");
+        var repository = new FakeLayoutAssetRepository
+        {
+            Detail = CreateAsset(assetId)
+        };
+        var service = CreateService(repository);
+
+        var result = await service.UpdateAsync(
+            assetId,
+            new UpdateLayoutAssetRequestDto
+            {
+                AssetName = " Updated Stair ",
+                AssetType = LayoutAssetType.STAIR,
+                Description = " Updated description "
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Updated Stair", result.Data!.AssetName);
+        Assert.Equal("Updated description", result.Data.Description);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
     public async Task UploadFileAsync_WithInvalidFileType_ReturnsBadRequest()
     {
         var assetId = Guid.Parse("22222222-2222-2222-2222-222222222222");

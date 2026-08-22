@@ -230,6 +230,72 @@ public sealed class MeasurementImageServiceTests
         Assert.Equal(projectId, fileRepo.LastGalleryQuery?.ProjectId);
     }
 
+    [Fact]
+    public async Task GetProjectAreaMeasurementImagesAsync_ReturnsGalleryForAuthorizedUser()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var fileRepo = new MeasurementProjectFileRepositoryFake
+        {
+            RoleName = "DESIGNER",
+            ProjectAccess = CreateProjectAccess(projectId, assignedDesignerId: designerId),
+            GalleryPage = new MeasurementImageGalleryPageReadModel
+            {
+                Total = 1,
+                Items =
+                [
+                    new MeasurementImageGalleryItemReadModel
+                    {
+                        FileId = Guid.NewGuid(),
+                        FileUrl = "https://example.com/area.jpg",
+                        UploadedAt = DateTime.UtcNow,
+                        ScheduleId = Guid.NewGuid(),
+                        ScheduledStart = DateTime.UtcNow.AddDays(-1)
+                    }
+                ]
+            }
+        };
+        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, new MeasurementUnitOfWorkFake());
+
+        var result = await service.GetProjectAreaMeasurementImagesAsync(
+            projectAreaId,
+            designerId,
+            new MeasurementImageGalleryQueryDto { Page = 1, Limit = 10 });
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(projectAreaId, fileRepo.LastGalleryQuery?.ProjectAreaId);
+    }
+
+    [Fact]
+    public async Task GetScheduleMeasurementImagesAsync_ReturnsGalleryForAuthorizedUser()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var fileRepo = new MeasurementProjectFileRepositoryFake
+        {
+            RoleName = "DESIGNER",
+            ProjectAccess = CreateProjectAccess(projectId, assignedDesignerId: designerId),
+            GalleryPage = new MeasurementImageGalleryPageReadModel { Total = 0, Items = [] }
+        };
+        var scheduleRepo = new MeasurementScheduleRepositoryFake
+        {
+            Detail = CreateMeasurementSchedule(scheduleId, projectId, designerId, ProjectScheduleStatus.CONFIRMED)
+        };
+        var service = CreateService(scheduleRepo, fileRepo, new MeasurementUnitOfWorkFake());
+
+        var result = await service.GetScheduleMeasurementImagesAsync(
+            scheduleId,
+            designerId,
+            new MeasurementImageGalleryQueryDto { Assigned = true });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(scheduleId, fileRepo.LastGalleryQuery?.ScheduleId);
+        Assert.True(fileRepo.LastGalleryQuery?.Assigned);
+    }
+
     private static MeasurementImageService CreateService(
         MeasurementScheduleRepositoryFake scheduleRepo,
         MeasurementProjectFileRepositoryFake fileRepo,

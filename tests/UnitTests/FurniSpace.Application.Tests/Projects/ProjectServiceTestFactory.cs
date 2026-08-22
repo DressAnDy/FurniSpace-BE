@@ -5,9 +5,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
@@ -45,6 +48,8 @@ internal sealed class ProjectServiceFactoryOptions
     public IProductionRequestRepository? ProductionRequests { get; init; }
 
     public IProjectScheduleRepository? Schedules { get; init; }
+
+    public IProjectPhaseDeadlineService? PhaseDeadlines { get; init; }
 }
 
 internal static class ProjectServiceTestFactory
@@ -77,7 +82,46 @@ internal static class ProjectServiceTestFactory
                 options.Quotations ?? new FakeProjectQuotationRepository(),
                 options.Proposals ?? new FakeProjectReopenProposalRepository(),
                 options.ProductionRequests ?? new FakeProjectProductionRequestRepository(),
-                options.Schedules ?? transitionFakes.Schedules));
+                options.Schedules ?? transitionFakes.Schedules,
+                options.PhaseDeadlines ?? new FakeProjectPhaseDeadlineService()));
+    }
+}
+
+internal sealed class FakeProjectPhaseDeadlineService : IProjectPhaseDeadlineService
+{
+    public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpsertProjectPhaseDeadlinesRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+    }
+
+    public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+    }
+
+    public Task MarkStartedOnceAsync(
+        Guid projectId,
+        ProjectPhaseType phase,
+        DateTime startedAt,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
+
+    public Task MarkCompletedOnceAsync(
+        Guid projectId,
+        ProjectPhaseType phase,
+        DateTime completedAt,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
     }
 }
 
@@ -357,6 +401,12 @@ internal sealed class FakeProjectFileRepository : IProjectFileRepository
         IReadOnlyCollection<FileType> fileTypes,
         CancellationToken cancellationToken = default)
         => Task.FromResult(HasMeasurementFiles);
+
+    public Task<Infrastructure.ReadModels.ProjectFiles.ProjectLinkedFileReadModel?> GetProjectLinkedActiveFileAsync(
+        Guid projectId,
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.ProjectFiles.ProjectLinkedFileReadModel?>(null);
 
     public Task<Infrastructure.ReadModels.ProjectFiles.ProjectFileAccessReadModel?> GetProjectAccessAsync(
         Guid projectId,

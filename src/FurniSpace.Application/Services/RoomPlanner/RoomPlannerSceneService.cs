@@ -19,7 +19,7 @@ using RoomPlannerSqlSceneRepository = FurniSpace.Infrastructure.Repositories.IRe
 
 namespace FurniSpace.Application.Services.RoomPlanner;
 
-public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
+public sealed partial class RoomPlannerSceneService : IRoomPlannerSceneService
 {
     private const decimal StandardAreaGeometryToleranceMeters = 0.05m;
 
@@ -34,13 +34,15 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         ApplicationRoomPlannerSceneRepository sceneDocuments,
         IUnitOfWork unitOfWork,
         IProductVersionRepository? productVersions = null,
-        IProjectFileRepository? projectFiles = null)
+        IProjectFileRepository? projectFiles = null,
+        ILayoutAssetRepository? layoutAssets = null)
     {
         _proposalScenes = proposalScenes;
         _sceneDocuments = sceneDocuments;
         _unitOfWork = unitOfWork;
         _productVersions = productVersions;
         _projectFiles = projectFiles;
+        _layoutAssets = layoutAssets;
     }
 
     public async Task<ServiceResult<RoomPlannerSceneSaveResponseDto>> SaveSceneAsync(
@@ -329,9 +331,10 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
 
         return document.Objects
             .Where(sceneObject =>
-                string.Equals(sceneObject.ObjectType, "FURNITURE", StringComparison.OrdinalIgnoreCase) &&
-                sceneObject.ProductVersionId != Guid.Empty)
-            .Select(sceneObject => sceneObject.ProductVersionId)
+                IsFurnitureObject(sceneObject) &&
+                sceneObject.ProductVersionId is Guid productVersionId &&
+                productVersionId != Guid.Empty)
+            .Select(sceneObject => sceneObject.ProductVersionId!.Value)
             .ToHashSet();
     }
 
@@ -444,7 +447,7 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         string currentUserRole,
         CancellationToken cancellationToken)
     {
-        return new RoomPlannerSceneResponseDto
+        var response = new RoomPlannerSceneResponseDto
         {
             SceneId = context.SceneId,
             MongoSceneId = document.Id,
@@ -466,6 +469,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
             EditorState = document.EditorState,
             LastSavedAt = document.Metadata?.UpdatedAt
         };
+
+        await AppendInactiveLayoutAssetWarningsAsync(response, cancellationToken);
+        return response;
     }
 
     private static Error? ValidateDocumentForLoad(
@@ -687,7 +693,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         return ValidateFloorMappings(request.BlueprintLayout, context)
             ?? ValidateStandardAreaGeometry(request.BlueprintLayout, context)
             ?? ValidateObjectIds(request.Objects)
+            ?? ValidateObjectContracts(request.Objects)
             ?? ValidateObjectFloorReferences(request)
+            ?? ValidateFloorOpenings(request)
             ?? ValidateStableGeometryReferences(request.BlueprintLayout);
     }
 
@@ -929,19 +937,28 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         Guid projectId,
         CancellationToken cancellationToken)
     {
+        var layoutAssetReferenceError = await ValidateLayoutAssetReferencesAsync(request, cancellationToken);
+        if (layoutAssetReferenceError is not null)
+        {
+            return layoutAssetReferenceError;
+        }
+
         if (_productVersions is null)
         {
             return await ValidateModelFileLinksAsync(request, cancellationToken);
         }
 
         var productVersionIds = request.Objects
+            .Where(IsFurnitureObject)
             .Select(sceneObject => sceneObject.ProductVersionId)
+            .Where(productVersionId => productVersionId is Guid id && id != Guid.Empty)
+            .Cast<Guid>()
             .Distinct()
             .ToList();
 
-        if (productVersionIds.Any(productVersionId => productVersionId == Guid.Empty))
+        if (productVersionIds.Count == 0)
         {
-            return Error.BadRequest(ProductVersionNotFoundCode, "Scene object product version id is required.");
+            return await ValidateModelFileLinksAsync(request, cancellationToken);
         }
 
         var validProductVersions = await _productVersions.GetValidDetailsAsync(
@@ -962,7 +979,9 @@ public sealed class RoomPlannerSceneService : IRoomPlannerSceneService
         CancellationToken cancellationToken)
     {
         var objectsWithModelFiles = request.Objects
-            .Where(sceneObject => sceneObject.ModelSnapshot?.ModelFileId.HasValue == true)
+            .Where(sceneObject =>
+                IsFurnitureObject(sceneObject) &&
+                sceneObject.ModelSnapshot?.ModelFileId.HasValue == true)
             .ToList();
         if (objectsWithModelFiles.Count == 0 || _projectFiles is null)
         {

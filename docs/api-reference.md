@@ -23,6 +23,7 @@ Complete HTTP + SignalR API reference for FurniSpace backend.
 8. [Catalog — Product Versions](#8-catalog--product-versions)
 8a. [Catalog — Admin management list](#8a-catalog--admin-management-list)
 8b. [Catalog — Designer project catalog](#8b-catalog--designer-project-catalog)
+8c. [Catalog — Layout assets](#8c-catalog--layout-assets)
 9. [Projects](#9-projects)
 10. [Proposals & scenes](#10-proposals--scenes)
 11. [Room planner](#11-room-planner)
@@ -39,7 +40,8 @@ Complete HTTP + SignalR API reference for FurniSpace backend.
 20b. [Role Dashboards (queues + KPIs)](#20b-role-dashboards-queues--kpis)
 21. [Production](#21-production)
 22. [SignalR hubs](#22-signalr-hubs)
-23. [Enums](#23-enums)
+23. [Portfolio & public showcases](#23-portfolio--public-showcases)
+24. [Enums](#24-enums)
 
 ---
 
@@ -392,7 +394,7 @@ Used by Sales/Admin assign picker. Soft capacity only (does not hide FULL/OVER d
 | `designActiveCount` | Projects in `MEASUREMENT_REQUIRED`, `SPACE_VERIFIED`, `PROPOSAL_CONSULTING` |
 | `lifecycleAssignedCount` | Non-terminal projects still assigned |
 | `currentActiveProjectCount` | Alias of `designActiveCount` (backward compatible) |
-| `maxActiveProjects` | Soft limit (default **2**) |
+| `maxActiveProjects` | Soft limit (default **3**) |
 | `availableSlot` | `maxActiveProjects - designActiveCount` (may be negative) |
 | `capacityState` | `AVAILABLE` \| `FULL` \| `OVER` |
 | `createdAt?`, `updatedAt?` | |
@@ -837,6 +839,67 @@ Route prefix: `/projects/{projectId}/catalog`
 
 ---
 
+## 8c. Catalog — Layout assets
+
+Non-commercial Room Planner assets (materials, stairs, doors, decorative objects). **Not** linked to `ProductVersion`, proposals, quotations, or orders.
+
+Route: `layout-assets` (admin CRUD) · `room-planner/layout-assets` (designer catalog)
+
+| Method | Path | Roles | Description |
+| --- | --- | --- | --- |
+| POST | `/layout-assets` | ADMIN | Create asset |
+| GET | `/layout-assets` | ADMIN | List / filter |
+| GET | `/layout-assets/{layoutAssetId}` | ADMIN, DESIGNER | Detail (designer: ACTIVE only) |
+| PATCH | `/layout-assets/{layoutAssetId}` | ADMIN | Update metadata |
+| PATCH | `/layout-assets/{layoutAssetId}/status` | ADMIN | `ACTIVE` / `INACTIVE` / `ARCHIVED` |
+| POST | `/layout-assets/{layoutAssetId}/files` | ADMIN | Multipart upload (`file`, `fileType`) |
+| GET | `/layout-assets/{layoutAssetId}/files` | ADMIN | List linked files |
+| PATCH | `/layout-assets/{layoutAssetId}/files/{fileId}/primary` | ADMIN | Set primary model / texture / preview |
+| DELETE | `/layout-assets/{layoutAssetId}/files/{fileId}` | ADMIN | Remove file link (bytes stay in Firebase) |
+| GET | `/room-planner/layout-assets` | DESIGNER, ADMIN | Read-optimized planner catalog |
+
+### Create / update body
+
+```json
+{
+  "assetCode": "STAIR-STRAIGHT-01",
+  "assetName": "Straight stair",
+  "assetType": "STAIR",
+  "description": "Standard straight run"
+}
+```
+
+### Admin list query
+
+| Param | Type |
+| --- | --- |
+| `assetType` | `LayoutAssetType?` |
+| `status` | `LayoutAssetStatus?` |
+| `search` | string? |
+| `page` / `pageSize` | int |
+
+### Planner catalog query
+
+| Param | Type |
+| --- | --- |
+| `assetType` | `LayoutAssetType?` |
+| `search` | string? |
+| `page` / `pageSize` | int |
+
+Designer catalog returns **ACTIVE** assets only. Admin may filter any status.
+
+### File upload
+
+Multipart fields: `file`, `fileType` (`MODEL_3D`, `TEXTURE`, `PREVIEW`).
+
+List/detail responses include resolved primary `primaryModel`, `primaryTexture`, `primaryPreview` (file id + URL) to avoid N+1 file calls.
+
+Generic lookup: `GET /files/by-reference?referenceType=LAYOUT_ASSET&referenceId={layoutAssetId}`.
+
+**Error codes**: `LAYOUT_ASSET_NOT_FOUND`, `LAYOUT_ASSET_INACTIVE`, `LAYOUT_ASSET_CODE_DUPLICATE`, `LAYOUT_ASSET_INVALID_FILE_TYPE`, `LAYOUT_ASSET_INVALID_STATUS_TRANSITION`, `LAYOUT_ASSET_FILE_NOT_FOUND`
+
+---
+
 ## 9. Projects
 
 Route: `projects`
@@ -855,8 +918,11 @@ Route: `projects`
 | PATCH | `/projects/{projectId}/rejection` | SALES, ADMIN | Reject project |
 | POST | `/projects/{projectId}/reopen-proposal` | CUSTOMER, SALES, ADMIN | Roll back to proposal consulting before deposit paid |
 | PATCH | `/projects/{projectId}/designer-assignment` | SALES, ADMIN | Assign designer |
-| GET | `/projects/{projectId}/phase-deadlines` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN | Read proposal/production phase deadline tracking |
+| GET | `/projects/{projectId}/phase-deadlines` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN | Read proposal/production phase timeline |
 | PUT | `/projects/{projectId}/phase-deadlines` | SALES, ADMIN | Create/update proposal and production due dates |
+| GET | `/projects/{projectId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Project measurement photo gallery |
+| POST | `/projects/{projectId}/showcase` | SALES, ADMIN | Create DRAFT portfolio showcase |
+| GET | `/projects/{projectId}/showcase` | SALES, DESIGNER, ADMIN | Get project showcase |
 | GET | `/projects/{projectId}/catalog/products` | DESIGNER, ADMIN | Project-eligible catalog list — see [§8b](#8b-catalog--designer-project-catalog) |
 | GET | `/projects/{projectId}/catalog/products/{productId}` | DESIGNER, ADMIN | Eligible product detail |
 | GET | `/projects/{projectId}/catalog/product-versions/{productVersionId}` | DESIGNER, ADMIN | Eligible version detail |
@@ -910,7 +976,9 @@ Route: `projects`
 | `roleScope` | string? |
 | `keyword` | string? |
 
-### Phase deadlines
+### Phase deadlines (internal timelines)
+
+Stored in PostgreSQL table **`project_phase_timelines`** (one row per `projectId + phase`). API route name remains `/phase-deadlines`.
 
 Create or update an internal execution plan for the project.
 
@@ -940,13 +1008,15 @@ Create or update an internal execution plan for the project.
     {
       "phase": "PROPOSAL",
       "dueDate": "2026-09-10",
-      "completedAt": null,
-      "status": "ON_TRACK",
+      "startedAt": "2026-09-01T08:00:00Z",
+      "completedAt": "2026-09-09T15:00:00Z",
+      "status": "COMPLETED_ON_TIME",
       "overdueDays": 0
     },
     {
       "phase": "PRODUCTION",
       "dueDate": "2026-09-25",
+      "startedAt": null,
       "completedAt": null,
       "status": "PLANNED",
       "overdueDays": 0
@@ -955,7 +1025,9 @@ Create or update an internal execution plan for the project.
 }
 ```
 
-`phase`: initial model only supports `PROPOSAL` and `PRODUCTION`.
+`GET /projects/{projectId}` also embeds the same `phaseDeadlines[]` array for authorized viewers.
+
+`phase`: `PROPOSAL`, `PRODUCTION` only.
 
 `status` is derived at read time, not persisted:
 
@@ -965,11 +1037,12 @@ Create or update an internal execution plan for the project.
 - `COMPLETED_ON_TIME`: `completedAt.Date <= dueDate`.
 - `COMPLETED_LATE`: `completedAt.Date > dueDate`.
 
-Completion hooks:
+**Lifecycle hooks**
 
-- Publishing a proposal (`Proposal.Status -> PUBLISHED`) sets the project `PROPOSAL` deadline `completedAt` once.
-- Completing a production request (`ProductionRequest.Status -> COMPLETED`) sets the project `PRODUCTION` deadline `completedAt` once.
-- Repeated workflow calls do not reset the original completion timestamp.
+- `startedAt` set once when project enters `PROPOSAL_CONSULTING` (PROPOSAL) or production request starts `IN_PRODUCTION` (PRODUCTION).
+- Publishing a proposal sets PROPOSAL `completedAt` once.
+- Completing a production request sets PRODUCTION `completedAt` once.
+- Repeated workflow calls do not reset original timestamps.
 
 Common error codes: `INVALID_PROJECT_STATUS`, `INVALID_PHASE_DEADLINE_RANGE`, `PHASE_DEADLINE_EXCEEDS_TARGET`.
 
@@ -1241,6 +1314,7 @@ Route: `proposal-scenes`
 | GET | `/proposal-scenes/{sceneId}/room-planner` | CUSTOMER, DESIGNER, SALES, ADMIN | Load Mongo scene payload |
 | POST | `/proposal-scenes/{sceneId}/room-planner/resolve-products` | CUSTOMER, DESIGNER, SALES, ADMIN | Resolve scene-referenced ProductVersions + files |
 | PUT | `/proposal-scenes/{sceneId}/room-planner` | DESIGNER, ADMIN | Save scene payload |
+| GET | `/room-planner/layout-assets` | DESIGNER, ADMIN | Layout asset catalog — see [§8c](#8c-catalog--layout-assets) |
 
 ### Request / response payload (`RoomPlannerScenePayloadDto`, schema v3)
 
@@ -1282,7 +1356,7 @@ Route: `proposal-scenes`
 | `editorVersion` | string? |
 | `unit` | string (must match `blueprintLayout.unit`) |
 | `blueprintLayout` | multi-floor blueprint (`floors[]` is source of truth) |
-| `objects` | furniture objects with `floorId`, transform, `productVersionId`, placement |
+| `objects` | furniture + layout assets — see object families below |
 | `layers` | layer visibility/lock |
 | `stylePreset` | string? |
 | `camera` | mode, position, target, zoom |
@@ -1297,6 +1371,33 @@ Notes:
 - Each floor `projectAreaId` must match SQL `proposal_scene_areas` for the scene.
 - GET with no Mongo document returns an empty schema v3 template built from SQL scene areas (does not create Mongo).
 - GET when SQL has `mongoSceneId` but Mongo doc is missing returns `ROOM_PLANNER_DOCUMENT_NOT_FOUND`.
+
+### Object families (schema v3)
+
+**Commercial furniture** (unchanged):
+
+- `objectType = FURNITURE`
+- Requires `productVersionId`; optional `proposalItemId`
+- Proposal sync eligibility: `objectType == FURNITURE && productVersionId != null`
+
+**Layout assets** (non-commercial):
+
+- `objectType`: `LAYOUT_ASSET`, `STRUCTURAL_ASSET`, or `DECORATIVE_ASSET`
+- Requires `layoutAssetId` + `layoutAssetType`; **must not** include `productVersionId` / `proposalItemId`
+- Save validates referenced layout asset exists and is **ACTIVE**
+
+**Surface materials** (wall/floor styles, not in `objects[]`):
+
+- Wall `style.layoutAssetId` / floor `floorStyle.layoutAssetId` optional; when present must reference ACTIVE `WALL_MATERIAL` / `FLOOR_MATERIAL`
+
+**Floor openings** (`blueprintLayout.metadata.building.levels[].floorOpenings[]`):
+
+- Preserved on save; types include `STAIR`, `VOID`, `SERVICE_SHAFT`
+- Optional `layoutAssetId` for stair-linked assets
+
+Inactive/archived layout assets referenced on load return warnings (`LAYOUT_ASSET_INACTIVE`) but the scene payload is still returned.
+
+Planner catalog for placing assets: [§8c](#8c-catalog--layout-assets) · `GET /room-planner/layout-assets`
 
 **GET response** also includes: `sceneId`, `mongoSceneId?`, `proposalId?`, `projectId?`, `projectAreaIds[]`, `areas[]`, `lastSavedAt?`
 
@@ -1476,24 +1577,30 @@ Absolute routes on `OrdersController`.
 | PATCH | `/orders/{orderId}/complete` | SALES, ADMIN |
 | POST | `/orders/{orderId}/production-request` | SALES, ADMIN |
 | PATCH | `/orders/{orderId}/start-delivery` | SALES, PRODUCTION, ADMIN |
-| PATCH | `/orders/{orderId}/complete-delivery` | SALES, PRODUCTION, ADMIN |
+| PATCH | `/orders/{orderId}/complete-delivery` | SALES, PRODUCTION, ADMIN · legacy full-batch shortcut |
 | PATCH | `/orders/{orderId}/confirm-delivery` | CUSTOMER |
+| GET | `/orders/{orderId}/deliveries` | CUSTOMER, SALES, PRODUCTION, ADMIN |
+| GET | `/orders/{orderId}/deliveries/{deliveryId}` | same |
+| POST | `/orders/{orderId}/deliveries` | SALES, PRODUCTION, ADMIN · create delivery batch |
+| PATCH | `/orders/{orderId}/deliveries/{deliveryId}/complete` | SALES, PRODUCTION, ADMIN · complete batch |
 
-**Delivery flow (single full delivery per order):**
+**Delivery flow (multi-batch + legacy shortcut):**
 
-1. The related production request must be `COMPLETED` before `start-delivery`, `complete-delivery`, or `confirm-delivery`; otherwise the API returns `409 PRODUCTION_NOT_COMPLETED`.
-2. All active product order items must be `READY` before `start-delivery`. Items still `PENDING` / `IN_PRODUCTION` are blocking and are not silently excluded.
-3. Staff calls `complete-delivery` once while order is `DELIVERING` — every deliverable `READY` item becomes `DELIVERED` with backend-set `deliveredAt` / `deliveredBy`.
-4. Customer calls `confirm-delivery` once at order level — sets `customerConfirmedDeliveryAt`, moves project to `DELIVERED`, recalculates order payment summary, and finalizes the next financial state.
+1. Related production request must be **`COMPLETED`** before any delivery action; otherwise `409 PRODUCTION_NOT_COMPLETED`.
+2. `start-delivery` requires order `READY_FOR_DELIVERY`, at least one **confirmed** delivery schedule, and all deliverable items `READY`. Moves order/project to `DELIVERING`.
+3. **Partial delivery:** `POST /orders/{orderId}/deliveries` creates an `IN_PROGRESS` batch with per-item quantities. `PATCH .../complete` increments `order_items.delivered_quantity`, may set item status `PARTIALLY_DELIVERED` or `DELIVERED`, and marks the batch `COMPLETED`.
+4. Multiple active delivery schedules per project are allowed (multi-round delivery).
+5. `complete-delivery` (legacy) auto-creates one batch with all remaining deliverable quantities and completes it in one call.
+6. Customer `confirm-delivery` when **all** deliverable quantities are delivered — sets `customerConfirmedDeliveryAt`, project `DELIVERED`, triggers remaining payment flow.
 
-After `confirm-delivery`:
+Quantity rules:
 
-- If `remainingAmount > 0`, backend creates or reuses an active `REMAINING_PAYMENT`, sets order status to `FINAL_PAYMENT_PENDING`, and sends the customer an in-app/realtime payment notification.
-- If `remainingAmount = 0`, backend sets order status to `COMPLETED`, keeps project status as `DELIVERED`, and does not create a zero-value payment.
-- Auto-created remaining payments use server-side expiry (`createdAt + 7 days`) and are not tied to `project.targetCompletionDate`.
-- `PATCH /orders/{orderId}/prepare-final-payment` is retained as a Sales/Admin fallback/recovery endpoint; FE normal delivery confirmation flow should not depend on it.
+- Batch item `quantity` must be `> 0` and `<= remaining deliverable quantity` for that order item.
+- Transaction-safe updates; duplicate complete on same batch is idempotent where applicable.
 
-At most **one active** `DELIVERY` schedule (`PENDING_CONFIRMATION` or `CONFIRMED`) per project. Partial / incremental delivery is not supported.
+`OrderItemStatus` adds `PARTIALLY_DELIVERED` for items with some but not all units delivered.
+
+At most **one active** delivery batch per order in `IN_PROGRESS` at a time (complete before creating another).
 
 **Target completion date:** operational schedule and production dates must be `<= project.targetCompletionDate`. Shortening target below existing schedule/production dates returns `409 TARGET_DATE_CONFLICTS_WITH_OPERATIONAL_DATES`.
 
@@ -1526,13 +1633,43 @@ Eligible order statuses: **`CREATED`** (creates payment and moves order → `DEP
 
 Estimated production dates must satisfy `estimatedStartDate <= estimatedCompletionDate <= project.targetCompletionDate`.
 
-### Complete delivery
+### Create delivery batch
 
-No request body. Marks every deliverable order item `READY → DELIVERED`.
+```json
+{
+  "note": "Round 1 — tables only",
+  "items": [
+    { "orderItemId": "uuid", "quantity": 2, "note": null },
+    { "orderItemId": "uuid", "quantity": 4 }
+  ]
+}
+```
+
+Returns `DeliveryDetailDto` (`201`) with batch `deliveryId`, `status: IN_PROGRESS`, and line items.
+
+### Complete delivery batch
+
+No body. Marks batch `COMPLETED`, updates item delivered quantities/statuses. Response: `DeliveryBatchCompletionDto` with `updatedItemCount`.
+
+### List / detail deliveries
+
+`DeliveryListResponseDto.items[]`: `deliveryId`, `orderId`, `status`, `itemCount`, `createdAt`, `completedAt?`
+
+`DeliveryDetailDto` adds `items[]` with per-line `quantity`, `productNameSnapshot`, `note`.
+
+### Complete delivery (legacy shortcut)
+
+No request body. Creates and completes one batch with all remaining deliverable quantities.
 
 ### Confirm delivery (customer)
 
-No request body. Requires all deliverable items `DELIVERED` and order `DELIVERING`.
+No request body. Requires all deliverable items fully delivered (`DELIVERED` or full quantity) and order `DELIVERING`.
+
+After `confirm-delivery`:
+
+- If `remainingAmount > 0`, backend creates or reuses an active `REMAINING_PAYMENT`, sets order status to `FINAL_PAYMENT_PENDING`, and notifies the customer.
+- If `remainingAmount = 0`, order moves to `COMPLETED` without a zero-value payment.
+- `PATCH /orders/{orderId}/prepare-final-payment` remains a Sales/Admin fallback.
 
 ### Response — order detail
 
@@ -1560,6 +1697,7 @@ No request body. Requires all deliverable items `DELIVERED` and order `DELIVERIN
       "orderItemId": "...",
       "productNameSnapshot": "Oak Cafe Table",
       "quantity": 4,
+      "deliveredQuantity": 0,
       "unitPrice": 4500000,
       "discountAmount": 0,
       "subtotalAmount": 18000000,
@@ -1576,6 +1714,8 @@ Order item formula:
 - `subtotalAmount = quantity * unitPrice - discountAmount` (pre-VAT; copied from quotation item `totalAmount` at accept time)
 
 `OrderStatus`: `CREATED`, `DEPOSIT_PENDING`, `DEPOSIT_PAID`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `DELIVERED`, `FINAL_PAYMENT_PENDING`, `COMPLETED`, `CANCELLED`
+
+`OrderItemStatus`: `PENDING`, `IN_PRODUCTION`, `READY`, `UNAVAILABLE`, `PARTIALLY_DELIVERED`, `DELIVERED`, `CANCELLED`
 
 ---
 
@@ -1715,6 +1855,9 @@ Includes: `versionNo`, `versionTitle`, `status`, `feasibilityStatus`, production
 | GET | `/project-areas/{projectAreaId}` | same |
 | PATCH | `/project-areas/{id}` | SALES, DESIGNER, ADMIN |
 | PATCH | `/project-areas/{id}/cancel` | SALES, DESIGNER, ADMIN |
+| GET | `/project-areas/{projectAreaId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Area measurement gallery |
+| POST | `/project-areas/{projectAreaId}/measurement-images/{fileId}/link` | SALES, DESIGNER, ADMIN | Link captured photo to area |
+| DELETE | `/project-areas/{projectAreaId}/measurement-images/{fileId}/link` | SALES, DESIGNER, ADMIN | Unlink photo from area |
 
 ### Create / update body
 
@@ -1738,6 +1881,22 @@ Includes: `versionNo`, `versionTitle`, `status`, `feasibilityStatus`, production
 `areaType`: `STORE`, `FLOOR`, `ROOM`, `ZONE`, `OUTDOOR_AREA`, `OTHER`  
 `status`: `DRAFT`, `NEED_MEASUREMENT`, `MEASURED`, `VERIFIED`, `CANCELLED`
 
+### Measurement images (area assignment)
+
+Measurement photos are captured on **MEASUREMENT** schedules (§16), then optionally linked to one or more project areas.
+
+**Link flow**
+
+1. Designer registers image on a confirmed measurement schedule (`POST /project-schedules/{scheduleId}/measurement-images`).
+2. Staff links the same `fileId` to areas via `POST .../link`.
+3. Unlink removes only the area `file_links` row; the underlying file and schedule link remain.
+
+**Gallery query** (`GET /project-areas/{projectAreaId}/measurement-images`): `page`, `limit`
+
+**Response item** (`MeasurementImageGalleryItemDto`): `fileId`, `url`, `uploadedAt`, `measurementSchedule` (`scheduleId`, `scheduledStart`), `areas[]` (`projectAreaId`, `areaName`)
+
+**Error codes**: `MEASUREMENT_IMAGE_SCHEDULE_NOT_ELIGIBLE`, `MEASUREMENT_IMAGE_CAPTURE_BEFORE_START`, `MEASUREMENT_IMAGE_NOT_FOUND`, `MEASUREMENT_IMAGE_AREA_LINK_EXISTS`, `MEASUREMENT_IMAGE_AREA_LINK_NOT_FOUND`, `MEASUREMENT_IMAGE_STORAGE_PATH_INVALID`
+
 ---
 
 ## 16. Project schedules
@@ -1753,6 +1912,8 @@ Route: `project-schedules` (+ absolute create alias)
 | PATCH | `/project-schedules/{id}` | SALES, PRODUCTION, ADMIN |
 | PATCH | `/project-schedules/{id}/status` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | DELETE | `/project-schedules/{id}` | SALES, PRODUCTION, ADMIN |
+| POST | `/project-schedules/{scheduleId}/measurement-images` | DESIGNER, ADMIN | Register measurement photo (direct upload metadata) |
+| GET | `/project-schedules/{scheduleId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Schedule measurement gallery |
 
 ### Create
 
@@ -1782,9 +1943,11 @@ Conflict formula:
 newStart < existingEnd AND newEnd > existingStart
 ```
 
-Active schedules considered for overlap: `PENDING_CONFIRMATION`, `CONFIRMED`.
+Active schedules considered for overlap: `PENDING_CONFIRMATION`, `CONFIRMED`, and **`COMPLETED` with `completedAt` set**.
 
-Ignored schedules: `COMPLETED`, `CANCELLED`.
+For completed schedules, the busy interval ends at **`completedAt`** (actual finish), not `scheduledEnd`. This prevents false conflicts when a visit finishes early but the original slot was longer.
+
+Ignored schedules: `CANCELLED`, and `COMPLETED` without `completedAt`.
 
 Adjacent schedules are allowed, for example `08:00-10:00` followed by `10:00-12:00`.
 
@@ -1810,6 +1973,39 @@ Conflict response:
 ```
 
 `status`: `PENDING_CONFIRMATION`, `CONFIRMED`, `COMPLETED`, `CANCELLED`
+
+**Complete rules**
+
+- Cannot mark `COMPLETED` before `scheduledStart` → `409 SCHEDULE_COMPLETE_BEFORE_START`.
+- On `COMPLETED`, backend sets `completedAt` to current UTC time (once).
+- MEASUREMENT schedules may require at least one linked measurement file before complete (config: `RequireMeasurementFileOnScheduleComplete`).
+
+**Delivery schedules**
+
+- Multiple active `DELIVERY` / `HANDOVER` schedules per project are allowed (multi-round delivery).
+- Create requires project/order in delivery-ready state; blocked after customer confirms full delivery (`DELIVERY_SCHEDULE_NOT_ALLOWED_AFTER_COMPLETION`).
+
+### Measurement image capture
+
+Register after direct-to-storage upload (Firebase). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`, and current time must be `>= scheduledStart`.
+
+```json
+{
+  "storagePath": "projects/{projectId}/files/{fileId}/photo.jpg",
+  "publicUrl": "https://...",
+  "originalFileName": "area-a.jpg",
+  "contentType": "image/jpeg",
+  "fileSizeBytes": 204800,
+  "visibility": "STAFF_ONLY",
+  "note": "North wall"
+}
+```
+
+Creates `StoredFile` + `file_links` on the schedule (`referenceType=PROJECT_SCHEDULE`, `fileType=SPACE_IMAGE`). Returns standard project file upload response.
+
+**Schedule gallery query**: `projectAreaId?`, `assigned?` (filter by area link presence), `page`, `limit`
+
+Project-wide gallery: `GET /projects/{projectId}/measurement-images` with optional `scheduleId`, `projectAreaId`, `assigned`.
 
 ### List query
 
@@ -1850,7 +2046,7 @@ Conflict response:
 **Delete response:** `{ "fileId", "deletedAt" }`
 
 `FileVisibility`: `CUSTOMER_VISIBLE`, `STAFF_ONLY`, `PRIVATE`  
-`FileType`: see [Enums](#23-enums)
+`FileType`: see [Enums](#24-enums)
 
 ---
 
@@ -2777,7 +2973,7 @@ KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not pa
 
 ### Project phase deadline risks
 
-Read-only dashboard endpoint for Sales/Admin/Designer/Production to see proposal and production phase deadlines planned through `PUT /projects/{projectId}/phase-deadlines`. This endpoint does not infer deadlines from hardcoded SLA values and does not use the project-wide `targetCompletionDate` KPI.
+Read-only dashboard endpoint for Sales/Admin/Designer/Production to see proposal and production phase timelines stored in **`project_phase_timelines`** (API route `/projects/{id}/phase-deadlines`). Does not infer deadlines from hardcoded SLA values and does not use the project-wide `targetCompletionDate` KPI.
 
 **Query params**
 
@@ -2936,7 +3132,128 @@ Notification message: `{SenderName} sent a new message in "{ChatTitle}".`
 
 ---
 
-## 23. Enums
+## 23. Portfolio & public showcases
+
+Portfolio showcases are separate from generic project files. One showcase per project; workflow: `DRAFT → PENDING_REVIEW → PUBLISHED → ARCHIVED`.
+
+### Internal — project-scoped
+
+Route: `projects/{projectId}/showcase`
+
+| Method | Path | Roles | Description |
+| --- | --- | --- | --- |
+| POST | `/projects/{projectId}/showcase` | SALES, ADMIN | Create DRAFT showcase (one per project) |
+| GET | `/projects/{projectId}/showcase` | SALES, DESIGNER, ADMIN | Get showcase with media |
+
+**Create body** (all optional — defaults title from project name):
+
+```json
+{
+  "title": "District 1 Cafe makeover",
+  "summary": "Before/after commercial fit-out",
+  "description": "Full narrative..."
+}
+```
+
+### Internal — workflow & content
+
+Route: `project-showcases/{showcaseId}`
+
+| Method | Path | Roles | Description |
+| --- | --- | --- | --- |
+| PATCH | `/project-showcases/{showcaseId}` | SALES, ADMIN | Update title, summary, description, slug, featuredReviewId |
+| PATCH | `/project-showcases/{showcaseId}/submit` | SALES, ADMIN | DRAFT → PENDING_REVIEW |
+| PATCH | `/project-showcases/{showcaseId}/publish` | ADMIN | PENDING_REVIEW → PUBLISHED |
+| PATCH | `/project-showcases/{showcaseId}/archive` | ADMIN | PUBLISHED → ARCHIVED |
+
+**Publish requirements**
+
+- Project status must be **`COMPLETED`**.
+- Showcase must have non-empty **title** and **summary**.
+- At least one **cover** media item (`isCover=true`).
+- `featuredReviewId` (optional) must belong to the same project.
+
+**Update body**
+
+```json
+{
+  "title": "Updated title",
+  "summary": "Short blurb",
+  "description": "Long form",
+  "slug": "district-1-cafe-makeover",
+  "featuredReviewId": "uuid-or-null"
+}
+```
+
+### Internal — media
+
+Route: `project-showcases/{showcaseId}/media`
+
+| Method | Path | Roles | Description |
+| --- | --- | --- | --- |
+| POST | `/project-showcases/{showcaseId}/media` | SALES, DESIGNER, ADMIN | Add media from existing project file |
+| PATCH | `/project-showcases/{showcaseId}/media/reorder` | SALES, DESIGNER, ADMIN | Reorder gallery |
+| PATCH | `/project-showcases/{showcaseId}/media/{mediaId}/cover` | SALES, DESIGNER, ADMIN | Set single cover image |
+| DELETE | `/project-showcases/{showcaseId}/media/{mediaId}` | SALES, DESIGNER, ADMIN | Remove media row |
+
+**Add media body**
+
+```json
+{
+  "fileId": "uuid",
+  "mediaType": "AFTER",
+  "title": "Main dining area",
+  "caption": "Completed fit-out",
+  "setAsCover": true
+}
+```
+
+Allowed source file types: `PORTFOLIO_IMAGE`, `REVIEW_IMAGE`, `DELIVERY_PHOTO`, `SPACE_IMAGE`, `REFERENCE_IMAGE`, `PROPOSAL_PREVIEW`. File must already exist on the project.
+
+**Reorder body**: `{ "mediaIds": ["uuid", "..."] }` — must include all current media IDs.
+
+**Media response fields**: `projectShowcaseMediaId`, `fileId`, `mediaType`, `title`, `caption`, `isCover`, `displayOrder`, `fileUrl`, `originalFileName`, `mimeType`
+
+`ProjectShowcaseMediaType`: `BEFORE`, `AFTER`, `FINAL`, `DETAIL`, `OTHER`
+
+Archived showcases are read-only (`PROJECT_SHOWCASE_ARCHIVED_READ_ONLY`).
+
+### Customer review public consent
+
+Route: `project-reviews/{reviewId}/public-consent`
+
+| Method | Path | Roles | Description |
+| --- | --- | --- | --- |
+| PATCH | `/project-reviews/{reviewId}/public-consent` | CUSTOMER | Allow/deny public display of review on portfolio |
+
+```json
+{ "allowPublicDisplay": true }
+```
+
+Public showcase detail includes the featured review **only when** `allowPublicDisplay=true`.
+
+### Public (anonymous)
+
+Route: `public/showcases`
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/public/showcases` | AllowAnonymous | Paginated published list |
+| GET | `/public/showcases/{slug}` | AllowAnonymous | Published detail by slug |
+
+**List query**: `page` (default 1), `pageSize` (default 12, max 50)
+
+**List item**: `projectShowcaseId`, `title`, `slug`, `summary`, `coverUrl`, `businessType`, `publishedAt`
+
+**Public detail**: adds `description`, `projectName`, `businessType`, `publishedAt`, `media[]`, optional `review` (consented featured review only)
+
+Only showcases with status **`PUBLISHED`** appear on public endpoints.
+
+**Error codes**: `PROJECT_SHOWCASE_NOT_FOUND`, `PROJECT_SHOWCASE_ALREADY_EXISTS`, `PROJECT_SHOWCASE_SLUG_DUPLICATE`, `PROJECT_SHOWCASE_INVALID_STATUS_TRANSITION`, `PROJECT_SHOWCASE_PROJECT_NOT_COMPLETED`, `PROJECT_SHOWCASE_PUBLISH_REQUIREMENTS_NOT_MET`, `PROJECT_SHOWCASE_FILE_NOT_ALLOWED`, `PROJECT_SHOWCASE_FEATURED_REVIEW_INVALID`, `PROJECT_REVIEW_CONSENT_FORBIDDEN`
+
+---
+
+## 24. Enums
 
 All values are JSON strings matching C# member names.
 
@@ -2949,7 +3266,8 @@ All values are JSON strings matching C# member names.
 | `ProposalSceneType` | `TWO_D`, `THREE_D` |
 | `QuotationStatus` | `DRAFT`, `SENT`, `REVISION_REQUESTED`, `REVISED`, `ACCEPTED`, `REJECTED`, `EXPIRED`, `CANCELLED` |
 | `OrderStatus` | `CREATED`, `DEPOSIT_PENDING`, `DEPOSIT_PAID`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `DELIVERED`, `FINAL_PAYMENT_PENDING`, `COMPLETED`, `CANCELLED` |
-| `OrderItemStatus` | `PENDING`, `IN_PRODUCTION`, `READY`, `UNAVAILABLE`, `DELIVERED`, `CANCELLED` |
+| `OrderItemStatus` | `PENDING`, `IN_PRODUCTION`, `READY`, `UNAVAILABLE`, `PARTIALLY_DELIVERED`, `DELIVERED`, `CANCELLED` |
+| `DeliveryStatus` | `IN_PROGRESS`, `COMPLETED` |
 | `PaymentType` | `PROJECT_START_FEE`, `DEPOSIT`, `REMAINING_PAYMENT`, `FULL_PAYMENT`, `REFUND`, `OTHER` |
 | `PaymentStatus` | `PENDING`, `PROCESSING`, `PAID`, `CANCELLED`, `EXPIRED`, `REFUNDED` |
 | `PaymentProvider` | `PAYOS`, `SEPAY`, `CASH`, `MANUAL_BANK_TRANSFER`, `OTHER` |
@@ -2967,12 +3285,17 @@ All values are JSON strings matching C# member names.
 | `ProjectAreaStatus` | `DRAFT`, `NEED_MEASUREMENT`, `MEASURED`, `VERIFIED`, `CANCELLED` |
 | `ProjectScheduleType` | `MEASUREMENT`, `CONSULTATION`, `DESIGN_REVIEW`, `DELIVERY`, `HANDOVER`, `OTHER` |
 | `ProjectScheduleStatus` | `PENDING_CONFIRMATION`, `CONFIRMED`, `COMPLETED`, `CANCELLED` |
+| `ProjectPhaseType` | `CONSULTATION`, `MEASUREMENT`, `PROPOSAL`, `QUOTATION`, `PRODUCTION`, `DELIVERY`, `HANDOVER` |
+| `LayoutAssetType` | `WALL_MATERIAL`, `FLOOR_MATERIAL`, `STAIR`, `DOOR`, `WINDOW`, `COLUMN`, `BEAM`, `DECORATIVE_WALL`, `DECORATIVE_FLOOR`, `DECORATIVE_OBJECT`, `OTHER` |
+| `LayoutAssetStatus` | `ACTIVE`, `INACTIVE`, `ARCHIVED` |
+| `ProjectShowcaseStatus` | `DRAFT`, `PENDING_REVIEW`, `PUBLISHED`, `ARCHIVED` |
+| `ProjectShowcaseMediaType` | `BEFORE`, `AFTER`, `FINAL`, `DETAIL`, `OTHER` |
 | `ProjectChatType` | `SALES`, `DESIGNER`, `PRODUCTION`, `DELIVERY`, `GENERAL`, `INTERNAL` |
 | `ProjectChatStatus` | `OPEN`, `CLOSED`, `ARCHIVED` |
 | `ProjectChatMessageType` | `TEXT`, `FILE`, `SYSTEM` |
 | `FileStatus` | `ACTIVE`, `ARCHIVED` |
 | `FileVisibility` | `CUSTOMER_VISIBLE`, `STAFF_ONLY`, `PRIVATE` |
-| `FileType` | `SPACE_IMAGE`, `FLOOR_PLAN`, `REFERENCE_IMAGE`, `BRAND_ASSET`, `CAD_FILE`, `PDF_DRAWING`, `MEASUREMENT_REPORT`, `LIDAR_SCAN`, `MODEL_3D`, `TEXTURE`, `PRODUCT_PREVIEW`, `PROPOSAL_PREVIEW`, `PROPOSAL_FILE`, `QUOTATION_FILE`, `ORDER_DOCUMENT`, `PRODUCTION_FILE`, `DELIVERY_PHOTO`, `DELIVERY_NOTE`, `REVIEW_IMAGE`, `OTHER` |
+| `FileType` | `SPACE_IMAGE`, `FLOOR_PLAN`, `REFERENCE_IMAGE`, `BRAND_ASSET`, `CAD_FILE`, `PDF_DRAWING`, `MEASUREMENT_REPORT`, `LIDAR_SCAN`, `MODEL_3D`, `TEXTURE`, `PREVIEW`, `PRODUCT_PREVIEW`, `PROPOSAL_PREVIEW`, `PROPOSAL_FILE`, `QUOTATION_FILE`, `ORDER_DOCUMENT`, `PRODUCTION_FILE`, `DELIVERY_PHOTO`, `DELIVERY_NOTE`, `REVIEW_IMAGE`, `PORTFOLIO_IMAGE`, `OTHER` |
 | `NotificationStatus` | `UNREAD`, `READ` |
 
 ---
@@ -3003,7 +3326,8 @@ CLI (not HTTP): `dotnet run --project src/FurniSpace.API -- reindex {accounts|pr
 9. POST orders/{id}/payments/deposit → order **DEPOSIT_PENDING** → POST /api/payments/{id}/transactions (or SePay/PayOS helpers)
 10. Provider webhook → PAID → order/project side effects
 11. (Optional before deposit paid) POST projects/{id}/reopen-proposal → back to PROPOSAL_CONSULTING
-12. Sales: POST production-request → production lifecycle → delivery → complete
+12. Sales: POST production-request → production lifecycle
+13. POST /orders/{id}/deliveries (partial batches) or PATCH .../complete-delivery (legacy full batch) → customer confirm-delivery → remaining payment
 ```
 
 ---
@@ -3056,7 +3380,7 @@ Key `data` groups: `business`, `projects`, `commercial`, `production`, `delivery
 
 ### `GET /admin/reports/business`
 
-Snapshot; reuses designer (max 2) + sales (max 5) workload semantics from SCRUM-412/414.
+Snapshot; reuses designer (max 3) + sales (max 5) workload semantics from SCRUM-412/414.
 
 ### `GET /admin/reports/projects`
 

@@ -4,13 +4,13 @@ using FurniSpace.Infrastructure.Repositories.Base;
 
 namespace FurniSpace.Infrastructure.Repositories.IRepository;
 
-public interface IProjectPhaseDeadlineRepository : IGenericRepository<ProjectPhaseDeadline>
+public interface IProjectPhaseTimelineRepository : IGenericRepository<ProjectPhaseTimeline>
 {
-    Task<List<ProjectPhaseDeadline>> GetByProjectAsync(
+    Task<List<ProjectPhaseTimeline>> GetByProjectAsync(
         Guid projectId,
         CancellationToken cancellationToken = default);
 
-    Task<ProjectPhaseDeadline?> GetByProjectAndPhaseAsync(
+    Task<ProjectPhaseTimeline?> GetByProjectAndPhaseAsync(
         Guid projectId,
         ProjectPhaseType phase,
         CancellationToken cancellationToken = default);

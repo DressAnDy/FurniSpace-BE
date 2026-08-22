@@ -58,7 +58,9 @@ public abstract class RoomPlannerObjectBase<TTransform, TDimensions, TVisual, TM
 {
     public string ObjectId { get; set; } = string.Empty;
     public Guid? ProposalItemId { get; set; }
-    public Guid ProductVersionId { get; set; }
+    public Guid? ProductVersionId { get; set; }
+    public Guid? LayoutAssetId { get; set; }
+    public string? LayoutAssetType { get; set; }
     public string? ProductModelId { get; set; }
     public string ObjectType { get; set; } = "FURNITURE";
     public string? Name { get; set; }

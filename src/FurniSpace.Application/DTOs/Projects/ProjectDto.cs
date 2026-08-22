@@ -22,4 +22,5 @@ public sealed class ProjectDto
     public DateOnly? TargetCompletionDate { get; set; }
     public ProjectStatus? Status { get; set; }
     public DateTime? SubmittedAt { get; set; }
+    public List<ProjectPhaseDeadlineItemDto>? PhaseDeadlines { get; set; }
 }

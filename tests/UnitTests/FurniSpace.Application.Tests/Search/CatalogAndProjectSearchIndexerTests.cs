@@ -341,6 +341,7 @@ public sealed class CatalogAndProjectSearchIndexerTests
         public Task<int> CountProductVersionPreviewFilesAsync(Guid productVersionId, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<IReadOnlyList<FileLink>> GetProductVersionPreviewFileLinkEntitiesAsync(Guid productVersionId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<FileLink>>([]);
         public Task<bool> HasProjectFileWithTypesAsync(Guid projectId, IReadOnlyCollection<FileType> fileTypes, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<ProjectLinkedFileReadModel?> GetProjectLinkedActiveFileAsync(Guid projectId, Guid fileId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectLinkedFileReadModel?>(null);
         public IQueryable<StoredFile> Query() => Enumerable.Empty<StoredFile>().AsQueryable();
         public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<StoredFile?>(null);
         public Task<IReadOnlyList<StoredFile>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<StoredFile>>([]);

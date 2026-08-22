@@ -68,6 +68,9 @@ public static class DependencyInjection
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<IAdminReportRepository, AdminReportRepository>();
         services.AddScoped<IBusinessTypeRepository, BusinessTypeRepository>();
+        services.AddScoped<ILayoutAssetRepository, LayoutAssetRepository>();
+        services.AddScoped<IProjectShowcaseRepository, ProjectShowcaseRepository>();
+        services.AddScoped<IProjectReviewRepository, ProjectReviewRepository>();
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<IProductRepository, ProductRepository>();
         services.AddScoped<ICatalogRepository, CatalogRepository>();
@@ -79,11 +82,12 @@ public static class DependencyInjection
         services.AddScoped<IProjectWorkflowRepository, ProjectWorkflowRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IProjectScheduleRepository, ProjectScheduleRepository>();
-        services.AddScoped<IProjectPhaseDeadlineRepository, ProjectPhaseDeadlineRepository>();
+        services.AddScoped<IProjectPhaseTimelineRepository, ProjectPhaseTimelineRepository>();
         services.AddScoped<IProjectAreaRepository, ProjectAreaRepository>();
         services.AddScoped<IProposalRepository, ProposalRepository>();
         services.AddScoped<IQuotationRepository, QuotationRepository>();
         services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IDeliveryRepository, DeliveryRepository>();
         services.AddScoped<IProductionRequestRepository, ProductionRequestRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddScoped<IFinancialReadRepository, FinancialReadRepository>();
@@ -166,6 +170,7 @@ public static class DependencyInjection
         builder.MapEnum<QuotationItemType>("quotation_item_type", translator);
         builder.MapEnum<OrderStatus>("order_status", translator);
         builder.MapEnum<OrderItemStatus>("order_item_status", translator);
+        builder.MapEnum<DeliveryStatus>("delivery_status", translator);
         builder.MapEnum<PaymentStatus>("payment_status", translator);
         builder.MapEnum<PaymentType>("payment_type", translator);
         builder.MapEnum<PaymentProvider>("payment_provider", translator);
@@ -185,6 +190,8 @@ public static class DependencyInjection
         builder.MapEnum<ProductVersionType>("product_version_type", translator);
         builder.MapEnum<LayoutAssetType>("layout_asset_type", translator);
         builder.MapEnum<LayoutAssetStatus>("layout_asset_status", translator);
+        builder.MapEnum<ProjectShowcaseStatus>("project_showcase_status", translator);
+        builder.MapEnum<ProjectShowcaseMediaType>("project_showcase_media_type", translator);
     }
 
     private static void AddRedis(this IServiceCollection services, IConfiguration configuration)

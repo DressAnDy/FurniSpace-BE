@@ -11,6 +11,7 @@ using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Proposals;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
+using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Domain.Enums;
@@ -23,6 +24,7 @@ namespace FurniSpace.API.Tests.Controllers;
 
 public sealed class ProjectsControllerTests
 {
+    private static readonly IMeasurementImageService NoOpMeasurementImages = new NoOpMeasurementImageService();
     [Fact]
     public void Controller_RequiresAuthorization()
     {
@@ -178,7 +180,7 @@ public sealed class ProjectsControllerTests
         };
         var service = new FakeProjectService(
             ServiceResult<ProjectDto>.Created(response, "Project request submitted successfully."));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -214,7 +216,7 @@ public sealed class ProjectsControllerTests
     public async Task Create_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -291,7 +293,7 @@ public sealed class ProjectsControllerTests
     public async Task GetList_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -352,7 +354,7 @@ public sealed class ProjectsControllerTests
     public async Task GetByUser_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -406,7 +408,7 @@ public sealed class ProjectsControllerTests
     public async Task GetById_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -454,7 +456,8 @@ public sealed class ProjectsControllerTests
         var controller = new ProjectsController(
             new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
             new FakeProjectChatMessageService(),
-            proposalService)
+            proposalService,
+            NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -509,7 +512,7 @@ public sealed class ProjectsControllerTests
     public async Task AssignSales_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -564,7 +567,7 @@ public sealed class ProjectsControllerTests
     public async Task RequestInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -658,7 +661,7 @@ public sealed class ProjectsControllerTests
     public async Task UpdateTargetCompletionDate_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -680,7 +683,7 @@ public sealed class ProjectsControllerTests
     public async Task UpdateBasicInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -736,7 +739,7 @@ public sealed class ProjectsControllerTests
     public async Task UpdateStatus_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -786,7 +789,7 @@ public sealed class ProjectsControllerTests
     public async Task Complete_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -841,7 +844,7 @@ public sealed class ProjectsControllerTests
     public async Task Reject_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -904,7 +907,7 @@ public sealed class ProjectsControllerTests
     public async Task AssignDesigner_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -938,7 +941,8 @@ public sealed class ProjectsControllerTests
         return new ProjectsController(
             service,
             new FakeProjectChatMessageService(),
-            proposalService ?? new FakeProposalService())
+            proposalService ?? new FakeProposalService(),
+            NoOpMeasurementImages)
         {
             ControllerContext = new ControllerContext
             {
@@ -1342,5 +1346,50 @@ public sealed class ProjectsControllerTests
             => Task.FromResult(ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
                 new ProjectChatMessageSearchResponseDto(),
                 string.Empty));
+    }
+
+    private sealed class NoOpMeasurementImageService : IMeasurementImageService
+    {
+        public Task<ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>> RegisterMeasurementImageAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.RegisterMeasurementImageRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetScheduleMeasurementImagesAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectAreaMeasurementImagesAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> LinkMeasurementImageToAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> UnlinkMeasurementImageFromAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
     }
 }

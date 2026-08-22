@@ -11,5 +11,8 @@ public sealed class OrdersMappingConfig : IRegister
         config.NewConfig<OrderListItemReadModel, OrderListItemDto>();
         config.NewConfig<OrderDetailReadModel, OrderDetailDto>();
         config.NewConfig<OrderItemDetailReadModel, OrderItemDto>();
+        config.NewConfig<DeliveryListItemReadModel, DeliveryListItemDto>();
+        config.NewConfig<DeliveryDetailReadModel, DeliveryDetailDto>();
+        config.NewConfig<DeliveryItemReadModel, DeliveryItemDto>();
     }
 }

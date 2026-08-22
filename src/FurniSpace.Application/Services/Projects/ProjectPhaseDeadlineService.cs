@@ -29,18 +29,18 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
     ];
 
     private readonly IProjectRepository _projects;
-    private readonly IProjectPhaseDeadlineRepository _deadlines;
+    private readonly IProjectPhaseTimelineRepository _timelines;
     private readonly IProductionRequestRepository _productionRequests;
     private readonly IUnitOfWork _unitOfWork;
 
     public ProjectPhaseDeadlineService(
         IProjectRepository projects,
-        IProjectPhaseDeadlineRepository deadlines,
+        IProjectPhaseTimelineRepository timelines,
         IProductionRequestRepository productionRequests,
         IUnitOfWork unitOfWork)
     {
         _projects = projects;
-        _deadlines = deadlines;
+        _timelines = timelines;
         _productionRequests = productionRequests;
         _unitOfWork = unitOfWork;
     }
@@ -89,8 +89,8 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
         }
 
         var now = DateTime.UtcNow;
-        var existing = await _deadlines.GetByProjectAsync(projectId, cancellationToken);
-        await UpsertDeadlineAsync(
+        var existing = await _timelines.GetByProjectAsync(projectId, cancellationToken);
+        await UpsertTimelineAsync(
             existing,
             projectId,
             ProjectPhaseType.PROPOSAL,
@@ -98,7 +98,7 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
             currentUserId,
             now,
             cancellationToken);
-        await UpsertDeadlineAsync(
+        await UpsertTimelineAsync(
             existing,
             projectId,
             ProjectPhaseType.PRODUCTION,
@@ -109,9 +109,9 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        var deadlines = await _deadlines.GetByProjectAsync(projectId, cancellationToken);
+        var timelines = await _timelines.GetByProjectAsync(projectId, cancellationToken);
         return ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(
-            ToPlanDto(project, deadlines, DateOnly.FromDateTime(now)),
+            ToPlanDto(project, timelines, DateOnly.FromDateTime(now)),
             "Project phase deadlines saved successfully.");
     }
 
@@ -138,10 +138,32 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
             return ServiceResult<ProjectPhaseDeadlinePlanDto>.Forbidden(ViewForbiddenMessage);
         }
 
-        var deadlines = await _deadlines.GetByProjectAsync(projectId, cancellationToken);
+        var timelines = await _timelines.GetByProjectAsync(projectId, cancellationToken);
         return ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(
-            ToPlanDto(project, deadlines, DateOnly.FromDateTime(DateTime.UtcNow)),
-            deadlines.Count == 0 ? PhaseDeadlineNotPlannedMessage : "Project phase deadlines retrieved successfully.");
+            ToPlanDto(project, timelines, DateOnly.FromDateTime(DateTime.UtcNow)),
+            timelines.Count == 0 ? PhaseDeadlineNotPlannedMessage : "Project phase deadlines retrieved successfully.");
+    }
+
+    public async Task MarkStartedOnceAsync(
+        Guid projectId,
+        ProjectPhaseType phase,
+        DateTime startedAt,
+        CancellationToken cancellationToken = default)
+    {
+        if (!SupportedPhases.Contains(phase))
+        {
+            return;
+        }
+
+        var timeline = await _timelines.GetByProjectAndPhaseAsync(projectId, phase, cancellationToken);
+        if (timeline is null || timeline.StartedAt.HasValue)
+        {
+            return;
+        }
+
+        timeline.StartedAt = startedAt;
+        timeline.UpdatedAt = startedAt;
+        _timelines.Update(timeline);
     }
 
     public async Task MarkCompletedOnceAsync(
@@ -155,15 +177,20 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
             return;
         }
 
-        var deadline = await _deadlines.GetByProjectAndPhaseAsync(projectId, phase, cancellationToken);
-        if (deadline is null || deadline.CompletedAt.HasValue)
+        var timeline = await _timelines.GetByProjectAndPhaseAsync(projectId, phase, cancellationToken);
+        if (timeline is null || timeline.CompletedAt.HasValue)
         {
             return;
         }
 
-        deadline.CompletedAt = completedAt;
-        deadline.UpdatedAt = completedAt;
-        _deadlines.Update(deadline);
+        if (!timeline.StartedAt.HasValue)
+        {
+            timeline.StartedAt = completedAt;
+        }
+
+        timeline.CompletedAt = completedAt;
+        timeline.UpdatedAt = completedAt;
+        _timelines.Update(timeline);
     }
 
     private static ServiceResult<T>? ValidateIdentity<T>(Guid projectId, Guid currentUserId)
@@ -215,8 +242,8 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
             : null;
     }
 
-    private async Task UpsertDeadlineAsync(
-        List<ProjectPhaseDeadline> existing,
+    private async Task UpsertTimelineAsync(
+        List<ProjectPhaseTimeline> existing,
         Guid projectId,
         ProjectPhaseType phase,
         DateOnly dueDate,
@@ -224,13 +251,13 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
         DateTime now,
         CancellationToken cancellationToken)
     {
-        var deadline = existing.FirstOrDefault(item => item.Phase == phase);
-        if (deadline is null)
+        var timeline = existing.FirstOrDefault(item => item.Phase == phase);
+        if (timeline is null)
         {
-            await _deadlines.AddAsync(
-                new ProjectPhaseDeadline
+            await _timelines.AddAsync(
+                new ProjectPhaseTimeline
                 {
-                    ProjectPhaseDeadlineId = Guid.NewGuid(),
+                    ProjectPhaseTimelineId = Guid.NewGuid(),
                     ProjectId = projectId,
                     Phase = phase,
                     DueDate = dueDate,
@@ -243,10 +270,10 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
             return;
         }
 
-        deadline.DueDate = dueDate;
-        deadline.UpdatedBy = currentUserId;
-        deadline.UpdatedAt = now;
-        _deadlines.Update(deadline);
+        timeline.DueDate = dueDate;
+        timeline.UpdatedBy = currentUserId;
+        timeline.UpdatedAt = now;
+        _timelines.Update(timeline);
     }
 
     private async Task<bool> CanViewAsync(
@@ -290,7 +317,7 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
 
     private static ProjectPhaseDeadlinePlanDto ToPlanDto(
         Project project,
-        List<ProjectPhaseDeadline> deadlines,
+        List<ProjectPhaseTimeline> timelines,
         DateOnly today)
     {
         return ToPlanDto(
@@ -299,51 +326,52 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
                 ProjectId = project.ProjectId,
                 TargetCompletionDate = project.TargetCompletionDate
             },
-            deadlines,
+            timelines,
             today);
     }
 
     private static ProjectPhaseDeadlinePlanDto ToPlanDto(
         ProjectDetailReadModel project,
-        List<ProjectPhaseDeadline> deadlines,
+        List<ProjectPhaseTimeline> timelines,
         DateOnly today)
     {
-        var orderedDeadlines = deadlines
-            .Where(deadline => SupportedPhases.Contains(deadline.Phase))
-            .OrderBy(deadline => deadline.DueDate)
-            .ThenBy(deadline => deadline.Phase)
+        var orderedTimelines = timelines
+            .Where(timeline => SupportedPhases.Contains(timeline.Phase))
+            .OrderBy(timeline => timeline.DueDate)
+            .ThenBy(timeline => timeline.Phase)
             .ToList();
-        var firstOpenDeadlineId = orderedDeadlines
-            .FirstOrDefault(deadline => deadline.CompletedAt is null)
-            ?.ProjectPhaseDeadlineId;
+        var firstOpenTimelineId = orderedTimelines
+            .FirstOrDefault(timeline => timeline.CompletedAt is null)
+            ?.ProjectPhaseTimelineId;
 
         return new ProjectPhaseDeadlinePlanDto
         {
             ProjectId = project.ProjectId,
             TargetCompletionDate = project.TargetCompletionDate,
-            Deadlines = orderedDeadlines
-                .Select(deadline => ToDeadlineDto(deadline, today, firstOpenDeadlineId))
+            Deadlines = orderedTimelines
+                .Select(timeline => ToDeadlineDto(timeline, today, firstOpenTimelineId))
                 .ToList()
         };
     }
 
     private static ProjectPhaseDeadlineItemDto ToDeadlineDto(
-        ProjectPhaseDeadline deadline,
+        ProjectPhaseTimeline timeline,
         DateOnly today,
-        Guid? firstOpenDeadlineId)
+        Guid? firstOpenTimelineId)
     {
-        var dueDate = deadline.DueDate;
-        var completionDate = deadline.CompletedAt.HasValue
-            ? DateOnly.FromDateTime(deadline.CompletedAt.Value)
+        var dueDate = timeline.DueDate;
+        var completionDate = timeline.CompletedAt.HasValue
+            ? DateOnly.FromDateTime(timeline.CompletedAt.Value)
             : (DateOnly?)null;
         var overdueDays = CalculateOverdueDays(dueDate, completionDate ?? today);
 
         return new ProjectPhaseDeadlineItemDto
         {
-            Phase = deadline.Phase,
+            Phase = timeline.Phase,
             DueDate = dueDate,
-            CompletedAt = deadline.CompletedAt,
-            Status = ResolveStatus(deadline, today, completionDate, firstOpenDeadlineId),
+            StartedAt = timeline.StartedAt,
+            CompletedAt = timeline.CompletedAt,
+            Status = ResolveStatus(timeline, today, completionDate, firstOpenTimelineId),
             OverdueDays = overdueDays
         };
     }
@@ -354,22 +382,22 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
     }
 
     private static string ResolveStatus(
-        ProjectPhaseDeadline deadline,
+        ProjectPhaseTimeline timeline,
         DateOnly today,
         DateOnly? completionDate,
-        Guid? firstOpenDeadlineId)
+        Guid? firstOpenTimelineId)
     {
         if (completionDate.HasValue)
         {
-            return completionDate.Value > deadline.DueDate ? CompletedLateStatus : CompletedOnTimeStatus;
+            return completionDate.Value > timeline.DueDate ? CompletedLateStatus : CompletedOnTimeStatus;
         }
 
-        if (today > deadline.DueDate)
+        if (today > timeline.DueDate)
         {
             return OverdueStatus;
         }
 
-        return deadline.ProjectPhaseDeadlineId == firstOpenDeadlineId ? OnTrackStatus : PlannedStatus;
+        return timeline.ProjectPhaseTimelineId == firstOpenTimelineId ? OnTrackStatus : PlannedStatus;
     }
 
     private static bool IsAdmin(string? roleName)

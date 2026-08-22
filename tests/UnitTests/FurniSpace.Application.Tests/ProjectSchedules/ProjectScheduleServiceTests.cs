@@ -236,7 +236,7 @@ public sealed class ProjectScheduleServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_DeliverySchedule_RejectsSecondActiveSchedule()
+    public async Task CreateAsync_DeliverySchedule_AllowsMultipleActiveSchedules()
     {
         var salesId = Guid.NewGuid();
         var project = CreateProject(assignedSalesId: salesId, status: ProjectStatus.DELIVERING);
@@ -253,9 +253,8 @@ public sealed class ProjectScheduleServiceTests
         var second = await service.CreateAsync(project.ProjectId, salesId, ValidDeliveryCreateRequest());
 
         Assert.Equal(201, first.Status);
-        Assert.Equal(409, second.Status);
-        Assert.Equal(ProjectScheduleErrorCodes.ActiveDeliveryScheduleExists, second.ErrorCode);
-        Assert.Equal(1, scheduleRepo.AddCallCount);
+        Assert.Equal(201, second.Status);
+        Assert.Equal(2, scheduleRepo.AddCallCount);
     }
 
     [Theory]
@@ -980,13 +979,18 @@ public sealed class ProjectScheduleServiceTests
     public async Task UpdateStatusAsync_ProductionCompletesAssignedDeliverySchedule()
     {
         var productionId = Guid.NewGuid();
-        var schedule = CreateScheduleEntity(ProjectScheduleStatus.CONFIRMED, scheduleType: ProjectScheduleType.DELIVERY);
+        var startedAt = DateTime.UtcNow.AddHours(-2);
+        var schedule = CreateScheduleEntity(
+            ProjectScheduleStatus.CONFIRMED,
+            scheduledStart: startedAt,
+            scheduleType: ProjectScheduleType.DELIVERY);
         schedule.AssignedStaffId = productionId;
         var detail = CreateScheduleDetail(
             scheduleId: schedule.ScheduleId,
             assignedStaffId: productionId,
             status: ProjectScheduleStatus.CONFIRMED,
-            scheduleType: ProjectScheduleType.DELIVERY);
+            scheduleType: ProjectScheduleType.DELIVERY,
+            scheduledStart: startedAt);
         var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
         var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
 
@@ -1104,15 +1108,23 @@ public sealed class ProjectScheduleServiceTests
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
         var scheduleId = Guid.NewGuid();
+        var startedAt = DateTime.UtcNow.AddHours(-2);
         var detail = CreateScheduleDetail(
             scheduleId,
             assignedSalesId: salesId,
             assignedDesignerId: designerId,
             assignedStaffId: designerId,
-            status: ProjectScheduleStatus.CONFIRMED);
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduledStart: startedAt);
         detail.ProjectId = projectId;
         detail.ScheduleType = ProjectScheduleType.MEASUREMENT;
-        var schedule = new ProjectSchedule { ScheduleId = scheduleId, ProjectId = projectId };
+        var schedule = new ProjectSchedule
+        {
+            ScheduleId = scheduleId,
+            ProjectId = projectId,
+            ScheduledStart = startedAt,
+            Status = ProjectScheduleStatus.CONFIRMED
+        };
         var projectEntity = new Project
         {
             ProjectId = projectId,

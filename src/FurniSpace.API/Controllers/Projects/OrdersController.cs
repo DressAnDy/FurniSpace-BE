@@ -210,6 +210,81 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,SALES,PRODUCTION,ADMIN")]
+    [HttpGet("orders/{orderId:guid}/deliveries")]
+    public async Task<IActionResult> GetDeliveries(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.GetDeliveriesAsync(orderId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,PRODUCTION,ADMIN")]
+    [HttpGet("orders/{orderId:guid}/deliveries/{deliveryId:guid}")]
+    public async Task<IActionResult> GetDeliveryDetail(
+        Guid orderId,
+        Guid deliveryId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.GetDeliveryDetailAsync(
+            orderId,
+            deliveryId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [HttpPost("orders/{orderId:guid}/deliveries")]
+    public async Task<IActionResult> CreateDeliveryBatch(
+        Guid orderId,
+        [FromBody] CreateDeliveryBatchRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.CreateDeliveryBatchAsync(
+            orderId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [HttpPatch("orders/{orderId:guid}/deliveries/{deliveryId:guid}/complete")]
+    public async Task<IActionResult> CompleteDeliveryBatch(
+        Guid orderId,
+        Guid deliveryId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.CompleteDeliveryBatchAsync(
+            orderId,
+            deliveryId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

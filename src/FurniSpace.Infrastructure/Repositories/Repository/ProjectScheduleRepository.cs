@@ -255,8 +255,10 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
         var query = DbContext.ProjectScheduleSet
             .Where(schedule =>
                 schedule.AssignedStaffId == assignedStaffId &&
+                schedule.Status != ProjectScheduleStatus.CANCELLED &&
                 (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
-                 schedule.Status == ProjectScheduleStatus.CONFIRMED));
+                 schedule.Status == ProjectScheduleStatus.CONFIRMED ||
+                 (schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt != null)));
 
         if (excludedScheduleId.HasValue)
         {
@@ -266,7 +268,9 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
 
         return query.AnyAsync(
             schedule =>
-                scheduledStart < (schedule.ScheduledEnd ?? schedule.ScheduledStart) &&
+                scheduledStart < (schedule.Status == ProjectScheduleStatus.COMPLETED
+                    ? schedule.CompletedAt!.Value
+                    : (schedule.ScheduledEnd ?? schedule.ScheduledStart)) &&
                 newEnd > schedule.ScheduledStart,
             cancellationToken);
     }

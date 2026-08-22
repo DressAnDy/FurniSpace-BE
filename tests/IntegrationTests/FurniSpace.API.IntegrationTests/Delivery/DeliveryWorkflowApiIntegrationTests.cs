@@ -167,8 +167,19 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
             ProjectScheduleStatus.CONFIRMED);
     }
 
+    private async Task AdvanceScheduleStartToPastAsync(Guid scheduleId)
+    {
+        await using var context = _fixture.Database.CreateDbContext();
+        var schedule = await context.ProjectScheduleSet.FindAsync(scheduleId);
+        Assert.NotNull(schedule);
+        schedule!.ScheduledStart = DateTime.UtcNow.AddHours(-2);
+        schedule.ScheduledEnd = DateTime.UtcNow.AddHours(-1);
+        await context.SaveChangesAsync();
+    }
+
     private async Task CompleteScheduleAsync(DeliveryOrderScenario scenario, Guid scheduleId)
     {
+        await AdvanceScheduleStartToPastAsync(scheduleId);
         await UpdateScheduleStatusAsync(
             scenario.ProductionAccountId,
             CoreRoles.Production,

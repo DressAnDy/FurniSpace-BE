@@ -427,6 +427,15 @@ public sealed class ProductionRequestService : IProductionRequestService
         productionRequest.ActualStartDate = actualStartDate;
         productionRequest.UpdatedAt = now;
         _productionRequests.Update(productionRequest);
+        if (_dependencies.PhaseDeadlines is not null)
+        {
+            await _dependencies.PhaseDeadlines.MarkStartedOnceAsync(
+                productionRequest.ProjectId,
+                ProjectPhaseType.PRODUCTION,
+                now,
+                cancellationToken);
+        }
+
         await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProductionRequestStatusDto>.Success(

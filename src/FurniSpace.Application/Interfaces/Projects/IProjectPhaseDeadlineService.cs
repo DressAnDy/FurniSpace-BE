@@ -17,6 +17,12 @@ public interface IProjectPhaseDeadlineService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
+    Task MarkStartedOnceAsync(
+        Guid projectId,
+        ProjectPhaseType phase,
+        DateTime startedAt,
+        CancellationToken cancellationToken = default);
+
     Task MarkCompletedOnceAsync(
         Guid projectId,
         ProjectPhaseType phase,

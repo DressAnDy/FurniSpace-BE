@@ -44,6 +44,7 @@ public sealed class ProjectService : IProjectService
     private readonly IProposalRepository _proposals;
     private readonly IProductionRequestRepository _productionRequests;
     private readonly IProjectScheduleRepository _schedules;
+    private readonly IProjectPhaseDeadlineService _phaseDeadlines;
 
     public ProjectService(
         IProjectRepository projects,
@@ -63,6 +64,7 @@ public sealed class ProjectService : IProjectService
         _proposals = dependencies.Proposals;
         _productionRequests = dependencies.ProductionRequests;
         _schedules = dependencies.Schedules;
+        _phaseDeadlines = dependencies.PhaseDeadlines;
     }
 
     public async Task<ServiceResult<ProjectDto>> CreateAsync(
@@ -571,13 +573,20 @@ public sealed class ProjectService : IProjectService
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanViewProjectDetail(project, currentUserId, roleName))
+        if (!await CanViewProjectDetailAsync(project, currentUserId, roleName, cancellationToken))
         {
             return ServiceResult<ProjectDto>.Forbidden("You do not have access to view this project.");
         }
 
+        var dto = project.Adapt<ProjectDto>();
+        var phasePlan = await _phaseDeadlines.GetAsync(projectId, currentUserId, cancellationToken);
+        if (phasePlan.Status == 200 && phasePlan.Data is not null)
+        {
+            dto.PhaseDeadlines = phasePlan.Data.Deadlines;
+        }
+
         return ServiceResult<ProjectDto>.Success(
-            project.Adapt<ProjectDto>(),
+            dto,
             "Project detail retrieved successfully.");
     }
 
@@ -931,8 +940,18 @@ public sealed class ProjectService : IProjectService
 
         var oldStatus = project.Status;
         var newStatus = request.Status.Value;
+        var now = DateTime.UtcNow;
         project.Status = newStatus;
-        project.UpdatedAt = DateTime.UtcNow;
+        project.UpdatedAt = now;
+
+        if (newStatus == ProjectStatus.PROPOSAL_CONSULTING && oldStatus != ProjectStatus.PROPOSAL_CONSULTING)
+        {
+            await _phaseDeadlines.MarkStartedOnceAsync(
+                project.ProjectId,
+                ProjectPhaseType.PROPOSAL,
+                now,
+                cancellationToken);
+        }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
@@ -1526,6 +1545,48 @@ public sealed class ProjectService : IProjectService
             IsDesigner(roleName) ||
             IsAdmin(roleName) ||
             string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<bool> CanViewProjectDetailAsync(
+        ProjectDetailReadModel project,
+        Guid currentUserId,
+        string? roleName,
+        CancellationToken cancellationToken)
+    {
+        if (IsAdmin(roleName))
+        {
+            return true;
+        }
+
+        if (IsCustomer(roleName))
+        {
+            return project.CustomerId == currentUserId;
+        }
+
+        if (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!project.AssignedSalesId.HasValue && !project.AssignedDesignerId.HasValue)
+            {
+                return true;
+            }
+
+            return project.AssignedSalesId == currentUserId;
+        }
+
+        if (string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase))
+        {
+            return project.AssignedDesignerId == currentUserId;
+        }
+
+        if (string.Equals(roleName, ApplicationRoles.Production, StringComparison.OrdinalIgnoreCase))
+        {
+            return await _productionRequests.HasViewableAssignedRequestAsync(
+                project.ProjectId,
+                currentUserId,
+                cancellationToken);
+        }
+
+        return false;
     }
 
     private static bool CanViewProjectDetail(

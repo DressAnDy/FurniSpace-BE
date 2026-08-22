@@ -24,6 +24,7 @@ public sealed class ProjectFileService : IProjectFileService
     private readonly IProjectFileRepository _projectFiles;
     private readonly IProductRepository _products;
     private readonly IProductVersionRepository _productVersions;
+    private readonly ILayoutAssetRepository _layoutAssets;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
     private readonly FileUploadSettings _uploadSettings;
@@ -35,11 +36,13 @@ public sealed class ProjectFileService : IProjectFileService
         IProjectFileRepository projectFiles,
         IProductRepository products,
         IProductVersionRepository productVersions,
+        ILayoutAssetRepository layoutAssets,
         ProjectFileServiceDependencies dependencies)
     {
         _projectFiles = projectFiles;
         _products = products;
         _productVersions = productVersions;
+        _layoutAssets = layoutAssets;
         _unitOfWork = dependencies.UnitOfWork;
         _storage = dependencies.Storage;
         _uploadSettings = dependencies.UploadSettings;
@@ -520,9 +523,16 @@ public sealed class ProjectFileService : IProjectFileService
         FilesByReferenceQueryDto query,
         CancellationToken cancellationToken)
     {
-        var referenceExists = normalizedReferenceType == CatalogFileReferenceTypes.Product
-            ? await _products.GetByIdAsync(query.ReferenceId, cancellationToken) is not null
-            : await _productVersions.GetByIdAsync(query.ReferenceId, cancellationToken) is not null;
+        var referenceExists = normalizedReferenceType switch
+        {
+            var type when type == CatalogFileReferenceTypes.Product =>
+                await _products.GetByIdAsync(query.ReferenceId, cancellationToken) is not null,
+            var type when type == CatalogFileReferenceTypes.ProductVersion =>
+                await _productVersions.GetByIdAsync(query.ReferenceId, cancellationToken) is not null,
+            var type when type == CatalogFileReferenceTypes.LayoutAsset =>
+                await _layoutAssets.GetByIdAsync(query.ReferenceId, cancellationToken) is not null,
+            _ => false
+        };
 
         if (!referenceExists)
         {

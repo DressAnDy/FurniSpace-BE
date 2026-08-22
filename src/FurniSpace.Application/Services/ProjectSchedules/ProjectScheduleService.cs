@@ -303,6 +303,14 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             }
         }
 
+        if (newStatus == ProjectScheduleStatus.COMPLETED && DateTime.UtcNow < detail.ScheduledStart)
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Validation(
+                    ProjectScheduleErrorCodes.ScheduleCompleteBeforeStart,
+                    "Schedule cannot be completed before its scheduled start time."));
+        }
+
         var schedule = await _schedules.GetByIdAsync(scheduleId, cancellationToken);
         if (schedule is null)
         {
@@ -316,6 +324,11 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (newStatus == ProjectScheduleStatus.CANCELLED)
         {
             schedule.CancelledAt = now;
+        }
+
+        if (newStatus == ProjectScheduleStatus.COMPLETED)
+        {
+            schedule.CompletedAt = now;
         }
 
         await ExecuteInTransactionAsync(
@@ -648,14 +661,6 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 Error.Conflict(
                     ProjectScheduleErrorCodes.DeliveryScheduleNotAllowedAfterCompletion,
                     "A new delivery schedule cannot be created after delivery has completed."));
-        }
-
-        if (await _schedules.HasActiveDeliveryScheduleAsync(project.ProjectId, cancellationToken))
-        {
-            return ServiceResult<ProjectScheduleDto>.Failure(
-                Error.Conflict(
-                    ProjectScheduleErrorCodes.ActiveDeliveryScheduleExists,
-                    "Only one active delivery schedule is allowed per project."));
         }
 
         var hasReadyOrder = await _orders.HasProjectOrderInStatusesAsync(

@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Projects;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectSchedules;
+using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -318,9 +319,12 @@ public sealed class ProjectSchedulesControllerTests
 
     private static ProjectSchedulesController BuildController(
         IProjectScheduleService service,
-        Guid? userId = null)
+        Guid? userId = null,
+        IMeasurementImageService? measurementImages = null)
     {
-        var controller = new ProjectSchedulesController(service)
+        var controller = new ProjectSchedulesController(
+            service,
+            measurementImages ?? new FakeMeasurementImageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -437,5 +441,50 @@ public sealed class ProjectSchedulesControllerTests
             LastListQuery = query;
             return Task.FromResult(_listResult);
         }
+    }
+
+    private sealed class FakeMeasurementImageService : IMeasurementImageService
+    {
+        public Task<ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>> RegisterMeasurementImageAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.RegisterMeasurementImageRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetScheduleMeasurementImagesAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectAreaMeasurementImagesAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> LinkMeasurementImageToAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> UnlinkMeasurementImageFromAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
     }
 }

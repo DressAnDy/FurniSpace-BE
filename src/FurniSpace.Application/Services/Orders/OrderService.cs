@@ -17,13 +17,14 @@ using Microsoft.Extensions.Logging;
 
 namespace FurniSpace.Application.Services.Orders;
 
-public sealed class OrderService : IOrderService
+public sealed partial class OrderService : IOrderService
 {
     private readonly IOrderRepository _orders;
     private readonly IProjectRepository _projects;
     private readonly IPaymentRepository _payments;
     private readonly IProductionRequestRepository _productionRequests;
     private readonly IProjectScheduleRepository _schedules;
+    private readonly IDeliveryRepository _deliveries;
     private readonly IUnitOfWork _unitOfWork;
     private readonly SePayOptions _sePayOptions;
     private readonly INotificationDispatcher? _notifications;
@@ -41,6 +42,7 @@ public sealed class OrderService : IOrderService
         _payments = payments;
         _productionRequests = dependencies.ProductionRequests;
         _schedules = dependencies.Schedules;
+        _deliveries = dependencies.Deliveries;
         _unitOfWork = dependencies.UnitOfWork;
         _sePayOptions = dependencies.SePayOptions;
         _notifications = dependencies.Notifications;
@@ -261,7 +263,18 @@ public sealed class OrderService : IOrderService
                 "Delivery already completed for all deliverable items.");
         }
 
-        if (!await _orders.AllDeliverableItemsReadyAsync(order.OrderId, cancellationToken))
+        var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+        var batchItems = orderItems
+            .Where(IsBatchEligibleOrderItem)
+            .Select(item => new CreateDeliveryBatchItemRequestDto
+            {
+                OrderItemId = item.OrderItemId,
+                Quantity = GetRemainingDeliverableQuantity(item)
+            })
+            .Where(item => item.Quantity > 0)
+            .ToList();
+
+        if (batchItems.Count == 0)
         {
             return ServiceResult<OrderDeliveryCompletionDto>.Failure(
                 Error.Conflict(
@@ -269,31 +282,34 @@ public sealed class OrderService : IOrderService
                     "All deliverable order items must be READY before delivery can be completed."));
         }
 
-        var now = DateTime.UtcNow;
-        var items = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
-        var deliveredCount = 0;
-        foreach (var item in items.Where(IsActiveDeliveryItem))
+        var createResult = await CreateDeliveryBatchAsync(
+            orderId,
+            currentUserId,
+            new CreateDeliveryBatchRequestDto { Items = batchItems },
+            cancellationToken);
+        if (createResult.Status is not (200 or 201) || createResult.Data is null)
         {
-            item.Status = OrderItemStatus.DELIVERED;
-            item.DeliveredAt = now;
-            item.DeliveredBy = currentUserId;
-            _orders.UpdateItem(item);
-            deliveredCount++;
+            return ServiceResult<OrderDeliveryCompletionDto>.Failure(
+                Error.BadRequest(
+                    createResult.ErrorCode ?? OrderErrorCodes.InvalidOrderStatus,
+                    createResult.Message ?? "Unable to create delivery batch for legacy completion."));
         }
 
-        order.UpdatedAt = now;
-        _orders.Update(order);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        await OrderNotificationSupport.TryDispatchUpdatedAsync(
-            _notifications,
-            _logger,
-            order,
-            project,
+        var completeResult = await CompleteDeliveryBatchAsync(
+            orderId,
+            createResult.Data.DeliveryId,
+            currentUserId,
             cancellationToken);
+        if (completeResult.Status != 200 || completeResult.Data is null)
+        {
+            return ServiceResult<OrderDeliveryCompletionDto>.Failure(
+                Error.BadRequest(
+                    completeResult.ErrorCode ?? OrderErrorCodes.DeliveryNotCompleted,
+                    completeResult.Message ?? "Unable to complete delivery batch for legacy completion."));
+        }
 
         return ServiceResult<OrderDeliveryCompletionDto>.Success(
-            ToDeliveryCompletionDto(order, project, deliveredCount),
+            ToDeliveryCompletionDto(order, project, completeResult.Data.UpdatedItemCount),
             "Delivery completed successfully.");
     }
 
@@ -359,12 +375,19 @@ public sealed class OrderService : IOrderService
                     "All deliverable order items must be delivered before confirmation."));
         }
 
+        var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
         var now = DateTime.UtcNow;
         var remainingPaymentNotifications = new List<Payment>();
         await UnitOfWorkTransactions.ExecuteAsync(
             _unitOfWork,
             async transactionCancellationToken =>
             {
+                foreach (var item in orderItems.Where(IsProductLineItem))
+                {
+                    item.Status = OrderItemStatus.DELIVERED;
+                    _orders.UpdateItem(item);
+                }
+
                 order.CustomerConfirmedDeliveryAt = now;
                 order.UpdatedAt = now;
                 project.Status = ProjectStatus.DELIVERED;

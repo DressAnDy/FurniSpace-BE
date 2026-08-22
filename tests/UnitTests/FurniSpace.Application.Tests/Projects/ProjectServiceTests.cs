@@ -296,7 +296,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
-    public async Task AssignDesignerAsync_WhenDesignerHasTwoActiveProjects_ReturnsConflict()
+    public async Task AssignDesignerAsync_WhenDesignerHasThreeActiveProjects_ReturnsConflict()
     {
         var salesId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -304,9 +304,10 @@ public sealed class ProjectServiceTests
         var project = CreateDesignerAssignableProject(projectId, salesId);
         var activeProjectOne = CreateAssignedDesignerProject(designer.AccountId, ProjectStatus.MEASUREMENT_REQUIRED);
         var activeProjectTwo = CreateAssignedDesignerProject(designer.AccountId, ProjectStatus.PROPOSAL_CONSULTING);
+        var activeProjectThree = CreateAssignedDesignerProject(designer.AccountId, ProjectStatus.SPACE_VERIFIED);
         var repository = new FakeProjectRepository(
             roleName: "SALES",
-            entities: [project, activeProjectOne, activeProjectTwo],
+            entities: [project, activeProjectOne, activeProjectTwo, activeProjectThree],
             designer: designer);
         var projectChats = new FakeProjectChatService();
         var service = ProjectServiceTestFactory.Create(

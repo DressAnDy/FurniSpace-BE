@@ -30,6 +30,7 @@ internal static class RoomPlannerSceneServiceConstants
     internal const string EmptyTemplateEditorVersion = "ROOM_PLANNER_BABYLON_BUILDING_V1";
     internal const string RoomPlannerProductNotInSceneCode = "ROOM_PLANNER_PRODUCT_NOT_IN_SCENE";
     internal const string RoomPlannerProductResolveInvalidCode = "ROOM_PLANNER_PRODUCT_RESOLVE_INVALID";
+    internal const string RoomPlannerLayoutAssetNotInSceneCode = "ROOM_PLANNER_LAYOUT_ASSET_NOT_IN_SCENE";
     internal const string LayoutAssetNotFoundCode = "LAYOUT_ASSET_NOT_FOUND";
     internal const string LayoutAssetInactiveCode = "LAYOUT_ASSET_INACTIVE";
     internal const string RoomPlannerLayoutAssetForbiddenCode = "ROOM_PLANNER_LAYOUT_ASSET_FORBIDDEN";

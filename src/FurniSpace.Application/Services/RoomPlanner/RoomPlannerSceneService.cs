@@ -314,6 +314,109 @@ public sealed partial class RoomPlannerSceneService : IRoomPlannerSceneService
             "Room planner products resolved successfully.");
     }
 
+    public async Task<ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>> ResolveLayoutAssetsAsync(
+        Guid sceneId,
+        ResolveRoomPlannerLayoutAssetsRequestDto request,
+        Guid currentUserId,
+        string currentUserRole,
+        CancellationToken cancellationToken = default)
+    {
+        if (sceneId == Guid.Empty)
+        {
+            return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.BadRequest("Scene id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        if (request is null)
+        {
+            return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.BadRequest("Resolve layout assets request is required.");
+        }
+
+        if (_layoutAssets is null || _projectFiles is null)
+        {
+            return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.Failure(
+                Error.InternalServerError(
+                    RoomPlannerLoadFailedCode,
+                    "Room planner layout asset resolution is unavailable."));
+        }
+
+        var context = await _proposalScenes.GetContextAsync(sceneId, cancellationToken);
+        if (context is null)
+        {
+            return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.NotFound(SceneNotFoundMessage);
+        }
+
+        if (!CanViewScene(context, currentUserId, currentUserRole))
+        {
+            return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.Forbidden(
+                "You do not have access to resolve layout assets for this room planner scene.");
+        }
+
+        var requestedIds = (request.LayoutAssetIds ?? [])
+            .Where(layoutAssetId => layoutAssetId != Guid.Empty)
+            .Distinct()
+            .ToList();
+
+        if (requestedIds.Count == 0)
+        {
+            return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.Success(
+                new ResolveRoomPlannerLayoutAssetsResponseDto
+                {
+                    SceneId = sceneId,
+                    ProjectId = context.ProjectId,
+                    Items = []
+                },
+                "Room planner layout assets resolved successfully.");
+        }
+
+        var sceneLayoutAssetIds = await GetSceneLayoutAssetIdsAsync(context, cancellationToken);
+        if (requestedIds.Any(layoutAssetId => !sceneLayoutAssetIds.Contains(layoutAssetId)))
+        {
+            return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.Failure(
+                Error.BadRequest(
+                    RoomPlannerLayoutAssetNotInSceneCode,
+                    "One or more layout assets are not referenced by this room planner scene."));
+        }
+
+        var assetsById = await LoadLayoutAssetsAsync(_layoutAssets, requestedIds, cancellationToken);
+        if (assetsById.Count != requestedIds.Count)
+        {
+            return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.Failure(
+                Error.BadRequest(LayoutAssetNotFoundCode, "One or more layout assets were not found."));
+        }
+
+        var customerVisibleOnly = IsCustomer(currentUserRole);
+        var files = await _projectFiles.GetCatalogFilesByReferencesAsync(
+            CatalogFileReferenceTypes.LayoutAsset,
+            requestedIds,
+            customerVisibleOnly,
+            cancellationToken);
+
+        var filesByAssetId = files
+            .GroupBy(file => file.ReferenceId)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        var items = requestedIds
+            .Select(layoutAssetId => ToResolvedLayoutAssetDto(
+                assetsById[layoutAssetId],
+                filesByAssetId.GetValueOrDefault(layoutAssetId, []),
+                customerVisibleOnly))
+            .ToList();
+
+        return ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.Success(
+            new ResolveRoomPlannerLayoutAssetsResponseDto
+            {
+                SceneId = sceneId,
+                ProjectId = context.ProjectId,
+                Items = items
+            },
+            "Room planner layout assets resolved successfully.");
+    }
+
     private async Task<HashSet<Guid>> GetSceneProductVersionIdsAsync(
         Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
         CancellationToken cancellationToken)

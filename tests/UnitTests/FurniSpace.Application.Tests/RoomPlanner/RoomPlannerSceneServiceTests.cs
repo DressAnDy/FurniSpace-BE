@@ -1269,13 +1269,132 @@ public sealed class RoomPlannerSceneServiceTests
         Assert.Empty(result.Data!.Items);
     }
 
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_CustomerPublishedScene_ReturnsReferencedAssets()
+    {
+        var layoutAssetId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var document = CreateDocument("64fb8f0f2a98f67b1c000003");
+        document.Objects[0].ObjectType = "LAYOUT_ASSET";
+        document.Objects[0].LayoutAssetId = layoutAssetId;
+        document.Objects[0].LayoutAssetType = "STAIR";
+        document.Objects[0].ProductVersionId = null;
+        document.Objects[0].ModelSnapshot = null;
+
+        var layoutAssets = new FakeLayoutAssetRepository();
+        layoutAssets.Assets[layoutAssetId] = new LayoutAsset
+        {
+            LayoutAssetId = layoutAssetId,
+            AssetCode = "STAIR-01",
+            AssetName = "Main stair",
+            AssetType = LayoutAssetType.STAIR,
+            Status = LayoutAssetStatus.ACTIVE,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        var projectFiles = new FakeProjectFileRepository();
+        projectFiles.CatalogFilesByReferenceId[layoutAssetId] =
+        [
+            new CatalogFileReadModel
+            {
+                ReferenceId = layoutAssetId,
+                FileId = Guid.NewGuid(),
+                FileLinkId = Guid.NewGuid(),
+                FileType = FileType.MODEL_3D,
+                FileUrl = "https://cdn.example.com/stair.glb",
+                MimeType = "model/gltf-binary",
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                OriginalFileName = "stair.glb",
+                Status = FileStatus.ACTIVE,
+                IsPrimary = true
+            }
+        ];
+
+        var service = CreateService(
+            new FakeSqlSceneRepository
+            {
+                Context = CreateContext(document.Id!, ProposalStatus.PUBLISHED)
+            },
+            new FakeSceneDocumentRepository { DocumentById = document },
+            projectFiles: projectFiles,
+            layoutAssets: layoutAssets);
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [layoutAssetId] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(layoutAssetId, result.Data.Items[0].LayoutAssetId);
+        Assert.NotNull(result.Data.Items[0].PrimaryModel);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_AssetNotInScene_ReturnsBadRequest()
+    {
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository { DocumentById = CreateDocument("64fb8f0f2a98f67b1c000004") },
+            projectFiles: new FakeProjectFileRepository(),
+            layoutAssets: new FakeLayoutAssetRepository());
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [Guid.NewGuid()] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("ROOM_PLANNER_LAYOUT_ASSET_NOT_IN_SCENE", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_CustomerDraftProposal_ReturnsForbidden()
+    {
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.DRAFT) },
+            new FakeSceneDocumentRepository { DocumentById = CreateDocument("64fb8f0f2a98f67b1c000005") },
+            projectFiles: new FakeProjectFileRepository(),
+            layoutAssets: new FakeLayoutAssetRepository());
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [Guid.NewGuid()] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(403, result.Status);
+    }
+
+    private sealed class FakeLayoutAssetRepository : ILayoutAssetRepository
+    {
+        public Dictionary<Guid, LayoutAsset> Assets { get; } = [];
+
+        public Task<LayoutAsset?> GetByIdAsync(Guid layoutAssetId, CancellationToken cancellationToken = default)
+        {
+            Assets.TryGetValue(layoutAssetId, out var asset);
+            return Task.FromResult<LayoutAsset?>(asset);
+        }
+
+        public Task AddAsync(LayoutAsset layoutAsset, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task<LayoutAsset?> GetForUpdateAsync(Guid layoutAssetId, CancellationToken cancellationToken = default) => GetByIdAsync(layoutAssetId, cancellationToken);
+        public Task<bool> AssetCodeExistsAsync(string normalizedAssetCode, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<bool> AssetCodeExistsExceptAsync(string normalizedAssetCode, Guid layoutAssetId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<IReadOnlyList<LayoutAsset>> GetPagedAsync(LayoutAssetType? assetType, LayoutAssetStatus? status, string? search, int page, int pageSize, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<LayoutAsset>>([]);
+        public Task<int> CountAsync(LayoutAssetType? assetType, LayoutAssetStatus? status, string? search, CancellationToken cancellationToken = default) => Task.FromResult(0);
+    }
+
     private static RoomPlannerSceneService CreateService(
         FakeSqlSceneRepository sql,
         FakeSceneDocumentRepository documents,
         FurniSpace.Infrastructure.Persistence.IUnitOfWork? unitOfWork = null,
         IProductVersionRepository? productVersions = null,
-        IProjectFileRepository? projectFiles = null) =>
-        new(sql, documents, unitOfWork ?? TestUnitOfWork.Instance, productVersions, projectFiles);
+        IProjectFileRepository? projectFiles = null,
+        ILayoutAssetRepository? layoutAssets = null) =>
+        new(sql, documents, unitOfWork ?? TestUnitOfWork.Instance, productVersions, projectFiles, layoutAssets);
 
     private static RoomPlannerSceneContextReadModel CreateContext(
         string? mongoSceneId = "64fb8f0f2a98f67b1c000000",

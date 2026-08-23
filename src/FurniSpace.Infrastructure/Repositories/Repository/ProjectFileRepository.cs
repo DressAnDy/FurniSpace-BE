@@ -83,13 +83,22 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         await DbContext.FileLinkSet.AddAsync(fileLink, cancellationToken);
     }
 
-    public Task<FileMetadataReadModel?> GetFileMetadataAsync(
+    public async Task<FileMetadataReadModel?> GetFileMetadataAsync(
         Guid fileId,
         CancellationToken cancellationToken = default)
     {
-        return BuildFileMetadataQuery()
+        var linkedMetadata = await BuildLinkedFileMetadataQuery()
             .Where(file => file.FileId == fileId)
             .OrderBy(file => file.FileLinkId.HasValue ? 1 : 0)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (linkedMetadata is not null)
+        {
+            return linkedMetadata;
+        }
+
+        return await BuildUnlinkedFileMetadataQuery()
+            .Where(file => file.FileId == fileId)
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -420,12 +429,6 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         public Guid ProjectAreaId { get; init; }
 
         public required ProjectFileAccessReadModel ProjectAccess { get; init; }
-    }
-
-    private IQueryable<FileMetadataReadModel> BuildFileMetadataQuery()
-    {
-        return BuildLinkedFileMetadataQuery()
-            .Concat(BuildUnlinkedFileMetadataQuery());
     }
 
     private IQueryable<FileMetadataReadModel> BuildLinkedFileMetadataQuery()

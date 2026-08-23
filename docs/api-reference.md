@@ -1313,6 +1313,7 @@ Route: `proposal-scenes`
 | --- | --- | --- | --- |
 | GET | `/proposal-scenes/{sceneId}/room-planner` | CUSTOMER, DESIGNER, SALES, ADMIN | Load Mongo scene payload |
 | POST | `/proposal-scenes/{sceneId}/room-planner/resolve-products` | CUSTOMER, DESIGNER, SALES, ADMIN | Resolve scene-referenced ProductVersions + files |
+| POST | `/proposal-scenes/{sceneId}/room-planner/resolve-layout-assets` | CUSTOMER, DESIGNER, SALES, ADMIN | Resolve scene-referenced layout assets + files |
 | PUT | `/proposal-scenes/{sceneId}/room-planner` | DESIGNER, ADMIN | Save scene payload |
 | GET | `/room-planner/layout-assets` | DESIGNER, ADMIN | Layout asset catalog — see [§8c](#8c-catalog--layout-assets) |
 
@@ -1406,6 +1407,44 @@ Planner catalog for placing assets: [§8c](#8c-catalog--layout-assets) · `GET /
 - Request: `{ "productVersionIds": ["..."] }` — IDs must already appear in the scene `objects[]`.
 - Response: `{ "sceneId", "projectId", "items": [{ productVersionId, productId, productName, versionCode, versionName, dimensions, files[] }] }`.
 - Customer receives only `CUSTOMER_VISIBLE` files. Does not expose full project catalog.
+
+**POST resolve-layout-assets** (`ResolveRoomPlannerLayoutAssetsRequestDto` → `ResolveRoomPlannerLayoutAssetsResponseDto`):
+
+- Request: `{ "layoutAssetIds": ["..."] }` — IDs must be referenced in the scene (`objects[]`, `blueprintLayout` wall/floor styles, floor openings).
+- Response:
+
+```json
+{
+  "sceneId": "...",
+  "projectId": "...",
+  "items": [
+    {
+      "layoutAssetId": "...",
+      "assetCode": "WALL-01",
+      "assetName": "Brick wall",
+      "assetType": "WALL_MATERIAL",
+      "status": "ACTIVE",
+      "files": [
+        {
+          "fileId": "...",
+          "fileType": "TEXTURE",
+          "url": "https://firebasestorage.googleapis.com/...",
+          "fileName": "wall.jpg",
+          "mimeType": "image/jpeg",
+          "isPrimary": true
+        }
+      ],
+      "primaryTexture": { "fileId": "...", "url": "https://firebasestorage.googleapis.com/..." },
+      "primaryModel": null,
+      "primaryPreview": null
+    }
+  ]
+}
+```
+
+- **CUSTOMER** may call this on proposals in `PUBLISHED`, `REVISION_REQUESTED`, `SELECTED`, or `REJECTED` status (same visibility as `GET room-planner`).
+- Customer receives only `CUSTOMER_VISIBLE` files — set texture/model file visibility accordingly at upload (`POST /layout-assets/{id}/files`, default `CUSTOMER_VISIBLE`).
+- File URLs are Firebase Storage download URLs (`PublicUrl` at upload). Browser CORS/403 on texture load is a **Firebase bucket CORS + Storage rules** concern, not the API auth layer; ensure the bucket allows read for those objects and CORS includes the FE origin.
 
 **PUT response** (`RoomPlannerSceneSaveResponseDto`): `sceneId`, `mongoSceneId`, `lastSavedAt`
 

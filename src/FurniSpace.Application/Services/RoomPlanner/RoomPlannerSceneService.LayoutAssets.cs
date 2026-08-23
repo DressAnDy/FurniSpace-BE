@@ -1,9 +1,12 @@
 using System.Text.Json;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.LayoutAssets;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.RoomPlanner;
 using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using static FurniSpace.Application.Constants.RoomPlanner.RoomPlannerSceneServiceConstants;
 
@@ -705,5 +708,56 @@ public sealed partial class RoomPlannerSceneService
     {
         var text = ReadString(source, propertyName);
         return Guid.TryParse(text, out var parsedGuid) ? parsedGuid : null;
+    }
+
+    private async Task<HashSet<Guid>> GetSceneLayoutAssetIdsAsync(
+        Infrastructure.ReadModels.RoomPlanner.RoomPlannerSceneContextReadModel context,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(context.MongoSceneId))
+        {
+            return [];
+        }
+
+        var document = await _sceneDocuments.GetByIdAsync(context.MongoSceneId, cancellationToken);
+        if (document is null)
+        {
+            return [];
+        }
+
+        if (document.BlueprintLayout is null)
+        {
+            var objectAssetIds = new HashSet<Guid>();
+            CollectObjectLayoutAssetIds(document.Objects, objectAssetIds);
+            return objectAssetIds;
+        }
+
+        return CollectReferencedLayoutAssetIds(new RoomPlannerScenePayloadDto
+        {
+            Objects = document.Objects,
+            BlueprintLayout = document.BlueprintLayout
+        });
+    }
+
+    private static RoomPlannerResolvedLayoutAssetDto ToResolvedLayoutAssetDto(
+        LayoutAsset asset,
+        IReadOnlyList<CatalogFileReadModel> files,
+        bool customerVisibleOnly)
+    {
+        var visibleFiles = CatalogFileOrdering.FilterVisible(files, customerVisibleOnly).ToList();
+
+        return new RoomPlannerResolvedLayoutAssetDto
+        {
+            LayoutAssetId = asset.LayoutAssetId,
+            AssetCode = asset.AssetCode,
+            AssetName = asset.AssetName,
+            AssetType = asset.AssetType,
+            Description = asset.Description,
+            Status = asset.Status,
+            Files = LayoutAssetFileSummaryHelper.ToFileDtos(visibleFiles),
+            PrimaryModel = LayoutAssetFileSummaryHelper.PickPrimary(visibleFiles, FileType.MODEL_3D),
+            PrimaryTexture = LayoutAssetFileSummaryHelper.PickPrimary(visibleFiles, FileType.TEXTURE),
+            PrimaryPreview = LayoutAssetFileSummaryHelper.PickPrimaryPreview(visibleFiles)
+        };
     }
 }

@@ -1369,6 +1369,299 @@ public sealed class RoomPlannerSceneServiceTests
         Assert.Equal(403, result.Status);
     }
 
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_WhenInputInvalid_ReturnsExpectedErrors()
+    {
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository(),
+            projectFiles: new FakeProjectFileRepository(),
+            layoutAssets: new FakeLayoutAssetRepository());
+
+        var emptySceneResult = await service.ResolveLayoutAssetsAsync(
+            Guid.Empty,
+            new ResolveRoomPlannerLayoutAssetsRequestDto(),
+            CustomerId,
+            "CUSTOMER");
+        var emptyUserResult = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto(),
+            Guid.Empty,
+            "CUSTOMER");
+        var nullRequestResult = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            null!,
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(400, emptySceneResult.Status);
+        Assert.Equal(401, emptyUserResult.Status);
+        Assert.Equal(400, nullRequestResult.Status);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_WhenDependenciesMissing_ReturnsInternalServerError()
+    {
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository());
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [Guid.NewGuid()] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(500, result.Status);
+        Assert.Equal("ROOM_PLANNER_LOAD_FAILED", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_WhenSceneMissing_ReturnsNotFound()
+    {
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = null },
+            new FakeSceneDocumentRepository(),
+            projectFiles: new FakeProjectFileRepository(),
+            layoutAssets: new FakeLayoutAssetRepository());
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [Guid.NewGuid()] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(404, result.Status);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_EmptyRequest_ReturnsEmptyItems()
+    {
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(status: ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository { DocumentById = CreateDocument("64fb8f0f2a98f67b1c000006") },
+            projectFiles: new FakeProjectFileRepository(),
+            layoutAssets: new FakeLayoutAssetRepository());
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto(),
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(200, result.Status);
+        Assert.Empty(result.Data!.Items);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_AssetMissingInDatabase_ReturnsLayoutAssetNotFound()
+    {
+        var layoutAssetId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var document = CreateDocument("64fb8f0f2a98f67b1c000007");
+        document.Objects[0].ObjectType = "LAYOUT_ASSET";
+        document.Objects[0].LayoutAssetId = layoutAssetId;
+        document.Objects[0].LayoutAssetType = "STAIR";
+        document.Objects[0].ProductVersionId = null;
+
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(document.Id!, ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository { DocumentById = document },
+            projectFiles: new FakeProjectFileRepository(),
+            layoutAssets: new FakeLayoutAssetRepository());
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [layoutAssetId] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("LAYOUT_ASSET_NOT_FOUND", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_Designer_ReturnsStaffVisibleFilesAndBlueprintAssets()
+    {
+        var objectAssetId = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        var wallAssetId = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
+        var floorAssetId = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff");
+        var document = CreateDocument("64fb8f0f2a98f67b1c000008");
+        document.Objects[0].ObjectType = "LAYOUT_ASSET";
+        document.Objects[0].LayoutAssetId = objectAssetId;
+        document.Objects[0].LayoutAssetType = "STAIR";
+        document.Objects[0].ProductVersionId = null;
+        document.BlueprintLayout!.Floors[0].Walls[0].Style = new RoomPlannerStyleDocument { LayoutAssetId = wallAssetId };
+        document.BlueprintLayout.Floors[0].FloorStyle = new RoomPlannerFloorDocument { LayoutAssetId = floorAssetId };
+
+        var layoutAssets = new FakeLayoutAssetRepository();
+        foreach (var assetId in new[] { objectAssetId, wallAssetId, floorAssetId })
+        {
+            layoutAssets.Assets[assetId] = new LayoutAsset
+            {
+                LayoutAssetId = assetId,
+                AssetCode = $"ASSET-{assetId.ToString()[..8]}",
+                AssetName = "Planner asset",
+                AssetType = LayoutAssetType.STAIR,
+                Status = LayoutAssetStatus.ACTIVE,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+        }
+
+        var projectFiles = new FakeProjectFileRepository();
+        projectFiles.CatalogFilesByReferenceId[objectAssetId] =
+        [
+            CreateLayoutAssetCatalogFile(objectAssetId, FileType.MODEL_3D, FileVisibility.STAFF_ONLY),
+            CreateLayoutAssetCatalogFile(objectAssetId, FileType.TEXTURE, FileVisibility.CUSTOMER_VISIBLE, isPrimary: true),
+            CreateLayoutAssetCatalogFile(objectAssetId, FileType.PREVIEW, FileVisibility.CUSTOMER_VISIBLE, isPrimary: true)
+        ];
+
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(document.Id!, ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository { DocumentById = document },
+            projectFiles: projectFiles,
+            layoutAssets: layoutAssets);
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [objectAssetId, wallAssetId, floorAssetId] },
+            DesignerId,
+            "DESIGNER");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(3, result.Data!.Items.Count);
+        var resolvedObject = result.Data.Items.Single(item => item.LayoutAssetId == objectAssetId);
+        Assert.Equal(3, resolvedObject.Files.Count);
+        Assert.NotNull(resolvedObject.PrimaryModel);
+        Assert.NotNull(resolvedObject.PrimaryTexture);
+        Assert.NotNull(resolvedObject.PrimaryPreview);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_Customer_FiltersInternalOnlyFiles()
+    {
+        var layoutAssetId = Guid.Parse("11111111-1111-1111-1111-111111111112");
+        var document = CreateDocument("64fb8f0f2a98f67b1c000009");
+        document.Objects[0].ObjectType = "LAYOUT_ASSET";
+        document.Objects[0].LayoutAssetId = layoutAssetId;
+        document.Objects[0].LayoutAssetType = "STAIR";
+        document.Objects[0].ProductVersionId = null;
+
+        var layoutAssets = new FakeLayoutAssetRepository();
+        layoutAssets.Assets[layoutAssetId] = new LayoutAsset
+        {
+            LayoutAssetId = layoutAssetId,
+            AssetCode = "STAIR-02",
+            AssetName = "Customer stair",
+            AssetType = LayoutAssetType.STAIR,
+            Status = LayoutAssetStatus.ACTIVE,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        var projectFiles = new FakeProjectFileRepository();
+        projectFiles.CatalogFilesByReferenceId[layoutAssetId] =
+        [
+            CreateLayoutAssetCatalogFile(layoutAssetId, FileType.MODEL_3D, FileVisibility.STAFF_ONLY, isPrimary: true),
+            CreateLayoutAssetCatalogFile(layoutAssetId, FileType.TEXTURE, FileVisibility.CUSTOMER_VISIBLE, isPrimary: true)
+        ];
+
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(document.Id!, ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository { DocumentById = document },
+            projectFiles: projectFiles,
+            layoutAssets: layoutAssets);
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [layoutAssetId] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(200, result.Status);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Single(item.Files);
+        Assert.Null(item.PrimaryModel);
+        Assert.NotNull(item.PrimaryTexture);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_WhenBlueprintLayoutMissing_ResolvesObjectAssetsOnly()
+    {
+        var layoutAssetId = Guid.Parse("22222222-2222-2222-2222-222222222223");
+        var document = CreateDocument("64fb8f0f2a98f67b1c000010");
+        document.BlueprintLayout = null;
+        document.Objects[0].ObjectType = "LAYOUT_ASSET";
+        document.Objects[0].LayoutAssetId = layoutAssetId;
+        document.Objects[0].LayoutAssetType = "STAIR";
+        document.Objects[0].ProductVersionId = null;
+
+        var layoutAssets = new FakeLayoutAssetRepository();
+        layoutAssets.Assets[layoutAssetId] = new LayoutAsset
+        {
+            LayoutAssetId = layoutAssetId,
+            AssetCode = "STAIR-03",
+            AssetName = "Object-only asset",
+            AssetType = LayoutAssetType.STAIR,
+            Status = LayoutAssetStatus.ACTIVE,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(document.Id!, ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository { DocumentById = document },
+            projectFiles: new FakeProjectFileRepository(),
+            layoutAssets: layoutAssets);
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [layoutAssetId] },
+            DesignerId,
+            "DESIGNER");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(layoutAssetId, Assert.Single(result.Data!.Items).LayoutAssetId);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_WhenMongoDocumentMissing_ReturnsAssetNotInScene()
+    {
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(mongoSceneId: "missing-doc", status: ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository(),
+            projectFiles: new FakeProjectFileRepository(),
+            layoutAssets: new FakeLayoutAssetRepository());
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [Guid.NewGuid()] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("ROOM_PLANNER_LAYOUT_ASSET_NOT_IN_SCENE", result.ErrorCode);
+    }
+
+    private static CatalogFileReadModel CreateLayoutAssetCatalogFile(
+        Guid layoutAssetId,
+        FileType fileType,
+        FileVisibility visibility,
+        bool isPrimary = false) =>
+        new()
+        {
+            ReferenceId = layoutAssetId,
+            FileId = Guid.NewGuid(),
+            FileLinkId = Guid.NewGuid(),
+            FileType = fileType,
+            FileUrl = $"https://cdn.example.com/{fileType.ToString().ToLowerInvariant()}",
+            MimeType = "application/octet-stream",
+            Visibility = visibility,
+            OriginalFileName = $"{fileType}.bin",
+            Status = FileStatus.ACTIVE,
+            IsPrimary = isPrimary
+        };
+
     private sealed class FakeLayoutAssetRepository : ILayoutAssetRepository
     {
         public Dictionary<Guid, LayoutAsset> Assets { get; } = [];

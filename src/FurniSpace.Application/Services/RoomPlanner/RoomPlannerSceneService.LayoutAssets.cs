@@ -744,7 +744,9 @@ public sealed partial class RoomPlannerSceneService
         IReadOnlyList<CatalogFileReadModel> files,
         bool customerVisibleOnly)
     {
-        var visibleFiles = CatalogFileOrdering.FilterVisible(files, customerVisibleOnly).ToList();
+        var visibleFiles = CatalogFileOrdering.FilterVisible(files, customerVisibleOnly)
+            .Where(file => !string.IsNullOrWhiteSpace(file.FileUrl))
+            .ToList();
 
         return new RoomPlannerResolvedLayoutAssetDto
         {

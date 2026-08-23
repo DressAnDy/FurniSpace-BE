@@ -1328,8 +1328,77 @@ public sealed class RoomPlannerSceneServiceTests
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
         Assert.Single(result.Data!.Items);
-        Assert.Equal(layoutAssetId, result.Data.Items[0].LayoutAssetId);
-        Assert.NotNull(result.Data.Items[0].PrimaryModel);
+        var item = result.Data.Items[0];
+        Assert.Equal(layoutAssetId, item.LayoutAssetId);
+        Assert.Equal(LayoutAssetType.STAIR, item.AssetType);
+        Assert.NotNull(item.PrimaryModel);
+        Assert.False(string.IsNullOrWhiteSpace(item.PrimaryModel!.Url));
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_CustomerWallMaterial_ReturnsAssetTypeAndTextureUrl()
+    {
+        var wallAssetId = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        const string textureUrl = "https://cdn.example.com/wall-texture.jpg";
+        var document = CreateDocument("64fb8f0f2a98f67b1c000011");
+        document.BlueprintLayout!.Floors[0].Walls[0].Style = new RoomPlannerStyleDocument
+        {
+            LayoutAssetId = wallAssetId
+        };
+
+        var layoutAssets = new FakeLayoutAssetRepository();
+        layoutAssets.Assets[wallAssetId] = new LayoutAsset
+        {
+            LayoutAssetId = wallAssetId,
+            AssetCode = "WALL-01",
+            AssetName = "Brick wall",
+            AssetType = LayoutAssetType.WALL_MATERIAL,
+            Status = LayoutAssetStatus.ACTIVE,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        var projectFiles = new FakeProjectFileRepository();
+        projectFiles.CatalogFilesByReferenceId[wallAssetId] =
+        [
+            new CatalogFileReadModel
+            {
+                ReferenceId = wallAssetId,
+                FileId = Guid.NewGuid(),
+                FileLinkId = Guid.NewGuid(),
+                FileType = FileType.TEXTURE,
+                FileUrl = textureUrl,
+                MimeType = "image/jpeg",
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                OriginalFileName = "wall-texture.jpg",
+                Status = FileStatus.ACTIVE,
+                IsPrimary = true
+            }
+        ];
+
+        var service = CreateService(
+            new FakeSqlSceneRepository
+            {
+                Context = CreateContext(document.Id!, ProposalStatus.PUBLISHED)
+            },
+            new FakeSceneDocumentRepository { DocumentById = document },
+            projectFiles: projectFiles,
+            layoutAssets: layoutAssets);
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [wallAssetId] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(200, result.Status);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(LayoutAssetType.WALL_MATERIAL, item.AssetType);
+        Assert.NotNull(item.PrimaryTexture);
+        Assert.Equal(textureUrl, item.PrimaryTexture!.Url);
+        var file = Assert.Single(item.Files);
+        Assert.Equal(textureUrl, file.Url);
+        Assert.Equal(FileType.TEXTURE, file.FileType);
     }
 
     [Fact]
@@ -1583,6 +1652,83 @@ public sealed class RoomPlannerSceneServiceTests
         Assert.Single(item.Files);
         Assert.Null(item.PrimaryModel);
         Assert.NotNull(item.PrimaryTexture);
+        Assert.False(string.IsNullOrWhiteSpace(item.PrimaryTexture!.Url));
+        Assert.Equal(item.PrimaryTexture.Url, item.Files[0].Url);
+    }
+
+    [Fact]
+    public async Task ResolveLayoutAssetsAsync_Customer_SkipsFilesWithEmptyUrl()
+    {
+        var layoutAssetId = Guid.Parse("33333333-3333-3333-3333-333333333333");
+        const string textureUrl = "https://cdn.example.com/floor-texture.jpg";
+        var document = CreateDocument("64fb8f0f2a98f67b1c000012");
+        document.Objects[0].ObjectType = "LAYOUT_ASSET";
+        document.Objects[0].LayoutAssetId = layoutAssetId;
+        document.Objects[0].LayoutAssetType = "DECORATIVE_FLOOR";
+        document.Objects[0].ProductVersionId = null;
+
+        var layoutAssets = new FakeLayoutAssetRepository();
+        layoutAssets.Assets[layoutAssetId] = new LayoutAsset
+        {
+            LayoutAssetId = layoutAssetId,
+            AssetCode = "FLOOR-01",
+            AssetName = "Oak floor",
+            AssetType = LayoutAssetType.FLOOR_MATERIAL,
+            Status = LayoutAssetStatus.ACTIVE,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+
+        var projectFiles = new FakeProjectFileRepository();
+        projectFiles.CatalogFilesByReferenceId[layoutAssetId] =
+        [
+            new CatalogFileReadModel
+            {
+                ReferenceId = layoutAssetId,
+                FileId = Guid.NewGuid(),
+                FileLinkId = Guid.NewGuid(),
+                FileType = FileType.TEXTURE,
+                FileUrl = "   ",
+                MimeType = "image/jpeg",
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                OriginalFileName = "broken-texture.jpg",
+                Status = FileStatus.ACTIVE,
+                IsPrimary = true
+            },
+            new CatalogFileReadModel
+            {
+                ReferenceId = layoutAssetId,
+                FileId = Guid.NewGuid(),
+                FileLinkId = Guid.NewGuid(),
+                FileType = FileType.TEXTURE,
+                FileUrl = textureUrl,
+                MimeType = "image/jpeg",
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                OriginalFileName = "floor-texture.jpg",
+                Status = FileStatus.ACTIVE,
+                IsPrimary = false
+            }
+        ];
+
+        var service = CreateService(
+            new FakeSqlSceneRepository { Context = CreateContext(document.Id!, ProposalStatus.PUBLISHED) },
+            new FakeSceneDocumentRepository { DocumentById = document },
+            projectFiles: projectFiles,
+            layoutAssets: layoutAssets);
+
+        var result = await service.ResolveLayoutAssetsAsync(
+            SceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [layoutAssetId] },
+            CustomerId,
+            "CUSTOMER");
+
+        Assert.Equal(200, result.Status);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(LayoutAssetType.FLOOR_MATERIAL, item.AssetType);
+        var file = Assert.Single(item.Files);
+        Assert.Equal(textureUrl, file.Url);
+        Assert.NotNull(item.PrimaryTexture);
+        Assert.Equal(textureUrl, item.PrimaryTexture!.Url);
     }
 
     [Fact]

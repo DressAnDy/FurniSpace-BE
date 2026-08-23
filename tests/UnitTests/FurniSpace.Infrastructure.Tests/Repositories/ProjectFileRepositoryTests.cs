@@ -166,6 +166,54 @@ public sealed class ProjectFileRepositoryTests
     }
 
     [Fact]
+    public async Task GetFileMetadataAsync_ReturnsLinkedProjectFileMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectFileRepository(context);
+
+        var metadata = await repository.GetFileMetadataAsync(data.FileId);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(data.FileId, metadata!.FileId);
+        Assert.Equal(data.FileLinkId, metadata.FileLinkId);
+        Assert.Equal("PROJECT", metadata.ReferenceType);
+        Assert.Equal(data.ProjectId, metadata.ReferenceId);
+        Assert.Equal(data.ProjectId, metadata.ProjectAccess?.ProjectId);
+    }
+
+    [Fact]
+    public async Task GetFileMetadataAsync_ReturnsProductVersionLinkedFileMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectFileRepository(context);
+
+        var metadata = await repository.GetFileMetadataAsync(data.VersionPreviewFileId);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(data.VersionPreviewFileId, metadata!.FileId);
+        Assert.Equal("PRODUCT_VERSION", metadata.ReferenceType);
+        Assert.Equal(data.ProductVersionId, metadata.ReferenceId);
+        Assert.Equal(data.ProjectId, metadata.ProjectAccess?.ProjectId);
+    }
+
+    [Fact]
+    public async Task GetFileMetadataAsync_ReturnsUnlinkedFileMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectFileRepository(context);
+
+        var metadata = await repository.GetFileMetadataAsync(data.UnlinkedFileId);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(data.UnlinkedFileId, metadata!.FileId);
+        Assert.Null(metadata.FileLinkId);
+        Assert.True(string.IsNullOrEmpty(metadata.ReferenceType));
+    }
+
+    [Fact]
     public async Task AddFileLinkAsync_AddsEntity()
     {
         await using var context = CreateContext();

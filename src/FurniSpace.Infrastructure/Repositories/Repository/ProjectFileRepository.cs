@@ -83,14 +83,36 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         await DbContext.FileLinkSet.AddAsync(fileLink, cancellationToken);
     }
 
-    public Task<FileMetadataReadModel?> GetFileMetadataAsync(
+    public async Task<FileMetadataReadModel?> GetFileMetadataAsync(
         Guid fileId,
         CancellationToken cancellationToken = default)
     {
-        return BuildFileMetadataQuery()
-            .Where(file => file.FileId == fileId)
-            .OrderBy(file => file.FileLinkId.HasValue ? 1 : 0)
+        var file = await DbContext.StoredFileSet
+            .AsNoTracking()
+            .FirstOrDefaultAsync(entity => entity.FileId == fileId, cancellationToken);
+
+        if (file is null)
+        {
+            return null;
+        }
+
+        var link = await DbContext.FileLinkSet
+            .AsNoTracking()
+            .Where(entity => entity.FileId == fileId)
+            .OrderBy(entity => entity.FileLinkId)
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (link is null)
+        {
+            return MapUnlinkedFileMetadata(file);
+        }
+
+        var projectAccess = await GetReferenceProjectAccessAsync(
+            link.ReferenceType,
+            link.ReferenceId,
+            cancellationToken);
+
+        return MapLinkedFileMetadata(file, link, projectAccess);
     }
 
     public async Task<FileReferencePageReadModel> GetFilesByReferenceAsync(
@@ -422,10 +444,49 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         public required ProjectFileAccessReadModel ProjectAccess { get; init; }
     }
 
-    private IQueryable<FileMetadataReadModel> BuildFileMetadataQuery()
+    private static FileMetadataReadModel MapUnlinkedFileMetadata(StoredFile file)
     {
-        return BuildLinkedFileMetadataQuery()
-            .Concat(BuildUnlinkedFileMetadataQuery());
+        return new FileMetadataReadModel
+        {
+            FileId = file.FileId,
+            OriginalFileName = file.OriginalFileName,
+            StoredFileName = file.StoredFileName,
+            MimeType = file.MimeType,
+            FileSizeBytes = file.FileSizeBytes,
+            StoragePath = file.StoragePath,
+            FileUrl = file.FileUrl,
+            UploadedBy = file.UploadedBy,
+            UploadedAt = file.UploadedAt,
+            Status = file.Status
+        };
+    }
+
+    private static FileMetadataReadModel MapLinkedFileMetadata(
+        StoredFile file,
+        FileLink link,
+        ProjectFileAccessReadModel? projectAccess)
+    {
+        return new FileMetadataReadModel
+        {
+            FileId = file.FileId,
+            FileLinkId = link.FileLinkId,
+            ReferenceType = link.ReferenceType,
+            ReferenceId = link.ReferenceId,
+            OriginalFileName = file.OriginalFileName,
+            StoredFileName = file.StoredFileName,
+            FileType = link.FileType,
+            MimeType = file.MimeType,
+            FileSizeBytes = file.FileSizeBytes,
+            StoragePath = file.StoragePath,
+            FileUrl = file.FileUrl,
+            Visibility = link.Visibility,
+            UploadedBy = file.UploadedBy,
+            UploadedAt = file.UploadedAt,
+            Status = file.Status,
+            DisplayOrder = link.DisplayOrder,
+            IsPrimary = link.IsPrimary,
+            ProjectAccess = projectAccess
+        };
     }
 
     private IQueryable<FileMetadataReadModel> BuildLinkedFileMetadataQuery()
@@ -520,25 +581,6 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                     AssignedDesignerId = project.AssignedDesignerId,
                     Status = project.Status
                 }
-            });
-    }
-
-    private IQueryable<FileMetadataReadModel> BuildUnlinkedFileMetadataQuery()
-    {
-        return DbContext.StoredFileSet
-            .Where(file => !DbContext.FileLinkSet.Any(link => link.FileId == file.FileId))
-            .Select(file => new FileMetadataReadModel
-            {
-                FileId = file.FileId,
-                OriginalFileName = file.OriginalFileName,
-                StoredFileName = file.StoredFileName,
-                MimeType = file.MimeType,
-                FileSizeBytes = file.FileSizeBytes,
-                StoragePath = file.StoragePath,
-                FileUrl = file.FileUrl,
-                UploadedBy = file.UploadedBy,
-                UploadedAt = file.UploadedAt,
-                Status = file.Status
             });
     }
 

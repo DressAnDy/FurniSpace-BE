@@ -93,7 +93,7 @@ public sealed class OrderDeliveryTrackingTimelineItemDto
 {
     public Guid OrderItemId { get; init; }
     public string? ProductName { get; init; }
-    public int DeliveredQuantity { get; init; }
+    public int BatchQuantity { get; init; }
 }
 
 public sealed class OrderDeliveryTrackingTimelineEntryDto
@@ -106,13 +106,27 @@ public sealed class OrderDeliveryTrackingTimelineEntryDto
     public DeliveryStatus? DeliveryStatus { get; init; }
     public DateTime? CompletedAt { get; init; }
     public string? CancelReason { get; init; }
+    public string? Location { get; init; }
+    public Guid? AssignedStaffId { get; init; }
+    public string? CustomerNote { get; init; }
     public IReadOnlyList<OrderDeliveryTrackingTimelineItemDto> Items { get; init; } = [];
+}
+
+public sealed class OrderDeliveryDetailsDto
+{
+    public string? DeliveryAddress { get; init; }
+    public string? ReceiverName { get; init; }
+    public string? ReceiverPhone { get; init; }
+    public string? DeliveryNote { get; init; }
 }
 
 public sealed class OrderDeliveryTrackingDto
 {
     public Guid OrderId { get; init; }
     public OrderStatus? OrderStatus { get; init; }
+    public ProjectStatus? ProjectStatus { get; init; }
+    public DateTime? CustomerConfirmedDeliveryAt { get; init; }
+    public OrderDeliveryDetailsDto DeliveryDetails { get; init; } = new();
     public OrderDeliveryTrackingSummaryDto Summary { get; init; } = new();
     public IReadOnlyList<OrderDeliveryTrackingItemDto> Items { get; init; } = [];
     public IReadOnlyList<OrderDeliveryTrackingTimelineEntryDto> Timeline { get; init; } = [];

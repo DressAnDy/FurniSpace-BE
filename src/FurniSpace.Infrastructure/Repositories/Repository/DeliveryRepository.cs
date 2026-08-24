@@ -151,6 +151,12 @@ public sealed class DeliveryRepository : IDeliveryRepository
         {
             OrderId = order.OrderId,
             OrderStatus = order.Status,
+            ProjectStatus = order.ProjectStatus,
+            CustomerConfirmedDeliveryAt = order.CustomerConfirmedDeliveryAt,
+            DeliveryAddress = order.DeliveryAddress,
+            ReceiverName = order.ReceiverName,
+            ReceiverPhone = order.ReceiverPhone,
+            DeliveryNote = order.DeliveryNote,
             TotalOrderedQuantity = totalOrdered,
             TotalDeliveredQuantity = totalDelivered,
             RemainingQuantity = remaining,
@@ -337,6 +343,9 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 ScheduleStatus = schedule.Status,
                 ScheduleCompletedAt = schedule.CompletedAt,
                 InternalNote = schedule.InternalNote,
+                Location = schedule.Location,
+                AssignedStaffId = schedule.AssignedStaffId,
+                CustomerNote = schedule.CustomerNote,
                 DeliveryId = _dbContext.DeliverySet
                     .Where(delivery => delivery.ProjectScheduleId == schedule.ScheduleId)
                     .Select(delivery => (Guid?)delivery.DeliveryId)
@@ -386,6 +395,9 @@ public sealed class DeliveryRepository : IDeliveryRepository
             DeliveryStatus = entry.DeliveryStatus,
             CompletedAt = entry.DeliveryCompletedAt ?? entry.ScheduleCompletedAt,
             CancelReason = ResolveTimelineCancelReason(entry.ScheduleStatus, entry.InternalNote),
+            Location = entry.Location,
+            AssignedStaffId = entry.AssignedStaffId,
+            CustomerNote = entry.CustomerNote,
             Items = timelineItems
         };
     }
@@ -418,7 +430,7 @@ public sealed class DeliveryRepository : IDeliveryRepository
                     ProductName = quotationItem != null
                         ? quotationItem.ItemName
                         : pair.orderItem != null ? pair.orderItem.ProductNameSnapshot : null,
-                    DeliveredQuantity = pair.deliveryItem.Quantity
+                    BatchQuantity = pair.deliveryItem.Quantity
                 })
             .ToListAsync(cancellationToken);
     }
@@ -484,7 +496,19 @@ public sealed class DeliveryRepository : IDeliveryRepository
         return _dbContext.OrderSet
             .AsNoTracking()
             .Where(entity => entity.OrderId == orderId && entity.ProjectId == projectId)
-            .Select(entity => new OrderTrackingHeader(entity.OrderId, entity.Status))
+            .Join(
+                _dbContext.ProjectSet,
+                order => order.ProjectId,
+                project => project.ProjectId,
+                (order, project) => new OrderTrackingHeader(
+                    order.OrderId,
+                    order.Status,
+                    project.Status,
+                    order.CustomerConfirmedDeliveryAt,
+                    order.DeliveryAddress,
+                    order.ReceiverName,
+                    order.ReceiverPhone,
+                    order.DeliveryNote))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -505,7 +529,15 @@ public sealed class DeliveryRepository : IDeliveryRepository
             : null;
     }
 
-    private sealed record OrderTrackingHeader(Guid OrderId, OrderStatus? Status);
+    private sealed record OrderTrackingHeader(
+        Guid OrderId,
+        OrderStatus? Status,
+        ProjectStatus? ProjectStatus,
+        DateTime? CustomerConfirmedDeliveryAt,
+        string? DeliveryAddress,
+        string? ReceiverName,
+        string? ReceiverPhone,
+        string? DeliveryNote);
 
     private sealed class DeliveryScheduleTrackingEntry
     {
@@ -515,6 +547,9 @@ public sealed class DeliveryRepository : IDeliveryRepository
         public ProjectScheduleStatus? ScheduleStatus { get; init; }
         public DateTime? ScheduleCompletedAt { get; init; }
         public string? InternalNote { get; init; }
+        public string? Location { get; init; }
+        public Guid? AssignedStaffId { get; init; }
+        public string? CustomerNote { get; init; }
         public Guid? DeliveryId { get; init; }
         public DeliveryStatus? DeliveryStatus { get; init; }
         public DateTime? DeliveryCompletedAt { get; init; }

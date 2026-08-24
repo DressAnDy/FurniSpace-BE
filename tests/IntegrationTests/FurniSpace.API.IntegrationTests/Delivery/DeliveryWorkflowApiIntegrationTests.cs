@@ -34,12 +34,22 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         var schedule = await CreateDeliveryScheduleAsync(scenario, "Morning delivery");
 
         await ConfirmScheduleAsync(scenario, schedule.ScheduleId);
-        await AdvanceScheduleStartToPastAsync(schedule.ScheduleId);
 
         var batch = await CreateDeliveryBatchAsync(scenario, schedule.ScheduleId);
         var completion = await CompleteDeliveryBatchAsync(scenario, batch.DeliveryId);
         Assert.Equal(DeliveryStatus.COMPLETED, completion.Status);
         Assert.Equal(2, completion.UpdatedItemCount);
+
+        await using (var afterBatchContext = _fixture.Database.CreateDbContext())
+        {
+            var orderAfterBatch = await afterBatchContext.OrderSet.FindAsync(scenario.OrderId);
+            var firstAfterBatch = await afterBatchContext.OrderItemSet.FindAsync(scenario.FirstOrderItemId);
+            var secondAfterBatch = await afterBatchContext.OrderItemSet.FindAsync(scenario.SecondOrderItemId);
+
+            Assert.Equal(OrderStatus.AWAITING_CUSTOMER_CONFIRMATION, orderAfterBatch?.Status);
+            Assert.Equal(OrderItemStatus.PHYSICALLY_DELIVERED, firstAfterBatch?.Status);
+            Assert.Equal(OrderItemStatus.PHYSICALLY_DELIVERED, secondAfterBatch?.Status);
+        }
 
         var confirmation = await ConfirmDeliveryAsync(scenario);
         Assert.Equal(nameof(OrderStatus.FINAL_PAYMENT_PENDING), confirmation.OrderStatus);
@@ -76,7 +86,6 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
     {
         var scenario = await SeedScenarioAsync();
         var schedule = await CreateDeliveryScheduleAsync(scenario, "Unconfirmed delivery");
-        await AdvanceScheduleStartToPastAsync(schedule.ScheduleId);
 
         using var request = IntegrationHttp.AuthenticatedJson(
             HttpMethod.Post,
@@ -105,14 +114,66 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ConfirmDelivery_WhenItemsNotDelivered_ReturnsBadRequest()
+    public async Task ConfirmDelivery_WhenStillDelivering_ReturnsBadRequest()
     {
         var scenario = await SeedScenarioAsync();
         var schedule = await CreateDeliveryScheduleAsync(scenario, "Incomplete delivery");
 
         await ConfirmScheduleAsync(scenario, schedule.ScheduleId);
-        await AdvanceScheduleStartToPastAsync(schedule.ScheduleId);
         await CreateDeliveryBatchAsync(scenario, schedule.ScheduleId);
+
+        using var request = IntegrationHttp.Authenticated(
+            HttpMethod.Patch,
+            $"/orders/{scenario.OrderId}/confirm-delivery",
+            scenario.CustomerAccountId,
+            CoreRoles.Customer);
+
+        var response = await _fixture.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ConfirmDelivery_WhenAwaitingCustomerConfirmation_Succeeds()
+    {
+        var scenario = await SeedScenarioAsync();
+        var schedule = await CreateDeliveryScheduleAsync(scenario, "Awaiting confirm delivery");
+
+        await ConfirmScheduleAsync(scenario, schedule.ScheduleId);
+        var batch = await CreateDeliveryBatchAsync(scenario, schedule.ScheduleId);
+        await CompleteDeliveryBatchAsync(scenario, batch.DeliveryId);
+
+        using var request = IntegrationHttp.Authenticated(
+            HttpMethod.Patch,
+            $"/orders/{scenario.OrderId}/confirm-delivery",
+            scenario.CustomerAccountId,
+            CoreRoles.Customer);
+
+        var response = await _fixture.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        await using var verification = _fixture.Database.CreateDbContext();
+        var order = await verification.OrderSet.FindAsync(scenario.OrderId);
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, order?.Status);
+    }
+
+    [Fact]
+    public async Task ConfirmDelivery_WhenItemsNotPhysicallyDelivered_ReturnsConflict()
+    {
+        var scenario = await SeedScenarioAsync();
+        var schedule = await CreateDeliveryScheduleAsync(scenario, "Incomplete delivery");
+
+        await ConfirmScheduleAsync(scenario, schedule.ScheduleId);
+        await CreateDeliveryBatchAsync(scenario, schedule.ScheduleId);
+
+        await using (var context = _fixture.Database.CreateDbContext())
+        {
+            var order = await context.OrderSet.FindAsync(scenario.OrderId);
+            Assert.NotNull(order);
+            order!.Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION;
+            await context.SaveChangesAsync();
+        }
 
         using var request = IntegrationHttp.Authenticated(
             HttpMethod.Patch,
@@ -132,7 +193,6 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
         var schedule = await CreateDeliveryScheduleAsync(scenario, "Schedule only delivery");
 
         await ConfirmScheduleAsync(scenario, schedule.ScheduleId);
-        await AdvanceScheduleStartToPastAsync(schedule.ScheduleId);
         await CreateDeliveryBatchAsync(scenario, schedule.ScheduleId);
 
         using var request = IntegrationHttp.AuthenticatedJson(

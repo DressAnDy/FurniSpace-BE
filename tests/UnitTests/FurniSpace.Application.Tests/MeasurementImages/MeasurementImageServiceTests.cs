@@ -63,7 +63,7 @@ public sealed class MeasurementImageServiceTests
     }
 
     [Fact]
-    public async Task RegisterMeasurementImageAsync_BeforeScheduledStart_ReturnsBadRequest()
+    public async Task RegisterMeasurementImageAsync_BeforeScheduledStart_AllowsEarlyCapture()
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -80,8 +80,7 @@ public sealed class MeasurementImageServiceTests
             designerId,
             CreateRegisterRequest(projectId, Guid.NewGuid()));
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(MeasurementImageErrorCodes.CaptureBeforeStart, result.ErrorCode);
+        Assert.Equal(201, result.Status);
     }
 
     [Fact]

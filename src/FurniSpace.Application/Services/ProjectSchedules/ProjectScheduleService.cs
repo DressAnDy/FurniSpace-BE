@@ -239,6 +239,16 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return validationError;
         }
 
+        var locationError = await ValidateDeliveryLocationUpdateAsync(
+            request,
+            detail,
+            scheduleId,
+            cancellationToken);
+        if (locationError is not null)
+        {
+            return locationError;
+        }
+
         var timeChanged = ApplyScheduleUpdates(schedule, request, detail);
 
         if (timeChanged)
@@ -379,15 +389,31 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             }
         }
 
-        if (DateTime.UtcNow < detail.ScheduledStart)
+        return null;
+    }
+
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateDeliveryLocationUpdateAsync(
+        UpdateProjectScheduleRequestDto request,
+        ProjectScheduleDetailReadModel detail,
+        Guid scheduleId,
+        CancellationToken cancellationToken)
+    {
+        if (request.Location is null ||
+            detail.ScheduleType != ProjectScheduleType.DELIVERY ||
+            string.Equals(request.Location, detail.Location, StringComparison.Ordinal))
         {
-            return ServiceResult<ProjectScheduleDto>.Failure(
-                Error.Validation(
-                    ProjectScheduleErrorCodes.ScheduleCompleteBeforeStart,
-                    "Schedule cannot be completed before its scheduled start time."));
+            return null;
         }
 
-        return null;
+        if (!await _deliveries.ExistsByProjectScheduleIdAsync(scheduleId, cancellationToken))
+        {
+            return null;
+        }
+
+        return ServiceResult<ProjectScheduleDto>.Failure(
+            Error.Conflict(
+                ProjectScheduleErrorCodes.DeliveryScheduleLocationFrozen,
+                "Delivery schedule location cannot be changed after delivery execution has started."));
     }
 
     private static void ApplyScheduleStatusUpdate(ProjectSchedule schedule, ProjectScheduleStatus newStatus)

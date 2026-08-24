@@ -13,11 +13,13 @@ public static class OrderErrorCodes
     public const string ItemNotDeliverable = "ITEM_NOT_DELIVERABLE";
     public const string OrderItemNotReady = "ORDER_ITEM_NOT_READY";
     public const string OrderNotDelivering = "ORDER_NOT_DELIVERING";
+    public const string OrderNotAwaitingCustomerConfirmation = "ORDER_NOT_AWAITING_CUSTOMER_CONFIRMATION";
     public const string OrderNotDelivered = "ORDER_NOT_DELIVERED";
     public const string DeliveryNotConfirmed = "DELIVERY_NOT_CONFIRMED";
     public const string DeliveryNotCompleted = "DELIVERY_NOT_COMPLETED";
     public const string DeliverableItemsNotReady = "DELIVERABLE_ITEMS_NOT_READY";
     public const string DeliverableItemsNotDelivered = "DELIVERABLE_ITEMS_NOT_DELIVERED";
+    public const string DeliverableItemsNotPhysicallyDelivered = "DELIVERABLE_ITEMS_NOT_PHYSICALLY_DELIVERED";
     public const string ProductionNotCompleted = "PRODUCTION_NOT_COMPLETED";
     public const string DeliveryAlreadyCompleted = "DELIVERY_ALREADY_COMPLETED";
     public const string OrderAlreadyDelivered = "ORDER_ALREADY_DELIVERED";

@@ -249,7 +249,7 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [Authorize(Roles = "PRODUCTION,ADMIN")]
     [HttpPost("orders/{orderId:guid}/deliveries")]
     public async Task<IActionResult> CreateDeliveryBatch(
         Guid orderId,
@@ -269,7 +269,7 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [Authorize(Roles = "PRODUCTION,ADMIN")]
     [HttpPatch("orders/{orderId:guid}/deliveries/{deliveryId:guid}/complete")]
     public async Task<IActionResult> CompleteDeliveryBatch(
         Guid orderId,

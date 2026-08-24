@@ -82,6 +82,13 @@ public interface IOrderRepository : IGenericRepository<Order>
         return Task.FromResult(false);
     }
 
+    Task<bool> AllDeliverableItemsPhysicallyDeliveredAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
     Task<int> GetTotalRemainingDeliverableQuantityAsync(
         Guid orderId,
         CancellationToken cancellationToken = default)

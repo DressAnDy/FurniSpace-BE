@@ -30,6 +30,15 @@ public sealed class OrdersMappingConfig : IRegister
                     CompletedDeliveryCount = source.CompletedDeliveryCount,
                     UpcomingDeliveryCount = source.UpcomingDeliveryCount,
                     NextDeliveryAt = source.NextDeliveryAt
+                })
+            .Map(
+                destination => destination.DeliveryDetails,
+                source => new OrderDeliveryDetailsDto
+                {
+                    DeliveryAddress = source.DeliveryAddress,
+                    ReceiverName = source.ReceiverName,
+                    ReceiverPhone = source.ReceiverPhone,
+                    DeliveryNote = source.DeliveryNote
                 });
         config.NewConfig<OrderDeliveryTrackingItemReadModel, OrderDeliveryTrackingItemDto>();
         config.NewConfig<OrderDeliveryTrackingTimelineEntryReadModel, OrderDeliveryTrackingTimelineEntryDto>();

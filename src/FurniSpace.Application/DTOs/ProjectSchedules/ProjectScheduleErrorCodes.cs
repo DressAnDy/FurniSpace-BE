@@ -19,4 +19,5 @@ public static class ProjectScheduleErrorCodes
     public const string ProductionNotCompletedForDeliverySchedule = "PRODUCTION_NOT_COMPLETED_FOR_DELIVERY_SCHEDULE";
     public const string DeliveryScheduleRequiresCompletedBatch = "DELIVERY_SCHEDULE_REQUIRES_COMPLETED_BATCH";
     public const string DeliveryInProgressBlocksScheduleCancel = "DELIVERY_IN_PROGRESS_BLOCKS_SCHEDULE_CANCEL";
+    public const string DeliveryScheduleLocationFrozen = "DELIVERY_SCHEDULE_LOCATION_FROZEN";
 }

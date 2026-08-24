@@ -288,15 +288,19 @@ public sealed partial class OrderService
                 schedule.CompletedAt = now;
                 schedule.UpdatedAt = now;
 
+                order.UpdatedAt = now;
+
+                _deliveries.Update(delivery);
+                _schedules.Update(schedule);
+                _orders.Update(order);
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+
                 await ApplyOrderStatusAfterBatchCompletionAsync(
                     order,
                     project.ProjectId,
                     transactionCancellationToken);
 
                 order.UpdatedAt = now;
-
-                _deliveries.Update(delivery);
-                _schedules.Update(schedule);
                 _orders.Update(order);
                 await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
             },

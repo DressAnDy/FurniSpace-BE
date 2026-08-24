@@ -21,12 +21,14 @@ public partial class AddDeliveryPhysicalStatusEnums : Migration
         migrationBuilder.Sql(
             """
             ALTER TYPE order_item_status ADD VALUE IF NOT EXISTS 'PHYSICALLY_DELIVERED' AFTER 'PARTIALLY_DELIVERED';
-            """);
+            """,
+            suppressTransaction: true);
 
         migrationBuilder.Sql(
             """
             ALTER TYPE order_status ADD VALUE IF NOT EXISTS 'AWAITING_CUSTOMER_CONFIRMATION' AFTER 'DELIVERING';
-            """);
+            """,
+            suppressTransaction: true);
 
         migrationBuilder.Sql(
             """

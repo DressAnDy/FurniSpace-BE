@@ -58,6 +58,12 @@ public sealed class OrderDeliveryTrackingReadModel
 {
     public Guid OrderId { get; init; }
     public OrderStatus? OrderStatus { get; init; }
+    public ProjectStatus? ProjectStatus { get; init; }
+    public DateTime? CustomerConfirmedDeliveryAt { get; init; }
+    public string? DeliveryAddress { get; init; }
+    public string? ReceiverName { get; init; }
+    public string? ReceiverPhone { get; init; }
+    public string? DeliveryNote { get; init; }
     public int TotalOrderedQuantity { get; init; }
     public int TotalDeliveredQuantity { get; init; }
     public int RemainingQuantity { get; init; }
@@ -89,6 +95,9 @@ public sealed class OrderDeliveryTrackingTimelineEntryReadModel
     public DeliveryStatus? DeliveryStatus { get; init; }
     public DateTime? CompletedAt { get; init; }
     public string? CancelReason { get; init; }
+    public string? Location { get; init; }
+    public Guid? AssignedStaffId { get; init; }
+    public string? CustomerNote { get; init; }
     public IReadOnlyList<OrderDeliveryTrackingTimelineItemReadModel> Items { get; init; } = [];
 }
 
@@ -96,7 +105,7 @@ public sealed class OrderDeliveryTrackingTimelineItemReadModel
 {
     public Guid OrderItemId { get; init; }
     public string? ProductName { get; init; }
-    public int DeliveredQuantity { get; init; }
+    public int BatchQuantity { get; init; }
 }
 
 public sealed class ProjectDeliverySummaryReadModel

@@ -320,15 +320,16 @@ public sealed class OrderServiceTests
             OrderCode = "ORD-001",
             QuotationId = Guid.NewGuid(),
             FinalTotalAmount = 100m,
-            Status = OrderStatus.DELIVERING
+            Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
         };
         var item = new OrderItem
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
             ProductVersionId = Guid.NewGuid(),
-            Status = OrderItemStatus.DELIVERED,
+            Status = OrderItemStatus.PHYSICALLY_DELIVERED,
             Quantity = 1,
+            DeliveredQuantity = 1,
             DeliveredAt = DateTime.UtcNow,
             DeliveredBy = _salesId
         };
@@ -680,7 +681,7 @@ public sealed class OrderServiceTests
             ProjectId = _projectId,
             CustomerId = _customerId,
             SalesId = _salesId,
-            Status = OrderStatus.DELIVERING
+            Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
         };
         var item = new OrderItem
         {
@@ -707,7 +708,7 @@ public sealed class OrderServiceTests
         var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
 
         Assert.Equal(409, result.Status);
-        Assert.Equal(OrderErrorCodes.DeliverableItemsNotDelivered, result.ErrorCode);
+        Assert.Equal(OrderErrorCodes.DeliverableItemsNotPhysicallyDelivered, result.ErrorCode);
     }
 
     [Fact]
@@ -724,7 +725,7 @@ public sealed class OrderServiceTests
                 ProjectId = _projectId,
                 CustomerId = _customerId,
                 SalesId = _salesId,
-                Status = OrderStatus.DELIVERING
+                Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
             },
             Project = new Project
             {
@@ -752,7 +753,7 @@ public sealed class OrderServiceTests
             CustomerId = _customerId,
             SalesId = _salesId,
             FinalTotalAmount = 100m,
-            Status = OrderStatus.DELIVERING
+            Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
         };
         var project = new Project
         {
@@ -807,7 +808,7 @@ public sealed class OrderServiceTests
                 CustomerId = _customerId,
                 SalesId = _salesId,
                 FinalTotalAmount = 100m,
-                Status = OrderStatus.DELIVERING
+                Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
             },
             Project = new Project
             {
@@ -845,7 +846,7 @@ public sealed class OrderServiceTests
                 CustomerId = _customerId,
                 SalesId = _salesId,
                 FinalTotalAmount = 100m,
-                Status = OrderStatus.DELIVERING
+                Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
             },
             Project = new Project
             {
@@ -904,7 +905,7 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
-    public async Task ConfirmDeliveryAsync_WhenNotDelivering_ReturnsBadRequest()
+    public async Task ConfirmDeliveryAsync_WhenNotAwaitingCustomerConfirmation_ReturnsBadRequest()
     {
         var orderId = Guid.NewGuid();
         var order = new Order
@@ -931,7 +932,7 @@ public sealed class OrderServiceTests
         var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
 
         Assert.Equal(400, result.Status);
-        Assert.Equal(OrderErrorCodes.OrderNotDelivering, result.ErrorCode);
+        Assert.Equal(OrderErrorCodes.OrderNotAwaitingCustomerConfirmation, result.ErrorCode);
     }
 
     [Fact]
@@ -1816,10 +1817,11 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
-    public async Task CreateDeliveryBatchAsync_WhenScheduleNotStarted_ReturnsBadRequest()
+    public async Task CreateDeliveryBatchAsync_WhenScheduleNotStarted_AllowsEarlyExecution()
     {
         var orderId = Guid.NewGuid();
         var scheduleId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
         var scheduleDetail = new ProjectScheduleDetailReadModel
         {
             ScheduleId = scheduleId,
@@ -1831,6 +1833,17 @@ public sealed class OrderServiceTests
             AssignedStaffId = _productionId,
             ScheduledStart = DateTime.UtcNow.AddDays(1)
         };
+        var (_, scheduleEntity) = CreateConfirmedDeliverySchedule(_projectId, scheduleId, _productionId);
+        scheduleEntity.ScheduledStart = DateTime.UtcNow.AddDays(1);
+        var item = new OrderItem
+        {
+            OrderItemId = orderItemId,
+            OrderId = orderId,
+            ProductVersionId = Guid.NewGuid(),
+            Status = OrderItemStatus.READY,
+            Quantity = 2,
+            DeliveredQuantity = 0
+        };
         var service = BuildService(new OrderServiceTestOptions
         {
             Role = "PRODUCTION",
@@ -1841,7 +1854,9 @@ public sealed class OrderServiceTests
                 Status = OrderStatus.DELIVERING
             },
             Project = new Project { ProjectId = _projectId, Status = ProjectStatus.DELIVERING },
-            ScheduleDetail = scheduleDetail
+            ScheduleDetail = scheduleDetail,
+            ScheduleEntity = scheduleEntity,
+            OrderItems = [item]
         });
 
         var result = await service.CreateDeliveryBatchAsync(
@@ -1850,11 +1865,10 @@ public sealed class OrderServiceTests
             new CreateDeliveryBatchRequestDto
             {
                 ProjectScheduleId = scheduleId,
-                Items = [new CreateDeliveryBatchItemRequestDto { OrderItemId = Guid.NewGuid(), Quantity = 1 }]
+                Items = [new CreateDeliveryBatchItemRequestDto { OrderItemId = orderItemId, Quantity = 1 }]
             });
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(OrderErrorCodes.DeliveryScheduleNotStarted, result.ErrorCode);
+        Assert.Equal(201, result.Status);
     }
 
     [Fact]
@@ -2522,15 +2536,16 @@ public sealed class OrderServiceTests
                 Quantity = 2
             }]);
         deliveries.GetDelivery(deliveryId)!.ProjectScheduleId = scheduleId;
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            Status = OrderStatus.DELIVERING
+        };
         var service = BuildService(new OrderServiceTestOptions
         {
             Role = "ADMIN",
-            Order = new Order
-            {
-                OrderId = orderId,
-                ProjectId = _projectId,
-                Status = OrderStatus.DELIVERING
-            },
+            Order = order,
             Project = new Project { ProjectId = _projectId, Status = ProjectStatus.DELIVERING },
             OrderItems = [item],
             Deliveries = deliveries,
@@ -2541,7 +2556,8 @@ public sealed class OrderServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal(2, item.DeliveredQuantity);
-        Assert.Equal(OrderItemStatus.READY, item.Status);
+        Assert.Equal(OrderItemStatus.PHYSICALLY_DELIVERED, item.Status);
+        Assert.Equal(OrderStatus.AWAITING_CUSTOMER_CONFIRMATION, order.Status);
         Assert.NotNull(item.DeliveredAt);
         Assert.Equal(_adminId, item.DeliveredBy);
     }
@@ -2638,7 +2654,7 @@ public sealed class OrderServiceTests
                 OrderId = orderId,
                 ProjectId = _projectId,
                 CustomerId = _customerId,
-                Status = OrderStatus.DELIVERING
+                Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
             },
             Project = new Project
             {
@@ -2646,6 +2662,7 @@ public sealed class OrderServiceTests
                 CustomerId = _customerId,
                 Status = ProjectStatus.DELIVERING
             },
+            OrderItems = [CreateDeliveredOrderItem(orderId)],
             Deliveries = deliveries
         });
 
@@ -2668,7 +2685,7 @@ public sealed class OrderServiceTests
                 OrderId = orderId,
                 ProjectId = _projectId,
                 CustomerId = _customerId,
-                Status = OrderStatus.DELIVERING
+                Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
             },
             Project = new Project
             {
@@ -2676,6 +2693,7 @@ public sealed class OrderServiceTests
                 CustomerId = _customerId,
                 Status = ProjectStatus.DELIVERING
             },
+            OrderItems = [CreateDeliveredOrderItem(orderId)],
             HasUnresolvedConfirmedDeliverySchedule = true
         });
 
@@ -2695,7 +2713,7 @@ public sealed class OrderServiceTests
             ProjectId = _projectId,
             CustomerId = _customerId,
             SalesId = _salesId,
-            Status = OrderStatus.DELIVERING
+            Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
         };
         var item = new OrderItem
         {
@@ -2723,7 +2741,7 @@ public sealed class OrderServiceTests
         var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
 
         Assert.Equal(409, result.Status);
-        Assert.Equal(OrderErrorCodes.DeliverableItemsNotDelivered, result.ErrorCode);
+        Assert.Equal(OrderErrorCodes.DeliverableItemsNotPhysicallyDelivered, result.ErrorCode);
     }
 
     private static (ProjectScheduleDetailReadModel Detail, ProjectSchedule Entity) CreateConfirmedDeliverySchedule(
@@ -2856,8 +2874,9 @@ public sealed class OrderServiceTests
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
             ProductVersionId = Guid.NewGuid(),
-            Status = OrderItemStatus.DELIVERED,
+            Status = OrderItemStatus.PHYSICALLY_DELIVERED,
             Quantity = 1,
+            DeliveredQuantity = 1,
             DeliveredAt = DateTime.UtcNow
         };
     }
@@ -2975,6 +2994,15 @@ public sealed class OrderServiceTests
                 items.All(item =>
                     item.Status == OrderItemStatus.DELIVERED ||
                     item.DeliveredQuantity >= (item.Quantity ?? 0)));
+        }
+
+        public Task<bool> AllDeliverableItemsPhysicallyDeliveredAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+        {
+            var items = GetDeliverableItems(orderId);
+            return Task.FromResult(items.Count > 0 &&
+                items.All(item => item.Status == OrderItemStatus.PHYSICALLY_DELIVERED));
         }
 
         public Task<Order?> GetLatestByProjectInStatusesAsync(

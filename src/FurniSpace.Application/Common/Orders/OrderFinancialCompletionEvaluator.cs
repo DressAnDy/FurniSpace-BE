@@ -51,6 +51,9 @@ internal static class OrderFinancialCompletionEvaluator
     private static bool IsActiveDeliveryItem(OrderItem item)
     {
         return IsProductLineItem(item) &&
-            item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED;
+            item.Status is OrderItemStatus.READY
+                or OrderItemStatus.PARTIALLY_DELIVERED
+                or OrderItemStatus.PHYSICALLY_DELIVERED
+                or OrderItemStatus.DELIVERED;
     }
 }

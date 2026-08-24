@@ -288,6 +288,11 @@ public sealed partial class OrderService
                 schedule.CompletedAt = now;
                 schedule.UpdatedAt = now;
 
+                await ApplyOrderStatusAfterBatchCompletionAsync(
+                    order,
+                    project.ProjectId,
+                    transactionCancellationToken);
+
                 order.UpdatedAt = now;
 
                 _deliveries.Update(delivery);
@@ -510,13 +515,6 @@ public sealed partial class OrderService
                 "Delivery schedule must be confirmed before batch creation.");
         }
 
-        if (DateTime.UtcNow < schedule.ScheduledStart.Subtract(OrderDeliveryConstants.ScheduleStartTolerance))
-        {
-            return BadRequest<T>(
-                OrderErrorCodes.DeliveryScheduleNotStarted,
-                "Delivery batch cannot start before the scheduled start time.");
-        }
-
         if (await _deliveries.ExistsByProjectScheduleIdAsync(schedule.ScheduleId, cancellationToken))
         {
             return ServiceResult<T>.Failure(
@@ -576,21 +574,10 @@ public sealed partial class OrderService
         }
 
         if (role == ApplicationRoles.Production &&
-            await _productionRequests.HasViewableAssignedRequestAsync(
+            await _productionRequests.HasAssignedCompletedProductionForProjectAsync(
                 project.ProjectId,
                 currentUserId,
                 cancellationToken))
-        {
-            return null;
-        }
-
-        if (OrderAccessEvaluator.CanViewOrder(
-                role,
-                project.CustomerId,
-                project.AssignedSalesId,
-                project.AssignedDesignerId,
-                currentUserId,
-                order.Status))
         {
             return null;
         }
@@ -690,7 +677,52 @@ public sealed partial class OrderService
 
         orderItem.Status = newDeliveredQuantity < quantity
             ? OrderItemStatus.PARTIALLY_DELIVERED
-            : OrderItemStatus.READY;
+            : OrderItemStatus.PHYSICALLY_DELIVERED;
+    }
+
+    private async Task ApplyOrderStatusAfterBatchCompletionAsync(
+        Order order,
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var remainingQuantity = await _orders.GetTotalRemainingDeliverableQuantityAsync(
+            order.OrderId,
+            cancellationToken);
+        if (remainingQuantity > 0)
+        {
+            order.Status = OrderStatus.DELIVERING;
+            return;
+        }
+
+        if (await _deliveries.HasInProgressDeliveryAsync(order.OrderId, cancellationToken))
+        {
+            order.Status = OrderStatus.DELIVERING;
+            return;
+        }
+
+        if (await _schedules.HasUnresolvedConfirmedDeliveryScheduleAsync(projectId, cancellationToken))
+        {
+            order.Status = OrderStatus.DELIVERING;
+            return;
+        }
+
+        var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+        var deliverableItems = orderItems.Where(IsDeliverableOrderItem).ToList();
+        if (deliverableItems.Count == 0)
+        {
+            return;
+        }
+
+        order.Status = deliverableItems.All(item => item.Status == OrderItemStatus.PHYSICALLY_DELIVERED)
+            ? OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
+            : OrderStatus.DELIVERING;
+    }
+
+    private static bool IsDeliverableOrderItem(OrderItem item)
+    {
+        return item.ProductVersionId.HasValue &&
+            (item.Quantity ?? 0) > 0 &&
+            item.Status is not (OrderItemStatus.UNAVAILABLE or OrderItemStatus.CANCELLED);
     }
 
     private static int GetRemainingDeliverableQuantity(OrderItem item)

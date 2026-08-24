@@ -36,6 +36,10 @@ public static class OrderItemStatusTransitionService
             OrderItemStatus.DELIVERED,
             OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation),
         new(
+            OrderItemStatus.PHYSICALLY_DELIVERED,
+            OrderItemStatus.DELIVERED,
+            OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation),
+        new(
             OrderItemStatus.PENDING,
             OrderItemStatus.CANCELLED,
             OrderItemStatusTransitionOwner.OrderCancellation),

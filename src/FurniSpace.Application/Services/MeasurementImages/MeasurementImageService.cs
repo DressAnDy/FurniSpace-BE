@@ -562,13 +562,6 @@ public sealed class MeasurementImageService : IMeasurementImageService
                 "Measurement images can only be registered while the schedule is CONFIRMED.");
         }
 
-        if (DateTime.UtcNow < schedule.ScheduledStart)
-        {
-            return BadRequestUpload(
-                MeasurementImageErrorCodes.CaptureBeforeStart,
-                "Measurement images cannot be registered before the scheduled start time.");
-        }
-
         return null;
     }
 

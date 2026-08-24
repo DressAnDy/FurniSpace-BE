@@ -192,6 +192,16 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
             deliverableItems.All(IsFullyDelivered);
     }
 
+    public async Task<bool> AllDeliverableItemsPhysicallyDeliveredAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var items = await GetItemsByOrderAsync(orderId, cancellationToken);
+        var deliverableItems = items.Where(IsDeliverableItem).ToList();
+        return deliverableItems.Count > 0 &&
+            deliverableItems.All(item => item.Status == OrderItemStatus.PHYSICALLY_DELIVERED);
+    }
+
     public async Task<int> GetTotalRemainingDeliverableQuantityAsync(
         Guid orderId,
         CancellationToken cancellationToken = default)
@@ -219,7 +229,7 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
 
     private static bool IsFullyDelivered(OrderItem item)
     {
-        if (item.Status == OrderItemStatus.DELIVERED)
+        if (item.Status is OrderItemStatus.DELIVERED or OrderItemStatus.PHYSICALLY_DELIVERED)
         {
             return true;
         }

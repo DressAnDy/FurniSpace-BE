@@ -363,11 +363,11 @@ public sealed partial class OrderService : IOrderService
                 "Order delivery confirmed successfully.");
         }
 
-        if (order.Status != OrderStatus.DELIVERING)
+        if (order.Status != OrderStatus.AWAITING_CUSTOMER_CONFIRMATION)
         {
             return BadRequest<OrderDeliveryConfirmationDto>(
-                OrderErrorCodes.OrderNotDelivering,
-                "Order must be DELIVERING before delivery can be confirmed.");
+                OrderErrorCodes.OrderNotAwaitingCustomerConfirmation,
+                "Order must be AWAITING_CUSTOMER_CONFIRMATION before delivery can be confirmed.");
         }
 
         if (await _deliveries.HasInProgressDeliveryAsync(order.OrderId, cancellationToken))
@@ -386,12 +386,12 @@ public sealed partial class OrderService : IOrderService
                     "Delivery confirmation is blocked while confirmed delivery schedules remain unresolved."));
         }
 
-        if (!await _orders.AllDeliverableItemsDeliveredAsync(order.OrderId, cancellationToken))
+        if (!await _orders.AllDeliverableItemsPhysicallyDeliveredAsync(order.OrderId, cancellationToken))
         {
             return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
                 Error.Conflict(
-                    OrderErrorCodes.DeliverableItemsNotDelivered,
-                    "All deliverable order items must be delivered before confirmation."));
+                    OrderErrorCodes.DeliverableItemsNotPhysicallyDelivered,
+                    "All deliverable order items must be physically delivered before confirmation."));
         }
 
         var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
@@ -401,8 +401,17 @@ public sealed partial class OrderService : IOrderService
             _unitOfWork,
             async transactionCancellationToken =>
             {
-                foreach (var item in orderItems.Where(IsProductLineItem))
+                foreach (var item in orderItems.Where(item => item.Status == OrderItemStatus.PHYSICALLY_DELIVERED))
                 {
+                    var transitionError = OrderItemStatusTransitionService.Validate(
+                        item.Status,
+                        OrderItemStatus.DELIVERED,
+                        OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation);
+                    if (transitionError is not null)
+                    {
+                        throw new InvalidOperationException(transitionError.ErrorCode);
+                    }
+
                     item.Status = OrderItemStatus.DELIVERED;
                     _orders.UpdateItem(item);
                 }

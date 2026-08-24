@@ -86,7 +86,7 @@ public sealed class OrdersControllerTests
         var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.CreateDeliveryBatch));
 
         Assert.NotNull(authorize);
-        Assert.Equal("SALES,PRODUCTION,ADMIN", authorize.Roles);
+        Assert.Equal("PRODUCTION,ADMIN", authorize.Roles);
     }
 
     [Fact]
@@ -472,7 +472,7 @@ public sealed class OrdersControllerTests
         var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.CompleteDeliveryBatch));
 
         Assert.NotNull(authorize);
-        Assert.Equal("SALES,PRODUCTION,ADMIN", authorize.Roles);
+        Assert.Equal("PRODUCTION,ADMIN", authorize.Roles);
     }
 
     [Fact]

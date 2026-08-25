@@ -711,36 +711,16 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return targetDateError;
         }
 
-        if (request.ScheduleType == ProjectScheduleType.MEASUREMENT)
+        var scheduleTypeError = await ValidateCreateScheduleTypeRulesAsync(
+            role,
+            project,
+            projectId,
+            currentUserId,
+            request,
+            cancellationToken);
+        if (scheduleTypeError is not null)
         {
-            var measurementError = ValidateMeasurementScheduleCreate(
-                role,
-                project,
-                request.AssignedStaffId);
-            if (measurementError is not null)
-            {
-                return measurementError;
-            }
-        }
-
-        if (request.ScheduleType == ProjectScheduleType.DELIVERY)
-        {
-            var locationError = ValidateDeliveryLocationRequired(request.Location);
-            if (locationError is not null)
-            {
-                return locationError;
-            }
-
-            var deliveryScheduleError = await ValidateDeliveryScheduleCreationAsync(
-                role,
-                project,
-                projectId,
-                currentUserId,
-                cancellationToken);
-            if (deliveryScheduleError is not null)
-            {
-                return deliveryScheduleError;
-            }
+            return scheduleTypeError;
         }
 
         return await ValidateStaffScheduleOverlapAsync(
@@ -749,6 +729,48 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             request.ScheduledStart,
             request.ScheduledEnd,
             excludedScheduleId: null,
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateCreateScheduleTypeRulesAsync(
+        string? role,
+        ProjectDetailReadModel project,
+        Guid projectId,
+        Guid currentUserId,
+        CreateProjectScheduleRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        return request.ScheduleType switch
+        {
+            ProjectScheduleType.MEASUREMENT => ValidateMeasurementScheduleCreate(
+                role,
+                project,
+                request.AssignedStaffId),
+            ProjectScheduleType.DELIVERY => await ValidateDeliveryCreateRulesAsync(
+                role,
+                project,
+                projectId,
+                currentUserId,
+                request.Location,
+                cancellationToken),
+            _ => null
+        };
+    }
+
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateDeliveryCreateRulesAsync(
+        string? role,
+        ProjectDetailReadModel project,
+        Guid projectId,
+        Guid currentUserId,
+        string? location,
+        CancellationToken cancellationToken)
+    {
+        var locationError = ValidateDeliveryLocationRequired(location);
+        return locationError ?? await ValidateDeliveryScheduleCreationAsync(
+            role,
+            project,
+            projectId,
+            currentUserId,
             cancellationToken);
     }
 

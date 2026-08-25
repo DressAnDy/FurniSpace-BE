@@ -441,19 +441,18 @@ public sealed class ProjectScheduleServiceTests
     }
 
     [Fact]
-    public async Task CreateAsync_DeliveryScheduleCrossesVietnamMidnight_ReturnsScheduleTimeInvalid()
+    public async Task CreateAsync_DeliveryScheduleCrossesVietnamMidnight_Succeeds()
     {
         var productionId = Guid.NewGuid();
         var project = CreateProject(status: ProjectStatus.READY_FOR_DELIVERY);
         var request = ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, productionId);
-        request.ScheduledStart = VietnamLocalAsUtc(hour: 21);
-        request.ScheduledEnd = VietnamLocalAsUtc(dayOffset: 1, hour: 6);
+        request.ScheduledStart = VietnamLocalAsUtc(dayOffset: 1, hour: 21);
+        request.ScheduledEnd = VietnamLocalAsUtc(dayOffset: 2, hour: 6);
         var service = BuildDeliveryScheduleService(project);
 
         var result = await service.CreateAsync(project.ProjectId, productionId, request);
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(ProjectScheduleErrorCodes.ScheduleTimeInvalid, result.ErrorCode);
+        Assert.Equal(201, result.Status);
     }
 
     // ── SCH-02: GetList ─────────────────────────────────────────────────────────

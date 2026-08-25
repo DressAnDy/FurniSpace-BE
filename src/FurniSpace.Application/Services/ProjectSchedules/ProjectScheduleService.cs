@@ -1193,10 +1193,6 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         var localStart = ToVietnamLocalTime(scheduledStart);
         var localEnd = ToVietnamLocalTime(scheduledEnd.Value);
-        if (localStart.Date != localEnd.Date)
-        {
-            return ScheduleTimeInvalidResult();
-        }
 
         return localStart.TimeOfDay < BusinessStartTime || localEnd.TimeOfDay > BusinessEndTime
             ? ServiceResult<ProjectScheduleDto>.Failure(
@@ -1211,7 +1207,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         return ServiceResult<ProjectScheduleDto>.Failure(
             Error.BadRequest(
                 ProjectScheduleErrorCodes.ScheduleTimeInvalid,
-                "Schedule start and end must be a valid same-day time window."));
+                "Schedule start and end must be a valid time window with end after start."));
     }
 
     private static bool RequiresBusinessTimeRules(ProjectScheduleType? scheduleType)

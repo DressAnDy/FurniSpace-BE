@@ -259,18 +259,17 @@ public sealed partial class OrderService
         var orderItemIds = deliveryItems.Select(item => item.OrderItemId).ToList();
         var now = DateTime.UtcNow;
         var updatedCount = 0;
-        ServiceResult<DeliveryBatchCompletionDto>? completionError = null;
 
-        await UnitOfWorkTransactions.ExecuteAsync(
+        var completionError = await UnitOfWorkTransactions.ExecuteAsync<ServiceResult<DeliveryBatchCompletionDto>?>(
             _unitOfWork,
             async transactionCancellationToken =>
             {
                 var lockedItems = await _orders.GetItemsByIdsForUpdateAsync(orderItemIds, transactionCancellationToken);
                 var lockedItemsById = lockedItems.ToDictionary(item => item.OrderItemId);
-                completionError = ValidateDeliveryBatchCompletionItems(deliveryItems, lockedItemsById);
-                if (completionError is not null)
+                var validationError = ValidateDeliveryBatchCompletionItems(deliveryItems, lockedItemsById);
+                if (validationError is not null)
                 {
-                    return;
+                    return validationError;
                 }
 
                 foreach (var deliveryItem in deliveryItems)
@@ -305,6 +304,8 @@ public sealed partial class OrderService
                 order.UpdatedAt = now;
                 _orders.Update(order);
                 await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+
+                return null;
             },
             cancellationToken);
 

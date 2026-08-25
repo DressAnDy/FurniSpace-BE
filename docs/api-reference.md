@@ -1610,6 +1610,7 @@ Absolute routes on `OrdersController`.
 | --- | --- | --- |
 | GET | `/projects/{projectId}/orders` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | GET | `/orders/{orderId}` | same |
+| PATCH | `/orders/{orderId}/delivery-details` | CUSTOMER, ADMIN |
 | POST | `/orders/{orderId}/payments/deposit` | CUSTOMER, SALES, ADMIN |
 | POST | `/orders/{orderId}/payments/remaining` | SALES, ADMIN |
 | PATCH | `/orders/{orderId}/prepare-final-payment` | SALES, ADMIN |
@@ -1647,6 +1648,39 @@ At most **one active** delivery batch per order in `IN_PROGRESS` at a time (comp
 
 New orders start as **`CREATED`** after quotation accept. Deposit payment is initiated explicitly; creating a deposit payment from `CREATED` moves the order to **`DEPOSIT_PENDING`**. Webhook/settlement then moves to `DEPOSIT_PAID`.
 
+### Update delivery details
+
+`PATCH /orders/{orderId}/delivery-details`
+
+Roles: **CUSTOMER** (own order only), **ADMIN** override.
+
+```json
+{
+  "deliveryAddress": "123 Nguyen Trai, District 1",
+  "receiverName": "Nguyen Van A",
+  "receiverPhone": "0901234567",
+  "deliveryNote": "Call before arrival"
+}
+```
+
+Required fields: `deliveryAddress`, `receiverName`, `receiverPhone`. Whitespace-only values are invalid. `deliveryNote` is optional and may be `null`/omitted.
+
+Editable while deposit is not paid. `CREATED` and `DEPOSIT_PENDING` remain editable, including when a pending payment exists. Once deposit is paid (`DEPOSIT_PAID` or later production/delivery lifecycle status), the endpoint returns `400 ORDER_DELIVERY_DETAILS_LOCKED`.
+
+Success response data:
+
+```json
+{
+  "orderId": "uuid",
+  "deliveryAddress": "123 Nguyen Trai, District 1",
+  "receiverName": "Nguyen Van A",
+  "receiverPhone": "0901234567",
+  "deliveryNote": "Call before arrival"
+}
+```
+
+Errors: `ORDER_NOT_FOUND`, `ORDER_DELIVERY_DETAILS_INVALID`, `ORDER_DELIVERY_DETAILS_LOCKED`, `403` when a customer tries to update another customer's order.
+
 ### Create deposit / remaining payment
 
 ```json
@@ -1657,6 +1691,15 @@ New orders start as **`CREATED`** after quotation accept. Deposit payment is ini
 ```
 
 Eligible order statuses: **`CREATED`** (creates payment and moves order → `DEPOSIT_PENDING`) or **`DEPOSIT_PENDING`** (reuses an active pending deposit payment when present). Amount is always taken from the order snapshot `depositAmount`.
+
+Deposit payment requires complete delivery details before both reusable-payment and new-payment branches:
+
+- `deliveryAddress` required
+- `receiverName` required
+- `receiverPhone` required
+- `deliveryNote` optional
+
+If any required field is missing/blank, response is `400 ORDER_DELIVERY_DETAILS_REQUIRED` with message `Delivery details must be completed before deposit payment.` Existing active pending deposit payment does not bypass this validation.
 
 ### Create production request
 
@@ -1951,6 +1994,7 @@ Route: `project-schedules` (+ absolute create alias)
 | PATCH | `/project-schedules/{id}` | SALES, PRODUCTION, ADMIN |
 | PATCH | `/project-schedules/{id}/status` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | DELETE | `/project-schedules/{id}` | SALES, PRODUCTION, ADMIN |
+| POST | `/project-schedules/{scheduleId}/request-change` | CUSTOMER, ADMIN | Request delivery schedule change |
 | POST | `/project-schedules/{scheduleId}/measurement-images` | DESIGNER, ADMIN | Register measurement photo (direct upload metadata) |
 | GET | `/project-schedules/{scheduleId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Schedule measurement gallery |
 
@@ -1972,35 +2016,47 @@ Route: `project-schedules` (+ absolute create alias)
 
 `scheduleType`: `MEASUREMENT`, `CONSULTATION`, `DESIGN_REVIEW`, `DELIVERY`, `HANDOVER`, `OTHER`
 
-### Create / update overlap validation
+### Create / update time validation
 
-Create and update preserve existing authorization and lifecycle rules, and additionally reject overlapping active schedules for the same `assignedStaffId` across all projects.
+Create and update preserve existing authorization and lifecycle rules.
 
-Conflict formula:
+For `MEASUREMENT` and `DELIVERY` schedules:
+
+- `scheduledStart` and `scheduledEnd` are required.
+- `scheduledEnd` must be after `scheduledStart`.
+- Backend evaluates the instant in **Asia/Ho_Chi_Minh** business time.
+- Start and end must be on the same Vietnam local date.
+- Business window is inclusive: local start `>= 06:00`, local end `<= 22:00`.
+- Exact `06:00` and `22:00` are valid; `05:59` or `22:01` are invalid.
+
+Errors: `SCHEDULE_TIME_INVALID`, `SCHEDULE_OUTSIDE_BUSINESS_HOURS`.
+
+For same-staff appointment conflicts:
+
+- `MEASUREMENT` and `DELIVERY` schedules require at least **2 hours** between the new appointment and existing `MEASUREMENT`/`DELIVERY` appointments for the same `assignedStaffId`.
+- Applies across projects and cross-type pairs: measurement-measurement, measurement-delivery, delivery-delivery.
+- `CANCELLED` schedules are ignored.
+- For `COMPLETED` schedules, effective busy end is `completedAt`; otherwise it is `scheduledEnd`.
+- Exactly 2 hours gap is valid; less than 2 hours is rejected.
+
+Validation formula:
 
 ```text
-newStart < existingEnd AND newEnd > existingStart
+valid if newStart >= existingEffectiveBusyEnd + 2 hours
+     OR newEnd + 2 hours <= existingStart
 ```
 
-Active schedules considered for overlap: `PENDING_CONFIRMATION`, `CONFIRMED`, and **`COMPLETED` with `completedAt` set**.
+Errors: `SCHEDULE_OVERLAP` for actual time intersection, `SCHEDULE_MINIMUM_GAP_NOT_MET` for non-overlapping appointments with less than 2 hours between them.
 
-For completed schedules, the busy interval ends at **`completedAt`** (actual finish), not `scheduledEnd`. This prevents false conflicts when a visit finishes early but the original slot was longer.
+Other schedule types keep the legacy overlap-only validation.
 
-Ignored schedules: `CANCELLED`, and `COMPLETED` without `completedAt`.
+For `DELIVERY` schedules:
 
-Adjacent schedules are allowed, for example `08:00-10:00` followed by `10:00-12:00`.
-
-Update checks the effective updated time/staff and excludes the schedule being updated.
-
-Conflict response:
-
-```json
-{
-  "status": 409,
-  "message": "Assigned staff already has an overlapping active schedule.",
-  "errorCode": "STAFF_SCHEDULE_OVERLAP"
-}
-```
+- `location` is required on create.
+- `ProjectSchedule.location` is the authoritative actual appointment location.
+- Backend does **not** auto-copy `Order.deliveryAddress` into schedule location.
+- New delivery schedule starts as `PENDING_CONFIRMATION`.
+- Material changes to schedule time/end/location move the schedule back to `PENDING_CONFIRMATION` for customer reconfirmation.
 
 ### Update status
 
@@ -2024,9 +2080,42 @@ Conflict response:
 - Multiple active `DELIVERY` / `HANDOVER` schedules per project are allowed (multi-round delivery).
 - Create requires project/order in delivery-ready state; blocked after customer confirms full delivery (`DELIVERY_SCHEDULE_NOT_ALLOWED_AFTER_COMPLETION`).
 
+### Request delivery schedule change
+
+`POST /project-schedules/{scheduleId}/request-change`
+
+Customer-owned delivery schedules can request a change without directly changing authoritative time/location fields. Admin can also request on behalf of support.
+
+```json
+{
+  "note": "Please deliver to address B after 15:00."
+}
+```
+
+Success response data:
+
+```json
+{
+  "scheduleId": "uuid",
+  "status": "PENDING_CONFIRMATION",
+  "customerNote": "Please deliver to address B after 15:00."
+}
+```
+
+Rules:
+
+- Only `DELIVERY` schedules are supported.
+- `note` is required and saved into `customerNote`.
+- Schedule status becomes `PENDING_CONFIRMATION`.
+- Customer must own the project/order context; Admin bypasses ownership.
+- Completed/cancelled schedules are not changeable.
+- Request is rejected after delivery execution has started.
+
+Errors: `SCHEDULE_CHANGE_NOTE_REQUIRED`, `INVALID_SCHEDULE_TYPE`, `INVALID_SCHEDULE_STATUS_TRANSITION`, `DELIVERY_IN_PROGRESS_BLOCKS_SCHEDULE_CANCEL`, `403`.
+
 ### Measurement image capture
 
-Register after direct-to-storage upload (Firebase). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`, and current time must be `>= scheduledStart`.
+Register after direct-to-storage upload (Firebase). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`. Future confirmed schedules are allowed, so FE does not need to wait until runtime to register measurement image metadata.
 
 ```json
 {
@@ -2041,6 +2130,8 @@ Register after direct-to-storage upload (Firebase). Assigned **designer** only; 
 ```
 
 Creates `StoredFile` + `file_links` on the schedule (`referenceType=PROJECT_SCHEDULE`, `fileType=SPACE_IMAGE`). Returns standard project file upload response.
+
+One request registers one image metadata record. For multi-select upload, FE uploads each physical file first, then calls this endpoint once per uploaded file. If `visibility` is omitted, backend stores the measurement image as `STAFF_ONLY`.
 
 **Schedule gallery query**: `projectAreaId?`, `assigned?` (filter by area link presence), `page`, `limit`
 

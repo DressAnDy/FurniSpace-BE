@@ -158,6 +158,114 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
+    public async Task UpdateDeliveryDetailsAsync_WhenOwnerUpdatesBeforeDepositPaid_ReturnsUpdatedDetails()
+    {
+        var order = CreateOrderEntity(OrderStatus.DEPOSIT_PENDING);
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order
+        });
+
+        var result = await service.UpdateDeliveryDetailsAsync(
+            order.OrderId,
+            _customerId,
+            new UpdateOrderDeliveryDetailsRequestDto
+            {
+                DeliveryAddress = " 123 Nguyen Trai ",
+                ReceiverName = " Nguyen Van A ",
+                ReceiverPhone = " 0901234567 ",
+                DeliveryNote = " Call before arrival "
+            });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("123 Nguyen Trai", result.Data!.DeliveryAddress);
+        Assert.Equal("Nguyen Van A", result.Data.ReceiverName);
+        Assert.Equal("0901234567", result.Data.ReceiverPhone);
+        Assert.Equal("Call before arrival", result.Data.DeliveryNote);
+    }
+
+    [Fact]
+    public async Task UpdateDeliveryDetailsAsync_WhenRequiredFieldIsBlank_ReturnsInvalid()
+    {
+        var order = CreateOrderEntity(OrderStatus.DEPOSIT_PENDING);
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order
+        });
+
+        var result = await service.UpdateDeliveryDetailsAsync(
+            order.OrderId,
+            _customerId,
+            new UpdateOrderDeliveryDetailsRequestDto
+            {
+                DeliveryAddress = " ",
+                ReceiverName = "Nguyen Van A",
+                ReceiverPhone = "0901234567"
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.OrderDeliveryDetailsInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateDeliveryDetailsAsync_WhenDepositPaid_ReturnsLocked()
+    {
+        var order = CreateOrderEntity(OrderStatus.DEPOSIT_PAID);
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order
+        });
+
+        var result = await service.UpdateDeliveryDetailsAsync(
+            order.OrderId,
+            _customerId,
+            ValidDeliveryDetailsRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.OrderDeliveryDetailsLocked, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateDeliveryDetailsAsync_WhenCustomerDoesNotOwnOrder_ReturnsForbidden()
+    {
+        var order = CreateOrderEntity(OrderStatus.DEPOSIT_PENDING, customerId: Guid.NewGuid());
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            Order = order
+        });
+
+        var result = await service.UpdateDeliveryDetailsAsync(
+            order.OrderId,
+            _customerId,
+            ValidDeliveryDetailsRequest());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task UpdateDeliveryDetailsAsync_WhenAdminUpdatesOrder_ReturnsSuccess()
+    {
+        var order = CreateOrderEntity(OrderStatus.CREATED, customerId: Guid.NewGuid());
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "ADMIN",
+            Order = order
+        });
+
+        var result = await service.UpdateDeliveryDetailsAsync(
+            order.OrderId,
+            _adminId,
+            ValidDeliveryDetailsRequest());
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(result.Data!.DeliveryNote);
+    }
+
+    [Fact]
     public async Task StartDeliveryAsync_WhenAnyDeliverableItemNotReady_ReturnsConflict()
     {
         var orderId = Guid.NewGuid();
@@ -2864,6 +2972,28 @@ public sealed class OrderServiceTests
             Status = OrderStatus.DEPOSIT_PENDING,
             AssignedSalesId = _salesId,
             AssignedDesignerId = _designerId
+        };
+    }
+
+    private Order CreateOrderEntity(OrderStatus status, Guid? customerId = null)
+    {
+        return new Order
+        {
+            OrderId = Guid.NewGuid(),
+            ProjectId = _projectId,
+            CustomerId = customerId ?? _customerId,
+            SalesId = _salesId,
+            Status = status
+        };
+    }
+
+    private static UpdateOrderDeliveryDetailsRequestDto ValidDeliveryDetailsRequest()
+    {
+        return new UpdateOrderDeliveryDetailsRequestDto
+        {
+            DeliveryAddress = "123 Nguyen Trai, District 1",
+            ReceiverName = "Nguyen Van A",
+            ReceiverPhone = "0901234567"
         };
     }
 

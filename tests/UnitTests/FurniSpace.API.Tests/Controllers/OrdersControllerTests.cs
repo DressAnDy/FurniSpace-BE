@@ -54,6 +54,15 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
+    public void UpdateDeliveryDetails_RequiresCustomerOrAdmin()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.UpdateDeliveryDetails));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public void PrepareFinalPayment_RequiresAdminOnly()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.PrepareFinalPayment));
@@ -207,6 +216,38 @@ public sealed class OrdersControllerTests
 
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(201, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public async Task UpdateDeliveryDetails_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new UpdateOrderDeliveryDetailsRequestDto
+        {
+            DeliveryAddress = "123 Nguyen Trai",
+            ReceiverName = "Nguyen Van A",
+            ReceiverPhone = "0901234567"
+        };
+        var orderService = new FakeOrderService(
+            updateDeliveryDetailsResult: ServiceResult<OrderDeliveryDetailsDto>.Success(
+                new OrderDeliveryDetailsDto
+                {
+                    OrderId = orderId,
+                    DeliveryAddress = request.DeliveryAddress,
+                    ReceiverName = request.ReceiverName,
+                    ReceiverPhone = request.ReceiverPhone
+                },
+                "ok"));
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
+
+        var result = await controller.UpdateDeliveryDetails(orderId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, orderService.OrderId);
+        Assert.Equal(userId, orderService.CurrentUserId);
+        Assert.Same(request, orderService.UpdateDeliveryDetailsRequest);
     }
 
     [Fact]
@@ -749,6 +790,7 @@ public sealed class OrdersControllerTests
         private readonly ServiceResult<DeliveryDetailDto>? _getDeliveryDetailResult;
         private readonly ServiceResult<DeliveryBatchCompletionDto>? _completeDeliveryBatchResult;
         private readonly ServiceResult<OrderDeliveryTrackingDto>? _getDeliveryTrackingResult;
+        private readonly ServiceResult<OrderDeliveryDetailsDto>? _updateDeliveryDetailsResult;
 
         public FakeOrderService(
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
@@ -762,7 +804,8 @@ public sealed class OrdersControllerTests
             ServiceResult<DeliveryListResponseDto>? getDeliveriesResult = null,
             ServiceResult<DeliveryDetailDto>? getDeliveryDetailResult = null,
             ServiceResult<DeliveryBatchCompletionDto>? completeDeliveryBatchResult = null,
-            ServiceResult<OrderDeliveryTrackingDto>? getDeliveryTrackingResult = null)
+            ServiceResult<OrderDeliveryTrackingDto>? getDeliveryTrackingResult = null,
+            ServiceResult<OrderDeliveryDetailsDto>? updateDeliveryDetailsResult = null)
         {
             _getByProjectResult = getByProjectResult;
             _getDetailResult = getDetailResult;
@@ -776,11 +819,13 @@ public sealed class OrdersControllerTests
             _getDeliveryDetailResult = getDeliveryDetailResult;
             _completeDeliveryBatchResult = completeDeliveryBatchResult;
             _getDeliveryTrackingResult = getDeliveryTrackingResult;
+            _updateDeliveryDetailsResult = updateDeliveryDetailsResult;
         }
 
         public Guid OrderId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public CreateDeliveryBatchRequestDto? CreateDeliveryBatchRequest { get; private set; }
+        public UpdateOrderDeliveryDetailsRequestDto? UpdateDeliveryDetailsRequest { get; private set; }
 
         public Task<ServiceResult<OrderListResponseDto>> GetByProjectAsync(
             Guid projectId,
@@ -798,6 +843,19 @@ public sealed class OrdersControllerTests
         {
             return Task.FromResult(
                 _getDetailResult ?? ServiceResult<OrderDetailDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderDeliveryDetailsDto>> UpdateDeliveryDetailsAsync(
+            Guid orderId,
+            Guid currentUserId,
+            UpdateOrderDeliveryDetailsRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            UpdateDeliveryDetailsRequest = request;
+            return Task.FromResult(
+                _updateDeliveryDetailsResult ?? ServiceResult<OrderDeliveryDetailsDto>.Unauthorized());
         }
 
         public Task<ServiceResult<OrderDeliveryStartDto>> StartDeliveryAsync(

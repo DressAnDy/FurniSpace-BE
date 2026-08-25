@@ -114,6 +114,7 @@ public sealed class OrderDeliveryTrackingTimelineEntryDto
 
 public sealed class OrderDeliveryDetailsDto
 {
+    public Guid OrderId { get; init; }
     public string? DeliveryAddress { get; init; }
     public string? ReceiverName { get; init; }
     public string? ReceiverPhone { get; init; }

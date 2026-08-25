@@ -111,6 +111,72 @@ public sealed partial class OrderService : IOrderService
             "Order detail retrieved successfully.");
     }
 
+    public async Task<ServiceResult<OrderDeliveryDetailsDto>> UpdateDeliveryDetailsAsync(
+        Guid orderId,
+        Guid currentUserId,
+        UpdateOrderDeliveryDetailsRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<OrderDeliveryDetailsDto>.Unauthorized();
+        }
+
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return ServiceResult<OrderDeliveryDetailsDto>.Failure(
+                Error.NotFound(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage));
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanUpdateDeliveryDetails(role, order.CustomerId, currentUserId))
+        {
+            return ServiceResult<OrderDeliveryDetailsDto>.Forbidden(ForbiddenMessage);
+        }
+
+        if (IsDeliveryDetailsLocked(order.Status))
+        {
+            return ServiceResult<OrderDeliveryDetailsDto>.Failure(
+                Error.BadRequest(
+                    OrderErrorCodes.OrderDeliveryDetailsLocked,
+                    "Delivery details cannot be updated after the deposit is paid."));
+        }
+
+        var deliveryAddress = NormalizeRequiredDeliveryField(request.DeliveryAddress);
+        var receiverName = NormalizeRequiredDeliveryField(request.ReceiverName);
+        var receiverPhone = NormalizeRequiredDeliveryField(request.ReceiverPhone);
+        if (deliveryAddress is null || receiverName is null || receiverPhone is null)
+        {
+            return ServiceResult<OrderDeliveryDetailsDto>.Failure(
+                Error.BadRequest(
+                    OrderErrorCodes.OrderDeliveryDetailsInvalid,
+                    "Delivery address, receiver name, and receiver phone are required."));
+        }
+
+        order.DeliveryAddress = deliveryAddress;
+        order.ReceiverName = receiverName;
+        order.ReceiverPhone = receiverPhone;
+        order.DeliveryNote = string.IsNullOrWhiteSpace(request.DeliveryNote)
+            ? null
+            : request.DeliveryNote.Trim();
+        order.UpdatedAt = DateTime.UtcNow;
+
+        _orders.Update(order);
+        await _orders.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<OrderDeliveryDetailsDto>.Success(
+            new OrderDeliveryDetailsDto
+            {
+                OrderId = order.OrderId,
+                DeliveryAddress = order.DeliveryAddress,
+                ReceiverName = order.ReceiverName,
+                ReceiverPhone = order.ReceiverPhone,
+                DeliveryNote = order.DeliveryNote
+            },
+            "Order delivery details updated successfully.");
+    }
+
     public async Task<ServiceResult<OrderDeliveryStartDto>> StartDeliveryAsync(
         Guid orderId,
         Guid currentUserId,
@@ -772,6 +838,29 @@ public sealed partial class OrderService : IOrderService
         return role == ProjectAssignmentAccessEvaluator.CustomerRole && customerId == currentUserId
             ? null
             : ServiceResult<T>.Forbidden(ForbiddenMessage);
+    }
+
+    private static bool CanUpdateDeliveryDetails(string? role, Guid customerId, Guid currentUserId)
+    {
+        return role == ProjectAssignmentAccessEvaluator.AdminRole ||
+            role == ProjectAssignmentAccessEvaluator.CustomerRole && customerId == currentUserId;
+    }
+
+    private static bool IsDeliveryDetailsLocked(OrderStatus? status)
+    {
+        return status is OrderStatus.DEPOSIT_PAID
+            or OrderStatus.IN_PRODUCTION
+            or OrderStatus.READY_FOR_DELIVERY
+            or OrderStatus.DELIVERING
+            or OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
+            or OrderStatus.DELIVERED
+            or OrderStatus.FINAL_PAYMENT_PENDING
+            or OrderStatus.COMPLETED;
+    }
+
+    private static string? NormalizeRequiredDeliveryField(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private static bool IsProductLineItem(OrderItem item)

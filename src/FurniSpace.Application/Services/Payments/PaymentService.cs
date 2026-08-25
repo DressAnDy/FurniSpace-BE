@@ -137,18 +137,39 @@ public sealed class PaymentService : IPaymentService
             return ServiceResult<PaymentDetailDto>.Forbidden("You do not have permission to create this deposit payment.");
         }
 
+        Payment? existingDeposit = null;
         if (order.Status == OrderStatus.DEPOSIT_PENDING)
         {
-            var existing = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
-            if (existing?.Status == PaymentStatus.PAID)
+            existingDeposit = await _payments.GetByOrderAndTypeAsync(orderId, PaymentType.DEPOSIT, cancellationToken);
+            if (existingDeposit?.Status == PaymentStatus.PAID)
             {
                 return BadRequestDetail(OrderErrorCodes.DepositAlreadyPaid, "Deposit payment has already been paid.");
             }
+        }
+        else if (order.Status != OrderStatus.CREATED)
+        {
+            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, "Order is not ready for deposit payment.");
+        }
 
+        var orderEntity = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (orderEntity is null)
+        {
+            return NotFoundDetail(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        if (HasIncompleteDeliveryDetails(orderEntity))
+        {
+            return BadRequestDetail(
+                OrderErrorCodes.OrderDeliveryDetailsRequired,
+                "Delivery details must be completed before deposit payment.");
+        }
+
+        if (order.Status == OrderStatus.DEPOSIT_PENDING)
+        {
             var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
                 _payments,
                 _unitOfWork,
-                existing,
+                existingDeposit,
                 cancellationToken);
             if (reusable is not null && ActivePaymentResolver.IsActive(reusable, DateTime.UtcNow))
             {
@@ -157,10 +178,6 @@ public sealed class PaymentService : IPaymentService
                     PaymentServiceActivePaymentSupport.ToDetailDto(existingDetail, reusable, reused: true),
                     "Active payment retrieved successfully.");
             }
-        }
-        else if (order.Status != OrderStatus.CREATED)
-        {
-            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, "Order is not ready for deposit payment.");
         }
 
         var depositAmount = order.DepositAmount ?? 0m;
@@ -212,13 +229,9 @@ public sealed class PaymentService : IPaymentService
 
         if (order.Status == OrderStatus.CREATED)
         {
-            var orderEntity = await _orders.GetByIdAsync(orderId, cancellationToken);
-            if (orderEntity is not null)
-            {
-                orderEntity.Status = OrderStatus.DEPOSIT_PENDING;
-                orderEntity.UpdatedAt = now;
-                _orders.Update(orderEntity);
-            }
+            orderEntity.Status = OrderStatus.DEPOSIT_PENDING;
+            orderEntity.UpdatedAt = now;
+            _orders.Update(orderEntity);
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -233,6 +246,13 @@ public sealed class PaymentService : IPaymentService
         return ServiceResult<PaymentDetailDto>.Created(
             detail?.Adapt<PaymentDetailDto>() ?? payment.Adapt<PaymentDetailDto>(),
             "Deposit payment created successfully.");
+    }
+
+    private static bool HasIncompleteDeliveryDetails(Order order)
+    {
+        return string.IsNullOrWhiteSpace(order.DeliveryAddress) ||
+            string.IsNullOrWhiteSpace(order.ReceiverName) ||
+            string.IsNullOrWhiteSpace(order.ReceiverPhone);
     }
 
     public async Task<ServiceResult<PaymentDetailDto>> CreateRemainingPaymentForOrderAsync(

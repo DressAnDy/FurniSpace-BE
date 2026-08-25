@@ -277,6 +277,59 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
             cancellationToken);
     }
 
+    public async Task<StaffScheduleConflictKind> GetStaffScheduleConflictAsync(
+        Guid assignedStaffId,
+        DateTime scheduledStart,
+        DateTime scheduledEnd,
+        Guid? excludedScheduleId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = DbContext.ProjectScheduleSet
+            .Where(schedule =>
+                schedule.AssignedStaffId == assignedStaffId &&
+                schedule.Status != ProjectScheduleStatus.CANCELLED &&
+                (schedule.ScheduleType == ProjectScheduleType.MEASUREMENT ||
+                 schedule.ScheduleType == ProjectScheduleType.DELIVERY) &&
+                (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
+                 schedule.Status == ProjectScheduleStatus.CONFIRMED ||
+                 (schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt != null)));
+
+        if (excludedScheduleId.HasValue)
+        {
+            var scheduleId = excludedScheduleId.Value;
+            query = query.Where(schedule => schedule.ScheduleId != scheduleId);
+        }
+
+        var schedules = await query
+            .Select(schedule => new
+            {
+                schedule.ScheduledStart,
+                schedule.ScheduledEnd,
+                schedule.CompletedAt,
+                schedule.Status
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var schedule in schedules)
+        {
+            var existingEnd = schedule.Status == ProjectScheduleStatus.COMPLETED
+                ? schedule.CompletedAt!.Value
+                : schedule.ScheduledEnd ?? schedule.ScheduledStart;
+            if (scheduledStart < existingEnd && scheduledEnd > schedule.ScheduledStart)
+            {
+                return StaffScheduleConflictKind.Overlap;
+            }
+
+            if (scheduledStart < existingEnd.AddHours(2) &&
+                scheduledEnd.AddHours(2) > schedule.ScheduledStart)
+            {
+                return StaffScheduleConflictKind.MinimumGapNotMet;
+            }
+        }
+
+        return StaffScheduleConflictKind.None;
+    }
+
     private static DateOnly? MaxDateOnly(DateOnly? current, DateOnly candidate)
     {
         return !current.HasValue || candidate > current.Value

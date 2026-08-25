@@ -159,6 +159,27 @@ public sealed class ProjectSchedulesController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,ADMIN")]
+    [HttpPost("{scheduleId:guid}/request-change")]
+    public async Task<IActionResult> RequestChange(
+        Guid scheduleId,
+        [FromBody] RequestProjectScheduleChangeDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _schedules.RequestChangeAsync(
+            scheduleId,
+            currentUserId,
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "DESIGNER,ADMIN")]
     [HttpPost("{scheduleId:guid}/measurement-images")]
     public async Task<IActionResult> RegisterMeasurementImage(

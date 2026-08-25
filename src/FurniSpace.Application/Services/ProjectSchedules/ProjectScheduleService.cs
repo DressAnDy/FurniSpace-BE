@@ -751,6 +751,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 project,
                 projectId,
                 currentUserId,
+                request.AssignedStaffId,
                 request.Location,
                 cancellationToken),
             _ => null
@@ -762,9 +763,16 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         ProjectDetailReadModel project,
         Guid projectId,
         Guid currentUserId,
+        Guid? assignedStaffId,
         string? location,
         CancellationToken cancellationToken)
     {
+        var assignedStaffError = ValidateAssignedStaffRequired(assignedStaffId);
+        if (assignedStaffError is not null)
+        {
+            return assignedStaffError;
+        }
+
         var locationError = ValidateDeliveryLocationRequired(location);
         return locationError ?? await ValidateDeliveryScheduleCreationAsync(
             role,
@@ -1128,6 +1136,15 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         Guid? excludedScheduleId,
         CancellationToken cancellationToken)
     {
+        if (RequiresBusinessTimeRules(scheduleType))
+        {
+            var assignedStaffError = ValidateAssignedStaffRequired(assignedStaffId);
+            if (assignedStaffError is not null)
+            {
+                return assignedStaffError;
+            }
+        }
+
         if (!assignedStaffId.HasValue)
         {
             return null;
@@ -1193,10 +1210,6 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         var localStart = ToVietnamLocalTime(scheduledStart);
         var localEnd = ToVietnamLocalTime(scheduledEnd.Value);
-        if (localStart.Date != localEnd.Date)
-        {
-            return ScheduleTimeInvalidResult();
-        }
 
         return localStart.TimeOfDay < BusinessStartTime || localEnd.TimeOfDay > BusinessEndTime
             ? ServiceResult<ProjectScheduleDto>.Failure(
@@ -1211,7 +1224,14 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         return ServiceResult<ProjectScheduleDto>.Failure(
             Error.BadRequest(
                 ProjectScheduleErrorCodes.ScheduleTimeInvalid,
-                "Schedule start and end must be a valid same-day time window."));
+                "Schedule start and end must be a valid time window with end after start."));
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateAssignedStaffRequired(Guid? assignedStaffId)
+    {
+        return assignedStaffId.HasValue
+            ? null
+            : ServiceResult<ProjectScheduleDto>.BadRequest("Assigned staff id is required.");
     }
 
     private static bool RequiresBusinessTimeRules(ProjectScheduleType? scheduleType)

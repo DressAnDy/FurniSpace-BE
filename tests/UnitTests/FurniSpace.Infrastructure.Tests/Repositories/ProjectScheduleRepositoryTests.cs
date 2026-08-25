@@ -531,6 +531,22 @@ public sealed class ProjectScheduleRepositoryTests
     }
 
     [Fact]
+    public async Task GetStaffScheduleConflictAsync_ReturnsMinimumGapWhenNewScheduleEndsAtNineBeforeTenStart()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+        var existing = await context.ProjectScheduleSet.FindAsync(data.DeliveryScheduleId);
+
+        var conflict = await repository.GetStaffScheduleConflictAsync(
+            data.ProductionId,
+            existing!.ScheduledStart.AddHours(-1),
+            existing.ScheduledStart);
+
+        Assert.Equal(StaffScheduleConflictKind.MinimumGapNotMet, conflict);
+    }
+
+    [Fact]
     public async Task GetStaffScheduleConflictAsync_ReturnsMinimumGapForShortGap()
     {
         await using var context = CreateContext();

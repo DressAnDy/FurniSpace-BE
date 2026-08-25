@@ -28,6 +28,9 @@ public sealed class ProjectScheduleService : IProjectScheduleService
     private readonly INotificationDispatcher _dispatcher;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ProjectWorkflowSettings _workflowSettings;
+    private static readonly TimeSpan BusinessStartTime = new(6, 0, 0);
+    private static readonly TimeSpan BusinessEndTime = new(22, 0, 0);
+    private static readonly TimeZoneInfo VietnamTimeZone = ResolveVietnamTimeZone();
 
     public ProjectScheduleService(
         IProjectScheduleRepository schedules,
@@ -604,16 +607,27 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             }
         }
 
+        var appointmentTimeError = ValidateAppointmentTimeWindow(
+            request.ScheduleType,
+            request.ScheduledStart,
+            request.ScheduledEnd);
+        if (appointmentTimeError is not null)
+        {
+            return appointmentTimeError;
+        }
+
+        if (!RequiresBusinessTimeRules(request.ScheduleType) &&
+            request.ScheduledEnd.HasValue &&
+            request.ScheduledEnd.Value <= request.ScheduledStart)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
+        }
+
         var now = DateTime.UtcNow;
         var scheduleStartError = ValidateScheduledStart(request.ScheduleType, request.ScheduledStart, now);
         if (scheduleStartError is not null)
         {
             return scheduleStartError;
-        }
-
-        if (request.ScheduledEnd.HasValue && request.ScheduledEnd.Value <= request.ScheduledStart)
-        {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
         }
 
         var targetDateError = ValidateScheduleDatesAgainstTarget(
@@ -653,6 +667,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         return await ValidateStaffScheduleOverlapAsync(
             request.AssignedStaffId,
+            request.ScheduleType,
             request.ScheduledStart,
             request.ScheduledEnd,
             excludedScheduleId: null,
@@ -911,6 +926,24 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         ProjectScheduleDetailReadModel detail,
         CancellationToken cancellationToken)
     {
+        var effectiveStart = request.ScheduledStart ?? detail.ScheduledStart;
+        var effectiveEnd = request.ScheduledEnd ?? detail.ScheduledEnd;
+        var appointmentTimeError = ValidateAppointmentTimeWindow(
+            detail.ScheduleType,
+            effectiveStart,
+            effectiveEnd);
+        if (appointmentTimeError is not null)
+        {
+            return appointmentTimeError;
+        }
+
+        if (!RequiresBusinessTimeRules(detail.ScheduleType) &&
+            effectiveEnd.HasValue &&
+            effectiveEnd.Value <= effectiveStart)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
+        }
+
         if (request.ScheduledStart.HasValue)
         {
             var scheduleStartError = ValidateScheduledStart(
@@ -921,13 +954,6 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             {
                 return scheduleStartError;
             }
-        }
-
-        var effectiveStart = request.ScheduledStart ?? detail.ScheduledStart;
-        var effectiveEnd = request.ScheduledEnd ?? detail.ScheduledEnd;
-        if (effectiveEnd.HasValue && effectiveEnd.Value <= effectiveStart)
-        {
-            return ServiceResult<ProjectScheduleDto>.BadRequest("Scheduled end time must be after scheduled start time.");
         }
 
         var project = await _projects.GetDetailAsync(detail.ProjectId, cancellationToken);
@@ -947,6 +973,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         return await ValidateStaffScheduleOverlapAsync(
             request.AssignedStaffId ?? detail.AssignedStaffId,
+            detail.ScheduleType,
             effectiveStart,
             effectiveEnd,
             detail.ScheduleId,
@@ -955,6 +982,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
     private async Task<ServiceResult<ProjectScheduleDto>?> ValidateStaffScheduleOverlapAsync(
         Guid? assignedStaffId,
+        ProjectScheduleType? scheduleType,
         DateTime scheduledStart,
         DateTime? scheduledEnd,
         Guid? excludedScheduleId,
@@ -965,19 +993,117 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return null;
         }
 
-        var hasOverlap = await _schedules.HasActiveStaffOverlapAsync(
+        if (!RequiresBusinessTimeRules(scheduleType))
+        {
+            var hasOverlap = await _schedules.HasActiveStaffOverlapAsync(
+                assignedStaffId.Value,
+                scheduledStart,
+                scheduledEnd,
+                excludedScheduleId,
+                cancellationToken);
+
+            return hasOverlap
+                ? ServiceResult<ProjectScheduleDto>.Failure(
+                    Error.Conflict(
+                        ProjectScheduleErrorCodes.StaffScheduleOverlap,
+                        "Assigned staff already has an overlapping active schedule."))
+                : null;
+        }
+
+        if (!scheduledEnd.HasValue)
+        {
+            return null;
+        }
+
+        var conflict = await _schedules.GetStaffScheduleConflictAsync(
             assignedStaffId.Value,
             scheduledStart,
-            scheduledEnd,
+            scheduledEnd.Value,
             excludedScheduleId,
             cancellationToken);
 
-        return hasOverlap
-            ? ServiceResult<ProjectScheduleDto>.Failure(
+        return conflict switch
+        {
+            StaffScheduleConflictKind.Overlap => ServiceResult<ProjectScheduleDto>.Failure(
                 Error.Conflict(
-                    ProjectScheduleErrorCodes.StaffScheduleOverlap,
-                    "Assigned staff already has an overlapping active schedule."))
+                    ProjectScheduleErrorCodes.ScheduleOverlap,
+                    "Assigned staff already has an overlapping appointment.")),
+            StaffScheduleConflictKind.MinimumGapNotMet => ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.ScheduleMinimumGapNotMet,
+                    "Assigned staff must have at least two hours between appointments.")),
+            _ => null
+        };
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateAppointmentTimeWindow(
+        ProjectScheduleType? scheduleType,
+        DateTime scheduledStart,
+        DateTime? scheduledEnd)
+    {
+        if (!RequiresBusinessTimeRules(scheduleType))
+        {
+            return null;
+        }
+
+        if (scheduledStart == default || !scheduledEnd.HasValue || scheduledEnd.Value <= scheduledStart)
+        {
+            return ScheduleTimeInvalidResult();
+        }
+
+        var localStart = ToVietnamLocalTime(scheduledStart);
+        var localEnd = ToVietnamLocalTime(scheduledEnd.Value);
+        if (localStart.Date != localEnd.Date)
+        {
+            return ScheduleTimeInvalidResult();
+        }
+
+        return localStart.TimeOfDay < BusinessStartTime || localEnd.TimeOfDay > BusinessEndTime
+            ? ServiceResult<ProjectScheduleDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.ScheduleOutsideBusinessHours,
+                    "Schedule time must be within 06:00-22:00 Vietnam local time."))
             : null;
+    }
+
+    private static ServiceResult<ProjectScheduleDto> ScheduleTimeInvalidResult()
+    {
+        return ServiceResult<ProjectScheduleDto>.Failure(
+            Error.BadRequest(
+                ProjectScheduleErrorCodes.ScheduleTimeInvalid,
+                "Schedule start and end must be a valid same-day time window."));
+    }
+
+    private static bool RequiresBusinessTimeRules(ProjectScheduleType? scheduleType)
+    {
+        return scheduleType is ProjectScheduleType.MEASUREMENT or ProjectScheduleType.DELIVERY;
+    }
+
+    private static DateTime ToVietnamLocalTime(DateTime value)
+    {
+        var utcValue = value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+        return TimeZoneInfo.ConvertTimeFromUtc(utcValue, VietnamTimeZone);
+    }
+
+    private static TimeZoneInfo ResolveVietnamTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        }
+        catch (InvalidTimeZoneException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
+        }
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateScheduledStart(

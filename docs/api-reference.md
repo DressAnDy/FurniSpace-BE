@@ -1610,6 +1610,7 @@ Absolute routes on `OrdersController`.
 | --- | --- | --- |
 | GET | `/projects/{projectId}/orders` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | GET | `/orders/{orderId}` | same |
+| PATCH | `/orders/{orderId}/delivery-details` | CUSTOMER, ADMIN |
 | POST | `/orders/{orderId}/payments/deposit` | CUSTOMER, SALES, ADMIN |
 | POST | `/orders/{orderId}/payments/remaining` | SALES, ADMIN |
 | PATCH | `/orders/{orderId}/prepare-final-payment` | SALES, ADMIN |
@@ -1646,6 +1647,39 @@ At most **one active** delivery batch per order in `IN_PROGRESS` at a time (comp
 `PaidAmount` / `RemainingAmount` live on **Order**, not on Payment.
 
 New orders start as **`CREATED`** after quotation accept. Deposit payment is initiated explicitly; creating a deposit payment from `CREATED` moves the order to **`DEPOSIT_PENDING`**. Webhook/settlement then moves to `DEPOSIT_PAID`.
+
+### Update delivery details
+
+`PATCH /orders/{orderId}/delivery-details`
+
+Roles: **CUSTOMER** (own order only), **ADMIN** override.
+
+```json
+{
+  "deliveryAddress": "123 Nguyen Trai, District 1",
+  "receiverName": "Nguyen Van A",
+  "receiverPhone": "0901234567",
+  "deliveryNote": "Call before arrival"
+}
+```
+
+Required fields: `deliveryAddress`, `receiverName`, `receiverPhone`. Whitespace-only values are invalid. `deliveryNote` is optional and may be `null`/omitted.
+
+Editable while deposit is not paid. `CREATED` and `DEPOSIT_PENDING` remain editable, including when a pending payment exists. Once deposit is paid (`DEPOSIT_PAID` or later production/delivery lifecycle status), the endpoint returns `400 ORDER_DELIVERY_DETAILS_LOCKED`.
+
+Success response data:
+
+```json
+{
+  "orderId": "uuid",
+  "deliveryAddress": "123 Nguyen Trai, District 1",
+  "receiverName": "Nguyen Van A",
+  "receiverPhone": "0901234567",
+  "deliveryNote": "Call before arrival"
+}
+```
+
+Errors: `ORDER_NOT_FOUND`, `ORDER_DELIVERY_DETAILS_INVALID`, `ORDER_DELIVERY_DETAILS_LOCKED`, `403` when a customer tries to update another customer's order.
 
 ### Create deposit / remaining payment
 
@@ -1972,35 +2006,39 @@ Route: `project-schedules` (+ absolute create alias)
 
 `scheduleType`: `MEASUREMENT`, `CONSULTATION`, `DESIGN_REVIEW`, `DELIVERY`, `HANDOVER`, `OTHER`
 
-### Create / update overlap validation
+### Create / update time validation
 
-Create and update preserve existing authorization and lifecycle rules, and additionally reject overlapping active schedules for the same `assignedStaffId` across all projects.
+Create and update preserve existing authorization and lifecycle rules.
 
-Conflict formula:
+For `MEASUREMENT` and `DELIVERY` schedules:
+
+- `scheduledStart` and `scheduledEnd` are required.
+- `scheduledEnd` must be after `scheduledStart`.
+- Backend evaluates the instant in **Asia/Ho_Chi_Minh** business time.
+- Start and end must be on the same Vietnam local date.
+- Business window is inclusive: local start `>= 06:00`, local end `<= 22:00`.
+- Exact `06:00` and `22:00` are valid; `05:59` or `22:01` are invalid.
+
+Errors: `SCHEDULE_TIME_INVALID`, `SCHEDULE_OUTSIDE_BUSINESS_HOURS`.
+
+For same-staff appointment conflicts:
+
+- `MEASUREMENT` and `DELIVERY` schedules require at least **2 hours** between the new appointment and existing `MEASUREMENT`/`DELIVERY` appointments for the same `assignedStaffId`.
+- Applies across projects and cross-type pairs: measurement-measurement, measurement-delivery, delivery-delivery.
+- `CANCELLED` schedules are ignored.
+- For `COMPLETED` schedules, effective busy end is `completedAt`; otherwise it is `scheduledEnd`.
+- Exactly 2 hours gap is valid; less than 2 hours is rejected.
+
+Validation formula:
 
 ```text
-newStart < existingEnd AND newEnd > existingStart
+valid if newStart >= existingEffectiveBusyEnd + 2 hours
+     OR newEnd + 2 hours <= existingStart
 ```
 
-Active schedules considered for overlap: `PENDING_CONFIRMATION`, `CONFIRMED`, and **`COMPLETED` with `completedAt` set**.
+Errors: `SCHEDULE_OVERLAP` for actual time intersection, `SCHEDULE_MINIMUM_GAP_NOT_MET` for non-overlapping appointments with less than 2 hours between them.
 
-For completed schedules, the busy interval ends at **`completedAt`** (actual finish), not `scheduledEnd`. This prevents false conflicts when a visit finishes early but the original slot was longer.
-
-Ignored schedules: `CANCELLED`, and `COMPLETED` without `completedAt`.
-
-Adjacent schedules are allowed, for example `08:00-10:00` followed by `10:00-12:00`.
-
-Update checks the effective updated time/staff and excludes the schedule being updated.
-
-Conflict response:
-
-```json
-{
-  "status": 409,
-  "message": "Assigned staff already has an overlapping active schedule.",
-  "errorCode": "STAFF_SCHEDULE_OVERLAP"
-}
-```
+Other schedule types keep the legacy overlap-only validation.
 
 ### Update status
 

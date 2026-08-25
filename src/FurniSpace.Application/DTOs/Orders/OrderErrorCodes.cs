@@ -8,6 +8,8 @@ public static class OrderErrorCodes
     public const string DepositAlreadyPaid = "DEPOSIT_ALREADY_PAID";
     public const string RemainingPaymentAlreadyPaid = "REMAINING_PAYMENT_ALREADY_PAID";
     public const string OrderPaymentAlreadyStarted = "ORDER_PAYMENT_ALREADY_STARTED";
+    public const string OrderDeliveryDetailsInvalid = "ORDER_DELIVERY_DETAILS_INVALID";
+    public const string OrderDeliveryDetailsLocked = "ORDER_DELIVERY_DETAILS_LOCKED";
     public const string OrderItemNotFound = "ORDER_ITEM_NOT_FOUND";
     public const string DeliveryScheduleNotConfirmed = "DELIVERY_SCHEDULE_NOT_CONFIRMED";
     public const string ItemNotDeliverable = "ITEM_NOT_DELIVERABLE";

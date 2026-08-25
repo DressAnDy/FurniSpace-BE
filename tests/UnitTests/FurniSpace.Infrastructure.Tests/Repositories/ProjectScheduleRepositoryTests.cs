@@ -504,9 +504,96 @@ public sealed class ProjectScheduleRepositoryTests
             Guid.NewGuid(),
             DateTime.UtcNow.AddHours(1),
             DateTime.UtcNow.AddHours(2));
+        var conflict = await repository.GetStaffScheduleConflictAsync(
+            Guid.NewGuid(),
+            DateTime.UtcNow.AddHours(1),
+            DateTime.UtcNow.AddHours(2));
 
         Assert.False(hasActive);
         Assert.False(hasOverlap);
+        Assert.Equal(StaffScheduleConflictKind.None, conflict);
+    }
+
+    [Fact]
+    public async Task GetStaffScheduleConflictAsync_ReturnsOverlapForIntersectingAppointment()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+        var existing = await context.ProjectScheduleSet.FindAsync(data.DeliveryScheduleId);
+
+        var conflict = await repository.GetStaffScheduleConflictAsync(
+            data.ProductionId,
+            existing!.ScheduledStart.AddMinutes(30),
+            existing.ScheduledStart.AddHours(3));
+
+        Assert.Equal(StaffScheduleConflictKind.Overlap, conflict);
+    }
+
+    [Fact]
+    public async Task GetStaffScheduleConflictAsync_ReturnsMinimumGapForShortGap()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectScheduleRepository(context);
+        var existing = await context.ProjectScheduleSet.FindAsync(data.DeliveryScheduleId);
+
+        var conflict = await repository.GetStaffScheduleConflictAsync(
+            data.ProductionId,
+            existing!.ScheduledEnd!.Value.AddHours(1),
+            existing.ScheduledEnd.Value.AddHours(2));
+
+        Assert.Equal(StaffScheduleConflictKind.MinimumGapNotMet, conflict);
+    }
+
+    [Fact]
+    public async Task GetStaffScheduleConflictAsync_UsesCompletedAtAndIgnoresCancelledSchedules()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var start = DateTime.UtcNow.AddDays(2);
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Cafe",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Tables"
+        });
+        context.ProjectScheduleSet.AddRange(
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Completed",
+                AssignedStaffId = staffId,
+                ScheduledStart = start,
+                ScheduledEnd = start.AddHours(3),
+                CompletedAt = start.AddHours(1),
+                Status = ProjectScheduleStatus.COMPLETED
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.DELIVERY,
+                Title = "Cancelled",
+                AssignedStaffId = staffId,
+                ScheduledStart = start.AddHours(3),
+                ScheduledEnd = start.AddHours(5),
+                Status = ProjectScheduleStatus.CANCELLED
+            });
+        await context.SaveChangesAsync();
+        var repository = new ProjectScheduleRepository(context);
+
+        var conflict = await repository.GetStaffScheduleConflictAsync(
+            staffId,
+            start.AddHours(3),
+            start.AddHours(4));
+
+        Assert.Equal(StaffScheduleConflictKind.None, conflict);
     }
 
     private static AppDbContext CreateContext()

@@ -4,6 +4,10 @@ public static class ProjectScheduleErrorCodes
 {
     public const string InvalidScheduleStatus = "INVALID_SCHEDULE_STATUS_TRANSITION";
     public const string InvalidScheduleType = "INVALID_SCHEDULE_TYPE";
+    public const string ScheduleTimeInvalid = "SCHEDULE_TIME_INVALID";
+    public const string ScheduleOutsideBusinessHours = "SCHEDULE_OUTSIDE_BUSINESS_HOURS";
+    public const string ScheduleOverlap = "SCHEDULE_OVERLAP";
+    public const string ScheduleMinimumGapNotMet = "SCHEDULE_MINIMUM_GAP_NOT_MET";
     public const string MeasurementFileRequired = "MEASUREMENT_FILE_REQUIRED";
     public const string DesignerNotAssigned = "DESIGNER_NOT_ASSIGNED";
     public const string InvalidProjectStatus = "INVALID_PROJECT_STATUS";

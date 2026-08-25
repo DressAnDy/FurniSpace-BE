@@ -81,6 +81,26 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,ADMIN")]
+    [HttpPatch("orders/{orderId:guid}/delivery-details")]
+    public async Task<IActionResult> UpdateDeliveryDetails(
+        Guid orderId,
+        [FromBody] UpdateOrderDeliveryDetailsRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.UpdateDeliveryDetailsAsync(
+            orderId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "SALES,ADMIN")]
     [HttpPost("orders/{orderId:guid}/payments/remaining")]
     public async Task<IActionResult> CreateRemainingPayment(

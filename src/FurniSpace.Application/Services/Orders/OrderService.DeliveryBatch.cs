@@ -259,6 +259,7 @@ public sealed partial class OrderService
         var orderItemIds = deliveryItems.Select(item => item.OrderItemId).ToList();
         var now = DateTime.UtcNow;
         var updatedCount = 0;
+        ServiceResult<DeliveryBatchCompletionDto>? completionError = null;
 
         await UnitOfWorkTransactions.ExecuteAsync(
             _unitOfWork,
@@ -266,14 +267,15 @@ public sealed partial class OrderService
             {
                 var lockedItems = await _orders.GetItemsByIdsForUpdateAsync(orderItemIds, transactionCancellationToken);
                 var lockedItemsById = lockedItems.ToDictionary(item => item.OrderItemId);
+                completionError = ValidateDeliveryBatchCompletionItems(deliveryItems, lockedItemsById);
+                if (completionError is not null)
+                {
+                    return;
+                }
 
                 foreach (var deliveryItem in deliveryItems)
                 {
-                    if (!lockedItemsById.TryGetValue(deliveryItem.OrderItemId, out var orderItem))
-                    {
-                        throw new InvalidOperationException(OrderErrorCodes.OrderItemNotFound);
-                    }
-
+                    var orderItem = lockedItemsById[deliveryItem.OrderItemId];
                     ApplyDeliveryQuantity(orderItem, deliveryItem.Quantity, currentUserId, now);
                     _orders.UpdateItem(orderItem);
                     updatedCount++;
@@ -305,6 +307,11 @@ public sealed partial class OrderService
                 await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
             },
             cancellationToken);
+
+        if (completionError is not null)
+        {
+            return completionError;
+        }
 
         var remainingQuantity = await _orders.GetTotalRemainingDeliverableQuantityAsync(
             order.OrderId,
@@ -519,6 +526,13 @@ public sealed partial class OrderService
                 "Delivery schedule must be confirmed before batch creation.");
         }
 
+        if (schedule.ScheduledStart > DateTime.UtcNow.Add(OrderDeliveryConstants.ScheduleStartTolerance))
+        {
+            return BadRequest<T>(
+                OrderErrorCodes.DeliveryScheduleNotStarted,
+                "Delivery batch cannot start before the confirmed schedule start time.");
+        }
+
         if (await _deliveries.ExistsByProjectScheduleIdAsync(schedule.ScheduleId, cancellationToken))
         {
             return ServiceResult<T>.Failure(
@@ -649,6 +663,31 @@ public sealed partial class OrderService
             if (item.Quantity > remainingQuantity)
             {
                 return ServiceResult<DeliveryDetailDto>.Failure(
+                    Error.Conflict(
+                        OrderErrorCodes.InvalidDeliveryQuantity,
+                        "Delivery quantity exceeds remaining deliverable quantity."));
+            }
+        }
+
+        return null;
+    }
+
+    private static ServiceResult<DeliveryBatchCompletionDto>? ValidateDeliveryBatchCompletionItems(
+        IReadOnlyList<DeliveryItem> deliveryItems,
+        Dictionary<Guid, OrderItem> lockedItemsById)
+    {
+        foreach (var deliveryItem in deliveryItems)
+        {
+            if (!lockedItemsById.TryGetValue(deliveryItem.OrderItemId, out var orderItem))
+            {
+                return NotFound<DeliveryBatchCompletionDto>(
+                    OrderErrorCodes.OrderItemNotFound,
+                    "One or more order items were not found for this order.");
+            }
+
+            if (deliveryItem.Quantity > GetRemainingDeliverableQuantity(orderItem))
+            {
+                return ServiceResult<DeliveryBatchCompletionDto>.Failure(
                     Error.Conflict(
                         OrderErrorCodes.InvalidDeliveryQuantity,
                         "Delivery quantity exceeds remaining deliverable quantity."));

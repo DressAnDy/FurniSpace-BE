@@ -436,6 +436,8 @@ public sealed partial class OrderService : IOrderService
             },
             cancellationToken);
 
+        await CancelUnusedFutureDeliverySchedulesAsync(order.ProjectId, now, cancellationToken);
+
         await OrderNotificationSupport.TryDispatchDeliveredAsync(
             _notifications,
             _logger,

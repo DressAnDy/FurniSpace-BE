@@ -1179,6 +1179,40 @@ public sealed class ProjectScheduleServiceTests
     }
 
     [Fact]
+    public async Task UpdateStatusAsync_DeliveryScheduleWithoutCompletedBatch_ReturnsValidationError()
+    {
+        var productionId = Guid.NewGuid();
+        var startedAt = DateTime.UtcNow.AddHours(-2);
+        var schedule = CreateScheduleEntity(
+            ProjectScheduleStatus.CONFIRMED,
+            scheduledStart: startedAt,
+            scheduleType: ProjectScheduleType.DELIVERY);
+        schedule.AssignedStaffId = productionId;
+        var detail = CreateScheduleDetail(
+            scheduleId: schedule.ScheduleId,
+            assignedStaffId: productionId,
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleType: ProjectScheduleType.DELIVERY,
+            scheduledStart: startedAt);
+        var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ScheduleDetail = detail,
+            ScheduleRepo = scheduleRepo
+        });
+
+        var result = await service.UpdateStatusAsync(
+            schedule.ScheduleId,
+            productionId,
+            new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.COMPLETED });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.DeliveryScheduleRequiresCompletedBatch, result.ErrorCode);
+        Assert.Equal(ProjectScheduleStatus.CONFIRMED, schedule.Status);
+    }
+
+    [Fact]
     public async Task UpdateStatusAsync_ProductionCompletingOtherSchedule_ReturnsInvalidScheduleType()
     {
         var productionId = Guid.NewGuid();

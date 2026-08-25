@@ -455,6 +455,98 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(201, result.Status);
     }
 
+    [Fact]
+    public async Task CreateAsync_DeliverySchedule_WhenExistingTenToTwelveAndNewNineToTen_ReturnsMinimumGapError()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject(status: ProjectStatus.READY_FOR_DELIVERY);
+        var scheduleRepo = new FakeProjectScheduleRepository();
+        var existingStart = VietnamLocalAsUtc(hour: 10);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            project.ProjectId,
+            productionId,
+            ProjectScheduleStatus.CONFIRMED,
+            existingStart,
+            existingStart.AddHours(2),
+            scheduleType: ProjectScheduleType.DELIVERY));
+        var request = ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, productionId);
+        request.ScheduledStart = VietnamLocalAsUtc(hour: 9);
+        request.ScheduledEnd = VietnamLocalAsUtc(hour: 10);
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ProjectDetail = project,
+            ScheduleRepo = scheduleRepo,
+            OrderRepo = new FakeOrderRepository(hasProjectOrderInStatuses: true),
+            ProductionRequestRepo = new FakeProductionRequestRepository
+            {
+                HasAssignedCompletedProduction = true
+            }
+        });
+
+        var result = await service.CreateAsync(project.ProjectId, productionId, request);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.ScheduleMinimumGapNotMet, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_DeliverySchedule_WhenExistingTenToTwelveAndNewEndsAtNine_ReturnsMinimumGapError()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject(status: ProjectStatus.READY_FOR_DELIVERY);
+        var scheduleRepo = new FakeProjectScheduleRepository();
+        var existingStart = VietnamLocalAsUtc(hour: 10);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            project.ProjectId,
+            productionId,
+            ProjectScheduleStatus.CONFIRMED,
+            existingStart,
+            existingStart.AddHours(2),
+            scheduleType: ProjectScheduleType.DELIVERY));
+        var request = ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, productionId);
+        request.ScheduledStart = VietnamLocalAsUtc(hour: 8);
+        request.ScheduledEnd = VietnamLocalAsUtc(hour: 9);
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ProjectDetail = project,
+            ScheduleRepo = scheduleRepo,
+            OrderRepo = new FakeOrderRepository(hasProjectOrderInStatuses: true),
+            ProductionRequestRepo = new FakeProductionRequestRepository
+            {
+                HasAssignedCompletedProduction = true
+            }
+        });
+
+        var result = await service.CreateAsync(project.ProjectId, productionId, request);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.ScheduleMinimumGapNotMet, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_DeliverySchedule_WithoutAssignedStaff_ReturnsBadRequest()
+    {
+        var project = CreateProject(status: ProjectStatus.READY_FOR_DELIVERY);
+        var request = ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, Guid.NewGuid());
+        request.AssignedStaffId = null;
+        var service = BuildService(new()
+        {
+            Role = "ADMIN",
+            ProjectDetail = project,
+            OrderRepo = new FakeOrderRepository(hasProjectOrderInStatuses: true),
+            ProductionRequestRepo = new FakeProductionRequestRepository
+            {
+                HasAssignedCompletedProduction = true
+            }
+        });
+
+        var result = await service.CreateAsync(project.ProjectId, Guid.NewGuid(), request);
+
+        Assert.Equal(400, result.Status);
+    }
+
     // ── SCH-02: GetList ─────────────────────────────────────────────────────────
 
     [Fact]
@@ -895,8 +987,14 @@ public sealed class ProjectScheduleServiceTests
     public async Task UpdateAsync_ResetsStatusToPending_WhenScheduledStartChanges()
     {
         var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
         var schedule = CreateScheduleEntity(status: ProjectScheduleStatus.CONFIRMED, scheduledStart: DateTime.UtcNow.AddDays(2));
-        var detail = CreateScheduleDetail(assignedSalesId: salesId, status: ProjectScheduleStatus.CONFIRMED, scheduleId: schedule.ScheduleId);
+        schedule.AssignedStaffId = staffId;
+        var detail = CreateScheduleDetail(
+            assignedSalesId: salesId,
+            assignedStaffId: staffId,
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleId: schedule.ScheduleId);
         var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
         var service = BuildService(new() { Role = "SALES", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
 
@@ -1802,7 +1900,10 @@ public sealed class ProjectScheduleServiceTests
                          schedule.AssignedStaffId == assignedStaffId &&
                          schedule.ScheduleId != excludedScheduleId &&
                          schedule.Status != ProjectScheduleStatus.CANCELLED &&
-                         schedule.ScheduleType is ProjectScheduleType.MEASUREMENT or ProjectScheduleType.DELIVERY))
+                         schedule.ScheduleType is ProjectScheduleType.MEASUREMENT or ProjectScheduleType.DELIVERY &&
+                         (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
+                          schedule.Status == ProjectScheduleStatus.CONFIRMED ||
+                          (schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt.HasValue))))
             {
                 var existingEnd = schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt.HasValue
                     ? schedule.CompletedAt.Value

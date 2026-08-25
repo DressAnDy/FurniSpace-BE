@@ -88,6 +88,53 @@ public sealed class ProjectScheduleServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_ProductionDeliverySchedule_DefaultsAssignedStaffToCurrentUser()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject(status: ProjectStatus.READY_FOR_DELIVERY);
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ProjectDetail = project,
+            OrderRepo = new FakeOrderRepository(hasProjectOrderInStatuses: true),
+            ProductionRequestRepo = new FakeProductionRequestRepository
+            {
+                HasAssignedCompletedProduction = true
+            }
+        });
+        var request = ValidDeliveryCreateRequest();
+        request.AssignedStaffId = null;
+
+        var result = await service.CreateAsync(project.ProjectId, productionId, request);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(productionId, result.Data!.AssignedStaffId);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ProductionDeliverySchedule_WhenAssignedToAnotherStaff_ReturnsForbidden()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject(status: ProjectStatus.READY_FOR_DELIVERY);
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ProjectDetail = project,
+            OrderRepo = new FakeOrderRepository(hasProjectOrderInStatuses: true),
+            ProductionRequestRepo = new FakeProductionRequestRepository
+            {
+                HasAssignedCompletedProduction = true
+            }
+        });
+        var request = ValidDeliveryCreateRequest();
+        request.AssignedStaffId = Guid.NewGuid();
+
+        var result = await service.CreateAsync(project.ProjectId, productionId, request);
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
     public async Task CreateAsync_SalesCannotCreateDeliverySchedule_ReturnsForbidden()
     {
         var salesId = Guid.NewGuid();
@@ -436,6 +483,40 @@ public sealed class ProjectScheduleServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_DeliverySchedule_WhenWithinTwoHourStaffGap_ReturnsConflict()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject(status: ProjectStatus.READY_FOR_DELIVERY);
+        var scheduleRepo = new FakeProjectScheduleRepository();
+        var existingStart = DateTime.UtcNow.AddDays(2);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            Guid.NewGuid(),
+            productionId,
+            ProjectScheduleStatus.CONFIRMED,
+            existingStart,
+            existingStart.AddHours(2)));
+        var request = ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, productionId);
+        request.ScheduledStart = existingStart.AddHours(3);
+        request.ScheduledEnd = existingStart.AddHours(5);
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ProjectDetail = project,
+            ScheduleRepo = scheduleRepo,
+            OrderRepo = new FakeOrderRepository(hasProjectOrderInStatuses: true),
+            ProductionRequestRepo = new FakeProductionRequestRepository
+            {
+                HasAssignedCompletedProduction = true
+            }
+        });
+
+        var result = await service.CreateAsync(project.ProjectId, productionId, request);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.StaffScheduleOverlap, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task CreateAsync_WhenSameStaffScheduleIsAdjacent_ReturnsCreated()
     {
         var salesId = Guid.NewGuid();
@@ -770,6 +851,32 @@ public sealed class ProjectScheduleServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal("Delivery window updated", schedule.Title);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ProductionChangingDeliveryLocation_RequiresCustomerReconfirmation()
+    {
+        var productionId = Guid.NewGuid();
+        var schedule = CreateScheduleEntity(ProjectScheduleStatus.CONFIRMED, scheduleType: ProjectScheduleType.DELIVERY);
+        schedule.AssignedStaffId = productionId;
+        schedule.Location = "Old warehouse gate";
+        var detail = CreateScheduleDetail(
+            scheduleId: schedule.ScheduleId,
+            assignedStaffId: productionId,
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleType: ProjectScheduleType.DELIVERY);
+        detail.Location = schedule.Location;
+        var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
+        var service = BuildService(new() { Role = "PRODUCTION", ScheduleDetail = detail, ScheduleRepo = scheduleRepo });
+
+        var result = await service.UpdateAsync(schedule.ScheduleId, productionId, new UpdateProjectScheduleRequestDto
+        {
+            Location = "New loading bay"
+        });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectScheduleStatus.PENDING_CONFIRMATION, schedule.Status);
+        Assert.Equal("New loading bay", schedule.Location);
     }
 
     [Fact]

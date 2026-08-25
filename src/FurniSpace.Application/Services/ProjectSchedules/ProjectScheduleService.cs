@@ -68,7 +68,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (!CanCreateSchedules(role))
         {
-            return ServiceResult<ProjectScheduleDto>.Forbidden("Only assigned Sales or Admin can create schedules.");
+            return ServiceResult<ProjectScheduleDto>.Forbidden(
+                "Only assigned Sales, assigned Production, or Admin can create schedules.");
         }
 
         var project = await _projects.GetDetailAsync(projectId, cancellationToken);
@@ -88,12 +89,14 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 "Sales cannot create delivery schedules through the normal flow.");
         }
 
+        var assignedStaffId = ResolveScheduleAssignedStaffId(role, currentUserId, request);
         var businessRuleError = await ValidateCreateScheduleBusinessRulesAsync(
             role,
             project,
             projectId,
             currentUserId,
             request,
+            assignedStaffId,
             cancellationToken);
         if (businessRuleError is not null)
         {
@@ -109,7 +112,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             Title = request.Title,
             Description = request.Description,
             CreatedBy = currentUserId,
-            AssignedStaffId = request.AssignedStaffId,
+            AssignedStaffId = assignedStaffId,
             ScheduledStart = request.ScheduledStart,
             ScheduledEnd = request.ScheduledEnd,
             Location = request.Location,
@@ -274,7 +277,13 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             CustomerId = detail.CustomerId,
             AssignedSalesId = detail.AssignedSalesId,
             AssignedDesignerId = detail.AssignedDesignerId,
-            AssignedStaffId = schedule.AssignedStaffId
+            AssignedStaffId = schedule.AssignedStaffId,
+            ScheduleType = detail.ScheduleType,
+            Title = schedule.Title,
+            ScheduledStart = schedule.ScheduledStart,
+            ScheduledEnd = schedule.ScheduledEnd,
+            Location = schedule.Location,
+            Status = schedule.Status
         };
 
         await DispatchScheduleUpdatedAsync(schedule, updatedDetail, cancellationToken);
@@ -589,6 +598,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         Guid projectId,
         Guid currentUserId,
         CreateProjectScheduleRequestDto request,
+        Guid? assignedStaffId,
         CancellationToken cancellationToken)
     {
         if (IsProduction(role))
@@ -597,6 +607,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 projectId,
                 currentUserId,
                 request,
+                assignedStaffId,
                 cancellationToken);
             if (productionAccessError is not null)
             {
@@ -630,7 +641,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             var measurementError = ValidateMeasurementScheduleCreate(
                 role,
                 project,
-                request.AssignedStaffId);
+                assignedStaffId);
             if (measurementError is not null)
             {
                 return measurementError;
@@ -644,6 +655,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 project,
                 projectId,
                 currentUserId,
+                assignedStaffId,
                 cancellationToken);
             if (deliveryScheduleError is not null)
             {
@@ -652,7 +664,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         return await ValidateStaffScheduleOverlapAsync(
-            request.AssignedStaffId,
+            assignedStaffId,
+            request.ScheduleType,
             request.ScheduledStart,
             request.ScheduledEnd,
             excludedScheduleId: null,
@@ -663,6 +676,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         Guid projectId,
         Guid currentUserId,
         CreateProjectScheduleRequestDto request,
+        Guid? assignedStaffId,
         CancellationToken cancellationToken)
     {
         if (!IsProductionManageableType(request.ScheduleType))
@@ -670,7 +684,15 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return InvalidScheduleTypeResult("Production staff can only create DELIVERY, HANDOVER, or OTHER schedules.");
         }
 
-        if (request.AssignedStaffId == currentUserId)
+        if (request.ScheduleType == ProjectScheduleType.DELIVERY)
+        {
+            return assignedStaffId == currentUserId
+                ? null
+                : ServiceResult<ProjectScheduleDto>.Forbidden(
+                    "Production staff can only create delivery schedules assigned to themselves.");
+        }
+
+        if (assignedStaffId == currentUserId)
         {
             return null;
         }
@@ -751,8 +773,14 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
         Guid projectId,
         Guid currentUserId,
+        Guid? assignedStaffId,
         CancellationToken cancellationToken)
     {
+        if (!assignedStaffId.HasValue)
+        {
+            return ServiceResult<ProjectScheduleDto>.BadRequest("Assigned staff id is required for delivery schedules.");
+        }
+
         if (role == ApplicationRoles.Production)
         {
             var productionCompleted = await _productionRequests.HasAssignedCompletedProductionForProjectAsync(
@@ -947,6 +975,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         return await ValidateStaffScheduleOverlapAsync(
             request.AssignedStaffId ?? detail.AssignedStaffId,
+            detail.ScheduleType,
             effectiveStart,
             effectiveEnd,
             detail.ScheduleId,
@@ -955,6 +984,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
     private async Task<ServiceResult<ProjectScheduleDto>?> ValidateStaffScheduleOverlapAsync(
         Guid? assignedStaffId,
+        ProjectScheduleType? scheduleType,
         DateTime scheduledStart,
         DateTime? scheduledEnd,
         Guid? excludedScheduleId,
@@ -965,10 +995,11 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return null;
         }
 
+        var overlapWindow = GetStaffOverlapWindow(scheduleType, scheduledStart, scheduledEnd);
         var hasOverlap = await _schedules.HasActiveStaffOverlapAsync(
             assignedStaffId.Value,
-            scheduledStart,
-            scheduledEnd,
+            overlapWindow.Start,
+            overlapWindow.End,
             excludedScheduleId,
             cancellationToken);
 
@@ -978,6 +1009,22 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     ProjectScheduleErrorCodes.StaffScheduleOverlap,
                     "Assigned staff already has an overlapping active schedule."))
             : null;
+    }
+
+    private static (DateTime Start, DateTime? End) GetStaffOverlapWindow(
+        ProjectScheduleType? scheduleType,
+        DateTime scheduledStart,
+        DateTime? scheduledEnd)
+    {
+        if (scheduleType != ProjectScheduleType.DELIVERY)
+        {
+            return (scheduledStart, scheduledEnd);
+        }
+
+        var effectiveEnd = scheduledEnd ?? scheduledStart;
+        return (
+            scheduledStart.Subtract(DeliveryScheduleStaffGap),
+            effectiveEnd.Add(DeliveryScheduleStaffGap));
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateScheduledStart(
@@ -1029,7 +1076,10 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         UpdateProjectScheduleRequestDto request,
         ProjectScheduleDetailReadModel detail)
     {
-        var timeChanged = request.ScheduledStart.HasValue && request.ScheduledStart.Value != detail.ScheduledStart;
+        var startChanged = request.ScheduledStart.HasValue && request.ScheduledStart.Value != detail.ScheduledStart;
+        var endChanged = request.ScheduledEnd.HasValue && request.ScheduledEnd.Value != detail.ScheduledEnd;
+        var locationChanged = request.Location is not null &&
+            !string.Equals(request.Location, detail.Location, StringComparison.Ordinal);
 
         if (request.Title is not null) schedule.Title = request.Title;
         if (request.Description is not null) schedule.Description = request.Description;
@@ -1040,7 +1090,21 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (request.CustomerNote is not null) schedule.CustomerNote = request.CustomerNote;
         if (request.InternalNote is not null) schedule.InternalNote = request.InternalNote;
 
-        return timeChanged;
+        return detail.ScheduleType == ProjectScheduleType.DELIVERY
+            ? startChanged || endChanged || locationChanged
+            : startChanged;
+    }
+
+    private static Guid? ResolveScheduleAssignedStaffId(
+        string? role,
+        Guid currentUserId,
+        CreateProjectScheduleRequestDto request)
+    {
+        return IsProduction(role) &&
+            request.ScheduleType == ProjectScheduleType.DELIVERY &&
+            !request.AssignedStaffId.HasValue
+                ? currentUserId
+                : request.AssignedStaffId;
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateTerminalStatus(ProjectScheduleStatus? currentStatus)

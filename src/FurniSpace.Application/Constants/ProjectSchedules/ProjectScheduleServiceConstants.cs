@@ -6,6 +6,7 @@ internal static class ProjectScheduleServiceConstants
 {
     internal const string ScheduleNotFoundMessage = "Schedule not found.";
     internal const string ProjectScheduleReferenceType = "PROJECT_SCHEDULE";
+    internal static readonly TimeSpan DeliveryScheduleStaffGap = TimeSpan.FromHours(2);
 
     internal static readonly ProjectScheduleType[] ProductionManageableScheduleTypes =
     [

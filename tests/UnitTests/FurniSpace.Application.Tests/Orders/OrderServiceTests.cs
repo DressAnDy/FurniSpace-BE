@@ -559,6 +559,40 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
+    public async Task CompleteDeliveryAsync_WhenProductionUsesLegacyShortcut_ReturnsForbiddenWithoutCreatingBatch()
+    {
+        var orderId = Guid.NewGuid();
+        var order = new Order
+        {
+            OrderId = orderId,
+            ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
+            Status = OrderStatus.DELIVERING
+        };
+        var deliveries = new FakeDeliveryRepository();
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "PRODUCTION",
+            Order = order,
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                Status = ProjectStatus.DELIVERING
+            },
+            Deliveries = deliveries
+        });
+
+        var result = await service.CompleteDeliveryAsync(orderId, _productionId);
+
+        Assert.Equal(403, result.Status);
+        Assert.Empty(deliveries.AddedDeliveries);
+        Assert.Equal(OrderStatus.DELIVERING, order.Status);
+    }
+
+    [Fact]
     public async Task CompleteDeliveryAsync_WhenProductionIncomplete_ReturnsConflict()
     {
         var orderId = Guid.NewGuid();

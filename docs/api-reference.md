@@ -1612,25 +1612,28 @@ Absolute routes on `OrdersController`.
 | GET | `/orders/{orderId}` | same |
 | POST | `/orders/{orderId}/payments/deposit` | CUSTOMER, SALES, ADMIN |
 | POST | `/orders/{orderId}/payments/remaining` | SALES, ADMIN |
-| PATCH | `/orders/{orderId}/prepare-final-payment` | SALES, ADMIN |
+| PATCH | `/orders/{orderId}/prepare-final-payment` | ADMIN · deprecated recovery shortcut |
 | PATCH | `/orders/{orderId}/complete` | SALES, ADMIN |
 | POST | `/orders/{orderId}/production-request` | SALES, ADMIN |
-| PATCH | `/orders/{orderId}/start-delivery` | SALES, PRODUCTION, ADMIN |
-| PATCH | `/orders/{orderId}/complete-delivery` | SALES, PRODUCTION, ADMIN · legacy full-batch shortcut |
+| PATCH | `/orders/{orderId}/start-delivery` | ADMIN · deprecated recovery shortcut |
+| PATCH | `/orders/{orderId}/complete-delivery` | ADMIN · deprecated recovery shortcut |
 | PATCH | `/orders/{orderId}/confirm-delivery` | CUSTOMER |
 | GET | `/orders/{orderId}/deliveries` | CUSTOMER, SALES, PRODUCTION, ADMIN |
 | GET | `/orders/{orderId}/deliveries/{deliveryId}` | same |
 | POST | `/orders/{orderId}/deliveries` | SALES, PRODUCTION, ADMIN · create delivery batch |
 | PATCH | `/orders/{orderId}/deliveries/{deliveryId}/complete` | SALES, PRODUCTION, ADMIN · complete batch |
 
-**Delivery flow (multi-batch + legacy shortcut):**
+**Delivery flow (schedule-linked multi-batch):**
 
 1. Related production request must be **`COMPLETED`** before any delivery action; otherwise `409 PRODUCTION_NOT_COMPLETED`.
-2. `start-delivery` requires order `READY_FOR_DELIVERY`, at least one **confirmed** delivery schedule, and all deliverable items `READY`. Moves order/project to `DELIVERING`.
-3. **Partial delivery:** `POST /orders/{orderId}/deliveries` creates an `IN_PROGRESS` batch with per-item quantities. `PATCH .../complete` increments `order_items.delivered_quantity`, may set item status `PARTIALLY_DELIVERED` or `DELIVERED`, and marks the batch `COMPLETED`.
-4. Multiple active delivery schedules per project are allowed (multi-round delivery).
-5. `complete-delivery` (legacy) auto-creates one batch with all remaining deliverable quantities and completes it in one call.
-6. Customer `confirm-delivery` when **all** deliverable quantities are delivered — sets `customerConfirmedDeliveryAt`, project `DELIVERED`, triggers remaining payment flow.
+2. Normal delivery execution must use `POST /orders/{orderId}/deliveries` with a confirmed DELIVERY `projectScheduleId`.
+3. The first schedule-linked batch moves order/project from `READY_FOR_DELIVERY` to `DELIVERING`.
+4. **Partial delivery:** `POST /orders/{orderId}/deliveries` creates an `IN_PROGRESS` batch with per-item quantities. `PATCH .../complete` increments `order_items.delivered_quantity`, may set item status `PARTIALLY_DELIVERED` or `PHYSICALLY_DELIVERED`, and marks the batch `COMPLETED`.
+5. Multiple active delivery schedules per project are allowed (multi-round delivery).
+6. `start-delivery` and `complete-delivery` are deprecated shortcuts and are restricted to Admin recovery/internal migration. FE must not use them for the normal flow.
+7. Customer `confirm-delivery` when **all** deliverable quantities are physically delivered - sets `customerConfirmedDeliveryAt`, project `DELIVERED`, triggers remaining payment flow.
+
+Current rule: final confirmation requires all deliverable items to be fully physically delivered and the order status to be `AWAITING_CUSTOMER_CONFIRMATION`.
 
 Quantity rules:
 
@@ -1674,8 +1677,11 @@ Estimated production dates must satisfy `estimatedStartDate <= estimatedCompleti
 
 ### Create delivery batch
 
+Normal flow requires `projectScheduleId` from a confirmed DELIVERY schedule.
+
 ```json
 {
+  "projectScheduleId": "uuid-confirmed-delivery-schedule",
   "note": "Round 1 — tables only",
   "items": [
     { "orderItemId": "uuid", "quantity": 2, "note": null },
@@ -1698,17 +1704,17 @@ No body. Marks batch `COMPLETED`, updates item delivered quantities/statuses. Re
 
 ### Complete delivery (legacy shortcut)
 
-No request body. Creates and completes one batch with all remaining deliverable quantities.
+Deprecated Admin recovery/internal migration shortcut. FE should not call this endpoint in normal delivery. Use `POST /orders/{orderId}/deliveries` with `projectScheduleId`, then `PATCH /orders/{orderId}/deliveries/{deliveryId}/complete`.
 
 ### Confirm delivery (customer)
 
-No request body. Requires all deliverable items fully delivered (`DELIVERED` or full quantity) and order `DELIVERING`.
+No request body. Requires all deliverable items fully physically delivered and order `AWAITING_CUSTOMER_CONFIRMATION`.
 
 After `confirm-delivery`:
 
 - If `remainingAmount > 0`, backend creates or reuses an active `REMAINING_PAYMENT`, sets order status to `FINAL_PAYMENT_PENDING`, and notifies the customer.
 - If `remainingAmount = 0`, order moves to `COMPLETED` without a zero-value payment.
-- `PATCH /orders/{orderId}/prepare-final-payment` remains a Sales/Admin fallback.
+- `PATCH /orders/{orderId}/prepare-final-payment` remains an Admin recovery fallback.
 
 ### Response — order detail
 
@@ -3366,7 +3372,7 @@ CLI (not HTTP): `dotnet run --project src/FurniSpace.API -- reindex {accounts|pr
 10. Provider webhook → PAID → order/project side effects
 11. (Optional before deposit paid) POST projects/{id}/reopen-proposal → back to PROPOSAL_CONSULTING
 12. Sales: POST production-request → production lifecycle
-13. POST /orders/{id}/deliveries (partial batches) or PATCH .../complete-delivery (legacy full batch) → customer confirm-delivery → remaining payment
+13. POST /orders/{id}/deliveries with confirmed `projectScheduleId` -> complete delivery batch -> customer confirm-delivery -> remaining payment
 ```
 
 ---

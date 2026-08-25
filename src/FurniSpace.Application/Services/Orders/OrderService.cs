@@ -125,7 +125,7 @@ public sealed partial class OrderService : IOrderService
         if (role != ProjectAssignmentAccessEvaluator.AdminRole)
         {
             return ServiceResult<OrderDeliveryStartDto>.Forbidden(
-                "Legacy start-delivery is restricted to Admin recovery.");
+                LegacyStartDeliveryRestrictedMessage);
         }
 
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
@@ -229,7 +229,7 @@ public sealed partial class OrderService : IOrderService
         if (role != ProjectAssignmentAccessEvaluator.AdminRole)
         {
             return ServiceResult<OrderDeliveryCompletionDto>.Forbidden(
-                "Legacy complete-delivery is restricted to Admin recovery.");
+                LegacyCompleteDeliveryRestrictedMessage);
         }
 
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);

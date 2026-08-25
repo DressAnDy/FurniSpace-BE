@@ -39,6 +39,12 @@ public interface IProjectScheduleService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectScheduleChangeRequestDto>> RequestChangeAsync(
+        Guid scheduleId,
+        Guid currentUserId,
+        RequestProjectScheduleChangeDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectScheduleListResponseDto>> GetMyAssignedAsync(
         Guid currentUserId,
         ProjectScheduleListQueryDto query,

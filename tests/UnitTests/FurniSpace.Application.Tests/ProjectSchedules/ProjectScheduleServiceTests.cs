@@ -104,6 +104,30 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(403, result.Status);
     }
 
+    [Fact]
+    public async Task CreateAsync_DeliveryWithoutLocation_ReturnsLocationRequired()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject(status: ProjectStatus.READY_FOR_DELIVERY);
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ProjectDetail = project,
+            OrderRepo = new FakeOrderRepository(hasProjectOrderInStatuses: true),
+            ProductionRequestRepo = new FakeProductionRequestRepository
+            {
+                HasAssignedCompletedProduction = true
+            }
+        });
+        var request = ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, productionId);
+        request.Location = " ";
+
+        var result = await service.CreateAsync(project.ProjectId, productionId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.DeliveryScheduleLocationRequired, result.ErrorCode);
+    }
+
     [Theory]
     [InlineData(ProjectScheduleType.MEASUREMENT)]
     [InlineData(ProjectScheduleType.CONSULTATION)]
@@ -1230,6 +1254,91 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(ProjectScheduleErrorCodes.InvalidScheduleType, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task RequestChangeAsync_OwnerCustomer_MovesDeliveryScheduleToPendingConfirmation()
+    {
+        var customerId = Guid.NewGuid();
+        var schedule = CreateScheduleEntity(
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleType: ProjectScheduleType.DELIVERY);
+        schedule.CustomerNote = "Old note";
+        var detail = CreateScheduleDetail(
+            scheduleId: schedule.ScheduleId,
+            customerId: customerId,
+            status: ProjectScheduleStatus.CONFIRMED,
+            scheduleType: ProjectScheduleType.DELIVERY);
+        var scheduleRepo = new FakeProjectScheduleRepository(detail: detail, entityById: schedule);
+        var service = BuildService(new()
+        {
+            Role = "CUSTOMER",
+            ScheduleDetail = detail,
+            ScheduleRepo = scheduleRepo
+        });
+
+        var result = await service.RequestChangeAsync(
+            schedule.ScheduleId,
+            customerId,
+            new RequestProjectScheduleChangeDto { Note = " Please deliver after 15:00. " });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectScheduleStatus.PENDING_CONFIRMATION, schedule.Status);
+        Assert.Equal("Please deliver after 15:00.", schedule.CustomerNote);
+        Assert.Equal(schedule.CustomerNote, result.Data!.CustomerNote);
+    }
+
+    [Fact]
+    public async Task RequestChangeAsync_BlankNote_ReturnsNoteRequired()
+    {
+        var service = BuildService(new() { Role = "CUSTOMER" });
+
+        var result = await service.RequestChangeAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new RequestProjectScheduleChangeDto { Note = " " });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.ScheduleChangeNoteRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RequestChangeAsync_NonOwnerCustomer_ReturnsForbidden()
+    {
+        var detail = CreateScheduleDetail(
+            customerId: Guid.NewGuid(),
+            scheduleType: ProjectScheduleType.DELIVERY);
+        var service = BuildService(new() { Role = "CUSTOMER", ScheduleDetail = detail });
+
+        var result = await service.RequestChangeAsync(
+            detail.ScheduleId,
+            Guid.NewGuid(),
+            new RequestProjectScheduleChangeDto { Note = "Change request" });
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task RequestChangeAsync_AfterExecutionStarted_ReturnsConflict()
+    {
+        var customerId = Guid.NewGuid();
+        var detail = CreateScheduleDetail(
+            customerId: customerId,
+            scheduleType: ProjectScheduleType.DELIVERY);
+        var service = BuildService(new()
+        {
+            Role = "CUSTOMER",
+            ScheduleDetail = detail,
+            DeliveryRepo = new FakeDeliveryRepository { HasLinkedDelivery = true }
+        });
+
+        var result = await service.RequestChangeAsync(
+            detail.ScheduleId,
+            customerId,
+            new RequestProjectScheduleChangeDto { Note = "Change request" });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.DeliveryInProgressBlocksScheduleCancel, result.ErrorCode);
+    }
+
     // ── SCH-06: GetMyAssigned ───────────────────────────────────────────────────
 
     [Fact]
@@ -2026,6 +2135,7 @@ public sealed class ProjectScheduleServiceTests
     private sealed class FakeDeliveryRepository : IDeliveryRepository
     {
         public Delivery? LinkedDelivery { get; set; }
+        public bool HasLinkedDelivery { get; set; }
 
         public Task AddAsync(Delivery delivery, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AddItemAsync(DeliveryItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -2037,6 +2147,9 @@ public sealed class ProjectScheduleServiceTests
             => Task.FromResult<Delivery?>(null);
         public Task<Delivery?> GetByProjectScheduleIdAsync(Guid projectScheduleId, CancellationToken cancellationToken = default)
             => Task.FromResult(LinkedDelivery?.ProjectScheduleId == projectScheduleId ? LinkedDelivery : null);
+        public Task<bool> ExistsByProjectScheduleIdAsync(Guid projectScheduleId, CancellationToken cancellationToken = default)
+            => Task.FromResult(HasLinkedDelivery ||
+                (LinkedDelivery is not null && LinkedDelivery.ProjectScheduleId == projectScheduleId));
         public Task<IReadOnlyList<DeliveryItem>> GetItemsByDeliveryAsync(Guid deliveryId, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<DeliveryItem>>([]);
         public void Update(Delivery delivery) { }

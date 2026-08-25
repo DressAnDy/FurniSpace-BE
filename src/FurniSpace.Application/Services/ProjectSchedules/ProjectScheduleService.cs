@@ -408,6 +408,12 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return null;
         }
 
+        var locationError = ValidateDeliveryLocationRequired(request.Location);
+        if (locationError is not null)
+        {
+            return locationError;
+        }
+
         if (!await _deliveries.ExistsByProjectScheduleIdAsync(scheduleId, cancellationToken))
         {
             return null;
@@ -534,6 +540,72 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         });
     }
 
+    public async Task<ServiceResult<ProjectScheduleChangeRequestDto>> RequestChangeAsync(
+        Guid scheduleId,
+        Guid currentUserId,
+        RequestProjectScheduleChangeDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectScheduleChangeRequestDto>.Unauthorized();
+        }
+
+        var note = request.Note?.Trim();
+        if (string.IsNullOrWhiteSpace(note))
+        {
+            return ServiceResult<ProjectScheduleChangeRequestDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.ScheduleChangeNoteRequired,
+                    "Schedule change request note is required."));
+        }
+
+        var detail = await _schedules.GetDetailAsync(scheduleId, cancellationToken);
+        if (detail is null)
+        {
+            return ServiceResult<ProjectScheduleChangeRequestDto>.NotFound(ScheduleNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        var accessError = await ValidateScheduleChangeRequestAccessAsync(
+            role,
+            detail,
+            currentUserId,
+            scheduleId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var schedule = await _schedules.GetByIdAsync(scheduleId, cancellationToken);
+        if (schedule is null)
+        {
+            return ServiceResult<ProjectScheduleChangeRequestDto>.NotFound(ScheduleNotFoundMessage);
+        }
+
+        schedule.CustomerNote = note;
+        schedule.Status = ProjectScheduleStatus.PENDING_CONFIRMATION;
+        schedule.UpdatedAt = DateTime.UtcNow;
+
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                _schedules.Update(schedule);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
+
+        return ServiceResult<ProjectScheduleChangeRequestDto>.Success(
+            new ProjectScheduleChangeRequestDto
+            {
+                ScheduleId = schedule.ScheduleId,
+                Status = schedule.Status,
+                CustomerNote = schedule.CustomerNote
+            },
+            "Project schedule change requested successfully.");
+    }
+
     private async Task<bool> CanViewProjectSchedulesAsync(
         string? role,
         FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
@@ -653,6 +725,12 @@ public sealed class ProjectScheduleService : IProjectScheduleService
 
         if (request.ScheduleType == ProjectScheduleType.DELIVERY)
         {
+            var locationError = ValidateDeliveryLocationRequired(request.Location);
+            if (locationError is not null)
+            {
+                return locationError;
+            }
+
             var deliveryScheduleError = await ValidateDeliveryScheduleCreationAsync(
                 role,
                 project,
@@ -893,6 +971,46 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         }
 
         return null;
+    }
+
+    private async Task<ServiceResult<ProjectScheduleChangeRequestDto>?> ValidateScheduleChangeRequestAccessAsync(
+        string? role,
+        ProjectScheduleDetailReadModel detail,
+        Guid currentUserId,
+        Guid scheduleId,
+        CancellationToken cancellationToken)
+    {
+        if (detail.ScheduleType != ProjectScheduleType.DELIVERY)
+        {
+            return ServiceResult<ProjectScheduleChangeRequestDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.InvalidScheduleType,
+                    "Only delivery schedules can receive customer change requests."));
+        }
+
+        if (detail.Status is ProjectScheduleStatus.COMPLETED or ProjectScheduleStatus.CANCELLED)
+        {
+            return ServiceResult<ProjectScheduleChangeRequestDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.InvalidScheduleStatus,
+                    "Completed or cancelled schedules cannot be changed."));
+        }
+
+        if (await _deliveries.ExistsByProjectScheduleIdAsync(scheduleId, cancellationToken))
+        {
+            return ServiceResult<ProjectScheduleChangeRequestDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.DeliveryInProgressBlocksScheduleCancel,
+                    "Delivery schedule change cannot be requested after execution has started."));
+        }
+
+        return role switch
+        {
+            ApplicationRoles.Admin => null,
+            ApplicationRoles.Customer when detail.CustomerId == currentUserId => null,
+            _ => ServiceResult<ProjectScheduleChangeRequestDto>.Forbidden(
+                "Only the customer owner or Admin can request a delivery schedule change.")
+        };
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateDeletePermission(
@@ -1155,7 +1273,7 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         UpdateProjectScheduleRequestDto request,
         ProjectScheduleDetailReadModel detail)
     {
-        var timeChanged = request.ScheduledStart.HasValue && request.ScheduledStart.Value != detail.ScheduledStart;
+        var materialScheduleChanged = HasMaterialScheduleChange(request, detail);
 
         if (request.Title is not null) schedule.Title = request.Title;
         if (request.Description is not null) schedule.Description = request.Description;
@@ -1166,7 +1284,26 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (request.CustomerNote is not null) schedule.CustomerNote = request.CustomerNote;
         if (request.InternalNote is not null) schedule.InternalNote = request.InternalNote;
 
-        return timeChanged;
+        return materialScheduleChanged;
+    }
+
+    private static bool HasMaterialScheduleChange(
+        UpdateProjectScheduleRequestDto request,
+        ProjectScheduleDetailReadModel detail)
+    {
+        return request.ScheduledStart.HasValue && request.ScheduledStart.Value != detail.ScheduledStart ||
+            request.ScheduledEnd.HasValue && request.ScheduledEnd.Value != detail.ScheduledEnd ||
+            request.Location is not null && !string.Equals(request.Location, detail.Location, StringComparison.Ordinal);
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? ValidateDeliveryLocationRequired(string? location)
+    {
+        return string.IsNullOrWhiteSpace(location)
+            ? ServiceResult<ProjectScheduleDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.DeliveryScheduleLocationRequired,
+                    "Delivery schedule location is required."))
+            : null;
     }
 
     private static ServiceResult<ProjectScheduleDto>? ValidateTerminalStatus(ProjectScheduleStatus? currentStatus)

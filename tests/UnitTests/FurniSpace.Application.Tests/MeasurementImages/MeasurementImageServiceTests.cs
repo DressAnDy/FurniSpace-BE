@@ -59,6 +59,7 @@ public sealed class MeasurementImageServiceTests
         Assert.Equal(scheduleId, result.Data.ReferenceId);
         Assert.Single(fileRepo.StoredFiles);
         Assert.Single(fileRepo.FileLinks);
+        Assert.Equal(FileVisibility.STAFF_ONLY, fileRepo.FileLinks[0].Visibility);
         Assert.Equal(1, unitOfWork.SaveChangesCallCount);
     }
 

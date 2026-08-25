@@ -112,6 +112,15 @@ public sealed class ProjectSchedulesControllerTests
         Assert.Equal("SALES,PRODUCTION,ADMIN", attr.Roles);
     }
 
+    [Fact]
+    public void RequestChange_RequiresCustomerAndAdminRoles()
+    {
+        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.RequestChange));
+
+        Assert.NotNull(attr);
+        Assert.Equal("CUSTOMER,ADMIN", attr.Roles);
+    }
+
     // ── Create endpoint ──────────────────────────────────────────────────────────
 
     [Fact]
@@ -373,6 +382,44 @@ public sealed class ProjectSchedulesControllerTests
         Assert.True(measurementImages.LastQuery?.Assigned);
     }
 
+    [Fact]
+    public async Task RequestChange_ReturnsServiceResult()
+    {
+        var scheduleId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new RequestProjectScheduleChangeDto { Note = "Please deliver after 15:00." };
+        var response = new ProjectScheduleChangeRequestDto
+        {
+            ScheduleId = scheduleId,
+            Status = ProjectScheduleStatus.PENDING_CONFIRMATION,
+            CustomerNote = request.Note
+        };
+        var service = new FakeProjectScheduleService(
+            ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto()),
+            changeResult: ServiceResult<ProjectScheduleChangeRequestDto>.Success(response));
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.RequestChange(scheduleId, request);
+
+        Assert.Equal(200, Assert.IsType<ObjectResult>(actionResult).StatusCode);
+        Assert.Equal(scheduleId, service.LastScheduleId);
+        Assert.Equal(userId, service.LastCurrentUserId);
+        Assert.Same(request, service.LastChangeRequest);
+    }
+
+    [Fact]
+    public async Task RequestChange_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeProjectScheduleService(
+            ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto())));
+
+        var actionResult = await controller.RequestChange(
+            Guid.NewGuid(),
+            new RequestProjectScheduleChangeDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
     private static ProjectSchedulesController BuildController(
@@ -413,17 +460,23 @@ public sealed class ProjectSchedulesControllerTests
     {
         private readonly ServiceResult<ProjectScheduleDto> _singleResult;
         private readonly ServiceResult<ProjectScheduleListResponseDto> _listResult;
+        private readonly ServiceResult<ProjectScheduleChangeRequestDto> _changeResult;
 
-        public FakeProjectScheduleService(ServiceResult<ProjectScheduleDto> result)
+        public FakeProjectScheduleService(
+            ServiceResult<ProjectScheduleDto> result,
+            ServiceResult<ProjectScheduleChangeRequestDto>? changeResult = null)
         {
             _singleResult = result;
             _listResult = ServiceResult<ProjectScheduleListResponseDto>.Success(new ProjectScheduleListResponseDto());
+            _changeResult = changeResult ??
+                ServiceResult<ProjectScheduleChangeRequestDto>.Success(new ProjectScheduleChangeRequestDto());
         }
 
         public FakeProjectScheduleService(ServiceResult<ProjectScheduleListResponseDto> result)
         {
             _singleResult = ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto());
             _listResult = result;
+            _changeResult = ServiceResult<ProjectScheduleChangeRequestDto>.Success(new ProjectScheduleChangeRequestDto());
         }
 
         public Guid LastProjectId { get; private set; }
@@ -432,6 +485,7 @@ public sealed class ProjectSchedulesControllerTests
         public CreateProjectScheduleRequestDto? LastCreateRequest { get; private set; }
         public UpdateProjectScheduleRequestDto? LastUpdateRequest { get; private set; }
         public ProjectScheduleListQueryDto? LastListQuery { get; private set; }
+        public RequestProjectScheduleChangeDto? LastChangeRequest { get; private set; }
 
         public Task<ServiceResult<ProjectScheduleDto>> CreateAsync(
             Guid projectId, Guid currentUserId, CreateProjectScheduleRequestDto request,
@@ -489,6 +543,18 @@ public sealed class ProjectSchedulesControllerTests
             LastScheduleId = scheduleId;
             LastCurrentUserId = currentUserId;
             return Task.FromResult(_singleResult);
+        }
+
+        public Task<ServiceResult<ProjectScheduleChangeRequestDto>> RequestChangeAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            RequestProjectScheduleChangeDto request,
+            CancellationToken cancellationToken = default)
+        {
+            LastScheduleId = scheduleId;
+            LastCurrentUserId = currentUserId;
+            LastChangeRequest = request;
+            return Task.FromResult(_changeResult);
         }
 
         public Task<ServiceResult<ProjectScheduleListResponseDto>> GetMyAssignedAsync(

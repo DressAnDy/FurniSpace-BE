@@ -1692,6 +1692,15 @@ Errors: `ORDER_NOT_FOUND`, `ORDER_DELIVERY_DETAILS_INVALID`, `ORDER_DELIVERY_DET
 
 Eligible order statuses: **`CREATED`** (creates payment and moves order → `DEPOSIT_PENDING`) or **`DEPOSIT_PENDING`** (reuses an active pending deposit payment when present). Amount is always taken from the order snapshot `depositAmount`.
 
+Deposit payment requires complete delivery details before both reusable-payment and new-payment branches:
+
+- `deliveryAddress` required
+- `receiverName` required
+- `receiverPhone` required
+- `deliveryNote` optional
+
+If any required field is missing/blank, response is `400 ORDER_DELIVERY_DETAILS_REQUIRED` with message `Delivery details must be completed before deposit payment.` Existing active pending deposit payment does not bypass this validation.
+
 ### Create production request
 
 ```json
@@ -1985,6 +1994,7 @@ Route: `project-schedules` (+ absolute create alias)
 | PATCH | `/project-schedules/{id}` | SALES, PRODUCTION, ADMIN |
 | PATCH | `/project-schedules/{id}/status` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | DELETE | `/project-schedules/{id}` | SALES, PRODUCTION, ADMIN |
+| POST | `/project-schedules/{scheduleId}/request-change` | CUSTOMER, ADMIN | Request delivery schedule change |
 | POST | `/project-schedules/{scheduleId}/measurement-images` | DESIGNER, ADMIN | Register measurement photo (direct upload metadata) |
 | GET | `/project-schedules/{scheduleId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Schedule measurement gallery |
 
@@ -2040,6 +2050,14 @@ Errors: `SCHEDULE_OVERLAP` for actual time intersection, `SCHEDULE_MINIMUM_GAP_N
 
 Other schedule types keep the legacy overlap-only validation.
 
+For `DELIVERY` schedules:
+
+- `location` is required on create.
+- `ProjectSchedule.location` is the authoritative actual appointment location.
+- Backend does **not** auto-copy `Order.deliveryAddress` into schedule location.
+- New delivery schedule starts as `PENDING_CONFIRMATION`.
+- Material changes to schedule time/end/location move the schedule back to `PENDING_CONFIRMATION` for customer reconfirmation.
+
 ### Update status
 
 ```json
@@ -2062,9 +2080,42 @@ Other schedule types keep the legacy overlap-only validation.
 - Multiple active `DELIVERY` / `HANDOVER` schedules per project are allowed (multi-round delivery).
 - Create requires project/order in delivery-ready state; blocked after customer confirms full delivery (`DELIVERY_SCHEDULE_NOT_ALLOWED_AFTER_COMPLETION`).
 
+### Request delivery schedule change
+
+`POST /project-schedules/{scheduleId}/request-change`
+
+Customer-owned delivery schedules can request a change without directly changing authoritative time/location fields. Admin can also request on behalf of support.
+
+```json
+{
+  "note": "Please deliver to address B after 15:00."
+}
+```
+
+Success response data:
+
+```json
+{
+  "scheduleId": "uuid",
+  "status": "PENDING_CONFIRMATION",
+  "customerNote": "Please deliver to address B after 15:00."
+}
+```
+
+Rules:
+
+- Only `DELIVERY` schedules are supported.
+- `note` is required and saved into `customerNote`.
+- Schedule status becomes `PENDING_CONFIRMATION`.
+- Customer must own the project/order context; Admin bypasses ownership.
+- Completed/cancelled schedules are not changeable.
+- Request is rejected after delivery execution has started.
+
+Errors: `SCHEDULE_CHANGE_NOTE_REQUIRED`, `INVALID_SCHEDULE_TYPE`, `INVALID_SCHEDULE_STATUS_TRANSITION`, `DELIVERY_IN_PROGRESS_BLOCKS_SCHEDULE_CANCEL`, `403`.
+
 ### Measurement image capture
 
-Register after direct-to-storage upload (Firebase). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`, and current time must be `>= scheduledStart`.
+Register after direct-to-storage upload (Firebase). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`. Future confirmed schedules are allowed, so FE does not need to wait until runtime to register measurement image metadata.
 
 ```json
 {
@@ -2079,6 +2130,8 @@ Register after direct-to-storage upload (Firebase). Assigned **designer** only; 
 ```
 
 Creates `StoredFile` + `file_links` on the schedule (`referenceType=PROJECT_SCHEDULE`, `fileType=SPACE_IMAGE`). Returns standard project file upload response.
+
+One request registers one image metadata record. For multi-select upload, FE uploads each physical file first, then calls this endpoint once per uploaded file. If `visibility` is omitted, backend stores the measurement image as `STAFF_ONLY`.
 
 **Schedule gallery query**: `projectAreaId?`, `assigned?` (filter by area link presence), `page`, `limit`
 

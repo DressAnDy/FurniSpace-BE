@@ -4,7 +4,7 @@ using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Application.Common.Projects;
 
-internal static class ProjectWorkflowStageCatalog
+public static class ProjectWorkflowStageCatalog
 {
     public const string StateNotStarted = "NOT_STARTED";
     public const string StateActive = "ACTIVE";

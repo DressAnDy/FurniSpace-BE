@@ -90,15 +90,14 @@ public sealed class AdminProjectReportRepository : IAdminProjectReportRepository
 
         if (!string.IsNullOrWhiteSpace(query.Keyword))
         {
-            // Case-insensitive match via ToLower: EF InMemory cannot translate ILike with left joins.
-            var keyword = query.Keyword.Trim().ToLowerInvariant();
+            var keyword = query.Keyword.Trim();
             projects =
                 from p in projects
                 join customer in _db.AccountSet.AsNoTracking() on p.CustomerId equals customer.AccountId into customers
                 from customer in customers.DefaultIfEmpty()
-                where (p.ProjectCode != null && p.ProjectCode.ToLower().Contains(keyword))
-                      || p.ProjectName.ToLower().Contains(keyword)
-                      || (customer != null && customer.FullName.ToLower().Contains(keyword))
+                where (p.ProjectCode != null && p.ProjectCode.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                      || p.ProjectName.Contains(keyword, StringComparison.OrdinalIgnoreCase)
+                      || (customer != null && customer.FullName.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 select p;
         }
 

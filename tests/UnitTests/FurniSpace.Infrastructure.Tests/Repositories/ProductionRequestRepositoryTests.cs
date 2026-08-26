@@ -221,6 +221,52 @@ public sealed class ProductionRequestRepositoryTests
         Assert.False(completed);
     }
 
+    [Fact]
+    public async Task HasAssignedCompletedProductionForProjectAsync_ReturnsTrueForCompletedAssignment()
+    {
+        await using var context = CreateContext();
+        var staffId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        context.ProjectSet.Add(CreateProject(projectId, salesId));
+        context.OrderSet.Add(CreateOrder(orderId, projectId, salesId));
+        context.ProductionRequestSet.Add(CreateRequest(
+            orderId,
+            projectId,
+            staffId,
+            ProductionRequestStatus.COMPLETED));
+        await context.SaveChangesAsync();
+        var repository = new ProductionRequestRepository(context);
+
+        var hasCompleted = await repository.HasAssignedCompletedProductionForProjectAsync(projectId, staffId);
+
+        Assert.True(hasCompleted);
+    }
+
+    [Fact]
+    public async Task HasAssignedCompletedProductionForProjectAsync_ReturnsFalseWhenOnlyInProduction()
+    {
+        await using var context = CreateContext();
+        var staffId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        context.ProjectSet.Add(CreateProject(projectId, salesId));
+        context.OrderSet.Add(CreateOrder(orderId, projectId, salesId));
+        context.ProductionRequestSet.Add(CreateRequest(
+            orderId,
+            projectId,
+            staffId,
+            ProductionRequestStatus.IN_PRODUCTION));
+        await context.SaveChangesAsync();
+        var repository = new ProductionRequestRepository(context);
+
+        var hasCompleted = await repository.HasAssignedCompletedProductionForProjectAsync(projectId, staffId);
+
+        Assert.False(hasCompleted);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

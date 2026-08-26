@@ -12,6 +12,7 @@ public enum FileType
     LIDAR_SCAN,
     MODEL_3D,
     TEXTURE,
+    PREVIEW,
     PRODUCT_PREVIEW,
     PROPOSAL_PREVIEW,
     PROPOSAL_FILE,
@@ -21,5 +22,6 @@ public enum FileType
     DELIVERY_PHOTO,
     DELIVERY_NOTE,
     REVIEW_IMAGE,
+    PORTFOLIO_IMAGE,
     OTHER
 }

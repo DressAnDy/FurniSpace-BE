@@ -22,4 +22,5 @@ public class ProjectSchedule
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public DateTime? CancelledAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
 }

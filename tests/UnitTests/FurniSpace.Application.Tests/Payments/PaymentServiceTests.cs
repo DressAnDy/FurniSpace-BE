@@ -132,6 +132,58 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
+    public async Task CreateDepositPaymentForOrderAsync_WhenDeliveryDetailsMissing_ReturnsRequiredError()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            OrderDetail = CreateOrderDetail(OrderStatus.CREATED),
+            OrderEntity = CreateOrderEntity(
+                CreateOrderDetail(OrderStatus.CREATED),
+                deliveryAddress: null)
+        });
+
+        var result = await service.CreateDepositPaymentForOrderAsync(
+            _orderId,
+            _customerId,
+            new CreateOrderDepositPaymentRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.OrderDeliveryDetailsRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateDepositPaymentForOrderAsync_WhenReusablePaymentExistsButReceiverMissing_ReturnsRequiredError()
+    {
+        var paymentId = Guid.NewGuid();
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedPayment(CreatePayment(
+            paymentId,
+            PaymentType.DEPOSIT,
+            PaymentStatus.PENDING,
+            30m,
+            orderId: _orderId));
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            OrderDetail = CreateOrderDetail(OrderStatus.DEPOSIT_PENDING),
+            OrderEntity = CreateOrderEntity(
+                CreateOrderDetail(OrderStatus.DEPOSIT_PENDING),
+                receiverPhone: " "),
+            Payments = repository
+        });
+
+        var result = await service.CreateDepositPaymentForOrderAsync(
+            _orderId,
+            _customerId,
+            new CreateOrderDepositPaymentRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.OrderDeliveryDetailsRequired, result.ErrorCode);
+        Assert.Empty(repository.NewPayments);
+    }
+
+    [Fact]
     public async Task CreateRemainingPaymentForOrderAsync_WhenValid_CreatesPayment()
     {
         var repository = new PaymentServiceFakeRepository();
@@ -1302,7 +1354,9 @@ public sealed class PaymentServiceTests
         };
         var orders = new PaymentServiceFakeOrderRepository
         {
-            OrderDetail = options.OrderDetail
+            OrderDetail = options.OrderDetail,
+            OrderEntity = options.OrderEntity ??
+                (options.OrderDetail is null ? null : CreateOrderEntity(options.OrderDetail))
         };
         var payOsClient = options.PayOsClient ?? new PaymentServiceFakePayOsClient();
         var saveChangesCount = 0;
@@ -1371,6 +1425,26 @@ public sealed class PaymentServiceTests
         };
     }
 
+    private static Order CreateOrderEntity(
+        OrderDetailReadModel detail,
+        string? deliveryAddress = "123 Nguyen Trai",
+        string? receiverName = "Nguyen Van A",
+        string? receiverPhone = "0901234567")
+    {
+        return new Order
+        {
+            OrderId = detail.OrderId,
+            ProjectId = detail.ProjectId,
+            QuotationId = detail.QuotationId,
+            CustomerId = detail.CustomerId,
+            SalesId = detail.SalesId,
+            Status = detail.Status,
+            DeliveryAddress = deliveryAddress,
+            ReceiverName = receiverName,
+            ReceiverPhone = receiverPhone
+        };
+    }
+
     private ProjectDetailReadModel CreateProjectDetail(bool hasDesigner = false)
     {
         return new ProjectDetailReadModel
@@ -1432,6 +1506,7 @@ public sealed class PaymentServiceTests
         public string Role { get; init; } = "ADMIN";
         public ProjectDetailReadModel? ProjectDetail { get; init; }
         public OrderDetailReadModel? OrderDetail { get; init; }
+        public Order? OrderEntity { get; init; }
         public PaymentServiceFakeRepository? Payments { get; init; }
         public IPayOsClient? PayOsClient { get; init; }
         public IUnitOfWork? UnitOfWork { get; init; }

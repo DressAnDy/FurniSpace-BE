@@ -5,9 +5,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
@@ -16,6 +19,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Payments;
+using FurniSpace.Infrastructure.ReadModels.Orders;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Options;
@@ -45,6 +49,10 @@ internal sealed class ProjectServiceFactoryOptions
     public IProductionRequestRepository? ProductionRequests { get; init; }
 
     public IProjectScheduleRepository? Schedules { get; init; }
+
+    public IDeliveryRepository? Deliveries { get; init; }
+
+    public IProjectPhaseDeadlineService? PhaseDeadlines { get; init; }
 }
 
 internal static class ProjectServiceTestFactory
@@ -77,7 +85,47 @@ internal static class ProjectServiceTestFactory
                 options.Quotations ?? new FakeProjectQuotationRepository(),
                 options.Proposals ?? new FakeProjectReopenProposalRepository(),
                 options.ProductionRequests ?? new FakeProjectProductionRequestRepository(),
-                options.Schedules ?? transitionFakes.Schedules));
+                options.Schedules ?? transitionFakes.Schedules,
+                options.Deliveries ?? new FakeProjectDeliveryRepository(),
+                options.PhaseDeadlines ?? new FakeProjectPhaseDeadlineService()));
+    }
+}
+
+internal sealed class FakeProjectPhaseDeadlineService : IProjectPhaseDeadlineService
+{
+    public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpsertProjectPhaseDeadlinesRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+    }
+
+    public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+    }
+
+    public Task MarkStartedOnceAsync(
+        Guid projectId,
+        ProjectPhaseType phase,
+        DateTime startedAt,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
+
+    public Task MarkCompletedOnceAsync(
+        Guid projectId,
+        ProjectPhaseType phase,
+        DateTime completedAt,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
     }
 }
 
@@ -357,6 +405,12 @@ internal sealed class FakeProjectFileRepository : IProjectFileRepository
         IReadOnlyCollection<FileType> fileTypes,
         CancellationToken cancellationToken = default)
         => Task.FromResult(HasMeasurementFiles);
+
+    public Task<Infrastructure.ReadModels.ProjectFiles.ProjectLinkedFileReadModel?> GetProjectLinkedActiveFileAsync(
+        Guid projectId,
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<Infrastructure.ReadModels.ProjectFiles.ProjectLinkedFileReadModel?>(null);
 
     public Task<Infrastructure.ReadModels.ProjectFiles.ProjectFileAccessReadModel?> GetProjectAccessAsync(
         Guid projectId,
@@ -1008,4 +1062,19 @@ internal sealed class FakeProjectReopenPaymentRepository : IPaymentRepository
     public Task<Payment?> GetByOrderAndTypeAsync(Guid orderId, PaymentType paymentType, CancellationToken cancellationToken = default) => Task.FromResult<Payment?>(null);
     public Task<Payment?> GetByProjectAndTypeAsync(Guid projectId, PaymentType paymentType, CancellationToken cancellationToken = default) => Task.FromResult<Payment?>(null);
     public Task<decimal> SumOrderScopedPaidAmountAsync(Guid orderId, CancellationToken cancellationToken = default) => Task.FromResult(0m);
+}
+
+internal sealed class FakeProjectDeliveryRepository : IDeliveryRepository
+{
+    public Task AddAsync(Delivery delivery, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task AddItemAsync(DeliveryItem item, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    public Task<DeliveryDetailReadModel?> GetDetailAsync(Guid orderId, Guid deliveryId, CancellationToken cancellationToken = default)
+        => Task.FromResult<DeliveryDetailReadModel?>(null);
+    public Task<IReadOnlyList<DeliveryListItemReadModel>> GetByOrderAsync(Guid orderId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<DeliveryListItemReadModel>>([]);
+    public Task<Delivery?> GetByIdAsync(Guid deliveryId, CancellationToken cancellationToken = default)
+        => Task.FromResult<Delivery?>(null);
+    public Task<IReadOnlyList<DeliveryItem>> GetItemsByDeliveryAsync(Guid deliveryId, CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<DeliveryItem>>([]);
+    public void Update(Delivery delivery) { }
 }

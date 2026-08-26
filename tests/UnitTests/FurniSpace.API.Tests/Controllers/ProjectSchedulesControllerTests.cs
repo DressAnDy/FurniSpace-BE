@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Projects;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectSchedules;
+using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -109,6 +110,15 @@ public sealed class ProjectSchedulesControllerTests
 
         Assert.NotNull(attr);
         Assert.Equal("SALES,PRODUCTION,ADMIN", attr.Roles);
+    }
+
+    [Fact]
+    public void RequestChange_RequiresCustomerAndAdminRoles()
+    {
+        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.RequestChange));
+
+        Assert.NotNull(attr);
+        Assert.Equal("CUSTOMER,ADMIN", attr.Roles);
     }
 
     // ── Create endpoint ──────────────────────────────────────────────────────────
@@ -314,13 +324,112 @@ public sealed class ProjectSchedulesControllerTests
         Assert.Equal(5, service.LastListQuery.Limit);
     }
 
+    [Fact]
+    public void RegisterMeasurementImage_RequiresDesignerAndAdmin()
+    {
+        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.RegisterMeasurementImage));
+
+        Assert.NotNull(attr);
+        Assert.Equal("DESIGNER,ADMIN", attr.Roles);
+    }
+
+    [Fact]
+    public async Task RegisterMeasurementImage_ReturnsServiceResult()
+    {
+        var scheduleId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var measurementImages = new RecordingMeasurementImageService(
+            ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>.Created(
+                new FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto(),
+                "Registered"));
+        var controller = BuildController(
+            new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto())),
+            userId,
+            measurementImages);
+
+        var request = new FurniSpace.Application.DTOs.MeasurementImages.RegisterMeasurementImageRequestDto
+        {
+            StoragePath = "projects/file.jpg",
+            PublicUrl = "https://cdn.example.com/file.jpg",
+            OriginalFileName = "file.jpg",
+            ContentType = "image/jpeg",
+            FileSizeBytes = 100
+        };
+        var actionResult = await controller.RegisterMeasurementImage(scheduleId, request);
+
+        Assert.Equal(201, Assert.IsType<ObjectResult>(actionResult).StatusCode);
+        Assert.Equal(scheduleId, measurementImages.LastScheduleId);
+        Assert.Same(request, measurementImages.LastRegisterRequest);
+    }
+
+    [Fact]
+    public async Task GetMeasurementImages_ReturnsServiceResult()
+    {
+        var scheduleId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var measurementImages = new RecordingMeasurementImageService(
+            scheduleGalleryResult: ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.Success(
+                new FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto()));
+        var controller = BuildController(
+            new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto())),
+            userId,
+            measurementImages);
+
+        var actionResult = await controller.GetMeasurementImages(scheduleId, projectAreaId: Guid.NewGuid(), assigned: true);
+
+        Assert.Equal(200, Assert.IsType<ObjectResult>(actionResult).StatusCode);
+        Assert.Equal(scheduleId, measurementImages.LastScheduleId);
+        Assert.True(measurementImages.LastQuery?.Assigned);
+    }
+
+    [Fact]
+    public async Task RequestChange_ReturnsServiceResult()
+    {
+        var scheduleId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new RequestProjectScheduleChangeDto { Note = "Please deliver after 15:00." };
+        var response = new ProjectScheduleChangeRequestDto
+        {
+            ScheduleId = scheduleId,
+            Status = ProjectScheduleStatus.PENDING_CONFIRMATION,
+            CustomerNote = request.Note
+        };
+        var service = new FakeProjectScheduleService(
+            ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto()),
+            changeResult: ServiceResult<ProjectScheduleChangeRequestDto>.Success(response));
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.RequestChange(scheduleId, request);
+
+        Assert.Equal(200, Assert.IsType<ObjectResult>(actionResult).StatusCode);
+        Assert.Equal(scheduleId, service.LastScheduleId);
+        Assert.Equal(userId, service.LastCurrentUserId);
+        Assert.Same(request, service.LastChangeRequest);
+    }
+
+    [Fact]
+    public async Task RequestChange_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeProjectScheduleService(
+            ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto())));
+
+        var actionResult = await controller.RequestChange(
+            Guid.NewGuid(),
+            new RequestProjectScheduleChangeDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────────
 
     private static ProjectSchedulesController BuildController(
         IProjectScheduleService service,
-        Guid? userId = null)
+        Guid? userId = null,
+        IMeasurementImageService? measurementImages = null)
     {
-        var controller = new ProjectSchedulesController(service)
+        var controller = new ProjectSchedulesController(
+            service,
+            measurementImages ?? new FakeMeasurementImageService())
         {
             ControllerContext = new ControllerContext
             {
@@ -351,17 +460,23 @@ public sealed class ProjectSchedulesControllerTests
     {
         private readonly ServiceResult<ProjectScheduleDto> _singleResult;
         private readonly ServiceResult<ProjectScheduleListResponseDto> _listResult;
+        private readonly ServiceResult<ProjectScheduleChangeRequestDto> _changeResult;
 
-        public FakeProjectScheduleService(ServiceResult<ProjectScheduleDto> result)
+        public FakeProjectScheduleService(
+            ServiceResult<ProjectScheduleDto> result,
+            ServiceResult<ProjectScheduleChangeRequestDto>? changeResult = null)
         {
             _singleResult = result;
             _listResult = ServiceResult<ProjectScheduleListResponseDto>.Success(new ProjectScheduleListResponseDto());
+            _changeResult = changeResult ??
+                ServiceResult<ProjectScheduleChangeRequestDto>.Success(new ProjectScheduleChangeRequestDto());
         }
 
         public FakeProjectScheduleService(ServiceResult<ProjectScheduleListResponseDto> result)
         {
             _singleResult = ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto());
             _listResult = result;
+            _changeResult = ServiceResult<ProjectScheduleChangeRequestDto>.Success(new ProjectScheduleChangeRequestDto());
         }
 
         public Guid LastProjectId { get; private set; }
@@ -370,6 +485,7 @@ public sealed class ProjectSchedulesControllerTests
         public CreateProjectScheduleRequestDto? LastCreateRequest { get; private set; }
         public UpdateProjectScheduleRequestDto? LastUpdateRequest { get; private set; }
         public ProjectScheduleListQueryDto? LastListQuery { get; private set; }
+        public RequestProjectScheduleChangeDto? LastChangeRequest { get; private set; }
 
         public Task<ServiceResult<ProjectScheduleDto>> CreateAsync(
             Guid projectId, Guid currentUserId, CreateProjectScheduleRequestDto request,
@@ -429,6 +545,18 @@ public sealed class ProjectSchedulesControllerTests
             return Task.FromResult(_singleResult);
         }
 
+        public Task<ServiceResult<ProjectScheduleChangeRequestDto>> RequestChangeAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            RequestProjectScheduleChangeDto request,
+            CancellationToken cancellationToken = default)
+        {
+            LastScheduleId = scheduleId;
+            LastCurrentUserId = currentUserId;
+            LastChangeRequest = request;
+            return Task.FromResult(_changeResult);
+        }
+
         public Task<ServiceResult<ProjectScheduleListResponseDto>> GetMyAssignedAsync(
             Guid currentUserId, ProjectScheduleListQueryDto query,
             CancellationToken cancellationToken = default)
@@ -437,5 +565,92 @@ public sealed class ProjectSchedulesControllerTests
             LastListQuery = query;
             return Task.FromResult(_listResult);
         }
+    }
+
+    private sealed class RecordingMeasurementImageService : FakeMeasurementImageService
+    {
+        private readonly ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>? _registerResult;
+        private readonly ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>? _scheduleGalleryResult;
+
+        public RecordingMeasurementImageService(
+            ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>? registerResult = null,
+            ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>? scheduleGalleryResult = null)
+        {
+            _registerResult = registerResult;
+            _scheduleGalleryResult = scheduleGalleryResult;
+        }
+
+        public Guid LastScheduleId { get; private set; }
+
+        public FurniSpace.Application.DTOs.MeasurementImages.RegisterMeasurementImageRequestDto? LastRegisterRequest { get; private set; }
+
+        public FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto? LastQuery { get; private set; }
+
+        public override Task<ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>> RegisterMeasurementImageAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.RegisterMeasurementImageRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            LastScheduleId = scheduleId;
+            LastRegisterRequest = request;
+            return Task.FromResult(_registerResult ?? ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>.Unauthorized());
+        }
+
+        public override Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetScheduleMeasurementImagesAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastScheduleId = scheduleId;
+            LastQuery = query;
+            return Task.FromResult(_scheduleGalleryResult ?? ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.Unauthorized());
+        }
+    }
+
+    private class FakeMeasurementImageService : IMeasurementImageService
+    {
+        public virtual Task<ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>> RegisterMeasurementImageAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.RegisterMeasurementImageRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public virtual Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetScheduleMeasurementImagesAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectAreaMeasurementImagesAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> LinkMeasurementImageToAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> UnlinkMeasurementImageFromAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
     }
 }

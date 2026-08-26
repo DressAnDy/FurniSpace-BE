@@ -232,6 +232,119 @@ public sealed class OrderRepositoryTests
         Assert.False(delivered);
     }
 
+    [Fact]
+    public async Task GetTotalRemainingDeliverableQuantityAsync_ReturnsRemainingQuantities()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        item.Quantity = 5;
+        item.DeliveredQuantity = 2;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var remaining = await repository.GetTotalRemainingDeliverableQuantityAsync(data.OrderId);
+
+        Assert.Equal(3, remaining);
+    }
+
+    [Fact]
+    public async Task HasProjectOrderInStatusesAsync_ReturnsTrueWhenStatusMatches()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new OrderRepository(context);
+
+        var hasOrder = await repository.HasProjectOrderInStatusesAsync(
+            data.ProjectId,
+            [OrderStatus.DEPOSIT_PENDING]);
+
+        Assert.True(hasOrder);
+    }
+
+    [Fact]
+    public async Task GetLatestByProjectInStatusesAsync_ReturnsMostRecentOrder()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var newerOrderId = Guid.NewGuid();
+        context.OrderSet.Add(new Order
+        {
+            OrderId = newerOrderId,
+            ProjectId = data.ProjectId,
+            QuotationId = Guid.NewGuid(),
+            OrderCode = "ORD-002",
+            CustomerId = data.CustomerId,
+            SalesId = data.SalesId,
+            Status = OrderStatus.READY_FOR_DELIVERY,
+            CreatedAt = DateTime.UtcNow.AddHours(1)
+        });
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var latest = await repository.GetLatestByProjectInStatusesAsync(
+            data.ProjectId,
+            [OrderStatus.DEPOSIT_PENDING, OrderStatus.READY_FOR_DELIVERY]);
+
+        Assert.NotNull(latest);
+        Assert.Equal(newerOrderId, latest!.OrderId);
+    }
+
+    [Fact]
+    public async Task GetItemsByIdsForUpdateAsync_WhenEmpty_ReturnsEmptyList()
+    {
+        await using var context = CreateContext();
+        var repository = new OrderRepository(context);
+
+        var items = await repository.GetItemsByIdsForUpdateAsync([]);
+
+        Assert.Empty(items);
+    }
+
+    [Fact]
+    public async Task GetItemByIdAsync_ReturnsMatchingItem()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var orderItem = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        var repository = new OrderRepository(context);
+
+        var item = await repository.GetItemByIdAsync(orderItem.OrderItemId);
+
+        Assert.NotNull(item);
+        Assert.Equal(orderItem.OrderItemId, item!.OrderItemId);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_WhenQuantityFullyDelivered_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        item.Quantity = 4;
+        item.DeliveredQuantity = 4;
+        item.Status = OrderItemStatus.PARTIALLY_DELIVERED;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(data.OrderId);
+
+        Assert.True(delivered);
+    }
+
+    [Fact]
+    public async Task OrderRepositoryInterfaceDefaults_ReturnConfiguredFallbacks()
+    {
+        IOrderRepository repository = new MinimalOrderRepository();
+
+        Assert.False(await repository.HasProjectOrderInStatusesAsync(Guid.NewGuid(), [OrderStatus.DELIVERING]));
+        Assert.Null(await repository.GetLatestByProjectInStatusesAsync(Guid.NewGuid(), [OrderStatus.DELIVERING]));
+        Assert.Equal(0, await repository.GetTotalRemainingDeliverableQuantityAsync(Guid.NewGuid()));
+        Assert.Empty(await repository.GetItemsByIdsForUpdateAsync([Guid.NewGuid()]));
+        Assert.Null(await repository.GetItemByIdAsync(Guid.NewGuid()));
+        Assert.Empty(await repository.GetItemsByOrderAsync(Guid.NewGuid()));
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

@@ -1714,11 +1714,18 @@ public sealed class ProposalService : IProposalService
                     "Scene object floor is not mapped to this proposal scene."));
             }
 
+            if (!sceneObject.ProductVersionId.HasValue || sceneObject.ProductVersionId.Value == Guid.Empty)
+            {
+                return SceneSyncItemsResult.Invalid(Error.BadRequest(
+                    InvalidObjectFloorReferenceCode,
+                    "Furniture scene object requires a product version."));
+            }
+
             syncItems.Add(new RoomPlannerSceneSyncItem(
                 sceneObjectId,
                 floorId,
                 projectAreaId,
-                sceneObject.ProductVersionId));
+                sceneObject.ProductVersionId.Value));
         }
 
         return SceneSyncItemsResult.Valid(syncItems);
@@ -1728,7 +1735,8 @@ public sealed class ProposalService : IProposalService
         IEnumerable<RoomPlannerObjectDocument> sceneObjects) =>
         sceneObjects.Where(sceneObject =>
             string.Equals(sceneObject.ObjectType, "FURNITURE", StringComparison.OrdinalIgnoreCase) &&
-            sceneObject.ProductVersionId != Guid.Empty);
+            sceneObject.ProductVersionId is { } productVersionId &&
+            productVersionId != Guid.Empty);
 
     private async Task<Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel>> GetProductVersionsForSyncAsync(
         IEnumerable<RoomPlannerSceneSyncItem> items,

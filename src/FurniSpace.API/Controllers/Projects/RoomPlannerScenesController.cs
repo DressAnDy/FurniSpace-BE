@@ -60,6 +60,27 @@ public sealed class RoomPlannerScenesController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [HttpPost("{sceneId:guid}/room-planner/resolve-layout-assets")]
+    public async Task<IActionResult> ResolveLayoutAssets(
+        Guid sceneId,
+        [FromBody] ResolveRoomPlannerLayoutAssetsRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUser(out var currentUserId, out var roleName))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _roomPlannerScenes.ResolveLayoutAssetsAsync(
+            sceneId,
+            request,
+            currentUserId,
+            roleName,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "DESIGNER,ADMIN")]
     [HttpPut("{sceneId:guid}/room-planner")]
     public async Task<IActionResult> SaveScene(

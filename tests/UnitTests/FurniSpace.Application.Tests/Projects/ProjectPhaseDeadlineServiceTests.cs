@@ -32,7 +32,7 @@ public sealed class ProjectPhaseDeadlineServiceTests
         var service = CreateService(context);
 
         var createResult = await service.UpsertAsync(project.ProjectId, SalesId, ValidRequest());
-        var createdRows = await context.ProjectPhaseDeadlineSet.ToListAsync();
+        var createdRows = await context.ProjectPhaseTimelineSet.ToListAsync();
 
         var updateResult = await service.UpsertAsync(
             project.ProjectId,
@@ -42,7 +42,7 @@ public sealed class ProjectPhaseDeadlineServiceTests
                 ProposalDueDate = new DateOnly(2026, 9, 11),
                 ProductionDueDate = new DateOnly(2026, 9, 26)
             });
-        var updatedRows = await context.ProjectPhaseDeadlineSet.ToListAsync();
+        var updatedRows = await context.ProjectPhaseTimelineSet.ToListAsync();
 
         Assert.Equal(200, createResult.Status);
         Assert.Equal(200, updateResult.Status);
@@ -105,7 +105,7 @@ public sealed class ProjectPhaseDeadlineServiceTests
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.IN_CONSULTATION);
-        context.ProjectPhaseDeadlineSet.AddRange(
+        context.ProjectPhaseTimelineSet.AddRange(
             CreateDeadline(project.ProjectId, ProjectPhaseType.PROPOSAL, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-2)),
             CreateDeadline(project.ProjectId, ProjectPhaseType.PRODUCTION, DateOnly.FromDateTime(DateTime.UtcNow).AddDays(5)));
         await context.SaveChangesAsync();
@@ -123,7 +123,7 @@ public sealed class ProjectPhaseDeadlineServiceTests
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.IN_CONSULTATION);
-        context.ProjectPhaseDeadlineSet.AddRange(
+        context.ProjectPhaseTimelineSet.AddRange(
             CreateDeadline(
                 project.ProjectId,
                 ProjectPhaseType.PROPOSAL,
@@ -171,7 +171,7 @@ public sealed class ProjectPhaseDeadlineServiceTests
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.PROPOSAL_CONSULTING);
         var deadline = CreateDeadline(project.ProjectId, ProjectPhaseType.PROPOSAL, new DateOnly(2026, 9, 10));
-        context.ProjectPhaseDeadlineSet.Add(deadline);
+        context.ProjectPhaseTimelineSet.Add(deadline);
         await context.SaveChangesAsync();
         var service = CreateService(context);
         var firstCompletion = new DateTime(2026, 9, 9, 10, 0, 0, DateTimeKind.Utc);
@@ -188,7 +188,7 @@ public sealed class ProjectPhaseDeadlineServiceTests
     {
         return new ProjectPhaseDeadlineService(
             new ProjectRepository(context),
-            new ProjectPhaseDeadlineRepository(context),
+            new ProjectPhaseTimelineRepository(context),
             new ProductionRequestRepository(context),
             new UnitOfWork(context));
     }
@@ -258,15 +258,15 @@ public sealed class ProjectPhaseDeadlineServiceTests
         };
     }
 
-    private static ProjectPhaseDeadline CreateDeadline(
+    private static ProjectPhaseTimeline CreateDeadline(
         Guid projectId,
         ProjectPhaseType phase,
         DateOnly dueDate,
         DateTime? completedAt = null)
     {
-        return new ProjectPhaseDeadline
+        return new ProjectPhaseTimeline
         {
-            ProjectPhaseDeadlineId = Guid.NewGuid(),
+            ProjectPhaseTimelineId = Guid.NewGuid(),
             ProjectId = projectId,
             Phase = phase,
             DueDate = dueDate,

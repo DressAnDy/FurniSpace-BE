@@ -19,6 +19,7 @@ public sealed class ProjectPhaseDeadlineItemDto
 {
     public ProjectPhaseType Phase { get; set; }
     public DateOnly DueDate { get; set; }
+    public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public string Status { get; set; } = string.Empty;
     public int OverdueDays { get; set; }

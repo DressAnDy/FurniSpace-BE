@@ -32,6 +32,7 @@ public sealed class RoomPlannerScenesControllerTests
     [Theory]
     [InlineData(nameof(RoomPlannerScenesController.GetScene), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(RoomPlannerScenesController.ResolveProducts), "CUSTOMER,DESIGNER,SALES,ADMIN")]
+    [InlineData(nameof(RoomPlannerScenesController.ResolveLayoutAssets), "CUSTOMER,DESIGNER,SALES,ADMIN")]
     [InlineData(nameof(RoomPlannerScenesController.SaveScene), "DESIGNER,ADMIN")]
     public void Actions_UseExpectedRoles(string actionName, string expectedRoles)
     {
@@ -132,6 +133,43 @@ public sealed class RoomPlannerScenesControllerTests
     }
 
     [Fact]
+    public async Task ResolveLayoutAssets_ReturnsServiceResultAndPassesCurrentUser()
+    {
+        var sceneId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var layoutAssetId = Guid.NewGuid();
+        var response = new ResolveRoomPlannerLayoutAssetsResponseDto
+        {
+            SceneId = sceneId,
+            Items =
+            [
+                new RoomPlannerResolvedLayoutAssetDto
+                {
+                    LayoutAssetId = layoutAssetId,
+                    AssetName = "Wall material"
+                }
+            ]
+        };
+        var service = new FakeRoomPlannerSceneService(
+            resolveLayoutAssetsResult: ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.Success(
+                response,
+                "Room planner layout assets resolved successfully."));
+        var controller = BuildController(service, currentUserId, "CUSTOMER");
+
+        var actionResult = await controller.ResolveLayoutAssets(
+            sceneId,
+            new ResolveRoomPlannerLayoutAssetsRequestDto { LayoutAssetIds = [layoutAssetId] });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>>(objectResult.Value);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(sceneId, service.SceneId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Equal("CUSTOMER", service.CurrentUserRole);
+    }
+
+    [Fact]
     public async Task Actions_WithoutUserClaim_ReturnUnauthorized()
     {
         var service = new FakeRoomPlannerSceneService();
@@ -141,6 +179,9 @@ public sealed class RoomPlannerScenesControllerTests
         Assert.IsType<UnauthorizedResult>(await controller.ResolveProducts(
             Guid.NewGuid(),
             new ResolveRoomPlannerProductsRequestDto()));
+        Assert.IsType<UnauthorizedResult>(await controller.ResolveLayoutAssets(
+            Guid.NewGuid(),
+            new ResolveRoomPlannerLayoutAssetsRequestDto()));
         Assert.IsType<UnauthorizedResult>(await controller.SaveScene(Guid.NewGuid(), new RoomPlannerScenePayloadDto()));
         Assert.Equal(0, service.CallCount);
     }
@@ -175,15 +216,18 @@ public sealed class RoomPlannerScenesControllerTests
         private readonly ServiceResult<RoomPlannerSceneResponseDto> _getResult;
         private readonly ServiceResult<RoomPlannerSceneSaveResponseDto> _saveResult;
         private readonly ServiceResult<ResolveRoomPlannerProductsResponseDto> _resolveResult;
+        private readonly ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto> _resolveLayoutAssetsResult;
 
         public FakeRoomPlannerSceneService(
             ServiceResult<RoomPlannerSceneResponseDto>? getResult = null,
             ServiceResult<RoomPlannerSceneSaveResponseDto>? saveResult = null,
-            ServiceResult<ResolveRoomPlannerProductsResponseDto>? resolveResult = null)
+            ServiceResult<ResolveRoomPlannerProductsResponseDto>? resolveResult = null,
+            ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>? resolveLayoutAssetsResult = null)
         {
             _getResult = getResult ?? ServiceResult<RoomPlannerSceneResponseDto>.Success(new RoomPlannerSceneResponseDto());
             _saveResult = saveResult ?? ServiceResult<RoomPlannerSceneSaveResponseDto>.Success(new RoomPlannerSceneSaveResponseDto());
             _resolveResult = resolveResult ?? ServiceResult<ResolveRoomPlannerProductsResponseDto>.Success(new ResolveRoomPlannerProductsResponseDto());
+            _resolveLayoutAssetsResult = resolveLayoutAssetsResult ?? ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>.Success(new ResolveRoomPlannerLayoutAssetsResponseDto());
         }
 
         public int CallCount { get; private set; }
@@ -223,6 +267,17 @@ public sealed class RoomPlannerScenesControllerTests
         {
             Capture(sceneId, currentUserId, currentUserRole);
             return Task.FromResult(_resolveResult);
+        }
+
+        public Task<ServiceResult<ResolveRoomPlannerLayoutAssetsResponseDto>> ResolveLayoutAssetsAsync(
+            Guid sceneId,
+            ResolveRoomPlannerLayoutAssetsRequestDto request,
+            Guid currentUserId,
+            string currentUserRole,
+            CancellationToken cancellationToken = default)
+        {
+            Capture(sceneId, currentUserId, currentUserRole);
+            return Task.FromResult(_resolveLayoutAssetsResult);
         }
 
         private void Capture(Guid sceneId, Guid currentUserId, string currentUserRole)

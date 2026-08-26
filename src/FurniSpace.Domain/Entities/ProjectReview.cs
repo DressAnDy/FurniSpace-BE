@@ -13,6 +13,8 @@ public class ProjectReview
     public int? ServiceQualityRating { get; set; }
     public int? DeliveryRating { get; set; }
     public string? Comment { get; set; }
+    public bool AllowPublicDisplay { get; set; }
+    public DateTime? PublicDisplayConsentAt { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }

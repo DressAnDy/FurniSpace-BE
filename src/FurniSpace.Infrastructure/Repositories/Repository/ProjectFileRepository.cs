@@ -83,14 +83,36 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         await DbContext.FileLinkSet.AddAsync(fileLink, cancellationToken);
     }
 
-    public Task<FileMetadataReadModel?> GetFileMetadataAsync(
+    public async Task<FileMetadataReadModel?> GetFileMetadataAsync(
         Guid fileId,
         CancellationToken cancellationToken = default)
     {
-        return BuildFileMetadataQuery()
-            .Where(file => file.FileId == fileId)
-            .OrderBy(file => file.FileLinkId == null)
+        var file = await DbContext.StoredFileSet
+            .AsNoTracking()
+            .FirstOrDefaultAsync(entity => entity.FileId == fileId, cancellationToken);
+
+        if (file is null)
+        {
+            return null;
+        }
+
+        var link = await DbContext.FileLinkSet
+            .AsNoTracking()
+            .Where(entity => entity.FileId == fileId)
+            .OrderBy(entity => entity.FileLinkId)
             .FirstOrDefaultAsync(cancellationToken);
+
+        if (link is null)
+        {
+            return MapUnlinkedFileMetadata(file);
+        }
+
+        var projectAccess = await GetReferenceProjectAccessAsync(
+            link.ReferenceType,
+            link.ReferenceId,
+            cancellationToken);
+
+        return MapLinkedFileMetadata(file, link, projectAccess);
     }
 
     public async Task<FileReferencePageReadModel> GetFilesByReferenceAsync(
@@ -422,10 +444,49 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
         public required ProjectFileAccessReadModel ProjectAccess { get; init; }
     }
 
-    private IQueryable<FileMetadataReadModel> BuildFileMetadataQuery()
+    private static FileMetadataReadModel MapUnlinkedFileMetadata(StoredFile file)
     {
-        return BuildLinkedFileMetadataQuery()
-            .Concat(BuildUnlinkedFileMetadataQuery());
+        return new FileMetadataReadModel
+        {
+            FileId = file.FileId,
+            OriginalFileName = file.OriginalFileName,
+            StoredFileName = file.StoredFileName,
+            MimeType = file.MimeType,
+            FileSizeBytes = file.FileSizeBytes,
+            StoragePath = file.StoragePath,
+            FileUrl = file.FileUrl,
+            UploadedBy = file.UploadedBy,
+            UploadedAt = file.UploadedAt,
+            Status = file.Status
+        };
+    }
+
+    private static FileMetadataReadModel MapLinkedFileMetadata(
+        StoredFile file,
+        FileLink link,
+        ProjectFileAccessReadModel? projectAccess)
+    {
+        return new FileMetadataReadModel
+        {
+            FileId = file.FileId,
+            FileLinkId = link.FileLinkId,
+            ReferenceType = link.ReferenceType,
+            ReferenceId = link.ReferenceId,
+            OriginalFileName = file.OriginalFileName,
+            StoredFileName = file.StoredFileName,
+            FileType = link.FileType,
+            MimeType = file.MimeType,
+            FileSizeBytes = file.FileSizeBytes,
+            StoragePath = file.StoragePath,
+            FileUrl = file.FileUrl,
+            Visibility = link.Visibility,
+            UploadedBy = file.UploadedBy,
+            UploadedAt = file.UploadedAt,
+            Status = file.Status,
+            DisplayOrder = link.DisplayOrder,
+            IsPrimary = link.IsPrimary,
+            ProjectAccess = projectAccess
+        };
     }
 
     private IQueryable<FileMetadataReadModel> BuildLinkedFileMetadataQuery()
@@ -520,25 +581,6 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                     AssignedDesignerId = project.AssignedDesignerId,
                     Status = project.Status
                 }
-            });
-    }
-
-    private IQueryable<FileMetadataReadModel> BuildUnlinkedFileMetadataQuery()
-    {
-        return DbContext.StoredFileSet
-            .Where(file => !DbContext.FileLinkSet.Any(link => link.FileId == file.FileId))
-            .Select(file => new FileMetadataReadModel
-            {
-                FileId = file.FileId,
-                OriginalFileName = file.OriginalFileName,
-                StoredFileName = file.StoredFileName,
-                MimeType = file.MimeType,
-                FileSizeBytes = file.FileSizeBytes,
-                StoragePath = file.StoragePath,
-                FileUrl = file.FileUrl,
-                UploadedBy = file.UploadedBy,
-                UploadedAt = file.UploadedAt,
-                Status = file.Status
             });
     }
 
@@ -784,5 +826,260 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 link.FileType.HasValue &&
                 fileTypes.Contains(link.FileType.Value))
             .AnyAsync(cancellationToken);
+    }
+
+    public Task<ProjectLinkedFileReadModel?> GetProjectLinkedActiveFileAsync(
+        Guid projectId,
+        Guid fileId,
+        CancellationToken cancellationToken = default)
+    {
+        return (
+            from file in DbContext.StoredFileSet
+            join link in DbContext.FileLinkSet on file.FileId equals link.FileId
+            where file.FileId == fileId
+                && file.Status == FileStatus.ACTIVE
+                && link.ReferenceType == ProjectReferenceType
+                && link.ReferenceId == projectId
+            select new ProjectLinkedFileReadModel
+            {
+                FileId = file.FileId,
+                FileType = link.FileType,
+                MimeType = file.MimeType,
+                FileUrl = file.FileUrl,
+                OriginalFileName = file.OriginalFileName
+            }).FirstOrDefaultAsync(cancellationToken);
+    }
+
+    public Task<bool> ExistsByStoragePathAsync(
+        string storagePath,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.StoredFileSet
+            .AnyAsync(file => file.StoragePath == storagePath, cancellationToken);
+    }
+
+    public async Task<MeasurementImageGalleryPageReadModel> GetMeasurementImageGalleryAsync(
+        MeasurementImageGalleryQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        const string scheduleReferenceType = "PROJECT_SCHEDULE";
+        const string areaReferenceType = "PROJECT_AREA";
+        var page = Math.Max(query.Page, 1);
+        var limit = Math.Max(query.Limit, 1);
+
+        var baseQuery = BuildMeasurementGalleryBaseQuery(scheduleReferenceType);
+        baseQuery = ApplyMeasurementGalleryFilters(baseQuery, query, areaReferenceType);
+
+        var total = await baseQuery.CountAsync(cancellationToken);
+        var pageItems = await baseQuery
+            .OrderByDescending(item => item.File.UploadedAt)
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(item => new MeasurementGalleryPageItemRow
+            {
+                FileId = item.File.FileId,
+                FileUrl = item.File.FileUrl,
+                UploadedAt = item.File.UploadedAt,
+                ScheduleId = item.Schedule.ScheduleId,
+                ScheduledStart = item.Schedule.ScheduledStart
+            })
+            .ToListAsync(cancellationToken);
+
+        if (pageItems.Count == 0)
+        {
+            return new MeasurementImageGalleryPageReadModel
+            {
+                Items = [],
+                Total = total
+            };
+        }
+
+        return await BuildMeasurementGalleryPageAsync(pageItems, total, areaReferenceType, cancellationToken);
+    }
+
+    private IQueryable<MeasurementGalleryFilterRow> BuildMeasurementGalleryBaseQuery(string scheduleReferenceType)
+    {
+        return from file in DbContext.StoredFileSet
+            join scheduleLink in DbContext.FileLinkSet on file.FileId equals scheduleLink.FileId
+            join schedule in DbContext.ProjectScheduleSet on scheduleLink.ReferenceId equals schedule.ScheduleId
+            where scheduleLink.ReferenceType == scheduleReferenceType
+                && scheduleLink.FileType == FileType.SPACE_IMAGE
+                && schedule.ScheduleType == ProjectScheduleType.MEASUREMENT
+                && file.Status == FileStatus.ACTIVE
+            select new MeasurementGalleryFilterRow
+            {
+                File = file,
+                ScheduleLink = scheduleLink,
+                Schedule = schedule
+            };
+    }
+
+    private IQueryable<MeasurementGalleryFilterRow> ApplyMeasurementGalleryFilters(
+        IQueryable<MeasurementGalleryFilterRow> baseQuery,
+        MeasurementImageGalleryQueryReadModel query,
+        string areaReferenceType)
+    {
+        if (query.ProjectId.HasValue)
+        {
+            var projectId = query.ProjectId.Value;
+            baseQuery = baseQuery.Where(item => item.Schedule.ProjectId == projectId);
+        }
+
+        if (query.ScheduleId.HasValue)
+        {
+            var scheduleId = query.ScheduleId.Value;
+            baseQuery = baseQuery.Where(item => item.Schedule.ScheduleId == scheduleId);
+        }
+
+        if (query.ProjectAreaId.HasValue)
+        {
+            var projectAreaId = query.ProjectAreaId.Value;
+            baseQuery = baseQuery.Where(item =>
+                DbContext.FileLinkSet.Any(areaLink =>
+                    areaLink.FileId == item.File.FileId &&
+                    areaLink.ReferenceType == areaReferenceType &&
+                    areaLink.ReferenceId == projectAreaId &&
+                    areaLink.FileType == FileType.SPACE_IMAGE));
+        }
+
+        baseQuery = ApplyMeasurementGalleryAssignmentFilter(baseQuery, query.Assigned, areaReferenceType);
+        return ApplyMeasurementGalleryVisibilityFilter(baseQuery, query);
+    }
+
+    private IQueryable<MeasurementGalleryFilterRow> ApplyMeasurementGalleryAssignmentFilter(
+        IQueryable<MeasurementGalleryFilterRow> baseQuery,
+        bool? assigned,
+        string areaReferenceType)
+    {
+        if (assigned == false)
+        {
+            return baseQuery.Where(item =>
+                !DbContext.FileLinkSet.Any(areaLink =>
+                    areaLink.FileId == item.File.FileId &&
+                    areaLink.ReferenceType == areaReferenceType &&
+                    areaLink.FileType == FileType.SPACE_IMAGE));
+        }
+
+        if (assigned == true)
+        {
+            return baseQuery.Where(item =>
+                DbContext.FileLinkSet.Any(areaLink =>
+                    areaLink.FileId == item.File.FileId &&
+                    areaLink.ReferenceType == areaReferenceType &&
+                    areaLink.FileType == FileType.SPACE_IMAGE));
+        }
+
+        return baseQuery;
+    }
+
+    private static IQueryable<MeasurementGalleryFilterRow> ApplyMeasurementGalleryVisibilityFilter(
+        IQueryable<MeasurementGalleryFilterRow> baseQuery,
+        MeasurementImageGalleryQueryReadModel query)
+    {
+        if (!query.CustomerVisibleOnly)
+        {
+            return baseQuery;
+        }
+
+        if (query.CustomerAccountId.HasValue)
+        {
+            var accountId = query.CustomerAccountId.Value;
+            return baseQuery.Where(item =>
+                item.ScheduleLink.Visibility == FileVisibility.CUSTOMER_VISIBLE ||
+                item.File.UploadedBy == accountId);
+        }
+
+        return baseQuery.Where(item => item.ScheduleLink.Visibility == FileVisibility.CUSTOMER_VISIBLE);
+    }
+
+    private async Task<MeasurementImageGalleryPageReadModel> BuildMeasurementGalleryPageAsync(
+        IReadOnlyList<MeasurementGalleryPageItemRow> pageItems,
+        int total,
+        string areaReferenceType,
+        CancellationToken cancellationToken)
+    {
+        var fileIds = pageItems.Select(item => item.FileId).ToList();
+        var areaAssignments = await (
+            from areaLink in DbContext.FileLinkSet
+            join area in DbContext.ProjectAreaSet on areaLink.ReferenceId equals area.ProjectAreaId
+            where areaLink.ReferenceType == areaReferenceType
+                && areaLink.FileType == FileType.SPACE_IMAGE
+                && fileIds.Contains(areaLink.FileId)
+            select new
+            {
+                areaLink.FileId,
+                area.ProjectAreaId,
+                area.AreaName
+            }).ToListAsync(cancellationToken);
+
+        var areasByFileId = areaAssignments
+            .GroupBy(item => item.FileId)
+            .ToDictionary(
+                group => group.Key,
+                group => (IReadOnlyList<MeasurementImageAreaAssignmentReadModel>)group
+                    .Select(item => new MeasurementImageAreaAssignmentReadModel
+                    {
+                        ProjectAreaId = item.ProjectAreaId,
+                        AreaName = item.AreaName
+                    })
+                    .ToList());
+
+        var items = pageItems
+            .Select(item => new MeasurementImageGalleryItemReadModel
+            {
+                FileId = item.FileId,
+                FileUrl = item.FileUrl,
+                UploadedAt = item.UploadedAt,
+                ScheduleId = item.ScheduleId,
+                ScheduledStart = item.ScheduledStart,
+                Areas = areasByFileId.TryGetValue(item.FileId, out var areas) ? areas : []
+            })
+            .ToList();
+
+        return new MeasurementImageGalleryPageReadModel
+        {
+            Items = items,
+            Total = total
+        };
+    }
+
+    private sealed class MeasurementGalleryFilterRow
+    {
+        public StoredFile File { get; init; } = null!;
+        public FileLink ScheduleLink { get; init; } = null!;
+        public ProjectSchedule Schedule { get; init; } = null!;
+    }
+
+    private sealed class MeasurementGalleryPageItemRow
+    {
+        public Guid FileId { get; init; }
+        public string FileUrl { get; init; } = string.Empty;
+        public DateTime UploadedAt { get; init; }
+        public Guid ScheduleId { get; init; }
+        public DateTime ScheduledStart { get; init; }
+    }
+
+    public Task<bool> HasMeasurementScheduleLinkInProjectAsync(
+        Guid fileId,
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        const string scheduleReferenceType = "PROJECT_SCHEDULE";
+
+        return DbContext.FileLinkSet
+            .Where(link =>
+                link.FileId == fileId &&
+                link.ReferenceType == scheduleReferenceType &&
+                link.FileType == FileType.SPACE_IMAGE)
+            .Join(
+                DbContext.ProjectScheduleSet,
+                link => link.ReferenceId,
+                schedule => schedule.ScheduleId,
+                (link, schedule) => schedule)
+            .AnyAsync(
+                schedule =>
+                    schedule.ProjectId == projectId &&
+                    schedule.ScheduleType == ProjectScheduleType.MEASUREMENT,
+                cancellationToken);
     }
 }

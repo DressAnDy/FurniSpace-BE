@@ -9,6 +9,7 @@ namespace FurniSpace.Application.Common.Orders;
 public sealed record OrderServiceDependencies(
     IProductionRequestRepository ProductionRequests,
     IProjectScheduleRepository Schedules,
+    IDeliveryRepository Deliveries,
     IUnitOfWork UnitOfWork,
     SePayOptions SePayOptions,
     INotificationDispatcher? Notifications,

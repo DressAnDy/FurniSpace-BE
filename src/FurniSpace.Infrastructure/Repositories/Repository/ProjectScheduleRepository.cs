@@ -46,7 +46,8 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
                     InternalNote = s.InternalNote,
                     CreatedAt = s.CreatedAt,
                     UpdatedAt = s.UpdatedAt,
-                    CancelledAt = s.CancelledAt
+                    CancelledAt = s.CancelledAt,
+                    CompletedAt = s.CompletedAt
                 })
             .FirstOrDefaultAsync(cancellationToken);
     }
@@ -113,7 +114,8 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
                     ScheduledEnd = s.ScheduledEnd,
                     Location = s.Location,
                     Status = s.Status,
-                    CreatedAt = s.CreatedAt
+                    CreatedAt = s.CreatedAt,
+                    CompletedAt = s.CompletedAt
                 })
             .ToListAsync(cancellationToken);
 
@@ -255,8 +257,10 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
         var query = DbContext.ProjectScheduleSet
             .Where(schedule =>
                 schedule.AssignedStaffId == assignedStaffId &&
+                schedule.Status != ProjectScheduleStatus.CANCELLED &&
                 (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
-                 schedule.Status == ProjectScheduleStatus.CONFIRMED));
+                 schedule.Status == ProjectScheduleStatus.CONFIRMED ||
+                 (schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt != null)));
 
         if (excludedScheduleId.HasValue)
         {
@@ -266,9 +270,64 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
 
         return query.AnyAsync(
             schedule =>
-                scheduledStart < (schedule.ScheduledEnd ?? schedule.ScheduledStart) &&
+                scheduledStart < (schedule.Status == ProjectScheduleStatus.COMPLETED
+                    ? schedule.CompletedAt!.Value
+                    : (schedule.ScheduledEnd ?? schedule.ScheduledStart)) &&
                 newEnd > schedule.ScheduledStart,
             cancellationToken);
+    }
+
+    public async Task<StaffScheduleConflictKind> GetStaffScheduleConflictAsync(
+        Guid assignedStaffId,
+        DateTime scheduledStart,
+        DateTime scheduledEnd,
+        Guid? excludedScheduleId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = DbContext.ProjectScheduleSet
+            .Where(schedule =>
+                schedule.AssignedStaffId == assignedStaffId &&
+                schedule.Status != ProjectScheduleStatus.CANCELLED &&
+                (schedule.ScheduleType == ProjectScheduleType.MEASUREMENT ||
+                 schedule.ScheduleType == ProjectScheduleType.DELIVERY) &&
+                (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
+                 schedule.Status == ProjectScheduleStatus.CONFIRMED ||
+                 (schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt != null)));
+
+        if (excludedScheduleId.HasValue)
+        {
+            var scheduleId = excludedScheduleId.Value;
+            query = query.Where(schedule => schedule.ScheduleId != scheduleId);
+        }
+
+        var schedules = await query
+            .Select(schedule => new
+            {
+                schedule.ScheduledStart,
+                schedule.ScheduledEnd,
+                schedule.CompletedAt,
+                schedule.Status
+            })
+            .ToListAsync(cancellationToken);
+
+        foreach (var schedule in schedules)
+        {
+            var existingEnd = schedule.Status == ProjectScheduleStatus.COMPLETED
+                ? schedule.CompletedAt!.Value
+                : schedule.ScheduledEnd ?? schedule.ScheduledStart;
+            if (scheduledStart < existingEnd && scheduledEnd > schedule.ScheduledStart)
+            {
+                return StaffScheduleConflictKind.Overlap;
+            }
+
+            if (scheduledStart < existingEnd.AddHours(2) &&
+                scheduledEnd.AddHours(2) > schedule.ScheduledStart)
+            {
+                return StaffScheduleConflictKind.MinimumGapNotMet;
+            }
+        }
+
+        return StaffScheduleConflictKind.None;
     }
 
     private static DateOnly? MaxDateOnly(DateOnly? current, DateOnly candidate)
@@ -276,5 +335,61 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
         return !current.HasValue || candidate > current.Value
             ? candidate
             : current;
+    }
+
+    public async Task<IReadOnlyList<ProjectSchedule>> GetUnusedFutureDeliverySchedulesAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var schedules = await DbContext.ProjectScheduleSet
+            .Where(schedule =>
+                schedule.ProjectId == projectId &&
+                schedule.ScheduleType == ProjectScheduleType.DELIVERY &&
+                (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
+                 schedule.Status == ProjectScheduleStatus.CONFIRMED))
+            .ToListAsync(cancellationToken);
+
+        var scheduleIds = schedules.Select(schedule => schedule.ScheduleId).ToList();
+        if (scheduleIds.Count == 0)
+        {
+            return [];
+        }
+
+        var linkedScheduleIds = await DbContext.DeliverySet
+            .Where(delivery =>
+                delivery.ProjectScheduleId.HasValue &&
+                scheduleIds.Contains(delivery.ProjectScheduleId.Value))
+            .Select(delivery => delivery.ProjectScheduleId!.Value)
+            .ToListAsync(cancellationToken);
+
+        return schedules
+            .Where(schedule => !linkedScheduleIds.Contains(schedule.ScheduleId))
+            .ToList();
+    }
+
+    public Task<bool> HasUnresolvedConfirmedDeliveryScheduleAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProjectScheduleSet.AnyAsync(
+            schedule =>
+                schedule.ProjectId == projectId &&
+                schedule.ScheduleType == ProjectScheduleType.DELIVERY &&
+                schedule.Status == ProjectScheduleStatus.CONFIRMED &&
+                !DbContext.DeliverySet.Any(delivery =>
+                    delivery.ProjectScheduleId == schedule.ScheduleId &&
+                    delivery.Status == DeliveryStatus.COMPLETED),
+            cancellationToken);
+    }
+
+    public Task<bool> HasLinkedInProgressDeliveryAsync(
+        Guid scheduleId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.DeliverySet.AnyAsync(
+            delivery =>
+                delivery.ProjectScheduleId == scheduleId &&
+                delivery.Status == DeliveryStatus.IN_PROGRESS,
+            cancellationToken);
     }
 }

@@ -108,6 +108,7 @@ public sealed class PostgresIntegrationDatabase : IAsyncDisposable
         builder.MapEnum<QuotationItemType>("quotation_item_type", translator);
         builder.MapEnum<OrderStatus>("order_status", translator);
         builder.MapEnum<OrderItemStatus>("order_item_status", translator);
+        builder.MapEnum<DeliveryStatus>("delivery_status", translator);
         builder.MapEnum<PaymentStatus>("payment_status", translator);
         builder.MapEnum<PaymentType>("payment_type", translator);
         builder.MapEnum<PaymentProvider>("payment_provider", translator);
@@ -126,5 +127,7 @@ public sealed class PostgresIntegrationDatabase : IAsyncDisposable
         builder.MapEnum<ProductVersionType>("product_version_type", translator);
         builder.MapEnum<LayoutAssetType>("layout_asset_type", translator);
         builder.MapEnum<LayoutAssetStatus>("layout_asset_status", translator);
+        builder.MapEnum<ProjectShowcaseStatus>("project_showcase_status", translator);
+        builder.MapEnum<ProjectShowcaseMediaType>("project_showcase_media_type", translator);
     }
 }

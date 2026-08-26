@@ -1,5 +1,6 @@
 using System.Reflection;
 using FurniSpace.Application.Common.Auth;
+using FurniSpace.Application.Common.LayoutAssets;
 using FurniSpace.Application.Common.CustomizationRequests;
 using FurniSpace.Application.Common.Identity;
 using FurniSpace.Application.Common.Orders;
@@ -7,6 +8,7 @@ using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Quotations;
 using FurniSpace.Application.Common.Storage;
+using FurniSpace.Application.Common.MeasurementImages;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.BusinessTypes;
 using FurniSpace.Application.Interfaces.Categories;
@@ -15,6 +17,7 @@ using FurniSpace.Application.Interfaces.CustomizationRequests;
 using FurniSpace.Application.Interfaces.Dashboard;
 using FurniSpace.Application.Interfaces.Financial;
 using FurniSpace.Application.Interfaces.Identity;
+using FurniSpace.Application.Interfaces.LayoutAssets;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
@@ -22,10 +25,13 @@ using FurniSpace.Application.Interfaces.Production;
 using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Application.Interfaces.Quotations;
 using FurniSpace.Application.Interfaces.ProjectFiles;
+using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.ProjectAreas;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
+using FurniSpace.Application.Interfaces.ProjectReviews;
+using FurniSpace.Application.Interfaces.ProjectShowcases;
 using FurniSpace.Application.Interfaces.Orders;
 using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Application.Interfaces.Projects;
@@ -41,6 +47,7 @@ using FurniSpace.Application.Services.CustomizationRequests;
 using FurniSpace.Application.Services.Dashboard;
 using FurniSpace.Application.Services.Financial;
 using FurniSpace.Application.Services.Identity;
+using FurniSpace.Application.Services.LayoutAssets;
 using FurniSpace.Application.Services.Notifications;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Services.ProductVersions;
@@ -48,10 +55,13 @@ using FurniSpace.Application.Services.Production;
 using FurniSpace.Application.Services.Proposals;
 using FurniSpace.Application.Services.Quotations;
 using FurniSpace.Application.Services.ProjectFiles;
+using FurniSpace.Application.Services.MeasurementImages;
 using FurniSpace.Application.Services.ProjectChats;
 using FurniSpace.Application.Services.ProjectChatMessages;
 using FurniSpace.Application.Services.ProjectAreas;
 using FurniSpace.Application.Services.ProjectSchedules;
+using FurniSpace.Application.Services.ProjectReviews;
+using FurniSpace.Application.Services.ProjectShowcases;
 using FurniSpace.Application.Services.Orders;
 using FurniSpace.Application.Services.Payments;
 using FurniSpace.Application.Services.Projects;
@@ -111,6 +121,14 @@ public static class DependencyInjection
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<IAdminReportService, AdminReportService>();
         services.AddScoped<IBusinessTypeService, BusinessTypeService>();
+        services.AddScoped<LayoutAssetServiceDependencies>(sp =>
+        {
+            return new LayoutAssetServiceDependencies(
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
+        });
+        services.AddScoped<ILayoutAssetService, LayoutAssetService>();
         services.AddScoped<IAdminFinancialService, AdminFinancialService>();
         services.AddScoped<IDashboardQueueService, DashboardQueueService>();
         services.AddScoped<ICategoryService, CategoryService>();
@@ -211,6 +229,13 @@ public static class DependencyInjection
                 sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
         });
         services.AddScoped<IProjectFileService, ProjectFileService>();
+        services.AddScoped<MeasurementImageServiceDependencies>(sp =>
+            new MeasurementImageServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<IOptions<FileUploadSettings>>(),
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>(),
+                sp.GetService<IProjectFileSearchIndexer>()));
+        services.AddScoped<IMeasurementImageService, MeasurementImageService>();
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
         services.AddScoped<IProjectService, ProjectService>();
@@ -239,7 +264,9 @@ public static class DependencyInjection
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IQuotationRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProposalRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProductionRequestRepository>(),
-                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectScheduleRepository>());
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectScheduleRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IDeliveryRepository>(),
+                sp.GetRequiredService<IProjectPhaseDeadlineService>());
         });
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped(static sp => new IdentityVerificationStores(
@@ -255,6 +282,8 @@ public static class DependencyInjection
         services.AddScoped<INotificationService, NotificationService>();
         services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
         services.AddScoped<IProjectPhaseDeadlineService, ProjectPhaseDeadlineService>();
+        services.AddScoped<IProjectShowcaseService, ProjectShowcaseService>();
+        services.AddScoped<IProjectReviewConsentService, ProjectReviewConsentService>();
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
         services.AddScoped<IProjectAreaService, ProjectAreaService>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepositoryAdapter>();
@@ -283,6 +312,7 @@ public static class DependencyInjection
             new OrderServiceDependencies(
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProductionRequestRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectScheduleRepository>(),
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IDeliveryRepository>(),
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<IOptions<SePayOptions>>().Value,
                 sp.GetService<INotificationDispatcher>(),

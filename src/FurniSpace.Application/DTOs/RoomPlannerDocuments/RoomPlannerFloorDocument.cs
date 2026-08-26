@@ -2,6 +2,7 @@ namespace FurniSpace.Application.DTOs.RoomPlannerDocuments;
 
 public sealed class RoomPlannerFloorDocument
 {
+    public Guid? LayoutAssetId { get; set; }
     public string? MaterialId { get; set; }
     public string? Color { get; set; }
     public string? MaterialCode { get; set; }

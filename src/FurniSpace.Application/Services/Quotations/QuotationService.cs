@@ -333,7 +333,7 @@ public sealed class QuotationService : IQuotationService
         }
         else
         {
-            await RecalculateQuotationTotalsAsync(quotation, cancellationToken);
+            await RecalculateQuotationTotalsAsync(quotation, cancellationToken, syncDefaultDeposit: true);
         }
 
         _quotations.Update(quotation);
@@ -378,7 +378,7 @@ public sealed class QuotationService : IQuotationService
         ApplyFinancialInput(item, financialInput);
         _quotations.UpdateItem(item);
 
-        await RecalculateQuotationTotalsAsync(context.Quotation!, cancellationToken);
+        await RecalculateQuotationTotalsAsync(context.Quotation!, cancellationToken, syncDefaultDeposit: true);
         context.Quotation!.UpdatedAt = DateTime.UtcNow;
         _quotations.Update(context.Quotation);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -440,7 +440,7 @@ public sealed class QuotationService : IQuotationService
                 _quotations.UpdateItem(update.Item);
             }
 
-            await RecalculateQuotationTotalsAsync(context.Quotation!, cancellationToken);
+            await RecalculateQuotationTotalsAsync(context.Quotation!, cancellationToken, syncDefaultDeposit: true);
             context.Quotation!.UpdatedAt = DateTime.UtcNow;
             _quotations.Update(context.Quotation);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -700,7 +700,7 @@ public sealed class QuotationService : IQuotationService
         context.Quotation!.VersionNo = (context.Quotation.VersionNo ?? 0) + 1;
         context.Quotation.Status = QuotationStatus.REVISED;
         context.Quotation.UpdatedAt = DateTime.UtcNow;
-        await RecalculateQuotationTotalsAsync(context.Quotation, cancellationToken);
+        await RecalculateQuotationTotalsAsync(context.Quotation, cancellationToken, syncDefaultDeposit: true);
         _quotations.Update(context.Quotation);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await DispatchQuotationRevisedNotificationAsync(context.Detail, cancellationToken);
@@ -780,9 +780,19 @@ public sealed class QuotationService : IQuotationService
 
     private static void ApplyInitialDeposit(Quotation quotation, int depositPercent)
     {
-        quotation.DepositAmount = QuotationDepositCalculator.CalculateDefaultDepositAmount(
-            quotation.TotalAmount ?? 0m,
-            depositPercent);
+        quotation.DepositAmount = CalculateDefaultDepositAmount(quotation, depositPercent);
+    }
+
+    private static decimal CalculateDefaultDepositAmount(Quotation quotation, int depositPercent)
+    {
+        var postVatTotal = QuotationDepositCalculator.ResolvePostVatTotalAmount(
+            quotation.SubtotalAmount,
+            quotation.TotalDiscountAmount,
+            quotation.PreVatAmount,
+            quotation.VatAmount,
+            quotation.TotalAmount);
+
+        return QuotationDepositCalculator.CalculateDefaultDepositAmount(postVatTotal, depositPercent);
     }
 
     private static ServiceResult<QuotationDetailDto>? ValidateDepositAmount(
@@ -931,6 +941,14 @@ public sealed class QuotationService : IQuotationService
         ProposalItem item)
     {
         var now = DateTime.UtcNow;
+        var quantity = item.Quantity ?? 0;
+        var unitPrice = item.UnitPriceSnapshot ?? 0m;
+        var grossAmount = quantity * unitPrice;
+        var linePreVatTotal = item.TotalPriceSnapshot ?? grossAmount;
+        var discountAmount = grossAmount > linePreVatTotal
+            ? grossAmount - linePreVatTotal
+            : 0m;
+
         return new QuotationItem
         {
             QuotationItemId = Guid.NewGuid(),
@@ -941,9 +959,9 @@ public sealed class QuotationService : IQuotationService
             ProductVersionNameSnapshot = item.ItemName,
             ItemName = item.ItemName,
             DisplayOrder = 0,
-            Quantity = item.Quantity,
-            UnitPrice = item.UnitPriceSnapshot,
-            DiscountAmount = 0m,
+            Quantity = quantity,
+            UnitPrice = unitPrice,
+            DiscountAmount = discountAmount,
             IsCustomized = item.IsCustomized,
             CustomizationNote = item.Note,
             Note = item.Note,
@@ -1329,10 +1347,16 @@ public sealed class QuotationService : IQuotationService
         Quotation quotation,
         CancellationToken cancellationToken,
         QuotationItem? unsavedItem = null,
-        Guid? excludedItemId = null)
+        Guid? excludedItemId = null,
+        bool syncDefaultDeposit = false)
     {
         var items = await _quotations.GetItemsByQuotationAsync(quotation.QuotationId, cancellationToken);
         QuotationRecalculationService.Recalculate(quotation, items, unsavedItem, excludedItemId);
+
+        if (syncDefaultDeposit && IsHeaderEditable(quotation.Status))
+        {
+            ApplyInitialDeposit(quotation, _orderWorkflowSettings.DepositPercent);
+        }
     }
 
     private async Task<ServiceResult<QuotationDetailDto>> LoadDetailResultAsync(

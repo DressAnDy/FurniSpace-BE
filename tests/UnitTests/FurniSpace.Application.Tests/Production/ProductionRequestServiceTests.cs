@@ -1341,6 +1341,15 @@ public sealed class ProductionRequestServiceTests
             return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
         }
 
+        public Task MarkStartedOnceAsync(
+            Guid projectId,
+            ProjectPhaseType phase,
+            DateTime startedAt,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
         public Task MarkCompletedOnceAsync(
             Guid projectId,
             ProjectPhaseType phase,

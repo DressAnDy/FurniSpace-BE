@@ -288,8 +288,43 @@ public sealed class QuotationServiceTests
         Assert.Equal(FinancialConstants.DefaultVatRate, quotations.AddedQuotations[0].VatRate);
         Assert.Equal(16m, quotations.AddedQuotations[0].VatAmount);
         Assert.Equal(216m, quotations.AddedQuotations[0].TotalAmount);
+        Assert.Equal(64m, quotations.AddedQuotations[0].DepositAmount);
+        Assert.Equal(64m, result.Data!.DepositAmount);
         Assert.Equal(200m, quotations.AddedItems[0].GrossAmount);
         Assert.Equal(200m, quotations.AddedItems[0].TotalAmount);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenProposalItemHasDiscount_UsesNetPreVatForDeposit()
+    {
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = Guid.NewGuid(),
+            ItemName = "Coffee Counter",
+            Quantity = 1,
+            UnitPriceSnapshot = 2_500_000m,
+            TotalPriceSnapshot = 2_000_000m,
+            IsCustomized = false
+        });
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        var quotation = quotations.AddedQuotations[0];
+        var item = quotations.AddedItems[0];
+        Assert.Equal(2_500_000m, quotation.SubtotalAmount);
+        Assert.Equal(500_000m, quotation.TotalDiscountAmount);
+        Assert.Equal(2_000_000m, quotation.PreVatAmount);
+        Assert.Equal(160_000m, quotation.VatAmount);
+        Assert.Equal(2_160_000m, quotation.TotalAmount);
+        Assert.Equal(648_000m, quotation.DepositAmount);
+        Assert.Equal(500_000m, item.DiscountAmount);
+        Assert.Equal(2_000_000m, item.TotalAmount);
+        Assert.Equal(648_000m, result.Data!.DepositAmount);
     }
 
     [Fact]
@@ -443,6 +478,7 @@ public sealed class QuotationServiceTests
         Assert.Equal(40m, item.DiscountAmount);
         Assert.Equal(160m, item.TotalAmount);
         Assert.Equal(172.8m, quotation.TotalAmount);
+        Assert.Equal(51m, quotation.DepositAmount);
     }
 
     [Fact]
@@ -1495,6 +1531,7 @@ public sealed class QuotationServiceTests
                     VatRate = item.VatRate,
                     VatAmount = item.VatAmount,
                     TotalAmount = item.TotalAmount,
+                    DepositAmount = item.DepositAmount,
                     Currency = item.Currency,
                     Status = item.Status,
                     Items = AddedItems.Select(added => new QuotationItemReadModel

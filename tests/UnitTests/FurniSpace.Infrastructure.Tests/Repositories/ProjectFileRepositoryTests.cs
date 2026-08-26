@@ -125,6 +125,95 @@ public sealed class ProjectFileRepositoryTests
     }
 
     [Fact]
+    public async Task GetMeasurementImageGalleryAsync_ReturnsScheduleLinkedImages()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var measurementFileId = Guid.NewGuid();
+        context.ProjectScheduleSet.Single(schedule => schedule.ScheduleId == data.ScheduleId).ScheduleType =
+            ProjectScheduleType.MEASUREMENT;
+        context.StoredFileSet.Add(CreateFile(
+            measurementFileId,
+            data.CustomerId,
+            "measurement.jpg",
+            FileStatus.ACTIVE,
+            DateTime.UtcNow));
+        context.FileLinkSet.Add(new FileLink
+        {
+            FileLinkId = Guid.NewGuid(),
+            FileId = measurementFileId,
+            ReferenceType = "PROJECT_SCHEDULE",
+            ReferenceId = data.ScheduleId,
+            FileType = FileType.SPACE_IMAGE,
+            Visibility = FileVisibility.STAFF_ONLY,
+            CreatedBy = data.CustomerId,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var repository = new ProjectFileRepository(context);
+        var page = await repository.GetMeasurementImageGalleryAsync(new MeasurementImageGalleryQueryReadModel
+        {
+            ProjectId = data.ProjectId,
+            Page = 1,
+            Limit = 10
+        });
+
+        Assert.Equal(1, page.Total);
+        Assert.Single(page.Items);
+        Assert.Equal(measurementFileId, page.Items[0].FileId);
+        Assert.Equal(data.ScheduleId, page.Items[0].ScheduleId);
+    }
+
+    [Fact]
+    public async Task GetFileMetadataAsync_ReturnsLinkedProjectFileMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectFileRepository(context);
+
+        var metadata = await repository.GetFileMetadataAsync(data.FileId);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(data.FileId, metadata!.FileId);
+        Assert.Equal(data.FileLinkId, metadata.FileLinkId);
+        Assert.Equal("PROJECT", metadata.ReferenceType);
+        Assert.Equal(data.ProjectId, metadata.ReferenceId);
+        Assert.Equal(data.ProjectId, metadata.ProjectAccess?.ProjectId);
+    }
+
+    [Fact]
+    public async Task GetFileMetadataAsync_ReturnsProductVersionLinkedFileMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectFileRepository(context);
+
+        var metadata = await repository.GetFileMetadataAsync(data.VersionPreviewFileId);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(data.VersionPreviewFileId, metadata!.FileId);
+        Assert.Equal("PRODUCT_VERSION", metadata.ReferenceType);
+        Assert.Equal(data.ProductVersionId, metadata.ReferenceId);
+        Assert.Equal(data.ProjectId, metadata.ProjectAccess?.ProjectId);
+    }
+
+    [Fact]
+    public async Task GetFileMetadataAsync_ReturnsUnlinkedFileMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectFileRepository(context);
+
+        var metadata = await repository.GetFileMetadataAsync(data.UnlinkedFileId);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(data.UnlinkedFileId, metadata!.FileId);
+        Assert.Null(metadata.FileLinkId);
+        Assert.True(string.IsNullOrEmpty(metadata.ReferenceType));
+    }
+
+    [Fact]
     public async Task AddFileLinkAsync_AddsEntity()
     {
         await using var context = CreateContext();

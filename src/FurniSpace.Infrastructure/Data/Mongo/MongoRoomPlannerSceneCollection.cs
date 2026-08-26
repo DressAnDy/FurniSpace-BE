@@ -47,6 +47,9 @@ public sealed class MongoRoomPlannerSceneCollection : IRoomPlannerSceneCollectio
                 Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending("objects.proposalItemId"),
                 "ix_room_planner_scenes_objects_proposal_item_id"),
             CreateIndex(
+                Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending("objects.layoutAssetId"),
+                "ix_room_planner_scenes_objects_layout_asset_id"),
+            CreateIndex(
                 Builders<RoomPlannerSceneDocument>.IndexKeys.Ascending("metadata.updatedAt"),
                 "ix_room_planner_scenes_metadata_updated_at")
         };

@@ -3173,6 +3173,7 @@ public sealed class CustomizationRequestServiceTests
         public Task<IReadOnlyList<ProjectFileSearchIndexItemReadModel>> SearchByProjectAsync(Guid projectId, string query, int page, int limit, bool customerVisibleOnly, Guid? customerAccountId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectFileSearchIndexItemReadModel>>([]);
         public Task<int> CountSearchByProjectAsync(Guid projectId, string query, bool customerVisibleOnly, Guid? customerAccountId, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<bool> HasProjectFileWithTypesAsync(Guid projectId, IReadOnlyCollection<FileType> fileTypes, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<ProjectLinkedFileReadModel?> GetProjectLinkedActiveFileAsync(Guid projectId, Guid fileId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectLinkedFileReadModel?>(null);
     }
 
     private sealed class FakeNotificationDispatcher : INotificationDispatcher

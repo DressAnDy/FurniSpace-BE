@@ -120,6 +120,7 @@ public static class DependencyInjection
         services.AddInfrastructure(configuration);
         services.AddScoped<IAccountService, AccountService>();
         services.AddScoped<IAdminReportService, AdminReportService>();
+        services.AddScoped<IAdminProjectReportService, AdminProjectReportService>();
         services.AddScoped<IBusinessTypeService, BusinessTypeService>();
         services.AddScoped<LayoutAssetServiceDependencies>(sp =>
         {

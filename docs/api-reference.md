@@ -1706,14 +1706,16 @@ If any required field is missing/blank, response is `400 ORDER_DELIVERY_DETAILS_
 ```json
 {
   "assignedTo": "...",
-  "priority": 1,
-  "estimatedStartDate": "2026-08-05T00:00:00Z",
-  "estimatedCompletionDate": "2026-09-01T00:00:00Z",
+  "priority": "HIGH",
+  "estimatedStartDate": "2026-08-05",
+  "estimatedCompletionDate": "2026-09-01",
   "note": null
 }
 ```
 
 Estimated production dates must satisfy `estimatedStartDate <= estimatedCompletionDate <= project.targetCompletionDate`.
+`assignedTo` is required and must reference an active Production account.
+`priority` is a string; when omitted, the backend defaults it to `NORMAL`.
 
 ### Create delivery batch
 

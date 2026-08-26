@@ -67,6 +67,7 @@ public static class DependencyInjection
         services.AddMongoRoomPlanner();
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<IAdminReportRepository, AdminReportRepository>();
+        services.AddScoped<IAdminProjectReportRepository, AdminProjectReportRepository>();
         services.AddScoped<IBusinessTypeRepository, BusinessTypeRepository>();
         services.AddScoped<ILayoutAssetRepository, LayoutAssetRepository>();
         services.AddScoped<IProjectShowcaseRepository, ProjectShowcaseRepository>();

@@ -41,7 +41,7 @@ public sealed class AdminProjectReportRepository : IAdminProjectReportRepository
         CancellationToken cancellationToken = default)
     {
         var rows = await LoadCandidatesAsync([projectId], utcNow, cancellationToken);
-        return rows.FirstOrDefault();
+        return rows.Count == 0 ? null : rows[0];
     }
 
     private IQueryable<Domain.Entities.Project> BuildBaseQuery(AdminProjectReportListQueryReadModel query)
@@ -90,7 +90,8 @@ public sealed class AdminProjectReportRepository : IAdminProjectReportRepository
 
         if (!string.IsNullOrWhiteSpace(query.Keyword))
         {
-            var keyword = query.Keyword.Trim().ToLower();
+            // Case-insensitive match via ToLower: EF InMemory cannot translate ILike with left joins.
+            var keyword = query.Keyword.Trim().ToLowerInvariant();
             projects =
                 from p in projects
                 join customer in _db.AccountSet.AsNoTracking() on p.CustomerId equals customer.AccountId into customers

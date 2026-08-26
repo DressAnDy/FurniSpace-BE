@@ -74,18 +74,13 @@ public sealed class AdminProjectReportService : IAdminProjectReportService
                 Error.BadRequest(AdminProjectReportErrorCodes.FilterInvalid, errorMessage));
         }
 
-        var utcNow = DateTime.UtcNow;
-        IReadOnlyList<ProjectStatus>? stageStatuses = null;
-        if (!string.IsNullOrWhiteSpace(query.Stage))
+        if (!TryResolveStageFilter(query.Stage, out var stageStatuses, out errorMessage))
         {
-            stageStatuses = ResolveStageStatuses(query.Stage);
-            if (stageStatuses.Count == 0)
-            {
-                return ServiceResult<PagedResult<AdminProjectReportListItemDto>>.Failure(
-                    Error.BadRequest(AdminProjectReportErrorCodes.FilterInvalid, "Stage filter is invalid."));
-            }
+            return ServiceResult<PagedResult<AdminProjectReportListItemDto>>.Failure(
+                Error.BadRequest(AdminProjectReportErrorCodes.FilterInvalid, errorMessage));
         }
 
+        var utcNow = DateTime.UtcNow;
         var candidates = await _reports.GetCandidatesAsync(
             new AdminProjectReportListQueryReadModel
             {
@@ -101,83 +96,20 @@ public sealed class AdminProjectReportService : IAdminProjectReportService
             utcNow,
             cancellationToken);
 
-        var items = new List<AdminProjectReportListItemDto>();
-        foreach (var candidate in candidates)
-        {
-            var ageInStatusDays = AdminProjectReportAttention.AgeInStatusDays(candidate, utcNow);
-            var hits = AdminProjectReportAttention.Evaluate(candidate, utcNow, ageInStatusDays);
-            var primary = AdminProjectReportAttention.Primary(hits);
-
-            if (query.AttentionOnly && primary is null)
-            {
-                continue;
-            }
-
-            if (!string.IsNullOrWhiteSpace(query.AttentionReason))
-            {
-                if (primary is null
-                    || !string.Equals(primary.Reason, query.AttentionReason, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(query.Severity))
-            {
-                if (primary is null
-                    || !string.Equals(primary.Severity, query.Severity, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(query.OwnerRole))
-            {
-                if (primary is null
-                    || !string.Equals(primary.OwnerRole, query.OwnerRole, StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-            }
-
-            var ageDays = AdminProjectReportAttention.AgeDays(candidate.SubmittedAt, candidate.CreatedAt, utcNow);
-            if (query.MinAgeDays.HasValue && ageDays < query.MinAgeDays.Value)
-            {
-                continue;
-            }
-
-            items.Add(new AdminProjectReportListItemDto
-            {
-                ProjectId = candidate.ProjectId,
-                ProjectCode = candidate.ProjectCode,
-                ProjectName = candidate.ProjectName,
-                ProjectStatus = candidate.Status,
-                Stage = AdminProjectReportAttention.ResolveStageKey(candidate.Status),
-                CustomerId = candidate.CustomerId,
-                CustomerName = candidate.CustomerName,
-                AssignedSalesId = candidate.AssignedSalesId,
-                AssignedSalesName = candidate.AssignedSalesName,
-                AssignedDesignerId = candidate.AssignedDesignerId,
-                AssignedDesignerName = candidate.AssignedDesignerName,
-                AgeDays = ageDays,
-                AgeInStatusDays = ageInStatusDays,
-                AttentionReason = primary?.Reason ?? string.Empty,
-                SuggestedAction = primary?.SuggestedAction ?? string.Empty,
-                OwnerRole = primary?.OwnerRole ?? string.Empty,
-                Severity = primary?.Severity ?? string.Empty,
-                SubmittedAt = candidate.SubmittedAt
-            });
-        }
+        var items = candidates
+            .Select(candidate => TryMapListItem(candidate, query, utcNow))
+            .Where(item => item is not null)
+            .Select(item => item!)
+            .ToList();
 
         items = SortList(items, query.SortBy, query.SortDirection).ToList();
-        var total = items.Count;
         var pageItems = items
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToList();
 
         return ServiceResult<PagedResult<AdminProjectReportListItemDto>>.Success(
-            PagedResult<AdminProjectReportListItemDto>.Create(pageItems, page, pageSize, total),
+            PagedResult<AdminProjectReportListItemDto>.Create(pageItems, page, pageSize, items.Count),
             "Admin project reports retrieved successfully.");
     }
 
@@ -309,7 +241,83 @@ public sealed class AdminProjectReportService : IAdminProjectReportService
         };
     }
 
-    private static IReadOnlyList<AdminProjectReportBlockerDto> BuildBlockers(
+    private static AdminProjectReportListItemDto? TryMapListItem(
+        AdminProjectReportCandidateReadModel candidate,
+        AdminProjectReportsQueryDto query,
+        DateTime utcNow)
+    {
+        var ageInStatusDays = AdminProjectReportAttention.AgeInStatusDays(candidate, utcNow);
+        var hits = AdminProjectReportAttention.Evaluate(candidate, utcNow, ageInStatusDays);
+        var primary = AdminProjectReportAttention.Primary(hits);
+
+        if (!MatchesListFilters(query, primary))
+        {
+            return null;
+        }
+
+        var ageDays = AdminProjectReportAttention.AgeDays(candidate.SubmittedAt, candidate.CreatedAt, utcNow);
+        if (query.MinAgeDays.HasValue && ageDays < query.MinAgeDays.Value)
+        {
+            return null;
+        }
+
+        return new AdminProjectReportListItemDto
+        {
+            ProjectId = candidate.ProjectId,
+            ProjectCode = candidate.ProjectCode,
+            ProjectName = candidate.ProjectName,
+            ProjectStatus = candidate.Status,
+            Stage = AdminProjectReportAttention.ResolveStageKey(candidate.Status),
+            CustomerId = candidate.CustomerId,
+            CustomerName = candidate.CustomerName,
+            AssignedSalesId = candidate.AssignedSalesId,
+            AssignedSalesName = candidate.AssignedSalesName,
+            AssignedDesignerId = candidate.AssignedDesignerId,
+            AssignedDesignerName = candidate.AssignedDesignerName,
+            AgeDays = ageDays,
+            AgeInStatusDays = ageInStatusDays,
+            AttentionReason = primary?.Reason ?? string.Empty,
+            SuggestedAction = primary?.SuggestedAction ?? string.Empty,
+            OwnerRole = primary?.OwnerRole ?? string.Empty,
+            Severity = primary?.Severity ?? string.Empty,
+            SubmittedAt = candidate.SubmittedAt
+        };
+    }
+
+    private static bool MatchesListFilters(
+        AdminProjectReportsQueryDto query,
+        AdminProjectReportAttention.AttentionHit? primary)
+    {
+        if (query.AttentionOnly && primary is null)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.AttentionReason)
+            && (primary is null
+                || !string.Equals(primary.Reason, query.AttentionReason, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Severity)
+            && (primary is null
+                || !string.Equals(primary.Severity, query.Severity, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.OwnerRole)
+            && (primary is null
+                || !string.Equals(primary.OwnerRole, query.OwnerRole, StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static List<AdminProjectReportBlockerDto> BuildBlockers(
         IReadOnlyList<AdminProjectReportAttention.AttentionHit> hits)
     {
         return hits
@@ -324,7 +332,7 @@ public sealed class AdminProjectReportService : IAdminProjectReportService
             .ToList();
     }
 
-    private static IReadOnlyList<AdminProjectReportLinkDto> BuildLinks(
+    private static List<AdminProjectReportLinkDto> BuildLinks(
         AdminProjectReportCandidateReadModel candidate)
     {
         var links = new List<AdminProjectReportLinkDto>
@@ -379,47 +387,7 @@ public sealed class AdminProjectReportService : IAdminProjectReportService
         for (var i = 0; i < ProjectWorkflowStageCatalog.Stages.Count; i++)
         {
             var definition = ProjectWorkflowStageCatalog.Stages[i];
-            string state;
-            DateTime? completedAt = null;
-
-            if (candidate.Status == ProjectStatus.REJECTED)
-            {
-                state = ProjectWorkflowStageCatalog.StateNotStarted;
-            }
-            else if (currentIndex is null)
-            {
-                state = ProjectWorkflowStageCatalog.StateNotStarted;
-            }
-            else if (i < currentIndex.Value)
-            {
-                state = ProjectWorkflowStageCatalog.StateCompleted;
-                completedAt = EstimateStageCompletedAt(candidate, definition.Key);
-            }
-            else if (i == currentIndex.Value)
-            {
-                var ageInStatus = AdminProjectReportAttention.AgeInStatusDays(candidate, DateTime.UtcNow);
-                var hits = AdminProjectReportAttention.Evaluate(candidate, DateTime.UtcNow, ageInStatus);
-                var blocked = hits.Any(h =>
-                    h.Reason is AdminProjectReportAttention.ProductionBlocked
-                        or AdminProjectReportAttention.DeliveryOverdue
-                        or AdminProjectReportAttention.WaitingCustomerInfo
-                        or AdminProjectReportAttention.MeasurementOverdue
-                        or AdminProjectReportAttention.QuotationRevisionLoop);
-                state = blocked
-                    ? ProjectWorkflowStageCatalog.StateBlocked
-                    : candidate.Status == ProjectStatus.COMPLETED
-                        ? ProjectWorkflowStageCatalog.StateCompleted
-                        : ProjectWorkflowStageCatalog.StateActive;
-                if (state == ProjectWorkflowStageCatalog.StateCompleted)
-                {
-                    completedAt = candidate.CompletedAt;
-                }
-            }
-            else
-            {
-                state = ProjectWorkflowStageCatalog.StateNotStarted;
-            }
-
+            var (state, completedAt) = ResolveFlowStage(candidate, currentIndex, i, definition.Key);
             stages.Add(new AdminProjectReportFlowStageDto
             {
                 Key = definition.Key,
@@ -431,6 +399,59 @@ public sealed class AdminProjectReportService : IAdminProjectReportService
 
         return new AdminProjectReportFlowProgressDto { Stages = stages };
     }
+
+    private static (string State, DateTime? CompletedAt) ResolveFlowStage(
+        AdminProjectReportCandidateReadModel candidate,
+        int? currentIndex,
+        int stageIndex,
+        string stageKey)
+    {
+        if (candidate.Status == ProjectStatus.REJECTED || currentIndex is null)
+        {
+            return (ProjectWorkflowStageCatalog.StateNotStarted, null);
+        }
+
+        if (stageIndex < currentIndex.Value)
+        {
+            return (
+                ProjectWorkflowStageCatalog.StateCompleted,
+                EstimateStageCompletedAt(candidate, stageKey));
+        }
+
+        if (stageIndex > currentIndex.Value)
+        {
+            return (ProjectWorkflowStageCatalog.StateNotStarted, null);
+        }
+
+        return ResolveCurrentFlowStage(candidate);
+    }
+
+    private static (string State, DateTime? CompletedAt) ResolveCurrentFlowStage(
+        AdminProjectReportCandidateReadModel candidate)
+    {
+        var ageInStatus = AdminProjectReportAttention.AgeInStatusDays(candidate, DateTime.UtcNow);
+        var hits = AdminProjectReportAttention.Evaluate(candidate, DateTime.UtcNow, ageInStatus);
+        var blocked = hits.Any(IsFlowBlockingReason);
+
+        if (blocked)
+        {
+            return (ProjectWorkflowStageCatalog.StateBlocked, null);
+        }
+
+        if (candidate.Status == ProjectStatus.COMPLETED)
+        {
+            return (ProjectWorkflowStageCatalog.StateCompleted, candidate.CompletedAt);
+        }
+
+        return (ProjectWorkflowStageCatalog.StateActive, null);
+    }
+
+    private static bool IsFlowBlockingReason(AdminProjectReportAttention.AttentionHit hit) =>
+        hit.Reason is AdminProjectReportAttention.ProductionBlocked
+            or AdminProjectReportAttention.DeliveryOverdue
+            or AdminProjectReportAttention.WaitingCustomerInfo
+            or AdminProjectReportAttention.MeasurementOverdue
+            or AdminProjectReportAttention.QuotationRevisionLoop;
 
     private static DateTime? EstimateStageCompletedAt(
         AdminProjectReportCandidateReadModel candidate,
@@ -600,18 +621,36 @@ public sealed class AdminProjectReportService : IAdminProjectReportService
         return true;
     }
 
+    private static bool TryResolveStageFilter(
+        string? stage,
+        out IReadOnlyList<ProjectStatus>? stageStatuses,
+        out string errorMessage)
+    {
+        stageStatuses = null;
+        errorMessage = string.Empty;
+        if (string.IsNullOrWhiteSpace(stage))
+        {
+            return true;
+        }
+
+        stageStatuses = ResolveStageStatuses(stage);
+        if (stageStatuses.Count > 0)
+        {
+            return true;
+        }
+
+        errorMessage = "Stage filter is invalid.";
+        return false;
+    }
+
     private static IReadOnlyList<ProjectStatus> ResolveStageStatuses(string stage)
     {
         var key = stage.Trim().ToUpperInvariant();
-        foreach (var definition in ProjectWorkflowStageCatalog.Stages)
-        {
-            if (string.Equals(definition.Key, key, StringComparison.OrdinalIgnoreCase))
-            {
-                return definition.Statuses;
-            }
-        }
-
-        return [];
+        var match = ProjectWorkflowStageCatalog.Stages
+            .Where(definition => string.Equals(definition.Key, key, StringComparison.OrdinalIgnoreCase))
+            .Select(definition => definition.Statuses)
+            .FirstOrDefault();
+        return match ?? [];
     }
 
     private static DateTime? ToExclusiveEnd(DateTime? to)

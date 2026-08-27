@@ -355,6 +355,15 @@ public sealed class AdminFinancialService : IAdminFinancialService
                     "Financial summary metric is invalid."));
         }
 
+        var groupBy = NormalizeOptionalUpper(query.GroupBy);
+        if (!IsSupportedDrilldownGroupBy(normalizedMetric, groupBy))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(
+                    AdminFinancialErrorCodes.GroupByInvalid,
+                    "Financial summary drilldown groupBy is invalid."));
+        }
+
         var currency = FinancialReportingPeriodResolver.NormalizeCurrency(query.Currency);
         if (!IsSupportedCurrency(currency))
         {
@@ -389,7 +398,12 @@ public sealed class AdminFinancialService : IAdminFinancialService
 
         var page = query.Page <= 0 ? 1 : query.Page;
         var pageSize = query.PageSize <= 0 ? 10 : query.PageSize;
-        var sortBy = string.IsNullOrWhiteSpace(query.SortBy) ? "occurredAt" : query.SortBy.Trim();
+        var defaultSortBy = groupBy == AdminFinancialDrilldownGroupBy.Project
+            ? "totalCollectedAmount"
+            : "occurredAt";
+        var sortBy = string.IsNullOrWhiteSpace(query.SortBy)
+            ? defaultSortBy
+            : query.SortBy.Trim();
         var sortDirection = NormalizeSortDirection(query.SortDirection);
 
         var readQuery = new AdminFinancialSummaryDrilldownQueryReadModel
@@ -399,6 +413,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
             PaymentType = query.PaymentType,
             Status = NormalizeOptionalUpper(query.Status),
             Provider = query.Provider,
+            GroupBy = groupBy,
             Page = page,
             PageSize = pageSize,
             SortBy = sortBy,
@@ -485,8 +500,26 @@ public sealed class AdminFinancialService : IAdminFinancialService
             OccurredAt = ToOffset(item.OccurredAt),
             ExpiredAt = ToOffset(item.ExpiredAt),
             FailureReason = item.FailureReason,
-            AgeDays = item.AgeDays
+            AgeDays = item.AgeDays,
+            ProjectStartFeeAmount = item.ProjectStartFeeAmount,
+            DepositAmount = item.DepositAmount,
+            RemainingPaymentAmount = item.RemainingPaymentAmount,
+            FullPaymentAmount = item.FullPaymentAmount,
+            TotalCollectedAmount = item.TotalCollectedAmount,
+            PaymentCount = item.PaymentCount,
+            LastPaidAt = ToOffset(item.LastPaidAt)
         };
+    }
+
+    private static bool IsSupportedDrilldownGroupBy(string metric, string? groupBy)
+    {
+        if (string.IsNullOrWhiteSpace(groupBy))
+        {
+            return true;
+        }
+
+        return metric == AdminFinancialSummaryMetrics.Collected
+            && string.Equals(groupBy, AdminFinancialDrilldownGroupBy.Project, StringComparison.Ordinal);
     }
 
     private static DateTimeOffset? ToOffset(DateTime? value)

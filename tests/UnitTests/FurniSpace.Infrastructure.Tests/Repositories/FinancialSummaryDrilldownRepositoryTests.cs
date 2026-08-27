@@ -58,6 +58,63 @@ public sealed class FinancialSummaryDrilldownRepositoryTests
     }
 
     [Fact]
+    public async Task CollectedDrilldown_GroupByProject_AggregatesPaymentTypeAmounts()
+    {
+        await using var context = CreateContext();
+        var from = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        var to = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc);
+        var now = new DateTime(2026, 8, 15, 0, 0, 0, DateTimeKind.Utc);
+        var seed = await SeedAsync(context, from, now);
+        context.PaymentSet.Add(Payment(
+            Guid.NewGuid(),
+            seed.ProjectId,
+            seed.OrderId,
+            PaymentType.FULL_PAYMENT,
+            PaymentStatus.PAID,
+            50m,
+            from.AddDays(6)));
+        await context.SaveChangesAsync();
+        var repository = new FinancialReadRepository(context);
+
+        var summary = await repository.GetAdminSummaryAsync(from, to, now, "VND", Canonical);
+        var drilldown = await repository.GetSummaryDrilldownAsync(
+            new AdminFinancialSummaryDrilldownQueryReadModel
+            {
+                Metric = "COLLECTED",
+                GroupBy = "PROJECT",
+                Page = 1,
+                PageSize = 10,
+                SortBy = "totalCollectedAmount",
+                SortDirection = "desc"
+            },
+            from,
+            to,
+            now,
+            "VND",
+            Canonical);
+
+        Assert.Equal(summary.CollectedAmount, drilldown.TotalAmount);
+        Assert.Equal(1, drilldown.TotalItems);
+        var project = Assert.Single(drilldown.Items);
+        Assert.Equal("PROJECT", project.ResourceType);
+        Assert.Equal(seed.ProjectId, project.ProjectId);
+        Assert.Equal(100m, project.ProjectStartFeeAmount);
+        Assert.Equal(200m, project.DepositAmount);
+        Assert.Equal(300m, project.RemainingPaymentAmount);
+        Assert.Equal(50m, project.FullPaymentAmount);
+        Assert.Equal(650m, project.TotalCollectedAmount);
+        Assert.Equal(
+            project.ProjectStartFeeAmount +
+            project.DepositAmount +
+            project.RemainingPaymentAmount +
+            project.FullPaymentAmount,
+            project.TotalCollectedAmount);
+        Assert.Equal(4, project.PaymentCount);
+        Assert.Equal(project.TotalCollectedAmount, project.Amount);
+        Assert.NotNull(project.LastPaidAt);
+    }
+
+    [Fact]
     public async Task OutstandingAndActive_MatchSummaryKpis()
     {
         await using var context = CreateContext();
@@ -246,7 +303,7 @@ public sealed class FinancialSummaryDrilldownRepositoryTests
             });
 
         await context.SaveChangesAsync();
-        return new SeedIds(paidStartFeeId);
+        return new SeedIds(projectId, orderId, paidStartFeeId);
     }
 
     private static Payment Payment(
@@ -273,5 +330,5 @@ public sealed class FinancialSummaryDrilldownRepositoryTests
         ExpiredAt = expiredAt
     };
 
-    private sealed record SeedIds(Guid PaidStartFeeId);
+    private sealed record SeedIds(Guid ProjectId, Guid OrderId, Guid PaidStartFeeId);
 }

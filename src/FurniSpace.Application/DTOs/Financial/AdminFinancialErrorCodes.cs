@@ -12,4 +12,5 @@ public static class AdminFinancialErrorCodes
     public const string PaymentFilterInvalid = "FINANCIAL_PAYMENT_FILTER_INVALID";
     public const string ExceptionTypeInvalid = "FINANCIAL_EXCEPTION_TYPE_INVALID";
     public const string MetricInvalid = "FINANCIAL_METRIC_INVALID";
+    public const string GroupByInvalid = "FINANCIAL_GROUP_BY_INVALID";
 }

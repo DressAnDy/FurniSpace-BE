@@ -19,6 +19,8 @@ public sealed partial class FinancialReadRepository
     private const string ResourcePayment = "PAYMENT";
     private const string ResourceOrder = "ORDER";
     private const string ResourceTransaction = "TRANSACTION";
+    private const string ResourceProject = "PROJECT";
+    private const string GroupByProject = "PROJECT";
     private const string Aging0To3 = "0_3";
     private const string Aging4To7 = "4_7";
     private const string Aging8To14 = "8_14";
@@ -66,12 +68,17 @@ public sealed partial class FinancialReadRepository
         IReadOnlyCollection<PaymentType> canonicalPaymentTypes,
         CancellationToken cancellationToken)
     {
+        var groupByProject = string.Equals(query.GroupBy, GroupByProject, StringComparison.Ordinal);
+        var collectedTypes = groupByProject
+            ? canonicalPaymentTypes.Append(PaymentType.FULL_PAYMENT).Distinct().ToArray()
+            : canonicalPaymentTypes;
+
         var baseQuery = ApplyPaymentDrilldownFilters(
             _dbContext.PaymentSet.AsNoTracking()
                 .Where(payment =>
                     payment.Status == PaymentStatus.PAID &&
                     payment.PaymentType.HasValue &&
-                    canonicalPaymentTypes.Contains(payment.PaymentType.Value) &&
+                    collectedTypes.Contains(payment.PaymentType.Value) &&
                     payment.PaidAt.HasValue &&
                     payment.PaidAt.Value >= fromUtc &&
                     payment.PaidAt.Value < toUtcExclusive &&
@@ -83,22 +90,114 @@ public sealed partial class FinancialReadRepository
             rows.Select(r => r.PaymentId).ToList(),
             cancellationToken);
 
-        var items = rows.Select(r =>
+        var paymentItems = rows.Select(r =>
         {
             providerByPayment.TryGetValue(r.PaymentId, out var provider);
             return ToPaymentItem(r, provider, occurredAt: r.PaidAt, utcNow);
         }).ToList();
 
-        items = FilterItemsByProvider(items, query);
+        paymentItems = FilterItemsByProvider(paymentItems, query);
+
+        if (groupByProject)
+        {
+            var projectItems = AggregateCollectedByProject(paymentItems, utcNow);
+            var kpiTotalAmount = projectItems.Sum(i =>
+                (i.ProjectStartFeeAmount ?? 0m) +
+                (i.DepositAmount ?? 0m) +
+                (i.RemainingPaymentAmount ?? 0m));
+
+            return PageDrilldown(
+                "COLLECTED",
+                projectItems,
+                [
+                    BuildPaymentTypeBreakdownFromProjectTotals(projectItems),
+                    BuildProjectBreakdown(projectItems),
+                    BuildProviderBreakdown(paymentItems)
+                ],
+                query,
+                totalAmountOverride: kpiTotalAmount);
+        }
+
         return PageDrilldown(
             "COLLECTED",
-            items,
+            paymentItems,
             [
-                BuildPaymentTypeBreakdown(items),
-                BuildProjectBreakdown(items),
-                BuildProviderBreakdown(items)
+                BuildPaymentTypeBreakdown(paymentItems),
+                BuildProjectBreakdown(paymentItems),
+                BuildProviderBreakdown(paymentItems)
             ],
             query);
+    }
+
+    private static List<AdminFinancialDrilldownItemReadModel> AggregateCollectedByProject(
+        IReadOnlyList<AdminFinancialDrilldownItemReadModel> paymentItems,
+        DateTime utcNow)
+    {
+        return paymentItems
+            .Where(i => i.ProjectId.HasValue)
+            .GroupBy(i => i.ProjectId!.Value)
+            .Select(g =>
+            {
+                var first = g.First();
+                var startFee = g.Where(i => i.PaymentType == nameof(PaymentType.PROJECT_START_FEE)).Sum(i => i.Amount);
+                var deposit = g.Where(i => i.PaymentType == nameof(PaymentType.DEPOSIT)).Sum(i => i.Amount);
+                var remaining = g.Where(i => i.PaymentType == nameof(PaymentType.REMAINING_PAYMENT)).Sum(i => i.Amount);
+                var full = g.Where(i => i.PaymentType == nameof(PaymentType.FULL_PAYMENT)).Sum(i => i.Amount);
+                var totalCollected = startFee + deposit + remaining + full;
+                var lastPaidAt = g.Max(i => i.OccurredAt);
+
+                return new AdminFinancialDrilldownItemReadModel
+                {
+                    ResourceType = ResourceProject,
+                    ProjectId = first.ProjectId,
+                    ProjectCode = first.ProjectCode,
+                    ProjectName = first.ProjectName,
+                    Amount = totalCollected,
+                    OccurredAt = lastPaidAt,
+                    AgeDays = CalculateAgeDays(lastPaidAt, utcNow),
+                    ProjectStartFeeAmount = startFee,
+                    DepositAmount = deposit,
+                    RemainingPaymentAmount = remaining,
+                    FullPaymentAmount = full,
+                    TotalCollectedAmount = totalCollected,
+                    PaymentCount = g.Count(),
+                    LastPaidAt = lastPaidAt
+                };
+            })
+            .ToList();
+    }
+
+    private static AdminFinancialDrilldownBreakdownReadModel BuildPaymentTypeBreakdownFromProjectTotals(
+        IReadOnlyList<AdminFinancialDrilldownItemReadModel> projectItems)
+    {
+        var buckets = new (string Key, decimal Amount, int Count)[]
+        {
+            (nameof(PaymentType.PROJECT_START_FEE), projectItems.Sum(i => i.ProjectStartFeeAmount ?? 0m),
+                projectItems.Count(i => (i.ProjectStartFeeAmount ?? 0m) > 0m)),
+            (nameof(PaymentType.DEPOSIT), projectItems.Sum(i => i.DepositAmount ?? 0m),
+                projectItems.Count(i => (i.DepositAmount ?? 0m) > 0m)),
+            (nameof(PaymentType.REMAINING_PAYMENT), projectItems.Sum(i => i.RemainingPaymentAmount ?? 0m),
+                projectItems.Count(i => (i.RemainingPaymentAmount ?? 0m) > 0m)),
+            (nameof(PaymentType.FULL_PAYMENT), projectItems.Sum(i => i.FullPaymentAmount ?? 0m),
+                projectItems.Count(i => (i.FullPaymentAmount ?? 0m) > 0m))
+        };
+
+        return new AdminFinancialDrilldownBreakdownReadModel
+        {
+            Dimension = DimensionPaymentType,
+            Items = buckets
+                .Where(b => b.Amount > 0m || b.Count > 0)
+                .Select(b => new AdminFinancialDrilldownBreakdownItemReadModel
+                {
+                    Key = b.Key,
+                    Label = LabelPaymentType(b.Key),
+                    Amount = b.Amount,
+                    Count = b.Count
+                })
+                .OrderByDescending(x => x.Amount)
+                .ThenBy(x => x.Key)
+                .ToList()
+        };
     }
 
     private async Task<AdminFinancialSummaryDrilldownReadModel> BuildActivePaymentDrilldownAsync(
@@ -495,7 +594,8 @@ public sealed partial class FinancialReadRepository
         string metric,
         List<AdminFinancialDrilldownItemReadModel> items,
         IReadOnlyList<AdminFinancialDrilldownBreakdownReadModel> breakdowns,
-        AdminFinancialSummaryDrilldownQueryReadModel query)
+        AdminFinancialSummaryDrilldownQueryReadModel query,
+        decimal? totalAmountOverride = null)
     {
         var sorted = SortDrilldownItems(items, query.SortBy, query.SortDirection).ToList();
         var totalItems = sorted.Count;
@@ -507,7 +607,7 @@ public sealed partial class FinancialReadRepository
         return new AdminFinancialSummaryDrilldownReadModel
         {
             Metric = metric,
-            TotalAmount = items.Sum(i => i.Amount),
+            TotalAmount = totalAmountOverride ?? items.Sum(i => i.Amount),
             TotalCount = totalItems,
             Breakdowns = breakdowns,
             Items = pageItems,
@@ -586,11 +686,13 @@ public sealed partial class FinancialReadRepository
         var desc = !string.Equals(sortDirection, "asc", StringComparison.OrdinalIgnoreCase);
         return (sortBy?.Trim().ToLowerInvariant()) switch
         {
-            "amount" => OrderByKey(items, i => i.Amount, desc),
+            "amount" or "totalcollectedamount" => OrderByKey(items, i => i.TotalCollectedAmount ?? i.Amount, desc),
             "agedays" => OrderByKey(items, i => i.AgeDays, desc),
             "projectcode" => OrderByKey(items, i => i.ProjectCode, desc),
             "paymentcode" => OrderByKey(items, i => i.PaymentCode, desc),
             "ordercode" => OrderByKey(items, i => i.OrderCode, desc),
+            "paymentcount" => OrderByKey(items, i => i.PaymentCount ?? 0, desc),
+            "lastpaidat" => OrderByKey(items, i => i.LastPaidAt ?? i.OccurredAt, desc, thenByAmount: true),
             _ => OrderByKey(items, i => i.OccurredAt, desc, thenByAmount: true)
         };
     }

@@ -13,6 +13,10 @@ public sealed class AdminFinancialSummaryDrilldownQueryDto
     public PaymentType? PaymentType { get; set; }
     public string? Status { get; set; }
     public PaymentProvider? Provider { get; set; }
+    /// <summary>
+    /// Optional grouping for items. Currently supported: <c>PROJECT</c> on COLLECTED.
+    /// </summary>
+    public string? GroupBy { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 10;
     public string? SortBy { get; set; }
@@ -71,6 +75,15 @@ public sealed class AdminFinancialDrilldownItemDto
     public DateTimeOffset? ExpiredAt { get; set; }
     public string? FailureReason { get; set; }
     public int AgeDays { get; set; }
+
+    // Present when groupBy=PROJECT on COLLECTED.
+    public decimal? ProjectStartFeeAmount { get; set; }
+    public decimal? DepositAmount { get; set; }
+    public decimal? RemainingPaymentAmount { get; set; }
+    public decimal? FullPaymentAmount { get; set; }
+    public decimal? TotalCollectedAmount { get; set; }
+    public int? PaymentCount { get; set; }
+    public DateTimeOffset? LastPaidAt { get; set; }
 }
 
 public static class AdminFinancialSummaryMetrics
@@ -81,4 +94,9 @@ public static class AdminFinancialSummaryMetrics
     public const string OrderValue = "ORDER_VALUE";
     public const string FailedTransactions = "FAILED_TRANSACTIONS";
     public const string ActivePayments = "ACTIVE_PAYMENTS";
+}
+
+public static class AdminFinancialDrilldownGroupBy
+{
+    public const string Project = "PROJECT";
 }

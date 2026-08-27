@@ -46,7 +46,8 @@ public sealed class ProjectServiceTests
         {
             DesignerId = designer.AccountId,
             SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
-            Note = "Please review."
+            Note = "Please review.",
+            ProposalDeadline = new DateOnly(2026, 9, 15)
         });
 
         Assert.Equal(200, result.Status);
@@ -87,7 +88,8 @@ public sealed class ProjectServiceTests
         var result = await service.AssignDesignerAsync(projectId, Guid.NewGuid(), new AssignProjectDesignerRequestDto
         {
             DesignerId = designer.AccountId,
-            SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT
+            SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT,
+            ProposalDeadline = new DateOnly(2026, 9, 15)
         });
 
         Assert.Equal(200, result.Status);
@@ -345,7 +347,8 @@ public sealed class ProjectServiceTests
         var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
         {
             DesignerId = designer.AccountId,
-            SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+            SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+            ProposalDeadline = new DateOnly(2026, 9, 15)
         });
 
         Assert.Equal(200, result.Status);
@@ -375,7 +378,8 @@ public sealed class ProjectServiceTests
         var result = await service.AssignDesignerAsync(projectId, salesId, new AssignProjectDesignerRequestDto
         {
             DesignerId = designer.AccountId,
-            SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT
+            SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT,
+            ProposalDeadline = new DateOnly(2026, 9, 15)
         });
 
         Assert.Equal(200, result.Status);
@@ -428,7 +432,8 @@ public sealed class ProjectServiceTests
             new AssignProjectDesignerRequestDto
             {
                 DesignerId = designer.AccountId,
-                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+                ProposalDeadline = new DateOnly(2026, 9, 15)
             });
 
         Assert.Equal(200, result.Status);
@@ -472,7 +477,8 @@ public sealed class ProjectServiceTests
                 new AssignProjectDesignerRequestDto
                 {
                     DesignerId = designer.AccountId,
-                    SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+                    SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+                    ProposalDeadline = new DateOnly(2026, 9, 15)
                 }));
 
         Assert.Equal("Project chat upsert failed.", exception.Message);
@@ -518,7 +524,8 @@ public sealed class ProjectServiceTests
                 new AssignProjectDesignerRequestDto
                 {
                     DesignerId = designer.AccountId,
-                    SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+                    SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+                    ProposalDeadline = new DateOnly(2026, 9, 15)
                 }));
 
         Assert.Equal("Project save failed.", exception.Message);
@@ -526,6 +533,27 @@ public sealed class ProjectServiceTests
         Assert.Equal(0, commitCallCount);
         Assert.Equal(1, rollbackCallCount);
         Assert.Equal(0, dispatcher.DispatchCallCount);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WithoutProposalDeadline_ReturnsBadRequest()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
+        var service = ProjectServiceTestFactory.Create(repository, TestUnitOfWork.Instance);
+
+        var request = ValidAssignDesignerRequest();
+        request.DesignerId = designer.AccountId;
+        request.ProposalDeadline = null;
+
+        var result = await service.AssignDesignerAsync(projectId, salesId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectPhaseDeadlineErrorCodes.ProposalDeadlineRequired, result.ErrorCode);
+        Assert.Null(project.AssignedDesignerId);
     }
 
     [Fact]
@@ -3208,7 +3236,8 @@ public sealed class ProjectServiceTests
         {
             DesignerId = Guid.NewGuid(),
             SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
-            Note = "Please review the project requirement."
+            Note = "Please review the project requirement.",
+            ProposalDeadline = new DateOnly(2026, 9, 15)
         };
     }
 

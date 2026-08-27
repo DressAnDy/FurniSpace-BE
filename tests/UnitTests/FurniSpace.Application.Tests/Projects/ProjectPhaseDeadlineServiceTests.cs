@@ -25,79 +25,148 @@ public sealed class ProjectPhaseDeadlineServiceTests
     private static readonly Guid ProductionId = Guid.Parse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee");
 
     [Fact]
-    public async Task UpsertAsync_AssignedSalesCreatesAndUpdatesWithoutDuplicatingRows()
+    public async Task UpsertAsync_ReturnsDeprecatedBadRequest()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.IN_CONSULTATION);
         var service = CreateService(context);
 
-        var createResult = await service.UpsertAsync(project.ProjectId, SalesId, ValidRequest());
-        var createdRows = await context.ProjectPhaseTimelineSet.ToListAsync();
+        var result = await service.UpsertAsync(project.ProjectId, SalesId, ValidLegacyRequest());
 
-        var updateResult = await service.UpsertAsync(
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectPhaseDeadlineErrorCodes.PhaseDeadlineUpsertDeprecated, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpsertProductionDeadlineAsync_AssignedSalesCreatesAndUpdatesWithoutDuplicatingRows()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.ORDER_CONFIRMED);
+        var orderId = await SeedOrderAsync(context, project.ProjectId);
+        var service = CreateService(context);
+
+        var createResult = await service.UpsertProductionDeadlineAsync(
             project.ProjectId,
             SalesId,
-            new UpsertProjectPhaseDeadlinesRequestDto
+            new UpsertProductionPhaseDeadlineRequestDto
             {
-                ProposalDueDate = new DateOnly(2026, 9, 11),
-                ProductionDueDate = new DateOnly(2026, 9, 26)
+                ProductionDeadline = new DateOnly(2026, 9, 25)
+            });
+        var createdRows = await context.ProjectPhaseTimelineSet.ToListAsync();
+
+        var updateResult = await service.UpsertProductionDeadlineAsync(
+            project.ProjectId,
+            SalesId,
+            new UpsertProductionPhaseDeadlineRequestDto
+            {
+                ProductionDeadline = new DateOnly(2026, 9, 26)
             });
         var updatedRows = await context.ProjectPhaseTimelineSet.ToListAsync();
 
         Assert.Equal(200, createResult.Status);
         Assert.Equal(200, updateResult.Status);
-        Assert.Contains(createResult.Data!.Deadlines, item => item is { Phase: ProjectPhaseType.PROPOSAL, Status: "ON_TRACK" });
-        Assert.Contains(createResult.Data.Deadlines, item => item is { Phase: ProjectPhaseType.PRODUCTION, Status: "PLANNED" });
-        Assert.Equal(2, createdRows.Count);
-        Assert.Equal(2, updatedRows.Count);
-        Assert.All(updatedRows, row => Assert.Equal(SalesId, row.CreatedBy));
-        Assert.All(updatedRows, row => Assert.Equal(SalesId, row.UpdatedBy));
-        Assert.Contains(updatedRows, row => row is { Phase: ProjectPhaseType.PROPOSAL, DueDate: { Year: 2026, Month: 9, Day: 11 } });
+        Assert.Equal(orderId, createResult.Data!.OrderId);
+        Assert.Equal(ProjectPhaseType.PRODUCTION, createResult.Data.Phase);
+        Assert.Equal(1, createdRows.Count);
+        Assert.Equal(1, updatedRows.Count);
+        Assert.Contains(updatedRows, row => row is { Phase: ProjectPhaseType.PRODUCTION, DueDate: { Year: 2026, Month: 9, Day: 26 } });
     }
 
     [Fact]
-    public async Task UpsertAsync_ReturnsBadRequest_WhenProductionDueDateExceedsTarget()
+    public async Task UpsertProductionDeadlineAsync_ReturnsBadRequest_WhenProductionDueDateExceedsTarget()
     {
         await using var context = CreateContext();
-        var project = await SeedProjectAsync(context, ProjectStatus.IN_CONSULTATION);
+        var project = await SeedProjectAsync(context, ProjectStatus.ORDER_CONFIRMED);
+        await SeedOrderAsync(context, project.ProjectId);
         var service = CreateService(context);
 
-        var result = await service.UpsertAsync(
+        var result = await service.UpsertProductionDeadlineAsync(
             project.ProjectId,
             SalesId,
-            new UpsertProjectPhaseDeadlinesRequestDto
+            new UpsertProductionPhaseDeadlineRequestDto
             {
-                ProposalDueDate = new DateOnly(2026, 9, 10),
-                ProductionDueDate = new DateOnly(2026, 10, 1)
+                ProductionDeadline = new DateOnly(2026, 10, 1)
             });
 
         Assert.Equal(400, result.Status);
-        Assert.Equal("PHASE_DEADLINE_EXCEEDS_TARGET", result.ErrorCode);
+        Assert.Equal(ProjectPhaseDeadlineErrorCodes.ProductionDeadlineInvalid, result.ErrorCode);
     }
 
     [Fact]
-    public async Task UpsertAsync_ReturnsForbidden_WhenRequesterCannotManageProject()
+    public async Task UpsertProductionDeadlineAsync_ReturnsForbidden_WhenRequesterCannotManageProject()
     {
         await using var context = CreateContext();
-        var project = await SeedProjectAsync(context, ProjectStatus.IN_CONSULTATION);
+        var project = await SeedProjectAsync(context, ProjectStatus.ORDER_CONFIRMED);
+        await SeedOrderAsync(context, project.ProjectId);
         var service = CreateService(context);
 
-        var result = await service.UpsertAsync(project.ProjectId, DesignerId, ValidRequest());
+        var result = await service.UpsertProductionDeadlineAsync(
+            project.ProjectId,
+            DesignerId,
+            new UpsertProductionPhaseDeadlineRequestDto
+            {
+                ProductionDeadline = new DateOnly(2026, 9, 25)
+            });
 
         Assert.Equal(403, result.Status);
     }
 
     [Fact]
-    public async Task UpsertAsync_ReturnsInvalidStatus_WhenProjectIsNotInConsultation()
+    public async Task UpsertProductionDeadlineAsync_ReturnsInvalidStatus_WhenProjectIsPreOrder()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.PROPOSAL_CONSULTING);
         var service = CreateService(context);
 
-        var result = await service.UpsertAsync(project.ProjectId, SalesId, ValidRequest());
+        var result = await service.UpsertProductionDeadlineAsync(
+            project.ProjectId,
+            SalesId,
+            new UpsertProductionPhaseDeadlineRequestDto
+            {
+                ProductionDeadline = new DateOnly(2026, 9, 25)
+            });
 
         Assert.Equal(400, result.Status);
-        Assert.Equal("INVALID_PROJECT_STATUS", result.ErrorCode);
+        Assert.Equal(ProjectPhaseDeadlineErrorCodes.InvalidProjectStatus, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task StageProposalDeadlineForDesignerAssignmentAsync_UpsertsProposalTimeline()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT);
+        var service = CreateService(context);
+
+        var result = await service.StageProposalDeadlineForDesignerAssignmentAsync(
+            project.ProjectId,
+            SalesId,
+            new DateOnly(2026, 9, 15),
+            project.TargetCompletionDate);
+
+        await context.SaveChangesAsync();
+        var timeline = await context.ProjectPhaseTimelineSet.SingleAsync();
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(new DateOnly(2026, 9, 15), timeline.DueDate);
+        Assert.Equal(ProjectPhaseType.PROPOSAL, timeline.Phase);
+    }
+
+    [Fact]
+    public async Task HasProductionDeadlineAsync_ReturnsFalseUntilProductionTimelineExists()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.ORDER_CONFIRMED);
+        var service = CreateService(context);
+
+        Assert.False(await service.HasProductionDeadlineAsync(project.ProjectId));
+
+        context.ProjectPhaseTimelineSet.Add(CreateDeadline(
+            project.ProjectId,
+            ProjectPhaseType.PRODUCTION,
+            new DateOnly(2026, 9, 25)));
+        await context.SaveChangesAsync();
+
+        Assert.True(await service.HasProductionDeadlineAsync(project.ProjectId));
     }
 
     [Fact]
@@ -190,6 +259,7 @@ public sealed class ProjectPhaseDeadlineServiceTests
             new ProjectRepository(context),
             new ProjectPhaseTimelineRepository(context),
             new ProductionRequestRepository(context),
+            new OrderRepository(context),
             new UnitOfWork(context));
     }
 
@@ -236,6 +306,26 @@ public sealed class ProjectPhaseDeadlineServiceTests
         return project;
     }
 
+    private static async Task<Guid> SeedOrderAsync(AppDbContext context, Guid projectId)
+    {
+        var orderId = Guid.NewGuid();
+        context.OrderSet.Add(new Order
+        {
+            OrderId = orderId,
+            ProjectId = projectId,
+            CustomerId = CustomerId,
+            QuotationId = Guid.NewGuid(),
+            OrderCode = "ORD-TEST-001",
+            Status = OrderStatus.CREATED,
+            DepositAmount = 100m,
+            FinalTotalAmount = 500m,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        return orderId;
+    }
+
     private static Account CreateAccount(Guid accountId, Guid roleId, string email)
     {
         return new Account
@@ -249,7 +339,7 @@ public sealed class ProjectPhaseDeadlineServiceTests
         };
     }
 
-    private static UpsertProjectPhaseDeadlinesRequestDto ValidRequest()
+    private static UpsertProjectPhaseDeadlinesRequestDto ValidLegacyRequest()
     {
         return new UpsertProjectPhaseDeadlinesRequestDto
         {

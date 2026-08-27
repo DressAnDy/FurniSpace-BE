@@ -610,12 +610,19 @@ public sealed class ProductionRequestServiceTests
         context.ProductionRequestSet.Add(productionRequest);
         context.ProductionItemSet.Add(CreateProductionItem(productionRequest.ProductionRequestId, orderItem));
         await context.SaveChangesAsync();
-        var service = BuildService(context);
+        var productionDeadline = new DateOnly(2026, 10, 15);
+        var service = BuildService(
+            context,
+            phaseDeadlines: new CapturingProjectPhaseDeadlineService
+            {
+                ProductionDeadline = productionDeadline
+            });
 
         var result = await service.GetDetailAsync(productionRequest.ProductionRequestId, _productionId);
 
         Assert.Equal(200, result.Status);
         Assert.Equal(productionRequest.ProductionRequestId, result.Data!.ProductionRequestId);
+        Assert.Equal(productionDeadline, result.Data.ProductionDeadline);
         var item = Assert.Single(result.Data.Items);
         Assert.Equal(orderItem.OrderItemId, item.OrderItemId);
         Assert.Equal("PENDING", item.OrderItemStatus);
@@ -1359,6 +1366,42 @@ public sealed class ProductionRequestServiceTests
             ProjectId = projectId;
             Phase = phase;
             return Task.CompletedTask;
+        }
+
+        public Task<ServiceResult<ProjectProductionPhaseDeadlineResponseDto>> UpsertProductionDeadlineAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpsertProductionPhaseDeadlineRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Success(
+                new ProjectProductionPhaseDeadlineResponseDto()));
+        }
+
+        public Task<ServiceResult<DateOnly>> StageProposalDeadlineForDesignerAssignmentAsync(
+            Guid projectId,
+            Guid currentUserId,
+            DateOnly proposalDeadline,
+            DateOnly? targetCompletionDate,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<DateOnly>.Success(proposalDeadline));
+        }
+
+        public Task<bool> HasProductionDeadlineAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public DateOnly? ProductionDeadline { get; init; }
+
+        public Task<DateOnly?> GetProductionDeadlineAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ProductionDeadline);
         }
     }
 

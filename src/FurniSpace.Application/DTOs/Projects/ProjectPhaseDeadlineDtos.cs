@@ -24,3 +24,19 @@ public sealed class ProjectPhaseDeadlineItemDto
     public string Status { get; set; } = string.Empty;
     public int OverdueDays { get; set; }
 }
+
+public sealed class UpsertProductionPhaseDeadlineRequestDto
+{
+    public DateOnly? ProductionDeadline { get; set; }
+}
+
+public sealed class ProjectProductionPhaseDeadlineResponseDto
+{
+    public Guid ProjectId { get; set; }
+    public Guid OrderId { get; set; }
+    public ProjectPhaseType Phase { get; set; }
+    public DateOnly DueDate { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public string Status { get; set; } = "NOT_STARTED";
+}

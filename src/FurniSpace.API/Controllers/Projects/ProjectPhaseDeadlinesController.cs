@@ -51,6 +51,26 @@ public sealed class ProjectPhaseDeadlinesController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPut("production")]
+    public async Task<IActionResult> UpsertProductionDeadline(
+        Guid projectId,
+        [FromBody] UpsertProductionPhaseDeadlineRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _phaseDeadlines.UpsertProductionDeadlineAsync(
+            projectId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

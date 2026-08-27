@@ -20,6 +20,8 @@ namespace FurniSpace.API.IntegrationTests.Projects;
 [Trait("Category", "Core")]
 public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
 {
+    private static readonly DateOnly IntegrationProposalDeadline = new(2026, 9, 15);
+
     private readonly ApiIntegrationFixture _fixture;
 
     public ProjectIntakeApiIntegrationTests(ApiIntegrationFixture fixture)
@@ -170,7 +172,8 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
             {
                 DesignerId = designer.AccountId,
                 SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
-                Note = "Space verified from photos"
+                Note = "Space verified from photos",
+                ProposalDeadline = IntegrationProposalDeadline
             });
         var assignDesignerResponse = await _fixture.Client.SendAsync(assignDesigner);
         var assignedDesigner = await assignDesignerResponse.Content
@@ -370,7 +373,8 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
             new AssignProjectDesignerRequestDto
             {
                 DesignerId = scenario.DesignerAccountId,
-                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+                ProposalDeadline = IntegrationProposalDeadline
             });
 
         var response = await _fixture.Client.SendAsync(request);
@@ -399,7 +403,8 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
             new AssignProjectDesignerRequestDto
             {
                 DesignerId = scenario.DesignerAccountId,
-                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+                ProposalDeadline = IntegrationProposalDeadline
             });
 
         var response = await _fixture.Client.SendAsync(request);
@@ -438,7 +443,8 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
             new AssignProjectDesignerRequestDto
             {
                 DesignerId = scenario.DesignerAccountId,
-                SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT
+                SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT,
+                ProposalDeadline = IntegrationProposalDeadline
             });
 
         var response = await _fixture.Client.SendAsync(request);

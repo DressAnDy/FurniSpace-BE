@@ -93,6 +93,8 @@ internal static class ProjectServiceTestFactory
 
 internal sealed class FakeProjectPhaseDeadlineService : IProjectPhaseDeadlineService
 {
+    public Func<Guid, DateOnly?, DateOnly?, CancellationToken, Task<ServiceResult<DateOnly>>>? StageProposalHandler { get; init; }
+
     public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
         Guid projectId,
         Guid currentUserId,
@@ -100,6 +102,49 @@ internal sealed class FakeProjectPhaseDeadlineService : IProjectPhaseDeadlineSer
         CancellationToken cancellationToken = default)
     {
         return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+    }
+
+    public Task<ServiceResult<ProjectProductionPhaseDeadlineResponseDto>> UpsertProductionDeadlineAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpsertProductionPhaseDeadlineRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Success(
+            new ProjectProductionPhaseDeadlineResponseDto
+            {
+                ProjectId = projectId,
+                DueDate = request.ProductionDeadline ?? DateOnly.FromDateTime(DateTime.UtcNow)
+            }));
+    }
+
+    public Task<ServiceResult<DateOnly>> StageProposalDeadlineForDesignerAssignmentAsync(
+        Guid projectId,
+        Guid currentUserId,
+        DateOnly proposalDeadline,
+        DateOnly? targetCompletionDate,
+        CancellationToken cancellationToken = default)
+    {
+        if (StageProposalHandler is not null)
+        {
+            return StageProposalHandler(projectId, targetCompletionDate, proposalDeadline, cancellationToken);
+        }
+
+        return Task.FromResult(ServiceResult<DateOnly>.Success(proposalDeadline));
+    }
+
+    public Task<bool> HasProductionDeadlineAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(true);
+    }
+
+    public Task<DateOnly?> GetProductionDeadlineAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<DateOnly?>(null);
     }
 
     public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(

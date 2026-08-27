@@ -8,6 +8,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using System.Linq;
 
 namespace FurniSpace.Application.Services.Projects;
 
@@ -21,6 +22,7 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
     private const string OverdueStatus = "OVERDUE";
     private const string CompletedOnTimeStatus = "COMPLETED_ON_TIME";
     private const string CompletedLateStatus = "COMPLETED_LATE";
+    private const string NotStartedStatus = "NOT_STARTED";
 
     private static readonly ProjectPhaseType[] SupportedPhases =
     [
@@ -28,64 +30,161 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
         ProjectPhaseType.PRODUCTION
     ];
 
+    private static readonly ProjectStatus[] ProductionDeadlineWritableProjectStatuses =
+    [
+        ProjectStatus.ORDER_CONFIRMED,
+        ProjectStatus.IN_PRODUCTION,
+        ProjectStatus.READY_FOR_DELIVERY,
+        ProjectStatus.DELIVERING,
+        ProjectStatus.DELIVERED
+    ];
+
+    private static readonly OrderStatus[] ActiveOrderStatuses =
+    [
+        OrderStatus.CREATED,
+        OrderStatus.DEPOSIT_PENDING,
+        OrderStatus.DEPOSIT_PAID,
+        OrderStatus.IN_PRODUCTION,
+        OrderStatus.READY_FOR_DELIVERY,
+        OrderStatus.DELIVERING,
+        OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
+        OrderStatus.DELIVERED,
+        OrderStatus.FINAL_PAYMENT_PENDING,
+        OrderStatus.COMPLETED
+    ];
+
     private readonly IProjectRepository _projects;
     private readonly IProjectPhaseTimelineRepository _timelines;
     private readonly IProductionRequestRepository _productionRequests;
+    private readonly IOrderRepository _orders;
     private readonly IUnitOfWork _unitOfWork;
 
     public ProjectPhaseDeadlineService(
         IProjectRepository projects,
         IProjectPhaseTimelineRepository timelines,
         IProductionRequestRepository productionRequests,
+        IOrderRepository orders,
         IUnitOfWork unitOfWork)
     {
         _projects = projects;
         _timelines = timelines;
         _productionRequests = productionRequests;
+        _orders = orders;
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
+    public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
         Guid projectId,
         Guid currentUserId,
         UpsertProjectPhaseDeadlinesRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var requestError = ValidateIdentity<ProjectPhaseDeadlinePlanDto>(projectId, currentUserId);
+        _ = request;
+        _ = projectId;
+        _ = currentUserId;
+        _ = cancellationToken;
+
+        return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Failure(Error.BadRequest(
+            ProjectPhaseDeadlineErrorCodes.PhaseDeadlineUpsertDeprecated,
+            "Use designer assignment for proposal deadline and PUT /projects/{projectId}/phase-deadlines/production for production deadline.")));
+    }
+
+    public async Task<ServiceResult<ProjectProductionPhaseDeadlineResponseDto>> UpsertProductionDeadlineAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpsertProductionPhaseDeadlineRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var requestError = ValidateIdentity<ProjectProductionPhaseDeadlineResponseDto>(projectId, currentUserId);
         if (requestError is not null)
         {
             return requestError;
         }
 
-        var dateValidationError = ValidateDeadlineRequest(request);
-        if (dateValidationError is not null)
+        if (!request.ProductionDeadline.HasValue)
         {
-            return dateValidationError;
+            return ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Failure(Error.BadRequest(
+                ProjectPhaseDeadlineErrorCodes.ProductionDeadlineRequired,
+                "Production deadline is required."));
         }
 
         var project = await _projects.GetByIdAsync(projectId, cancellationToken);
         if (project is null)
         {
-            return ServiceResult<ProjectPhaseDeadlinePlanDto>.NotFound(ProjectServiceConstants.ProjectNotFoundMessage);
+            return ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.NotFound(
+                ProjectServiceConstants.ProjectNotFoundMessage);
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (!CanManage(project, currentUserId, roleName))
         {
-            return ServiceResult<ProjectPhaseDeadlinePlanDto>.Forbidden(ManageForbiddenMessage);
+            return ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Forbidden(ManageForbiddenMessage);
         }
 
-        if (project.Status != ProjectStatus.IN_CONSULTATION)
+        if (project.Status is null ||
+            !ProductionDeadlineWritableProjectStatuses.Contains(project.Status.Value))
         {
-            return ServiceResult<ProjectPhaseDeadlinePlanDto>.Failure(Error.BadRequest(
-                "INVALID_PROJECT_STATUS",
-                "Project phase deadlines can only be planned while project status is IN_CONSULTATION."));
+            return ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Failure(Error.BadRequest(
+                ProjectPhaseDeadlineErrorCodes.InvalidProjectStatus,
+                "Production deadline can only be set after the order is confirmed."));
         }
 
-        var timelineError = ValidateTimeline(request, project.TargetCompletionDate);
-        if (timelineError is not null)
+        var order = await _orders.GetLatestByProjectInStatusesAsync(
+            projectId,
+            ActiveOrderStatuses,
+            cancellationToken);
+        if (order is null)
         {
-            return timelineError;
+            return ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Failure(Error.BadRequest(
+                ProjectPhaseDeadlineErrorCodes.OrderRequired,
+                "An active order is required before setting production deadline."));
+        }
+
+        var productionDeadline = request.ProductionDeadline.Value;
+        var validationError = await ValidateProductionDeadlineAsync(
+            projectId,
+            productionDeadline,
+            project.TargetCompletionDate,
+            cancellationToken);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        var now = DateTime.UtcNow;
+        var existing = await _timelines.GetByProjectAsync(projectId, cancellationToken);
+        await UpsertTimelineAsync(
+            existing,
+            projectId,
+            ProjectPhaseType.PRODUCTION,
+            productionDeadline,
+            currentUserId,
+            now,
+            cancellationToken);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var timeline = await _timelines.GetByProjectAndPhaseAsync(
+            projectId,
+            ProjectPhaseType.PRODUCTION,
+            cancellationToken);
+
+        return ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Success(
+            ToProductionResponseDto(projectId, order.OrderId, timeline!),
+            "Production deadline saved successfully.");
+    }
+
+    public async Task<ServiceResult<DateOnly>> StageProposalDeadlineForDesignerAssignmentAsync(
+        Guid projectId,
+        Guid currentUserId,
+        DateOnly proposalDeadline,
+        DateOnly? targetCompletionDate,
+        CancellationToken cancellationToken = default)
+    {
+        var validationError = ValidateProposalDeadline(proposalDeadline, targetCompletionDate);
+        if (validationError is not null)
+        {
+            return validationError;
         }
 
         var now = DateTime.UtcNow;
@@ -94,25 +193,36 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
             existing,
             projectId,
             ProjectPhaseType.PROPOSAL,
-            request.ProposalDueDate!.Value,
+            proposalDeadline,
             currentUserId,
             now,
             cancellationToken);
-        await UpsertTimelineAsync(
-            existing,
+
+        return ServiceResult<DateOnly>.Success(proposalDeadline);
+    }
+
+    public async Task<bool> HasProductionDeadlineAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var timeline = await _timelines.GetByProjectAndPhaseAsync(
             projectId,
             ProjectPhaseType.PRODUCTION,
-            request.ProductionDueDate!.Value,
-            currentUserId,
-            now,
             cancellationToken);
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return timeline is not null;
+    }
 
-        var timelines = await _timelines.GetByProjectAsync(projectId, cancellationToken);
-        return ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(
-            ToPlanDto(project, timelines, DateOnly.FromDateTime(now)),
-            "Project phase deadlines saved successfully.");
+    public async Task<DateOnly?> GetProductionDeadlineAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var timeline = await _timelines.GetByProjectAndPhaseAsync(
+            projectId,
+            ProjectPhaseType.PRODUCTION,
+            cancellationToken);
+
+        return timeline?.DueDate;
     }
 
     public async Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(
@@ -205,41 +315,45 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
             : null;
     }
 
-    private static ServiceResult<ProjectPhaseDeadlinePlanDto>? ValidateDeadlineRequest(
-        UpsertProjectPhaseDeadlinesRequestDto request)
-    {
-        var errors = new List<string>();
-        if (!request.ProposalDueDate.HasValue)
-        {
-            errors.Add("Proposal due date is required.");
-        }
-
-        if (!request.ProductionDueDate.HasValue)
-        {
-            errors.Add("Production due date is required.");
-        }
-
-        return errors.Count == 0
-            ? null
-            : ServiceResult<ProjectPhaseDeadlinePlanDto>.BadRequest(errors);
-    }
-
-    private static ServiceResult<ProjectPhaseDeadlinePlanDto>? ValidateTimeline(
-        UpsertProjectPhaseDeadlinesRequestDto request,
+    private static ServiceResult<DateOnly>? ValidateProposalDeadline(
+        DateOnly proposalDeadline,
         DateOnly? targetCompletionDate)
     {
-        if (request.ProposalDueDate > request.ProductionDueDate)
+        if (targetCompletionDate.HasValue && proposalDeadline > targetCompletionDate.Value)
         {
-            return ServiceResult<ProjectPhaseDeadlinePlanDto>.Failure(Error.BadRequest(
-                "INVALID_PHASE_DEADLINE_RANGE",
-                "Proposal due date must be on or before production due date."));
+            return ServiceResult<DateOnly>.Failure(Error.BadRequest(
+                ProjectPhaseDeadlineErrorCodes.ProposalDeadlineInvalid,
+                "Proposal deadline must be on or before project target completion date."));
         }
 
-        return targetCompletionDate.HasValue && request.ProductionDueDate > targetCompletionDate
-            ? ServiceResult<ProjectPhaseDeadlinePlanDto>.Failure(Error.BadRequest(
-                "PHASE_DEADLINE_EXCEEDS_TARGET",
-                "Production due date must be on or before project target completion date."))
-            : null;
+        return null;
+    }
+
+    private async Task<ServiceResult<ProjectProductionPhaseDeadlineResponseDto>?> ValidateProductionDeadlineAsync(
+        Guid projectId,
+        DateOnly productionDeadline,
+        DateOnly? targetCompletionDate,
+        CancellationToken cancellationToken)
+    {
+        if (targetCompletionDate.HasValue && productionDeadline > targetCompletionDate.Value)
+        {
+            return ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Failure(Error.BadRequest(
+                ProjectPhaseDeadlineErrorCodes.ProductionDeadlineInvalid,
+                "Production deadline must be on or before project target completion date."));
+        }
+
+        var proposalTimeline = await _timelines.GetByProjectAndPhaseAsync(
+            projectId,
+            ProjectPhaseType.PROPOSAL,
+            cancellationToken);
+        if (proposalTimeline is not null && productionDeadline < proposalTimeline.DueDate)
+        {
+            return ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Failure(Error.BadRequest(
+                ProjectPhaseDeadlineErrorCodes.ProductionDeadlineInvalid,
+                "Production deadline must be on or after proposal deadline."));
+        }
+
+        return null;
     }
 
     private async Task UpsertTimelineAsync(
@@ -313,6 +427,39 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
     {
         return IsAdmin(roleName) ||
             (IsSales(roleName) && project.AssignedSalesId == currentUserId);
+    }
+
+    private static ProjectProductionPhaseDeadlineResponseDto ToProductionResponseDto(
+        Guid projectId,
+        Guid orderId,
+        ProjectPhaseTimeline timeline)
+    {
+        return new ProjectProductionPhaseDeadlineResponseDto
+        {
+            ProjectId = projectId,
+            OrderId = orderId,
+            Phase = ProjectPhaseType.PRODUCTION,
+            DueDate = timeline.DueDate,
+            StartedAt = timeline.StartedAt,
+            CompletedAt = timeline.CompletedAt,
+            Status = ResolveProductionUpsertStatus(timeline)
+        };
+    }
+
+    private static string ResolveProductionUpsertStatus(ProjectPhaseTimeline timeline)
+    {
+        if (timeline.CompletedAt.HasValue)
+        {
+            var completionDate = DateOnly.FromDateTime(timeline.CompletedAt.Value);
+            return completionDate > timeline.DueDate ? CompletedLateStatus : CompletedOnTimeStatus;
+        }
+
+        if (timeline.StartedAt.HasValue)
+        {
+            return OnTrackStatus;
+        }
+
+        return NotStartedStatus;
     }
 
     private static ProjectPhaseDeadlinePlanDto ToPlanDto(

@@ -3286,6 +3286,40 @@ public sealed class ProposalServiceTests
             CompletedAt = completedAt;
             return Task.CompletedTask;
         }
+
+        public Task<ServiceResult<ProjectProductionPhaseDeadlineResponseDto>> UpsertProductionDeadlineAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpsertProductionPhaseDeadlineRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Success(
+                new ProjectProductionPhaseDeadlineResponseDto()));
+        }
+
+        public Task<ServiceResult<DateOnly>> StageProposalDeadlineForDesignerAssignmentAsync(
+            Guid projectId,
+            Guid currentUserId,
+            DateOnly proposalDeadline,
+            DateOnly? targetCompletionDate,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<DateOnly>.Success(proposalDeadline));
+        }
+
+        public Task<bool> HasProductionDeadlineAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<DateOnly?> GetProductionDeadlineAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<DateOnly?>(null);
+        }
     }
 
     private sealed record CapturedDispatch(

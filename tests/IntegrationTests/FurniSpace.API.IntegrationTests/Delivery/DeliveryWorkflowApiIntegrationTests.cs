@@ -241,8 +241,8 @@ public sealed class DeliveryWorkflowApiIntegrationTests : IAsyncLifetime
                 Title = title,
                 Description = "Delivery appointment",
                 AssignedStaffId = scenario.ProductionAccountId,
-                ScheduledStart = DateTime.UtcNow,
-                ScheduledEnd = DateTime.UtcNow.AddHours(2),
+                ScheduledStart = ScheduleTestClock.VietnamLocalAsUtc(dayOffset: 1, hour: 8),
+                ScheduledEnd = ScheduleTestClock.VietnamLocalAsUtc(dayOffset: 1, hour: 10),
                 Location = "Customer site"
             });
 

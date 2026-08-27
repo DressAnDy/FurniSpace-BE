@@ -497,6 +497,10 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         });
+        ProjectPhaseTimelineSeeder.AddProductionDeadline(
+            context,
+            scenario.ProjectId,
+            scenario.SalesAccountId);
         await context.SaveChangesAsync();
     }
 

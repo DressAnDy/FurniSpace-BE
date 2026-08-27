@@ -140,6 +140,10 @@ public static class ProductionScenarioSeeder
             CreatedAt = CoreAccountSeeder.FixedTimestamp,
             UpdatedAt = CoreAccountSeeder.FixedTimestamp
         });
+        ProjectPhaseTimelineSeeder.AddProductionDeadline(
+            context,
+            project.ProjectId,
+            sales.AccountId);
         await context.SaveChangesAsync(cancellationToken);
 
         return new ProductionOrderScenario(

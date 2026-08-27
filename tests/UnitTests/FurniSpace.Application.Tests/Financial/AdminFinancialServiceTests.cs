@@ -214,6 +214,27 @@ public sealed class AdminFinancialServiceTests
         Assert.Equal(new DateTimeOffset(to.Date.AddDays(1), to.Offset).UtcDateTime, repository.ReceivablesQuery.ToUtcExclusive);
     }
 
+    [Fact]
+    public async Task GetReceivableOrderDetailAsync_WhenMissing_ReturnsNotFound()
+    {
+        var service = new AdminFinancialService(new FakeFinancialReadRepository());
+        var result = await service.GetReceivableOrderDetailAsync(Guid.NewGuid());
+        Assert.Equal(404, result.Status);
+        Assert.Equal(AdminFinancialErrorCodes.OrderNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetReceivablesAsync_WithInvalidCollectionState_ReturnsBadRequest()
+    {
+        var service = new AdminFinancialService(new FakeFinancialReadRepository());
+        var result = await service.GetReceivablesAsync(new AdminFinancialReceivablesQueryDto
+        {
+            CollectionState = "UNKNOWN"
+        });
+        Assert.Equal(400, result.Status);
+        Assert.Equal(AdminFinancialErrorCodes.ReceivableFilterInvalid, result.ErrorCode);
+    }
+
     [Theory]
     [InlineData(0, 20, null, null)]
     [InlineData(1, 101, null, null)]
@@ -520,7 +541,7 @@ public sealed class AdminFinancialServiceTests
         var result = await service.GetProjectAsync(Guid.NewGuid());
 
         Assert.Equal(404, result.Status);
-        Assert.Equal(AdminFinancialErrorCodes.ProjectNotFound, result.ErrorCode);
+        Assert.Equal(AdminFinancialErrorCodes.FinancialProjectNotFound, result.ErrorCode);
     }
 
     [Fact]
@@ -746,6 +767,12 @@ public sealed class AdminFinancialServiceTests
             return Task.FromResult(ReceivableTotalItems);
         }
 
+        public Task<AdminFinancialReceivableDetailReadModel?> GetReceivableOrderDetailAsync(
+            Guid orderId,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<AdminFinancialReceivableDetailReadModel?>(null);
+
         public Task<IReadOnlyList<AdminFinancialPaymentTypeBreakdownReadModel>> GetPaymentBreakdownAsync(
             DateTime fromUtc,
             DateTime toUtcExclusive,
@@ -852,5 +879,10 @@ public sealed class AdminFinancialServiceTests
                 PageSize = query.PageSize
             });
         }
+
+        public Task<AdminFinancialProjectStatementReadModel?> GetProjectStatementAsync(
+            AdminFinancialProjectStatementQueryReadModel query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<AdminFinancialProjectStatementReadModel?>(null);
     }
 }

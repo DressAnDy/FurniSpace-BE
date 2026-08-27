@@ -48,6 +48,16 @@ public sealed class AdminFinancialController : BaseApiController
     }
 
     [Authorize(Roles = "ADMIN")]
+    [HttpGet("receivables/orders/{orderId:guid}")]
+    public async Task<IActionResult> GetReceivableOrderDetail(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetReceivableOrderDetailAsync(orderId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
     [HttpGet("payment-breakdown")]
     public async Task<IActionResult> GetPaymentBreakdown(
         [FromQuery] AdminFinancialPaymentBreakdownQueryDto query,
@@ -84,6 +94,17 @@ public sealed class AdminFinancialController : BaseApiController
         CancellationToken cancellationToken = default)
     {
         var result = await _financial.GetProjectAsync(projectId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("projects/{projectId:guid}/statement")]
+    public async Task<IActionResult> GetProjectStatement(
+        Guid projectId,
+        [FromQuery] AdminFinancialProjectStatementQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetProjectStatementAsync(projectId, query, cancellationToken);
         return ToActionResult(result);
     }
 

@@ -136,15 +136,18 @@ public sealed class FinancialReadRepositoryTests
         var total = await repository.CountReceivableItemsAsync(query, now);
         var items = await repository.GetReceivableItemsAsync(query, now);
 
-        Assert.Equal(70m, summary.OutstandingPaymentAmount);
-        Assert.Equal(1, summary.OutstandingPaymentCount);
+        Assert.Equal(0m, summary.OutstandingPaymentAmount);
+        Assert.Equal(0, summary.OutstandingPaymentCount);
         Assert.Equal(120m, summary.ContractedReceivableAmount);
         Assert.Equal(2, summary.OrdersWithReceivableCount);
         Assert.Equal(2, total);
         Assert.Equal(orderWithPayment.OrderId, items[0].OrderId);
         Assert.Equal(activePayment.PaymentId, items[0].ActivePaymentId);
         Assert.Equal(PaymentStatus.PENDING, items[0].ActivePaymentStatus);
+        Assert.Equal("FAILED", items[0].CollectionState);
+        Assert.Equal(1, summary.FailedPaymentCount);
         Assert.Null(items[1].ActivePaymentId);
+        Assert.Equal("EXPIRED", items[1].CollectionState);
     }
 
     [Fact]

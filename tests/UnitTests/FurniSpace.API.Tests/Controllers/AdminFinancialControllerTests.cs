@@ -195,14 +195,65 @@ public sealed class AdminFinancialControllerTests
         Assert.Same(query, service.ExceptionsQuery);
     }
 
+    [Fact]
+    public async Task GetReceivableOrderDetail_ReturnsServiceResultThroughBaseController()
+    {
+        var orderId = System.Guid.NewGuid();
+        var service = new FakeAdminFinancialService(
+            ServiceResult<AdminFinancialSummaryDto>.Success(new AdminFinancialSummaryDto()),
+            receivableDetailResult: ServiceResult<AdminFinancialReceivableDetailDto>.Success(
+                new AdminFinancialReceivableDetailDto
+                {
+                    SuggestedAction = "Create remaining payment request"
+                },
+                "Financial receivable detail retrieved successfully."));
+        var controller = new AdminFinancialController(service);
+
+        var actionResult = await controller.GetReceivableOrderDetail(orderId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, service.ReceivableOrderId);
+    }
+
+    [Fact]
+    public async Task GetProjectStatement_ReturnsServiceResultThroughBaseController()
+    {
+        var projectId = System.Guid.NewGuid();
+        var query = new AdminFinancialProjectStatementQueryDto
+        {
+            EntryType = "COLLECTION",
+            Page = 1,
+            PageSize = 10
+        };
+        var service = new FakeAdminFinancialService(
+            ServiceResult<AdminFinancialSummaryDto>.Success(new AdminFinancialSummaryDto()),
+            projectStatementResult: ServiceResult<AdminFinancialProjectStatementDto>.Success(
+                new AdminFinancialProjectStatementDto
+                {
+                    Summary = new AdminFinancialProjectStatementSummaryDto { ClosingBalance = 100m }
+                },
+                "ok"));
+        var controller = new AdminFinancialController(service);
+
+        var actionResult = await controller.GetProjectStatement(projectId, query);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(projectId, service.StatementProjectId);
+        Assert.Same(query, service.StatementQuery);
+    }
+
     private sealed class FakeAdminFinancialService : IAdminFinancialService
     {
         private readonly ServiceResult<AdminFinancialSummaryDto> _result;
         private readonly ServiceResult<AdminFinancialReceivablesDto> _receivablesResult;
+        private readonly ServiceResult<AdminFinancialReceivableDetailDto> _receivableDetailResult;
         private readonly ServiceResult<AdminFinancialPaymentBreakdownDto> _paymentBreakdownResult;
         private readonly ServiceResult<AdminFinancialCollectionTrendDto> _collectionTrendResult;
         private readonly ServiceResult<AdminFinancialProjectsDto> _projectsResult;
         private readonly ServiceResult<AdminFinancialProjectRowDto> _projectResult;
+        private readonly ServiceResult<AdminFinancialProjectStatementDto> _projectStatementResult;
         private readonly ServiceResult<AdminFinancialPaymentsDto> _paymentsResult;
         private readonly ServiceResult<AdminFinancialExceptionsDto> _exceptionsResult;
 
@@ -214,11 +265,15 @@ public sealed class AdminFinancialControllerTests
             ServiceResult<AdminFinancialProjectsDto>? projectsResult = null,
             ServiceResult<AdminFinancialProjectRowDto>? projectResult = null,
             ServiceResult<AdminFinancialPaymentsDto>? paymentsResult = null,
-            ServiceResult<AdminFinancialExceptionsDto>? exceptionsResult = null)
+            ServiceResult<AdminFinancialExceptionsDto>? exceptionsResult = null,
+            ServiceResult<AdminFinancialReceivableDetailDto>? receivableDetailResult = null,
+            ServiceResult<AdminFinancialProjectStatementDto>? projectStatementResult = null)
         {
             _result = result;
             _receivablesResult = receivablesResult ??
                 ServiceResult<AdminFinancialReceivablesDto>.Success(new AdminFinancialReceivablesDto());
+            _receivableDetailResult = receivableDetailResult ??
+                ServiceResult<AdminFinancialReceivableDetailDto>.Success(new AdminFinancialReceivableDetailDto());
             _paymentBreakdownResult = paymentBreakdownResult ??
                 ServiceResult<AdminFinancialPaymentBreakdownDto>.Success(new AdminFinancialPaymentBreakdownDto());
             _collectionTrendResult = collectionTrendResult ??
@@ -227,6 +282,8 @@ public sealed class AdminFinancialControllerTests
                 ServiceResult<AdminFinancialProjectsDto>.Success(new AdminFinancialProjectsDto());
             _projectResult = projectResult ??
                 ServiceResult<AdminFinancialProjectRowDto>.Success(new AdminFinancialProjectRowDto());
+            _projectStatementResult = projectStatementResult ??
+                ServiceResult<AdminFinancialProjectStatementDto>.Success(new AdminFinancialProjectStatementDto());
             _paymentsResult = paymentsResult ??
                 ServiceResult<AdminFinancialPaymentsDto>.Success(new AdminFinancialPaymentsDto());
             _exceptionsResult = exceptionsResult ??
@@ -241,6 +298,9 @@ public sealed class AdminFinancialControllerTests
         public AdminFinancialPaymentsQueryDto? PaymentsQuery { get; private set; }
         public AdminFinancialExceptionsQueryDto? ExceptionsQuery { get; private set; }
         public System.Guid? ProjectId { get; private set; }
+        public System.Guid? ReceivableOrderId { get; private set; }
+        public System.Guid? StatementProjectId { get; private set; }
+        public AdminFinancialProjectStatementQueryDto? StatementQuery { get; private set; }
 
         public Task<ServiceResult<AdminFinancialSummaryDto>> GetSummaryAsync(
             AdminFinancialSummaryQueryDto query,
@@ -256,6 +316,14 @@ public sealed class AdminFinancialControllerTests
         {
             ReceivablesQuery = query;
             return Task.FromResult(_receivablesResult);
+        }
+
+        public Task<ServiceResult<AdminFinancialReceivableDetailDto>> GetReceivableOrderDetailAsync(
+            System.Guid orderId,
+            CancellationToken cancellationToken = default)
+        {
+            ReceivableOrderId = orderId;
+            return Task.FromResult(_receivableDetailResult);
         }
 
         public Task<ServiceResult<AdminFinancialPaymentBreakdownDto>> GetPaymentBreakdownAsync(
@@ -288,6 +356,16 @@ public sealed class AdminFinancialControllerTests
         {
             ProjectId = projectId;
             return Task.FromResult(_projectResult);
+        }
+
+        public Task<ServiceResult<AdminFinancialProjectStatementDto>> GetProjectStatementAsync(
+            System.Guid projectId,
+            AdminFinancialProjectStatementQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            StatementProjectId = projectId;
+            StatementQuery = query;
+            return Task.FromResult(_projectStatementResult);
         }
 
         public Task<ServiceResult<AdminFinancialPaymentsDto>> GetPaymentsAsync(

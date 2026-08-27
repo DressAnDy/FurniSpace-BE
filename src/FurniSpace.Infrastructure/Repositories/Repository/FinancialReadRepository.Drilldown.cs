@@ -101,6 +101,7 @@ public sealed partial class FinancialReadRepository
         if (groupByProject)
         {
             var projectItems = AggregateCollectedByProject(paymentItems, utcNow);
+            projectItems = await EnrichCollectedProjectItemsAsync(projectItems, cancellationToken);
             var kpiTotalAmount = projectItems.Sum(i =>
                 (i.ProjectStartFeeAmount ?? 0m) +
                 (i.DepositAmount ?? 0m) +
@@ -165,6 +166,84 @@ public sealed partial class FinancialReadRepository
                 };
             })
             .ToList();
+    }
+
+    private async Task<List<AdminFinancialDrilldownItemReadModel>> EnrichCollectedProjectItemsAsync(
+        List<AdminFinancialDrilldownItemReadModel> projectItems,
+        CancellationToken cancellationToken)
+    {
+        var projectIds = projectItems
+            .Where(i => i.ProjectId.HasValue)
+            .Select(i => i.ProjectId!.Value)
+            .Distinct()
+            .ToList();
+        if (projectIds.Count == 0)
+        {
+            return projectItems;
+        }
+
+        var projectCustomers = await (
+            from project in _dbContext.ProjectSet.AsNoTracking()
+            where projectIds.Contains(project.ProjectId)
+            join customer in _dbContext.AccountSet.AsNoTracking()
+                on project.CustomerId equals customer.AccountId into customers
+            from customer in customers.DefaultIfEmpty()
+            select new
+            {
+                project.ProjectId,
+                project.CustomerId,
+                CustomerName = customer != null ? customer.FullName : null
+            }).ToListAsync(cancellationToken);
+
+        var customerByProject = projectCustomers.ToDictionary(x => x.ProjectId);
+
+        var latestOrders = await _dbContext.OrderSet.AsNoTracking()
+            .Where(order => projectIds.Contains(order.ProjectId))
+            .Select(order => new
+            {
+                order.OrderId,
+                order.OrderCode,
+                order.ProjectId,
+                order.FinalTotalAmount,
+                order.PaidAmount,
+                order.RemainingAmount,
+                order.ConfirmedAt,
+                order.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        var orderByProject = latestOrders
+            .GroupBy(o => o.ProjectId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(o => o.ConfirmedAt ?? o.CreatedAt)
+                    .ThenByDescending(o => o.OrderId)
+                    .First());
+
+        foreach (var item in projectItems)
+        {
+            if (!item.ProjectId.HasValue)
+            {
+                continue;
+            }
+
+            if (customerByProject.TryGetValue(item.ProjectId.Value, out var customer))
+            {
+                item.CustomerId = customer.CustomerId;
+                item.CustomerName = customer.CustomerName;
+            }
+
+            if (orderByProject.TryGetValue(item.ProjectId.Value, out var order))
+            {
+                item.OrderId = order.OrderId;
+                item.OrderCode = order.OrderCode;
+                item.OrderFinalTotal = order.FinalTotalAmount;
+                item.OrderPaidAmount = order.PaidAmount;
+                item.OrderRemainingAmount = order.RemainingAmount;
+            }
+        }
+
+        return projectItems;
     }
 
     private static AdminFinancialDrilldownBreakdownReadModel BuildPaymentTypeBreakdownFromProjectTotals(

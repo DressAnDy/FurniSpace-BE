@@ -138,6 +138,11 @@ public sealed class AdminFinancialSummaryDrilldownServiceTests
             AdminFinancialReceivablesQueryReadModel query, DateTime utcNow,
             CancellationToken cancellationToken = default) => Task.FromResult(0);
 
+        public Task<AdminFinancialReceivableDetailReadModel?> GetReceivableOrderDetailAsync(
+            Guid orderId, DateTime utcNow,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<AdminFinancialReceivableDetailReadModel?>(null);
+
         public Task<System.Collections.Generic.IReadOnlyList<AdminFinancialPaymentTypeBreakdownReadModel>> GetPaymentBreakdownAsync(
             DateTime fromUtc, DateTime toUtcExclusive, DateTime utcNow, string currency,
             System.Collections.Generic.IReadOnlyCollection<PaymentType> canonicalPaymentTypes,
@@ -193,5 +198,10 @@ public sealed class AdminFinancialSummaryDrilldownServiceTests
             System.Collections.Generic.IReadOnlyCollection<PaymentType> canonicalPaymentTypes,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(Drilldown);
+
+        public Task<AdminFinancialProjectStatementReadModel?> GetProjectStatementAsync(
+            AdminFinancialProjectStatementQueryReadModel query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<AdminFinancialProjectStatementReadModel?>(null);
     }
 }

@@ -112,6 +112,12 @@ public sealed class FinancialSummaryDrilldownRepositoryTests
         Assert.Equal(4, project.PaymentCount);
         Assert.Equal(project.TotalCollectedAmount, project.Amount);
         Assert.NotNull(project.LastPaidAt);
+        Assert.Equal(seed.ProjectId, project.ProjectId);
+        Assert.NotNull(project.CustomerId);
+        Assert.Equal(seed.OrderId, project.OrderId);
+        Assert.Equal(1100m, project.OrderFinalTotal);
+        Assert.Equal(400m, project.OrderPaidAmount);
+        Assert.Equal(700m, project.OrderRemainingAmount);
     }
 
     [Fact]

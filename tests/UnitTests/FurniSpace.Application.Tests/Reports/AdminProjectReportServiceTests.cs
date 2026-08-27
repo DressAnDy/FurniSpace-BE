@@ -198,6 +198,12 @@ public sealed class AdminProjectReportServiceTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
 
+        public Task<AdminFinancialReceivableDetailReadModel?> GetReceivableOrderDetailAsync(
+            Guid orderId,
+            DateTime utcNow,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<AdminFinancialReceivableDetailReadModel?>(null);
+
         public Task<IReadOnlyList<AdminFinancialPaymentTypeBreakdownReadModel>> GetPaymentBreakdownAsync(
             DateTime fromUtc,
             DateTime toUtcExclusive,
@@ -271,5 +277,10 @@ public sealed class AdminProjectReportServiceTests
                 Page = query.Page,
                 PageSize = query.PageSize
             });
+
+        public Task<AdminFinancialProjectStatementReadModel?> GetProjectStatementAsync(
+            AdminFinancialProjectStatementQueryReadModel query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<AdminFinancialProjectStatementReadModel?>(null);
     }
 }

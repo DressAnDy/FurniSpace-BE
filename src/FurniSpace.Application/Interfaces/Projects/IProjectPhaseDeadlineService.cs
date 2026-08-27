@@ -12,6 +12,27 @@ public interface IProjectPhaseDeadlineService
         UpsertProjectPhaseDeadlinesRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectProductionPhaseDeadlineResponseDto>> UpsertProductionDeadlineAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpsertProductionPhaseDeadlineRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<DateOnly>> StageProposalDeadlineForDesignerAssignmentAsync(
+        Guid projectId,
+        Guid currentUserId,
+        DateOnly proposalDeadline,
+        DateOnly? targetCompletionDate,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> HasProductionDeadlineAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default);
+
+    Task<DateOnly?> GetProductionDeadlineAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(
         Guid projectId,
         Guid currentUserId,

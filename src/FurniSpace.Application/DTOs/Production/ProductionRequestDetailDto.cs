@@ -17,6 +17,7 @@ public sealed class ProductionRequestDetailDto
     public string? Priority { get; set; }
     public DateOnly? EstimatedStartDate { get; set; }
     public DateOnly? EstimatedCompletionDate { get; set; }
+    public DateOnly? ProductionDeadline { get; set; }
     public DateOnly? ActualStartDate { get; set; }
     public DateOnly? ActualCompletionDate { get; set; }
     public string? CancellationReason { get; set; }

@@ -380,8 +380,16 @@ public sealed class ProductionRequestService : IProductionRequestService
                 "You do not have permission to view this production request.");
         }
 
+        DateOnly? productionDeadline = null;
+        if (_dependencies.PhaseDeadlines is not null)
+        {
+            productionDeadline = await _dependencies.PhaseDeadlines.GetProductionDeadlineAsync(
+                detail.ProjectId,
+                cancellationToken);
+        }
+
         return ServiceResult<ProductionRequestDetailDto>.Success(
-            ToDetailDto(detail),
+            ToDetailDto(detail, productionDeadline),
             "Production request detail retrieved successfully.");
     }
 
@@ -1277,7 +1285,8 @@ public sealed class ProductionRequestService : IProductionRequestService
     }
 
     private static ProductionRequestDetailDto ToDetailDto(
-        ProductionRequestDetailReadModel detail)
+        ProductionRequestDetailReadModel detail,
+        DateOnly? productionDeadline = null)
     {
         return new ProductionRequestDetailDto
         {
@@ -1294,6 +1303,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             Priority = detail.Priority,
             EstimatedStartDate = detail.EstimatedStartDate,
             EstimatedCompletionDate = detail.EstimatedCompletionDate,
+            ProductionDeadline = productionDeadline,
             ActualStartDate = detail.ActualStartDate,
             ActualCompletionDate = detail.ActualCompletionDate,
             CancellationReason = detail.CancellationReason,

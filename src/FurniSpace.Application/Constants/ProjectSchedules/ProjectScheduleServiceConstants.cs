@@ -7,6 +7,8 @@ internal static class ProjectScheduleServiceConstants
     internal const string ScheduleNotFoundMessage = "Schedule not found.";
     internal const string ProjectScheduleReferenceType = "PROJECT_SCHEDULE";
 
+    internal const int MinimumAppointmentDurationHours = 1;
+
     internal static readonly ProjectScheduleType[] ProductionManageableScheduleTypes =
     [
         ProjectScheduleType.DELIVERY,

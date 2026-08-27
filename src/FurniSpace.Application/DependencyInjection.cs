@@ -303,7 +303,8 @@ public static class DependencyInjection
                 sp.GetRequiredService<IOptions<PayOsOptions>>().Value,
                 sp.GetRequiredService<IOptions<ProjectWorkflowSettings>>().Value,
                 sp.GetRequiredService<SePayVietQrUrlBuilder>(),
-                sp.GetRequiredService<IPayOsClient>());
+                sp.GetRequiredService<IPayOsClient>(),
+                sp.GetRequiredService<IProjectPhaseDeadlineService>());
         });
         services.AddScoped<IPaymentBusinessEffectService, PaymentBusinessEffectService>();
         services.AddScoped<IOrderService>(sp => new OrderService(

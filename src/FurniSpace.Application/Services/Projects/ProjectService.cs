@@ -1337,12 +1337,34 @@ public sealed class ProjectService : IProjectService
             return ServiceResult<ProjectDesignerAssignmentDto>.Conflict("Designer has reached maximum active project capacity.");
         }
 
+        if (!request.ProposalDeadline.HasValue)
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.Failure(Error.BadRequest(
+                ProjectPhaseDeadlineErrorCodes.ProposalDeadlineRequired,
+                "Proposal deadline is required."));
+        }
+
         var projectChats = _projectChats ?? throw new InvalidOperationException(
             "Project chat service is not configured.");
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
         {
+            var deadlineResult = await _phaseDeadlines.StageProposalDeadlineForDesignerAssignmentAsync(
+                projectId,
+                currentUserId,
+                request.ProposalDeadline.Value,
+                project.TargetCompletionDate,
+                cancellationToken);
+            if (deadlineResult.Status != 200)
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                return ServiceResult<ProjectDesignerAssignmentDto>.Failure(
+                    Error.BadRequest(
+                        deadlineResult.ErrorCode ?? ProjectPhaseDeadlineErrorCodes.ProposalDeadlineInvalid,
+                        deadlineResult.Message ?? "Proposal deadline is invalid."));
+            }
+
             project.AssignedDesignerId = designer.AccountId;
             project.DesignerAssignedAt = DateTime.UtcNow;
             project.Status = ResolveDesignerAssignmentStatus(request.SpaceDataStatus!.Value);
@@ -1373,7 +1395,8 @@ public sealed class ProjectService : IProjectService
                 ProjectId = project.ProjectId,
                 AssignedDesigner = designer.Adapt<AssignedDesignerDto>(),
                 Status = project.Status,
-                DesignerAssignedAt = project.DesignerAssignedAt
+                DesignerAssignedAt = project.DesignerAssignedAt,
+                ProposalDeadline = request.ProposalDeadline.Value
             },
             "Designer assigned successfully.");
     }

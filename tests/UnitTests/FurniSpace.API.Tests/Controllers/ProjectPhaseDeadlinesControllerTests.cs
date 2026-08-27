@@ -102,6 +102,62 @@ public sealed class ProjectPhaseDeadlinesControllerTests
         Assert.IsType<UnauthorizedResult>(result);
     }
 
+    [Fact]
+    public void UpsertProductionDeadline_AllowsSalesAndAdmin()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectPhaseDeadlinesController.UpsertProductionDeadline));
+
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task UpsertProductionDeadline_PassesRequestToService()
+    {
+        var projectId = Guid.NewGuid();
+        var request = new UpsertProductionPhaseDeadlineRequestDto
+        {
+            ProductionDeadline = new DateOnly(2026, 9, 25)
+        };
+        var response = new ProjectProductionPhaseDeadlineResponseDto
+        {
+            ProjectId = projectId,
+            DueDate = request.ProductionDeadline.Value
+        };
+        var service = new FakeProjectPhaseDeadlineService(
+            upsertProductionResult: ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Success(response));
+        var controller = WithUser(new ProjectPhaseDeadlinesController(service));
+
+        var actionResult = await controller.UpsertProductionDeadline(projectId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        var result = Assert.IsType<ServiceResult<ProjectProductionPhaseDeadlineResponseDto>>(objectResult.Value);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Same(request, service.UpsertProductionRequest);
+        Assert.Equal(projectId, service.UpsertProductionProjectId);
+        Assert.Same(response, result.Data);
+    }
+
+    [Fact]
+    public async Task UpsertProductionDeadline_WithoutUserClaim_ReturnsUnauthorized()
+    {
+        var controller = new ProjectPhaseDeadlinesController(new FakeProjectPhaseDeadlineService())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var result = await controller.UpsertProductionDeadline(
+            Guid.NewGuid(),
+            new UpsertProductionPhaseDeadlineRequestDto
+            {
+                ProductionDeadline = new DateOnly(2026, 9, 25)
+            });
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
     private static AuthorizeAttribute GetMethodAuthorizeAttribute(string methodName)
     {
         return typeof(ProjectPhaseDeadlinesController)
@@ -127,18 +183,24 @@ public sealed class ProjectPhaseDeadlinesControllerTests
     {
         private readonly ServiceResult<ProjectPhaseDeadlinePlanDto> _getResult;
         private readonly ServiceResult<ProjectPhaseDeadlinePlanDto> _upsertResult;
+        private readonly ServiceResult<ProjectProductionPhaseDeadlineResponseDto> _upsertProductionResult;
 
         public FakeProjectPhaseDeadlineService(
             ServiceResult<ProjectPhaseDeadlinePlanDto>? getResult = null,
-            ServiceResult<ProjectPhaseDeadlinePlanDto>? upsertResult = null)
+            ServiceResult<ProjectPhaseDeadlinePlanDto>? upsertResult = null,
+            ServiceResult<ProjectProductionPhaseDeadlineResponseDto>? upsertProductionResult = null)
         {
             _getResult = getResult ?? ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto());
             _upsertResult = upsertResult ?? ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto());
+            _upsertProductionResult = upsertProductionResult ??
+                ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Success(new ProjectProductionPhaseDeadlineResponseDto());
         }
 
         public Guid GetProjectId { get; private set; }
         public Guid UpsertProjectId { get; private set; }
         public UpsertProjectPhaseDeadlinesRequestDto? UpsertRequest { get; private set; }
+        public Guid UpsertProductionProjectId { get; private set; }
+        public UpsertProductionPhaseDeadlineRequestDto? UpsertProductionRequest { get; private set; }
 
         public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(
             Guid projectId,
@@ -176,6 +238,41 @@ public sealed class ProjectPhaseDeadlinesControllerTests
             CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
+        }
+
+        public Task<ServiceResult<ProjectProductionPhaseDeadlineResponseDto>> UpsertProductionDeadlineAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpsertProductionPhaseDeadlineRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            UpsertProductionProjectId = projectId;
+            UpsertProductionRequest = request;
+            return Task.FromResult(_upsertProductionResult);
+        }
+
+        public Task<ServiceResult<DateOnly>> StageProposalDeadlineForDesignerAssignmentAsync(
+            Guid projectId,
+            Guid currentUserId,
+            DateOnly proposalDeadline,
+            DateOnly? targetCompletionDate,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<DateOnly>.Success(proposalDeadline));
+        }
+
+        public Task<bool> HasProductionDeadlineAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<DateOnly?> GetProductionDeadlineAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<DateOnly?>(null);
         }
     }
 }

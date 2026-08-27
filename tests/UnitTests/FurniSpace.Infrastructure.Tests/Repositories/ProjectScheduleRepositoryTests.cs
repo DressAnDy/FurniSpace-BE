@@ -563,6 +563,105 @@ public sealed class ProjectScheduleRepositoryTests
     }
 
     [Fact]
+    public async Task GetCustomerScheduleConflictAsync_ReturnsMinimumGapAcrossProjectsForSameCustomer()
+    {
+        await using var context = CreateContext();
+        var customerId = Guid.NewGuid();
+        var projectA = Guid.NewGuid();
+        var projectB = Guid.NewGuid();
+        var staffA = Guid.NewGuid();
+        var staffB = Guid.NewGuid();
+        var existingStart = DateTime.UtcNow.AddDays(3);
+        context.ProjectSet.AddRange(
+            new Project
+            {
+                ProjectId = projectA,
+                CustomerId = customerId,
+                ProjectName = "Project A",
+                BusinessType = "Cafe",
+                FurnitureRequirement = "Tables"
+            },
+            new Project
+            {
+                ProjectId = projectB,
+                CustomerId = customerId,
+                ProjectName = "Project B",
+                BusinessType = "Cafe",
+                FurnitureRequirement = "Chairs"
+            });
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = Guid.NewGuid(),
+            ProjectId = projectA,
+            ScheduleType = ProjectScheduleType.MEASUREMENT,
+            Title = "Measurement A",
+            AssignedStaffId = staffA,
+            ScheduledStart = existingStart,
+            ScheduledEnd = existingStart.AddHours(2),
+            Status = ProjectScheduleStatus.CONFIRMED,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new ProjectScheduleRepository(context);
+
+        var conflict = await repository.GetCustomerScheduleConflictAsync(
+            customerId,
+            existingStart.AddHours(3),
+            existingStart.AddHours(4));
+
+        Assert.Equal(StaffScheduleConflictKind.MinimumGapNotMet, conflict);
+    }
+
+    [Fact]
+    public async Task GetCustomerScheduleConflictAsync_IgnoresSchedulesFromOtherCustomers()
+    {
+        await using var context = CreateContext();
+        var customerId = Guid.NewGuid();
+        var otherCustomerId = Guid.NewGuid();
+        var projectA = Guid.NewGuid();
+        var projectB = Guid.NewGuid();
+        var existingStart = DateTime.UtcNow.AddDays(3);
+        context.ProjectSet.AddRange(
+            new Project
+            {
+                ProjectId = projectA,
+                CustomerId = otherCustomerId,
+                ProjectName = "Other customer project",
+                BusinessType = "Cafe",
+                FurnitureRequirement = "Tables"
+            },
+            new Project
+            {
+                ProjectId = projectB,
+                CustomerId = customerId,
+                ProjectName = "Target project",
+                BusinessType = "Cafe",
+                FurnitureRequirement = "Chairs"
+            });
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = Guid.NewGuid(),
+            ProjectId = projectA,
+            ScheduleType = ProjectScheduleType.DELIVERY,
+            Title = "Other customer delivery",
+            AssignedStaffId = Guid.NewGuid(),
+            ScheduledStart = existingStart,
+            ScheduledEnd = existingStart.AddHours(2),
+            Status = ProjectScheduleStatus.CONFIRMED,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new ProjectScheduleRepository(context);
+
+        var conflict = await repository.GetCustomerScheduleConflictAsync(
+            customerId,
+            existingStart,
+            existingStart.AddHours(2));
+
+        Assert.Equal(StaffScheduleConflictKind.None, conflict);
+    }
+
+    [Fact]
     public async Task GetStaffScheduleConflictAsync_UsesCompletedAtAndIgnoresCancelledSchedules()
     {
         await using var context = CreateContext();

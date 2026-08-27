@@ -101,6 +101,17 @@ public static class DepositOrderScenarioSeeder
         context.ProposalSet.Add(proposal);
         context.QuotationSet.Add(quotation);
         context.OrderSet.Add(order);
+        context.ProjectPhaseTimelineSet.Add(new ProjectPhaseTimeline
+        {
+            ProjectPhaseTimelineId = Guid.NewGuid(),
+            ProjectId = project.ProjectId,
+            Phase = ProjectPhaseType.PRODUCTION,
+            DueDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30)),
+            CreatedBy = customer.AccountId,
+            UpdatedBy = customer.AccountId,
+            CreatedAt = CoreAccountSeeder.FixedTimestamp,
+            UpdatedAt = CoreAccountSeeder.FixedTimestamp
+        });
         await context.SaveChangesAsync(cancellationToken);
 
         return new DepositOrderScenario(

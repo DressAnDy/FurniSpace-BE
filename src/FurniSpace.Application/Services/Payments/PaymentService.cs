@@ -7,8 +7,9 @@ using static FurniSpace.Application.Constants.Payments.PaymentServiceConstants;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.DTOs.Projects;
-using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -33,6 +34,7 @@ public sealed class PaymentService : IPaymentService
     private readonly SePayVietQrUrlBuilder _vietQrUrlBuilder;
     private readonly IPayOsClient _payOsClient;
     private readonly ProjectWorkflowSettings _projectWorkflowSettings;
+    private readonly IProjectPhaseDeadlineService _phaseDeadlines;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<PaymentService>? _logger;
 
@@ -53,6 +55,7 @@ public sealed class PaymentService : IPaymentService
         _projectWorkflowSettings = dependencies.ProjectWorkflowSettings;
         _vietQrUrlBuilder = dependencies.VietQrUrlBuilder;
         _payOsClient = dependencies.PayOsClient;
+        _phaseDeadlines = dependencies.PhaseDeadlines;
         _notifications = notifications;
         _logger = logger;
     }
@@ -162,6 +165,13 @@ public sealed class PaymentService : IPaymentService
             return BadRequestDetail(
                 OrderErrorCodes.OrderDeliveryDetailsRequired,
                 "Delivery details must be completed before deposit payment.");
+        }
+
+        if (!await _phaseDeadlines.HasProductionDeadlineAsync(order.ProjectId, cancellationToken))
+        {
+            return BadRequestDetail(
+                ProjectPhaseDeadlineErrorCodes.ProductionDeadlineRequired,
+                "Production deadline must be set before deposit payment.");
         }
 
         if (order.Status == OrderStatus.DEPOSIT_PENDING)

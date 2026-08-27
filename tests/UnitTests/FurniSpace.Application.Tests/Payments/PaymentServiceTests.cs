@@ -5,13 +5,16 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Orders;
 using FurniSpace.Application.DTOs.Payments;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Services.Payments;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -100,6 +103,25 @@ public sealed class PaymentServiceTests
         Assert.Equal(30m, result.Data.Amount);
         Assert.Single(repository.NewPayments);
         Assert.Equal(NotificationType.PaymentCreated, Assert.Single(dispatcher.Dispatched));
+    }
+
+    [Fact]
+    public async Task CreateDepositPaymentForOrderAsync_WhenProductionDeadlineMissing_ReturnsRequiredError()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            OrderDetail = CreateOrderDetail(OrderStatus.DEPOSIT_PENDING),
+            PhaseDeadlines = new PaymentServiceFakePhaseDeadlineService { HasProductionDeadline = false }
+        });
+
+        var result = await service.CreateDepositPaymentForOrderAsync(
+            _orderId,
+            _customerId,
+            new CreateOrderDepositPaymentRequestDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectPhaseDeadlineErrorCodes.ProductionDeadlineRequired, result.ErrorCode);
     }
 
     [Fact]
@@ -1396,7 +1418,8 @@ public sealed class PaymentServiceTests
                 BankAccountNo = "1017588888",
                 BankAccountName = "FurniSpace"
             })),
-            payOsClient);
+            payOsClient,
+            options.PhaseDeadlines ?? new PaymentServiceFakePhaseDeadlineService());
 
         return new PaymentService(payments, projects, orders, dependencies, options.Notifications);
     }
@@ -1517,6 +1540,81 @@ public sealed class PaymentServiceTests
         public string? PayOsCancelUrl { get; init; }
         public decimal DefaultProjectStartFeeAmount { get; init; } = 500000m;
         public INotificationDispatcher? Notifications { get; init; }
+        public IProjectPhaseDeadlineService? PhaseDeadlines { get; init; }
+    }
+
+    private sealed class PaymentServiceFakePhaseDeadlineService : IProjectPhaseDeadlineService
+    {
+        public bool HasProductionDeadline { get; init; } = true;
+
+        public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpsertProjectPhaseDeadlinesRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+        }
+
+        public Task<ServiceResult<ProjectProductionPhaseDeadlineResponseDto>> UpsertProductionDeadlineAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpsertProductionPhaseDeadlineRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectProductionPhaseDeadlineResponseDto>.Success(
+                new ProjectProductionPhaseDeadlineResponseDto()));
+        }
+
+        public Task<ServiceResult<DateOnly>> StageProposalDeadlineForDesignerAssignmentAsync(
+            Guid projectId,
+            Guid currentUserId,
+            DateOnly proposalDeadline,
+            DateOnly? targetCompletionDate,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<DateOnly>.Success(proposalDeadline));
+        }
+
+        public Task<bool> HasProductionDeadlineAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(HasProductionDeadline);
+        }
+
+        public Task<DateOnly?> GetProductionDeadlineAsync(
+            Guid projectId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<DateOnly?>(null);
+        }
+
+        public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> GetAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(ServiceResult<ProjectPhaseDeadlinePlanDto>.Success(new ProjectPhaseDeadlinePlanDto()));
+        }
+
+        public Task MarkStartedOnceAsync(
+            Guid projectId,
+            ProjectPhaseType phase,
+            DateTime startedAt,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task MarkCompletedOnceAsync(
+            Guid projectId,
+            ProjectPhaseType phase,
+            DateTime completedAt,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class PaymentServiceFakeNotificationDispatcher : INotificationDispatcher

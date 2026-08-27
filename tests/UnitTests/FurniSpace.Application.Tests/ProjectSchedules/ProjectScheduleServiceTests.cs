@@ -685,6 +685,59 @@ public sealed class ProjectScheduleServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_WhenDurationLessThanOneHour_ReturnsMinimumDurationError()
+    {
+        var productionId = Guid.NewGuid();
+        var project = CreateProject(status: ProjectStatus.READY_FOR_DELIVERY);
+        var request = ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, productionId);
+        request.ScheduledStart = VietnamLocalAsUtc(hour: 8);
+        request.ScheduledEnd = VietnamLocalAsUtc(hour: 8, minute: 30);
+        var service = BuildDeliveryScheduleService(project);
+
+        var result = await service.CreateAsync(project.ProjectId, productionId, request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.ScheduleMinimumDurationNotMet, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenDifferentStaffButSameCustomerGapTooShort_ReturnsCustomerMinimumGapError()
+    {
+        var customerId = Guid.NewGuid();
+        var productionA = Guid.NewGuid();
+        var productionB = Guid.NewGuid();
+        var project = CreateProject(customerId: customerId, status: ProjectStatus.READY_FOR_DELIVERY);
+        var scheduleRepo = new FakeProjectScheduleRepository();
+        var existingStart = VietnamLocalAsUtc(hour: 10);
+        scheduleRepo.AddExistingSchedule(CreateScheduleEntity(
+            project.ProjectId,
+            productionA,
+            ProjectScheduleStatus.CONFIRMED,
+            existingStart,
+            existingStart.AddHours(2),
+            scheduleType: ProjectScheduleType.DELIVERY));
+        var request = ValidProductionCreateRequest(ProjectScheduleType.DELIVERY, productionB);
+        request.ScheduledStart = VietnamLocalAsUtc(hour: 13);
+        request.ScheduledEnd = VietnamLocalAsUtc(hour: 14);
+        var service = BuildService(new()
+        {
+            Role = "PRODUCTION",
+            ProjectDetail = project,
+            ScheduleRepo = scheduleRepo,
+            OrderRepo = new FakeOrderRepository(hasProjectOrderInStatuses: true),
+            ProductionRequestRepo = new FakeProductionRequestRepository
+            {
+                HasAssignedCompletedProduction = true
+            }
+        });
+
+        var result = await service.CreateAsync(project.ProjectId, productionB, request);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectScheduleErrorCodes.CustomerScheduleMinimumGapNotMet, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task CreateAsync_WhenMeasurementStaffGapIsExactlyTwoHours_ReturnsCreated()
     {
         var salesId = Guid.NewGuid();
@@ -734,7 +787,7 @@ public sealed class ProjectScheduleServiceTests
         scheduleRepo.AddExistingSchedule(completedSchedule);
         var request = ValidMeasurementCreateRequest(designerId);
         request.ScheduledStart = existingStart.AddHours(3).AddMinutes(15);
-        request.ScheduledEnd = existingStart.AddHours(4);
+        request.ScheduledEnd = existingStart.AddHours(4).AddMinutes(15);
         var service = BuildService(new() { Role = "SALES", ProjectDetail = project, ScheduleRepo = scheduleRepo });
 
         var result = await service.CreateAsync(project.ProjectId, salesId, request);
@@ -1896,32 +1949,73 @@ public sealed class ProjectScheduleServiceTests
             Guid? excludedScheduleId = null,
             CancellationToken cancellationToken = default)
         {
-            foreach (var schedule in _entities.Where(schedule =>
-                         schedule.AssignedStaffId == assignedStaffId &&
-                         schedule.ScheduleId != excludedScheduleId &&
-                         schedule.Status != ProjectScheduleStatus.CANCELLED &&
-                         schedule.ScheduleType is ProjectScheduleType.MEASUREMENT or ProjectScheduleType.DELIVERY &&
-                         (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
-                          schedule.Status == ProjectScheduleStatus.CONFIRMED ||
-                          (schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt.HasValue))))
+            var schedules = GetAppointmentConflictCandidates(excludedScheduleId)
+                .Where(schedule => schedule.AssignedStaffId == assignedStaffId);
+
+            return Task.FromResult(EvaluateConflict(schedules, scheduledStart, scheduledEnd));
+        }
+
+        public Task<StaffScheduleConflictKind> GetCustomerScheduleConflictAsync(
+            Guid customerId,
+            DateTime scheduledStart,
+            DateTime scheduledEnd,
+            Guid? excludedScheduleId = null,
+            CancellationToken cancellationToken = default)
+        {
+            var schedules = GetAppointmentConflictCandidates(excludedScheduleId)
+                .Where(schedule => IsProjectOwnedByCustomer(schedule.ProjectId, customerId));
+
+            return Task.FromResult(EvaluateConflict(schedules, scheduledStart, scheduledEnd));
+        }
+
+        private IEnumerable<ProjectSchedule> GetAppointmentConflictCandidates(Guid? excludedScheduleId)
+        {
+            return _entities.Where(schedule =>
+                schedule.ScheduleId != excludedScheduleId &&
+                schedule.Status != ProjectScheduleStatus.CANCELLED &&
+                schedule.ScheduleType is ProjectScheduleType.MEASUREMENT or ProjectScheduleType.DELIVERY &&
+                (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
+                 schedule.Status == ProjectScheduleStatus.CONFIRMED ||
+                 (schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt.HasValue)) &&
+                (schedule.Status == ProjectScheduleStatus.COMPLETED || schedule.ScheduledEnd.HasValue));
+        }
+
+        private bool IsProjectOwnedByCustomer(Guid projectId, Guid customerId)
+        {
+            if (ProjectCustomerIds.TryGetValue(projectId, out var mappedCustomerId))
+            {
+                return mappedCustomerId == customerId;
+            }
+
+            return ProjectCustomerIds.Count == 0;
+        }
+
+        private static StaffScheduleConflictKind EvaluateConflict(
+            IEnumerable<ProjectSchedule> schedules,
+            DateTime scheduledStart,
+            DateTime scheduledEnd)
+        {
+            foreach (var schedule in schedules)
             {
                 var existingEnd = schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt.HasValue
                     ? schedule.CompletedAt.Value
                     : schedule.ScheduledEnd ?? schedule.ScheduledStart;
                 if (scheduledStart < existingEnd && scheduledEnd > schedule.ScheduledStart)
                 {
-                    return Task.FromResult(StaffScheduleConflictKind.Overlap);
+                    return StaffScheduleConflictKind.Overlap;
                 }
 
                 if (scheduledStart < existingEnd.AddHours(2) &&
                     scheduledEnd.AddHours(2) > schedule.ScheduledStart)
                 {
-                    return Task.FromResult(StaffScheduleConflictKind.MinimumGapNotMet);
+                    return StaffScheduleConflictKind.MinimumGapNotMet;
                 }
             }
 
-            return Task.FromResult(StaffScheduleConflictKind.None);
+            return StaffScheduleConflictKind.None;
         }
+
+        public Dictionary<Guid, Guid> ProjectCustomerIds { get; } = new();
 
         public Task<ProjectScheduleDetailReadModel?> GetDetailAsync(
             Guid scheduleId, CancellationToken cancellationToken = default)

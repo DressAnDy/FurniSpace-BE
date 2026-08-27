@@ -87,7 +87,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
             return ServiceResult<AdminFinancialSummaryDto>.Failure(
                 Error.BadRequest(
                     AdminFinancialErrorCodes.CurrencyInvalid,
-                    "Financial currency is invalid."));
+                    FinancialReportingConstants.CurrencyInvalidMessage));
         }
 
         if (!FinancialReportingPeriodResolver.TryResolve(
@@ -177,7 +177,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
         if (!IsSupportedCurrency(currency))
         {
             return ServiceResult<AdminFinancialPaymentBreakdownDto>.Failure(
-                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, "Financial currency is invalid."));
+                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, FinancialReportingConstants.CurrencyInvalidMessage));
         }
 
         var rows = await _financial.GetPaymentBreakdownAsync(
@@ -219,7 +219,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
         if (!IsSupportedCurrency(currency))
         {
             return ServiceResult<AdminFinancialCollectionTrendDto>.Failure(
-                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, "Financial currency is invalid."));
+                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, FinancialReportingConstants.CurrencyInvalidMessage));
         }
 
         var series = await BuildMonthlyTrendSeriesAsync(
@@ -359,7 +359,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
         if (!IsSupportedCurrency(currency))
         {
             return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
-                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, "Financial currency is invalid."));
+                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, FinancialReportingConstants.CurrencyInvalidMessage));
         }
 
         if (!FinancialReportingPeriodResolver.TryResolve(

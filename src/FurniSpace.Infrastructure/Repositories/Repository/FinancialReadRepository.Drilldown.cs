@@ -1,5 +1,6 @@
 #nullable enable
 
+using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.Financial;
 using Microsoft.EntityFrameworkCore;
@@ -22,7 +23,7 @@ public sealed partial class FinancialReadRepository
     private const string Aging4To7 = "4_7";
     private const string Aging8To14 = "8_14";
     private const string AgingOver14 = "OVER_14";
-    private const string ProviderUnknown = "UNKNOWN";
+    private const string UnknownKey = "UNKNOWN";
 
     public async Task<AdminFinancialSummaryDrilldownReadModel> GetSummaryDrilldownAsync(
         AdminFinancialSummaryDrilldownQueryReadModel query,
@@ -65,106 +66,39 @@ public sealed partial class FinancialReadRepository
         IReadOnlyCollection<PaymentType> canonicalPaymentTypes,
         CancellationToken cancellationToken)
     {
-        var baseQuery = _dbContext.PaymentSet.AsNoTracking()
-            .Where(payment =>
-                payment.Status == PaymentStatus.PAID &&
-                payment.PaymentType.HasValue &&
-                canonicalPaymentTypes.Contains(payment.PaymentType.Value) &&
-                payment.PaidAt.HasValue &&
-                payment.PaidAt.Value >= fromUtc &&
-                payment.PaidAt.Value < toUtcExclusive &&
-                payment.Currency == currency);
+        var baseQuery = ApplyPaymentDrilldownFilters(
+            _dbContext.PaymentSet.AsNoTracking()
+                .Where(payment =>
+                    payment.Status == PaymentStatus.PAID &&
+                    payment.PaymentType.HasValue &&
+                    canonicalPaymentTypes.Contains(payment.PaymentType.Value) &&
+                    payment.PaidAt.HasValue &&
+                    payment.PaidAt.Value >= fromUtc &&
+                    payment.PaidAt.Value < toUtcExclusive &&
+                    payment.Currency == currency),
+            query);
 
-        if (query.ProjectId.HasValue)
-        {
-            baseQuery = baseQuery.Where(p => p.ProjectId == query.ProjectId.Value);
-        }
-
-        if (query.PaymentType.HasValue)
-        {
-            baseQuery = baseQuery.Where(p => p.PaymentType == query.PaymentType.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Status)
-            && Enum.TryParse<PaymentStatus>(query.Status, ignoreCase: true, out var statusFilter))
-        {
-            baseQuery = baseQuery.Where(p => p.Status == statusFilter);
-        }
-
-        var rows = await (
-            from payment in baseQuery
-            join project in _dbContext.ProjectSet.AsNoTracking() on payment.ProjectId equals project.ProjectId
-            join order in _dbContext.OrderSet.AsNoTracking() on payment.OrderId equals order.OrderId into orders
-            from order in orders.DefaultIfEmpty()
-            select new
-            {
-                payment.PaymentId,
-                payment.PaymentCode,
-                payment.ProjectId,
-                project.ProjectCode,
-                project.ProjectName,
-                payment.OrderId,
-                OrderCode = order != null ? order.OrderCode : null,
-                OrderStatus = order != null ? order.Status : null,
-                payment.PaymentType,
-                payment.Status,
-                payment.Amount,
-                OccurredAt = payment.PaidAt
-            }).ToListAsync(cancellationToken);
-
-        var paymentIds = rows.Select(r => r.PaymentId).ToList();
-        var providers = await _dbContext.PaymentTransactionSet.AsNoTracking()
-            .Where(t => paymentIds.Contains(t.PaymentId) && t.Status == PaymentTransactionStatus.SUCCESS)
-            .Select(t => new { t.PaymentId, t.PaymentProvider, t.ConfirmedAt, t.CreatedAt })
-            .ToListAsync(cancellationToken);
-
-        var providerByPayment = providers
-            .GroupBy(t => t.PaymentId)
-            .ToDictionary(
-                g => g.Key,
-                g => g.OrderByDescending(t => t.ConfirmedAt ?? t.CreatedAt)
-                    .Select(t => t.PaymentProvider)
-                    .FirstOrDefault());
+        var rows = await ProjectPaymentDrilldownRowsAsync(baseQuery, cancellationToken);
+        var providerByPayment = await LoadSuccessProvidersByPaymentAsync(
+            rows.Select(r => r.PaymentId).ToList(),
+            cancellationToken);
 
         var items = rows.Select(r =>
         {
             providerByPayment.TryGetValue(r.PaymentId, out var provider);
-            return new AdminFinancialDrilldownItemReadModel
-            {
-                ResourceType = ResourcePayment,
-                ProjectId = r.ProjectId,
-                ProjectCode = r.ProjectCode,
-                ProjectName = r.ProjectName,
-                OrderId = r.OrderId,
-                OrderCode = r.OrderCode,
-                OrderStatus = r.OrderStatus?.ToString(),
-                PaymentId = r.PaymentId,
-                PaymentCode = r.PaymentCode,
-                PaymentType = r.PaymentType?.ToString(),
-                Status = r.Status?.ToString(),
-                Provider = provider?.ToString() ?? ProviderUnknown,
-                Amount = r.Amount,
-                OccurredAt = r.OccurredAt,
-                AgeDays = CalculateAgeDays(r.OccurredAt, utcNow)
-            };
+            return ToPaymentItem(r, provider, occurredAt: r.PaidAt, utcNow);
         }).ToList();
 
-        if (query.Provider.HasValue)
-        {
-            var providerKey = query.Provider.Value.ToString();
-            items = items.Where(i => string.Equals(i.Provider, providerKey, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
-
-        var totalAmount = items.Sum(i => i.Amount);
-        var breakdowns = new List<AdminFinancialDrilldownBreakdownReadModel>
-        {
-            BuildBreakdown(DimensionPaymentType, items, i => i.PaymentType ?? "UNKNOWN", LabelPaymentType),
-            BuildBreakdown(DimensionProject, items, i => i.ProjectId?.ToString() ?? "UNKNOWN", key =>
-                items.FirstOrDefault(i => i.ProjectId?.ToString() == key)?.ProjectCode ?? key),
-            BuildBreakdown(DimensionProvider, items, i => i.Provider ?? ProviderUnknown, key => key)
-        };
-
-        return PageDrilldown("COLLECTED", totalAmount, items, breakdowns, query);
+        items = FilterItemsByProvider(items, query);
+        return PageDrilldown(
+            "COLLECTED",
+            items,
+            [
+                BuildPaymentTypeBreakdown(items),
+                BuildProjectBreakdown(items),
+                BuildProviderBreakdown(items)
+            ],
+            query);
     }
 
     private async Task<AdminFinancialSummaryDrilldownReadModel> BuildActivePaymentDrilldownAsync(
@@ -174,101 +108,35 @@ public sealed partial class FinancialReadRepository
         bool isOutstandingMetric,
         CancellationToken cancellationToken)
     {
-        var baseQuery = BuildActivePaymentQuery(utcNow, currency);
-        if (query.ProjectId.HasValue)
-        {
-            baseQuery = baseQuery.Where(p => p.ProjectId == query.ProjectId.Value);
-        }
-
-        if (query.PaymentType.HasValue)
-        {
-            baseQuery = baseQuery.Where(p => p.PaymentType == query.PaymentType.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Status)
-            && Enum.TryParse<PaymentStatus>(query.Status, ignoreCase: true, out var statusFilter))
-        {
-            baseQuery = baseQuery.Where(p => p.Status == statusFilter);
-        }
-
-        var rows = await (
-            from payment in baseQuery
-            join project in _dbContext.ProjectSet.AsNoTracking() on payment.ProjectId equals project.ProjectId
-            join order in _dbContext.OrderSet.AsNoTracking() on payment.OrderId equals order.OrderId into orders
-            from order in orders.DefaultIfEmpty()
-            select new
-            {
-                payment.PaymentId,
-                payment.PaymentCode,
-                payment.ProjectId,
-                project.ProjectCode,
-                project.ProjectName,
-                payment.OrderId,
-                OrderCode = order != null ? order.OrderCode : null,
-                payment.PaymentType,
-                payment.Status,
-                payment.Amount,
-                payment.CreatedAt,
-                payment.ExpiredAt
-            }).ToListAsync(cancellationToken);
-
-        var paymentIds = rows.Select(r => r.PaymentId).ToList();
-        var latestAttempts = await _dbContext.PaymentTransactionSet.AsNoTracking()
-            .Where(t => paymentIds.Contains(t.PaymentId))
-            .Select(t => new { t.PaymentId, t.PaymentProvider, t.CreatedAt })
-            .ToListAsync(cancellationToken);
-        var providerByPayment = latestAttempts
-            .GroupBy(t => t.PaymentId)
-            .ToDictionary(
-                g => g.Key,
-                g => g.OrderByDescending(t => t.CreatedAt).Select(t => t.PaymentProvider).FirstOrDefault());
+        var baseQuery = ApplyPaymentDrilldownFilters(BuildActivePaymentQuery(utcNow, currency), query);
+        var rows = await ProjectPaymentDrilldownRowsAsync(baseQuery, cancellationToken);
+        var providerByPayment = await LoadLatestProvidersByPaymentAsync(
+            rows.Select(r => r.PaymentId).ToList(),
+            cancellationToken);
 
         var items = rows.Select(r =>
         {
             providerByPayment.TryGetValue(r.PaymentId, out var provider);
-            return new AdminFinancialDrilldownItemReadModel
-            {
-                ResourceType = ResourcePayment,
-                ProjectId = r.ProjectId,
-                ProjectCode = r.ProjectCode,
-                ProjectName = r.ProjectName,
-                OrderId = r.OrderId,
-                OrderCode = r.OrderCode,
-                PaymentId = r.PaymentId,
-                PaymentCode = r.PaymentCode,
-                PaymentType = r.PaymentType?.ToString(),
-                Status = r.Status?.ToString(),
-                Provider = provider?.ToString() ?? ProviderUnknown,
-                Amount = r.Amount,
-                OccurredAt = r.CreatedAt,
-                ExpiredAt = r.ExpiredAt,
-                AgeDays = CalculateAgeDays(r.CreatedAt, utcNow)
-            };
+            return ToPaymentItem(r, provider, occurredAt: r.CreatedAt, utcNow, includeExpiredAt: true);
         }).ToList();
 
-        if (query.Provider.HasValue)
-        {
-            var providerKey = query.Provider.Value.ToString();
-            items = items.Where(i => string.Equals(i.Provider, providerKey, StringComparison.OrdinalIgnoreCase)).ToList();
-        }
+        items = FilterItemsByProvider(items, query);
 
-        var totalAmount = items.Sum(i => i.Amount);
         var breakdowns = new List<AdminFinancialDrilldownBreakdownReadModel>
         {
-            BuildBreakdown(DimensionPaymentType, items, i => i.PaymentType ?? "UNKNOWN", LabelPaymentType),
-            BuildBreakdown(DimensionStatus, items, i => i.Status ?? "UNKNOWN", key => key),
-            BuildBreakdown(DimensionProject, items, i => i.ProjectId?.ToString() ?? "UNKNOWN", key =>
-                items.FirstOrDefault(i => i.ProjectId?.ToString() == key)?.ProjectCode ?? key),
-            BuildBreakdown(DimensionAging, items, i => AgingBucketKey(i.AgeDays), LabelAging)
+            BuildPaymentTypeBreakdown(items),
+            BuildStatusBreakdown(items),
+            BuildProjectBreakdown(items),
+            BuildAgingBreakdown(items)
         };
 
         if (!isOutstandingMetric)
         {
-            breakdowns.Insert(2, BuildBreakdown(DimensionProvider, items, i => i.Provider ?? ProviderUnknown, key => key));
+            breakdowns.Insert(2, BuildProviderBreakdown(items));
         }
 
         var metric = isOutstandingMetric ? "OUTSTANDING" : "ACTIVE_PAYMENTS";
-        return PageDrilldown(metric, totalAmount, items, breakdowns, query);
+        return PageDrilldown(metric, items, breakdowns, query);
     }
 
     private async Task<AdminFinancialSummaryDrilldownReadModel> BuildContractedReceivableDrilldownAsync(
@@ -276,73 +144,31 @@ public sealed partial class FinancialReadRepository
         DateTime utcNow,
         CancellationToken cancellationToken)
     {
-        var baseQuery = _dbContext.OrderSet.AsNoTracking()
-            .Where(order =>
-                order.Status.HasValue &&
-                ActiveReceivableOrderStatuses.Contains(order.Status.Value) &&
-                order.RemainingAmount.HasValue &&
-                order.RemainingAmount.Value > 0m);
+        var baseQuery = ApplyOrderDrilldownFilters(
+            _dbContext.OrderSet.AsNoTracking()
+                .Where(order =>
+                    order.Status.HasValue &&
+                    ActiveReceivableOrderStatuses.Contains(order.Status.Value) &&
+                    order.RemainingAmount.HasValue &&
+                    order.RemainingAmount.Value > 0m),
+            query);
 
-        if (query.ProjectId.HasValue)
-        {
-            baseQuery = baseQuery.Where(o => o.ProjectId == query.ProjectId.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Status)
-            && Enum.TryParse<OrderStatus>(query.Status, ignoreCase: true, out var orderStatus))
-        {
-            baseQuery = baseQuery.Where(o => o.Status == orderStatus);
-        }
-
-        var rows = await (
-            from order in baseQuery
-            join project in _dbContext.ProjectSet.AsNoTracking() on order.ProjectId equals project.ProjectId
-            select new
-            {
-                order.OrderId,
-                order.OrderCode,
-                order.ProjectId,
-                project.ProjectCode,
-                project.ProjectName,
-                order.Status,
-                order.FinalTotalAmount,
-                order.PaidAmount,
-                order.RemainingAmount,
-                order.ConfirmedAt,
-                order.CreatedAt
-            }).ToListAsync(cancellationToken);
-
+        var rows = await ProjectOrderDrilldownRowsAsync(baseQuery, cancellationToken);
         var items = rows.Select(r =>
         {
             var occurredAt = r.ConfirmedAt ?? r.CreatedAt;
-            return new AdminFinancialDrilldownItemReadModel
-            {
-                ResourceType = ResourceOrder,
-                ProjectId = r.ProjectId,
-                ProjectCode = r.ProjectCode,
-                ProjectName = r.ProjectName,
-                OrderId = r.OrderId,
-                OrderCode = r.OrderCode,
-                OrderStatus = r.Status?.ToString(),
-                Status = r.Status?.ToString(),
-                Amount = r.RemainingAmount ?? 0m,
-                PaidAmount = r.PaidAmount,
-                RemainingAmount = r.RemainingAmount,
-                OccurredAt = occurredAt,
-                AgeDays = CalculateAgeDays(occurredAt, utcNow)
-            };
+            return ToOrderItem(r, amount: r.RemainingAmount ?? 0m, occurredAt, utcNow);
         }).ToList();
 
-        var totalAmount = items.Sum(i => i.Amount);
-        var breakdowns = new List<AdminFinancialDrilldownBreakdownReadModel>
-        {
-            BuildBreakdown(DimensionProject, items, i => i.ProjectId?.ToString() ?? "UNKNOWN", key =>
-                items.FirstOrDefault(i => i.ProjectId?.ToString() == key)?.ProjectCode ?? key),
-            BuildBreakdown(DimensionOrderStatus, items, i => i.OrderStatus ?? "UNKNOWN", key => key),
-            BuildBreakdown(DimensionAging, items, i => AgingBucketKey(i.AgeDays), LabelAging)
-        };
-
-        return PageDrilldown("CONTRACTED_RECEIVABLE", totalAmount, items, breakdowns, query);
+        return PageDrilldown(
+            "CONTRACTED_RECEIVABLE",
+            items,
+            [
+                BuildProjectBreakdown(items),
+                BuildOrderStatusBreakdown(items),
+                BuildAgingBreakdown(items)
+            ],
+            query);
     }
 
     private async Task<AdminFinancialSummaryDrilldownReadModel> BuildOrderValueDrilldownAsync(
@@ -352,67 +178,28 @@ public sealed partial class FinancialReadRepository
         DateTime utcNow,
         CancellationToken cancellationToken)
     {
-        var baseQuery = _dbContext.OrderSet.AsNoTracking()
-            .Where(order =>
-                order.Status != OrderStatus.CANCELLED &&
-                order.ConfirmedAt.HasValue &&
-                order.ConfirmedAt.Value >= fromUtc &&
-                order.ConfirmedAt.Value < toUtcExclusive);
+        var baseQuery = ApplyOrderDrilldownFilters(
+            _dbContext.OrderSet.AsNoTracking()
+                .Where(order =>
+                    order.Status != OrderStatus.CANCELLED &&
+                    order.ConfirmedAt.HasValue &&
+                    order.ConfirmedAt.Value >= fromUtc &&
+                    order.ConfirmedAt.Value < toUtcExclusive),
+            query);
 
-        if (query.ProjectId.HasValue)
-        {
-            baseQuery = baseQuery.Where(o => o.ProjectId == query.ProjectId.Value);
-        }
+        var rows = await ProjectOrderDrilldownRowsAsync(baseQuery, cancellationToken);
+        var items = rows
+            .Select(r => ToOrderItem(r, amount: r.FinalTotalAmount, occurredAt: r.ConfirmedAt, utcNow))
+            .ToList();
 
-        if (!string.IsNullOrWhiteSpace(query.Status)
-            && Enum.TryParse<OrderStatus>(query.Status, ignoreCase: true, out var orderStatus))
-        {
-            baseQuery = baseQuery.Where(o => o.Status == orderStatus);
-        }
-
-        var rows = await (
-            from order in baseQuery
-            join project in _dbContext.ProjectSet.AsNoTracking() on order.ProjectId equals project.ProjectId
-            select new
-            {
-                order.OrderId,
-                order.OrderCode,
-                order.ProjectId,
-                project.ProjectCode,
-                project.ProjectName,
-                order.Status,
-                order.FinalTotalAmount,
-                order.PaidAmount,
-                order.RemainingAmount,
-                order.ConfirmedAt
-            }).ToListAsync(cancellationToken);
-
-        var items = rows.Select(r => new AdminFinancialDrilldownItemReadModel
-        {
-            ResourceType = ResourceOrder,
-            ProjectId = r.ProjectId,
-            ProjectCode = r.ProjectCode,
-            ProjectName = r.ProjectName,
-            OrderId = r.OrderId,
-            OrderCode = r.OrderCode,
-            OrderStatus = r.Status?.ToString(),
-            Status = r.Status?.ToString(),
-            Amount = r.FinalTotalAmount,
-            PaidAmount = r.PaidAmount,
-            RemainingAmount = r.RemainingAmount,
-            OccurredAt = r.ConfirmedAt,
-            AgeDays = CalculateAgeDays(r.ConfirmedAt, utcNow)
-        }).ToList();
-
-        var totalAmount = items.Sum(i => i.Amount);
-        var breakdowns = new List<AdminFinancialDrilldownBreakdownReadModel>
-        {
-            BuildBreakdown(DimensionProject, items, i => i.ProjectId?.ToString() ?? "UNKNOWN", key =>
-                items.FirstOrDefault(i => i.ProjectId?.ToString() == key)?.ProjectCode ?? key),
-            BuildBreakdown(DimensionOrderStatus, items, i => i.OrderStatus ?? "UNKNOWN", key => key)
-        };
-
-        return PageDrilldown("ORDER_VALUE", totalAmount, items, breakdowns, query);
+        return PageDrilldown(
+            "ORDER_VALUE",
+            items,
+            [
+                BuildProjectBreakdown(items),
+                BuildOrderStatusBreakdown(items)
+            ],
+            query);
     }
 
     private async Task<AdminFinancialSummaryDrilldownReadModel> BuildFailedTransactionsDrilldownAsync(
@@ -482,29 +269,230 @@ public sealed partial class FinancialReadRepository
             TransactionId = r.PaymentTransactionId,
             PaymentType = r.PaymentType?.ToString(),
             Status = PaymentTransactionStatus.FAILED.ToString(),
-            Provider = r.PaymentProvider?.ToString() ?? ProviderUnknown,
+            Provider = r.PaymentProvider?.ToString() ?? UnknownKey,
             Amount = r.Amount,
             OccurredAt = r.CreatedAt,
             FailureReason = r.FailureReason,
             AgeDays = CalculateAgeDays(r.CreatedAt, utcNow)
         }).ToList();
 
-        var totalAmount = items.Sum(i => i.Amount);
-        var breakdowns = new List<AdminFinancialDrilldownBreakdownReadModel>
-        {
-            BuildBreakdown(DimensionProvider, items, i => i.Provider ?? ProviderUnknown, key => key),
-            BuildBreakdown(DimensionFailureReason, items, i => string.IsNullOrWhiteSpace(i.FailureReason) ? "UNKNOWN" : i.FailureReason!, key => key),
-            BuildBreakdown(DimensionPaymentType, items, i => i.PaymentType ?? "UNKNOWN", LabelPaymentType),
-            BuildBreakdown(DimensionProject, items, i => i.ProjectId?.ToString() ?? "UNKNOWN", key =>
-                items.FirstOrDefault(i => i.ProjectId?.ToString() == key)?.ProjectCode ?? key)
-        };
+        return PageDrilldown(
+            "FAILED_TRANSACTIONS",
+            items,
+            [
+                BuildProviderBreakdown(items),
+                BuildBreakdown(
+                    DimensionFailureReason,
+                    items,
+                    i => ResolveFailureReasonKey(i.FailureReason),
+                    key => key),
+                BuildPaymentTypeBreakdown(items),
+                BuildProjectBreakdown(items)
+            ],
+            query);
+    }
 
-        return PageDrilldown("FAILED_TRANSACTIONS", totalAmount, items, breakdowns, query);
+    private async Task<List<PaymentDrilldownRow>> ProjectPaymentDrilldownRowsAsync(
+        IQueryable<Payment> baseQuery,
+        CancellationToken cancellationToken)
+    {
+        return await (
+            from payment in baseQuery
+            join project in _dbContext.ProjectSet.AsNoTracking() on payment.ProjectId equals project.ProjectId
+            join order in _dbContext.OrderSet.AsNoTracking() on payment.OrderId equals order.OrderId into orders
+            from order in orders.DefaultIfEmpty()
+            select new PaymentDrilldownRow(
+                payment.PaymentId,
+                payment.PaymentCode,
+                payment.ProjectId,
+                project.ProjectCode,
+                project.ProjectName,
+                payment.OrderId,
+                order != null ? order.OrderCode : null,
+                order != null ? order.Status : null,
+                payment.PaymentType,
+                payment.Status,
+                payment.Amount,
+                payment.PaidAt,
+                payment.CreatedAt,
+                payment.ExpiredAt)).ToListAsync(cancellationToken);
+    }
+
+    private async Task<List<OrderDrilldownRow>> ProjectOrderDrilldownRowsAsync(
+        IQueryable<Order> baseQuery,
+        CancellationToken cancellationToken)
+    {
+        return await (
+            from order in baseQuery
+            join project in _dbContext.ProjectSet.AsNoTracking() on order.ProjectId equals project.ProjectId
+            select new OrderDrilldownRow(
+                order.OrderId,
+                order.OrderCode,
+                order.ProjectId,
+                project.ProjectCode,
+                project.ProjectName,
+                order.Status,
+                order.FinalTotalAmount,
+                order.PaidAmount,
+                order.RemainingAmount,
+                order.ConfirmedAt,
+                order.CreatedAt)).ToListAsync(cancellationToken);
+    }
+
+    private async Task<Dictionary<Guid, PaymentProvider?>> LoadSuccessProvidersByPaymentAsync(
+        List<Guid> paymentIds,
+        CancellationToken cancellationToken)
+    {
+        if (paymentIds.Count == 0)
+        {
+            return new Dictionary<Guid, PaymentProvider?>();
+        }
+
+        var providers = await _dbContext.PaymentTransactionSet.AsNoTracking()
+            .Where(t => paymentIds.Contains(t.PaymentId) && t.Status == PaymentTransactionStatus.SUCCESS)
+            .Select(t => new { t.PaymentId, t.PaymentProvider, SortAt = t.ConfirmedAt ?? t.CreatedAt })
+            .ToListAsync(cancellationToken);
+
+        return ToLatestProviderMap(providers.Select(t => (t.PaymentId, t.PaymentProvider, t.SortAt)));
+    }
+
+    private async Task<Dictionary<Guid, PaymentProvider?>> LoadLatestProvidersByPaymentAsync(
+        List<Guid> paymentIds,
+        CancellationToken cancellationToken)
+    {
+        if (paymentIds.Count == 0)
+        {
+            return new Dictionary<Guid, PaymentProvider?>();
+        }
+
+        var attempts = await _dbContext.PaymentTransactionSet.AsNoTracking()
+            .Where(t => paymentIds.Contains(t.PaymentId))
+            .Select(t => new { t.PaymentId, t.PaymentProvider, t.CreatedAt })
+            .ToListAsync(cancellationToken);
+
+        return ToLatestProviderMap(attempts.Select(t => (t.PaymentId, t.PaymentProvider, t.CreatedAt)));
+    }
+
+    private static Dictionary<Guid, PaymentProvider?> ToLatestProviderMap(
+        IEnumerable<(Guid PaymentId, PaymentProvider? Provider, DateTime? SortAt)> rows)
+    {
+        return rows
+            .GroupBy(t => t.PaymentId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(t => t.SortAt).Select(t => t.Provider).FirstOrDefault());
+    }
+
+    private static IQueryable<Payment> ApplyPaymentDrilldownFilters(
+        IQueryable<Payment> queryable,
+        AdminFinancialSummaryDrilldownQueryReadModel query)
+    {
+        if (query.ProjectId.HasValue)
+        {
+            queryable = queryable.Where(p => p.ProjectId == query.ProjectId.Value);
+        }
+
+        if (query.PaymentType.HasValue)
+        {
+            queryable = queryable.Where(p => p.PaymentType == query.PaymentType.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Status)
+            && Enum.TryParse<PaymentStatus>(query.Status, ignoreCase: true, out var statusFilter))
+        {
+            queryable = queryable.Where(p => p.Status == statusFilter);
+        }
+
+        return queryable;
+    }
+
+    private static IQueryable<Order> ApplyOrderDrilldownFilters(
+        IQueryable<Order> queryable,
+        AdminFinancialSummaryDrilldownQueryReadModel query)
+    {
+        if (query.ProjectId.HasValue)
+        {
+            queryable = queryable.Where(o => o.ProjectId == query.ProjectId.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Status)
+            && Enum.TryParse<OrderStatus>(query.Status, ignoreCase: true, out var orderStatus))
+        {
+            queryable = queryable.Where(o => o.Status == orderStatus);
+        }
+
+        return queryable;
+    }
+
+    private static List<AdminFinancialDrilldownItemReadModel> FilterItemsByProvider(
+        List<AdminFinancialDrilldownItemReadModel> items,
+        AdminFinancialSummaryDrilldownQueryReadModel query)
+    {
+        if (!query.Provider.HasValue)
+        {
+            return items;
+        }
+
+        var providerKey = query.Provider.Value.ToString();
+        return items
+            .Where(i => string.Equals(i.Provider, providerKey, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private static AdminFinancialDrilldownItemReadModel ToPaymentItem(
+        PaymentDrilldownRow row,
+        PaymentProvider? provider,
+        DateTime? occurredAt,
+        DateTime utcNow,
+        bool includeExpiredAt = false)
+    {
+        return new AdminFinancialDrilldownItemReadModel
+        {
+            ResourceType = ResourcePayment,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            OrderId = row.OrderId,
+            OrderCode = row.OrderCode,
+            OrderStatus = row.OrderStatus?.ToString(),
+            PaymentId = row.PaymentId,
+            PaymentCode = row.PaymentCode,
+            PaymentType = row.PaymentType?.ToString(),
+            Status = row.Status?.ToString(),
+            Provider = provider?.ToString() ?? UnknownKey,
+            Amount = row.Amount,
+            OccurredAt = occurredAt,
+            ExpiredAt = includeExpiredAt ? row.ExpiredAt : null,
+            AgeDays = CalculateAgeDays(occurredAt, utcNow)
+        };
+    }
+
+    private static AdminFinancialDrilldownItemReadModel ToOrderItem(
+        OrderDrilldownRow row,
+        decimal amount,
+        DateTime? occurredAt,
+        DateTime utcNow)
+    {
+        return new AdminFinancialDrilldownItemReadModel
+        {
+            ResourceType = ResourceOrder,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            OrderId = row.OrderId,
+            OrderCode = row.OrderCode,
+            OrderStatus = row.Status?.ToString(),
+            Status = row.Status?.ToString(),
+            Amount = amount,
+            PaidAmount = row.PaidAmount,
+            RemainingAmount = row.RemainingAmount,
+            OccurredAt = occurredAt,
+            AgeDays = CalculateAgeDays(occurredAt, utcNow)
+        };
     }
 
     private static AdminFinancialSummaryDrilldownReadModel PageDrilldown(
         string metric,
-        decimal totalAmount,
         List<AdminFinancialDrilldownItemReadModel> items,
         IReadOnlyList<AdminFinancialDrilldownBreakdownReadModel> breakdowns,
         AdminFinancialSummaryDrilldownQueryReadModel query)
@@ -519,7 +507,7 @@ public sealed partial class FinancialReadRepository
         return new AdminFinancialSummaryDrilldownReadModel
         {
             Metric = metric,
-            TotalAmount = totalAmount,
+            TotalAmount = items.Sum(i => i.Amount),
             TotalCount = totalItems,
             Breakdowns = breakdowns,
             Items = pageItems,
@@ -529,13 +517,47 @@ public sealed partial class FinancialReadRepository
         };
     }
 
+    private static AdminFinancialDrilldownBreakdownReadModel BuildPaymentTypeBreakdown(
+        IReadOnlyList<AdminFinancialDrilldownItemReadModel> items) =>
+        BuildBreakdown(DimensionPaymentType, items, i => i.PaymentType ?? UnknownKey, LabelPaymentType);
+
+    private static AdminFinancialDrilldownBreakdownReadModel BuildProviderBreakdown(
+        IReadOnlyList<AdminFinancialDrilldownItemReadModel> items) =>
+        BuildBreakdown(DimensionProvider, items, i => i.Provider ?? UnknownKey, key => key);
+
+    private static AdminFinancialDrilldownBreakdownReadModel BuildStatusBreakdown(
+        IReadOnlyList<AdminFinancialDrilldownItemReadModel> items) =>
+        BuildBreakdown(DimensionStatus, items, i => i.Status ?? UnknownKey, key => key);
+
+    private static AdminFinancialDrilldownBreakdownReadModel BuildOrderStatusBreakdown(
+        IReadOnlyList<AdminFinancialDrilldownItemReadModel> items) =>
+        BuildBreakdown(DimensionOrderStatus, items, i => i.OrderStatus ?? UnknownKey, key => key);
+
+    private static AdminFinancialDrilldownBreakdownReadModel BuildAgingBreakdown(
+        IReadOnlyList<AdminFinancialDrilldownItemReadModel> items) =>
+        BuildBreakdown(DimensionAging, items, i => AgingBucketKey(i.AgeDays), LabelAging);
+
+    private static AdminFinancialDrilldownBreakdownReadModel BuildProjectBreakdown(
+        IReadOnlyList<AdminFinancialDrilldownItemReadModel> items)
+    {
+        var projectCodeById = items
+            .Where(i => i.ProjectId.HasValue)
+            .GroupBy(i => i.ProjectId!.Value.ToString())
+            .ToDictionary(g => g.Key, g => g.First().ProjectCode ?? g.Key);
+
+        return BuildBreakdown(
+            DimensionProject,
+            items,
+            i => i.ProjectId?.ToString() ?? UnknownKey,
+            key => projectCodeById.TryGetValue(key, out var code) ? code : key);
+    }
+
     private static AdminFinancialDrilldownBreakdownReadModel BuildBreakdown(
         string dimension,
         IReadOnlyList<AdminFinancialDrilldownItemReadModel> items,
         Func<AdminFinancialDrilldownItemReadModel, string> keySelector,
         Func<string, string> labelSelector)
     {
-        var totalAmount = items.Sum(i => i.Amount);
         var groups = items
             .GroupBy(keySelector)
             .Select(g => new AdminFinancialDrilldownBreakdownItemReadModel
@@ -549,8 +571,6 @@ public sealed partial class FinancialReadRepository
             .ThenBy(x => x.Key)
             .ToList();
 
-        // Attach percentage in service layer; store amount/count here.
-        _ = totalAmount;
         return new AdminFinancialDrilldownBreakdownReadModel
         {
             Dimension = dimension,
@@ -566,25 +586,35 @@ public sealed partial class FinancialReadRepository
         var desc = !string.Equals(sortDirection, "asc", StringComparison.OrdinalIgnoreCase);
         return (sortBy?.Trim().ToLowerInvariant()) switch
         {
-            "amount" => desc
-                ? items.OrderByDescending(i => i.Amount).ThenByDescending(i => i.OccurredAt)
-                : items.OrderBy(i => i.Amount).ThenBy(i => i.OccurredAt),
-            "agedays" => desc
-                ? items.OrderByDescending(i => i.AgeDays).ThenByDescending(i => i.OccurredAt)
-                : items.OrderBy(i => i.AgeDays).ThenBy(i => i.OccurredAt),
-            "projectcode" => desc
-                ? items.OrderByDescending(i => i.ProjectCode).ThenByDescending(i => i.OccurredAt)
-                : items.OrderBy(i => i.ProjectCode).ThenBy(i => i.OccurredAt),
-            "paymentcode" => desc
-                ? items.OrderByDescending(i => i.PaymentCode).ThenByDescending(i => i.OccurredAt)
-                : items.OrderBy(i => i.PaymentCode).ThenBy(i => i.OccurredAt),
-            "ordercode" => desc
-                ? items.OrderByDescending(i => i.OrderCode).ThenByDescending(i => i.OccurredAt)
-                : items.OrderBy(i => i.OrderCode).ThenBy(i => i.OccurredAt),
-            _ => desc
-                ? items.OrderByDescending(i => i.OccurredAt).ThenByDescending(i => i.Amount)
-                : items.OrderBy(i => i.OccurredAt).ThenBy(i => i.Amount)
+            "amount" => OrderByKey(items, i => i.Amount, desc),
+            "agedays" => OrderByKey(items, i => i.AgeDays, desc),
+            "projectcode" => OrderByKey(items, i => i.ProjectCode, desc),
+            "paymentcode" => OrderByKey(items, i => i.PaymentCode, desc),
+            "ordercode" => OrderByKey(items, i => i.OrderCode, desc),
+            _ => OrderByKey(items, i => i.OccurredAt, desc, thenByAmount: true)
         };
+    }
+
+    private static IOrderedEnumerable<AdminFinancialDrilldownItemReadModel> OrderByKey<TKey>(
+        IEnumerable<AdminFinancialDrilldownItemReadModel> items,
+        Func<AdminFinancialDrilldownItemReadModel, TKey> keySelector,
+        bool desc,
+        bool thenByAmount = false)
+    {
+        var ordered = desc
+            ? items.OrderByDescending(keySelector)
+            : items.OrderBy(keySelector);
+
+        if (thenByAmount)
+        {
+            return desc
+                ? ordered.ThenByDescending(i => i.Amount)
+                : ordered.ThenBy(i => i.Amount);
+        }
+
+        return desc
+            ? ordered.ThenByDescending(i => i.OccurredAt)
+            : ordered.ThenBy(i => i.OccurredAt);
     }
 
     private static int CalculateAgeDays(DateTime? occurredAt, DateTime utcNow)
@@ -605,6 +635,9 @@ public sealed partial class FinancialReadRepository
         _ => AgingOver14
     };
 
+    private static string ResolveFailureReasonKey(string? failureReason) =>
+        string.IsNullOrWhiteSpace(failureReason) ? UnknownKey : failureReason;
+
     private static string LabelAging(string key) => key switch
     {
         Aging0To3 => "0-3 days",
@@ -624,4 +657,33 @@ public sealed partial class FinancialReadRepository
         nameof(PaymentType.OTHER) => "Other",
         _ => key
     };
+
+    private sealed record PaymentDrilldownRow(
+        Guid PaymentId,
+        string? PaymentCode,
+        Guid? ProjectId,
+        string? ProjectCode,
+        string? ProjectName,
+        Guid? OrderId,
+        string? OrderCode,
+        OrderStatus? OrderStatus,
+        PaymentType? PaymentType,
+        PaymentStatus? Status,
+        decimal Amount,
+        DateTime? PaidAt,
+        DateTime? CreatedAt,
+        DateTime? ExpiredAt);
+
+    private sealed record OrderDrilldownRow(
+        Guid OrderId,
+        string? OrderCode,
+        Guid? ProjectId,
+        string? ProjectCode,
+        string? ProjectName,
+        OrderStatus? Status,
+        decimal FinalTotalAmount,
+        decimal? PaidAmount,
+        decimal? RemainingAmount,
+        DateTime? ConfirmedAt,
+        DateTime? CreatedAt);
 }

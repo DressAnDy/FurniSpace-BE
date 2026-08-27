@@ -398,8 +398,11 @@ public sealed class AdminFinancialService : IAdminFinancialService
 
         var page = query.Page <= 0 ? 1 : query.Page;
         var pageSize = query.PageSize <= 0 ? 10 : query.PageSize;
+        var defaultSortBy = groupBy == AdminFinancialDrilldownGroupBy.Project
+            ? "totalCollectedAmount"
+            : "occurredAt";
         var sortBy = string.IsNullOrWhiteSpace(query.SortBy)
-            ? (groupBy == AdminFinancialDrilldownGroupBy.Project ? "totalCollectedAmount" : "occurredAt")
+            ? defaultSortBy
             : query.SortBy.Trim();
         var sortDirection = NormalizeSortDirection(query.SortDirection);
 

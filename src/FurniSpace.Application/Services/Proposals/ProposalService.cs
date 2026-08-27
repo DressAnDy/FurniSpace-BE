@@ -1859,11 +1859,25 @@ public sealed class ProposalService : IProposalService
 
         foreach (var sceneObject in scene.Objects)
         {
-            if (!string.IsNullOrWhiteSpace(sceneObject.ObjectId) &&
-                proposalItemIdsByObjectId.TryGetValue(sceneObject.ObjectId, out var proposalItemId) &&
-                sceneObject.ProposalItemId != proposalItemId)
+            if (string.IsNullOrWhiteSpace(sceneObject.ObjectId))
             {
-                sceneObject.ProposalItemId = proposalItemId;
+                continue;
+            }
+
+            if (proposalItemIdsByObjectId.TryGetValue(sceneObject.ObjectId, out var proposalItemId))
+            {
+                if (sceneObject.ProposalItemId != proposalItemId)
+                {
+                    sceneObject.ProposalItemId = proposalItemId;
+                    hasChanges = true;
+                }
+
+                continue;
+            }
+
+            if (sceneObject.ProposalItemId.HasValue)
+            {
+                sceneObject.ProposalItemId = null;
                 hasChanges = true;
             }
         }
@@ -1883,6 +1897,9 @@ public sealed class ProposalService : IProposalService
         CancellationToken cancellationToken)
     {
         var syncedItems = new List<SyncedProposalItemDto>();
+        var syncedSceneObjectIds = syncItems
+            .Select(item => item.SceneObjectId)
+            .ToHashSet(StringComparer.Ordinal);
         var existingItemsBySceneObjectId = existingItems
             .Where(item => !string.IsNullOrWhiteSpace(item.SceneObjectId))
             .GroupBy(item => item.SceneObjectId!, StringComparer.Ordinal)
@@ -1911,7 +1928,36 @@ public sealed class ProposalService : IProposalService
             syncedItems.Add(ToSyncedItemDto(proposalItem, productVersion, syncItem.FloorId));
         }
 
-        return new ProposalItemSyncResult(syncedItems, createdCount, updatedCount, 0);
+        var removedCount = RemoveStaleSceneProposalItems(existingItems, syncedSceneObjectIds);
+
+        return new ProposalItemSyncResult(syncedItems, createdCount, updatedCount, removedCount);
+    }
+
+    private int RemoveStaleSceneProposalItems(
+        IEnumerable<ProposalItem> existingItems,
+        IReadOnlySet<string> syncedSceneObjectIds)
+    {
+        var removedCount = 0;
+        foreach (var existingItem in existingItems)
+        {
+            if (!ShouldRemoveStaleSceneItem(existingItem, syncedSceneObjectIds))
+            {
+                continue;
+            }
+
+            _proposals.RemoveItem(existingItem);
+            removedCount++;
+        }
+
+        return removedCount;
+    }
+
+    private static bool ShouldRemoveStaleSceneItem(
+        ProposalItem existingItem,
+        IReadOnlySet<string> syncedSceneObjectIds)
+    {
+        return string.IsNullOrWhiteSpace(existingItem.SceneObjectId)
+            || !syncedSceneObjectIds.Contains(existingItem.SceneObjectId);
     }
 
     private static bool HasDuplicateExistingSceneObjectMappings(IEnumerable<ProposalItem> existingItems) =>

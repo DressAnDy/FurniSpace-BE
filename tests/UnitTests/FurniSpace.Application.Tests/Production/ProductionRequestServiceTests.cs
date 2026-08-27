@@ -102,6 +102,27 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_WhenProductionDeadlineMissing_ReturnsRequiredError()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        context.OrderItemSet.Add(CreateOrderItem(data.OrderId, true, "Counter"));
+        await context.SaveChangesAsync();
+        var service = BuildService(
+            context,
+            phaseDeadlines: new CapturingProjectPhaseDeadlineService { HasProductionDeadline = false });
+
+        var result = await service.CreateAsync(
+            data.OrderId,
+            _salesId,
+            new CreateProductionRequestDto { AssignedTo = _productionId });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectPhaseDeadlineErrorCodes.ProductionDeadlineRequired, result.ErrorCode);
+        Assert.Empty(context.ProductionRequestSet);
+    }
+
+    [Fact]
     public async Task CreateAsync_WhenEstimatedDatesExceedTarget_ReturnsValidationError()
     {
         await using var context = CreateContext();
@@ -1007,7 +1028,7 @@ public sealed class ProductionRequestServiceTests
                 new InMemoryUnitOfWork(context),
                 dispatcher,
                 logger: null,
-                phaseDeadlines));
+                phaseDeadlines ?? new CapturingProjectPhaseDeadlineService()));
     }
 
     private SeededData SeedBase(AppDbContext context, OrderStatus orderStatus, PaymentStatus paymentStatus)
@@ -1328,6 +1349,8 @@ public sealed class ProductionRequestServiceTests
 
     private sealed class CapturingProjectPhaseDeadlineService : IProjectPhaseDeadlineService
     {
+        public bool HasProductionDeadline { get; init; } = true;
+
         public Guid ProjectId { get; private set; }
         public ProjectPhaseType Phase { get; private set; }
 
@@ -1392,7 +1415,7 @@ public sealed class ProductionRequestServiceTests
             Guid projectId,
             CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(true);
+            return Task.FromResult(HasProductionDeadline);
         }
 
         public DateOnly? ProductionDeadline { get; init; }

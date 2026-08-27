@@ -109,6 +109,73 @@ public sealed class FinancialReceivablesUpgradeRepositoryTests
         Assert.Equal("Alice Customer", items[0].CustomerName);
     }
 
+    [Fact]
+    public async Task Receivables_FiltersByCollectionStateAgeAndProcessing()
+    {
+        await using var context = CreateContext();
+        var now = new DateTime(2026, 8, 20, 0, 0, 0, DateTimeKind.Utc);
+        var customerId = Guid.NewGuid();
+        var project = CreateProject(customerId, Guid.NewGuid());
+        var processingOrder = CreateOrder(OrderStatus.DELIVERED, 25m, 125m, now.AddDays(-12), project.ProjectId, customerId, project.AssignedSalesId);
+        var pendingOrder = CreateOrder(OrderStatus.DELIVERED, 40m, 140m, now.AddDays(-2), project.ProjectId, customerId, project.AssignedSalesId);
+        var processingPayment = CreatePayment(PaymentType.REMAINING_PAYMENT, PaymentStatus.PROCESSING, 25m, processingOrder.OrderId, project.ProjectId, expiredAt: now.AddDays(3));
+        var pendingPayment = CreatePayment(PaymentType.DEPOSIT, PaymentStatus.PENDING, 40m, pendingOrder.OrderId, project.ProjectId, expiredAt: now.AddDays(3));
+
+        context.RoleSet.Add(new Role { RoleId = Guid.NewGuid(), RoleName = "CUSTOMER", Description = "c" });
+        var roleId = context.RoleSet.Local.First().RoleId;
+        context.AccountSet.Add(CreateAccount(customerId, roleId, "Filter Customer"));
+        context.ProjectSet.Add(project);
+        context.OrderSet.AddRange(processingOrder, pendingOrder);
+        context.PaymentSet.AddRange(processingPayment, pendingPayment);
+        await context.SaveChangesAsync();
+
+        var repository = new FinancialReadRepository(context);
+
+        var processingItems = await repository.GetReceivableItemsAsync(
+            new AdminFinancialReceivablesQueryReadModel
+            {
+                CollectionState = "PROCESSING",
+                Page = 1,
+                PageSize = 10,
+                SortBy = "receivableAgeDays",
+                SortDirection = "desc"
+            },
+            now);
+        Assert.Single(processingItems);
+        Assert.Equal(processingOrder.OrderId, processingItems[0].OrderId);
+        Assert.Equal("PROCESSING", processingItems[0].CollectionState);
+        Assert.Equal(PaymentStatus.PROCESSING, processingItems[0].ActivePaymentStatus);
+
+        var aged = await repository.GetReceivableItemsAsync(
+            new AdminFinancialReceivablesQueryReadModel
+            {
+                MinAgeDays = 10,
+                MaxAgeDays = 20,
+                Page = 1,
+                PageSize = 10
+            },
+            now);
+        Assert.Single(aged);
+        Assert.Equal(processingOrder.OrderId, aged[0].OrderId);
+
+        var byPaymentType = await repository.GetReceivableItemsAsync(
+            new AdminFinancialReceivablesQueryReadModel
+            {
+                PaymentType = PaymentType.DEPOSIT,
+                Page = 1,
+                PageSize = 10
+            },
+            now);
+        Assert.Single(byPaymentType);
+        Assert.Equal(pendingOrder.OrderId, byPaymentType[0].OrderId);
+
+        var detail = await repository.GetReceivableOrderDetailAsync(processingOrder.OrderId, now);
+        Assert.NotNull(detail);
+        Assert.Equal("PROCESSING", detail!.CollectionState);
+        Assert.Equal(processingPayment.PaymentId, detail.ActivePaymentId);
+        Assert.Contains(detail.PaymentRounds, r => r.PaymentId == processingPayment.PaymentId);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

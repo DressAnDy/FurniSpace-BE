@@ -100,7 +100,7 @@ public sealed partial class FinancialReadRepository
             return null;
         }
 
-        var payments = await LoadOrderScopedPaymentsAsync([orderId], cancellationToken);
+        var payments = await LoadOrderScopedPaymentsAsync(new List<Guid> { orderId }, cancellationToken);
         var paymentIds = payments.Select(p => p.PaymentId).ToList();
         var transactions = await LoadPaymentTransactionsAsync(paymentIds, cancellationToken);
         var enriched = EnrichReceivableItem(
@@ -250,7 +250,7 @@ public sealed partial class FinancialReadRepository
     }
 
     private async Task<List<ReceivablePaymentSnapshot>> LoadOrderScopedPaymentsAsync(
-        IReadOnlyCollection<Guid> orderIds,
+        List<Guid> orderIds,
         CancellationToken cancellationToken)
     {
         if (orderIds.Count == 0)
@@ -278,7 +278,7 @@ public sealed partial class FinancialReadRepository
     }
 
     private async Task<List<ReceivableTransactionSnapshot>> LoadPaymentTransactionsAsync(
-        IReadOnlyCollection<Guid> paymentIds,
+        List<Guid> paymentIds,
         CancellationToken cancellationToken)
     {
         if (paymentIds.Count == 0)
@@ -298,7 +298,7 @@ public sealed partial class FinancialReadRepository
             .ToListAsync(cancellationToken);
     }
 
-    private AdminFinancialReceivableItemReadModel EnrichReceivableItem(
+    private static AdminFinancialReceivableItemReadModel EnrichReceivableItem(
         ReceivableOrderSeed seed,
         IReadOnlyList<ReceivablePaymentSnapshot> payments,
         IReadOnlyList<ReceivableTransactionSnapshot> transactions,

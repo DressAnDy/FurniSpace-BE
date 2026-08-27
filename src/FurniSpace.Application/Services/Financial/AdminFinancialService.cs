@@ -59,6 +59,15 @@ public sealed class AdminFinancialService : IAdminFinancialService
         ExceptionDeliveredWithReceivable,
         ExceptionPaymentPendingTooLong
     ];
+    private static readonly HashSet<string> SupportedSummaryMetrics = new(StringComparer.Ordinal)
+    {
+        AdminFinancialSummaryMetrics.Collected,
+        AdminFinancialSummaryMetrics.Outstanding,
+        AdminFinancialSummaryMetrics.ContractedReceivable,
+        AdminFinancialSummaryMetrics.OrderValue,
+        AdminFinancialSummaryMetrics.FailedTransactions,
+        AdminFinancialSummaryMetrics.ActivePayments
+    };
 
     private readonly IFinancialReadRepository _financial;
 
@@ -329,6 +338,166 @@ public sealed class AdminFinancialService : IAdminFinancialService
                 TotalPages = CalculateTotalPages(totalItems, readQuery.PageSize)
             },
             "Financial exceptions retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<AdminFinancialSummaryDrilldownDto>> GetSummaryDrilldownAsync(
+        string metric,
+        AdminFinancialSummaryDrilldownQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        query ??= new AdminFinancialSummaryDrilldownQueryDto();
+        var normalizedMetric = NormalizeOptionalUpper(metric);
+        if (string.IsNullOrWhiteSpace(normalizedMetric) || !SupportedSummaryMetrics.Contains(normalizedMetric))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(
+                    AdminFinancialErrorCodes.MetricInvalid,
+                    "Financial summary metric is invalid."));
+        }
+
+        var currency = FinancialReportingPeriodResolver.NormalizeCurrency(query.Currency);
+        if (!IsSupportedCurrency(currency))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, "Financial currency is invalid."));
+        }
+
+        if (!FinancialReportingPeriodResolver.TryResolve(
+                new AdminFinancialSummaryQueryDto
+                {
+                    Period = FinancialReportingConstants.PeriodCustom,
+                    From = query.From,
+                    To = query.To,
+                    Currency = currency
+                },
+                DateTimeOffset.UtcNow,
+                out var period,
+                out var errorCode,
+                out var errorMessage))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(errorCode, errorMessage));
+        }
+
+        if (!IsValidPage(query.Page, query.PageSize <= 0 ? 10 : query.PageSize))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(
+                    AdminFinancialErrorCodes.PaymentFilterInvalid,
+                    "Page must be greater than zero and page size must be between 1 and 100."));
+        }
+
+        var page = query.Page <= 0 ? 1 : query.Page;
+        var pageSize = query.PageSize <= 0 ? 10 : query.PageSize;
+        var sortBy = string.IsNullOrWhiteSpace(query.SortBy) ? "occurredAt" : query.SortBy.Trim();
+        var sortDirection = NormalizeSortDirection(query.SortDirection);
+
+        var readQuery = new AdminFinancialSummaryDrilldownQueryReadModel
+        {
+            Metric = normalizedMetric,
+            ProjectId = query.ProjectId,
+            PaymentType = query.PaymentType,
+            Status = NormalizeOptionalUpper(query.Status),
+            Provider = query.Provider,
+            Page = page,
+            PageSize = pageSize,
+            SortBy = sortBy,
+            SortDirection = sortDirection
+        };
+
+        var drilldown = await _financial.GetSummaryDrilldownAsync(
+            readQuery,
+            period.FromUtc,
+            period.ToUtcExclusive,
+            DateTime.UtcNow,
+            currency,
+            FinancialReportingConstants.CanonicalCollectedPaymentTypes,
+            cancellationToken);
+
+        return ServiceResult<AdminFinancialSummaryDrilldownDto>.Success(
+            MapDrilldownDto(drilldown, currency, period, page, pageSize),
+            "Financial summary drilldown retrieved successfully.");
+    }
+
+    private static AdminFinancialSummaryDrilldownDto MapDrilldownDto(
+        AdminFinancialSummaryDrilldownReadModel drilldown,
+        string currency,
+        FinancialReportingPeriod period,
+        int page,
+        int pageSize)
+    {
+        var totalAmount = drilldown.TotalAmount;
+        return new AdminFinancialSummaryDrilldownDto
+        {
+            Metric = drilldown.Metric,
+            TotalAmount = totalAmount,
+            TotalCount = drilldown.TotalCount,
+            Currency = currency,
+            Period = new AdminFinancialPeriodDto
+            {
+                Type = period.Type,
+                From = period.From,
+                To = period.To,
+                Timezone = period.Timezone
+            },
+            Breakdowns = drilldown.Breakdowns.Select(breakdown => new AdminFinancialDrilldownBreakdownDto
+            {
+                Dimension = breakdown.Dimension,
+                Items = breakdown.Items.Select(item => new AdminFinancialDrilldownBreakdownItemDto
+                {
+                    Key = item.Key,
+                    Label = item.Label,
+                    Amount = item.Amount,
+                    Count = item.Count,
+                    Percentage = totalAmount <= 0m
+                        ? 0m
+                        : Math.Round(item.Amount * 100m / totalAmount, 2, MidpointRounding.AwayFromZero)
+                }).ToList()
+            }).ToList(),
+            Items = drilldown.Items.Select(ToDrilldownItemDto).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalItems = drilldown.TotalItems,
+            TotalPages = CalculateTotalPages(drilldown.TotalItems, pageSize)
+        };
+    }
+
+    private static AdminFinancialDrilldownItemDto ToDrilldownItemDto(AdminFinancialDrilldownItemReadModel item)
+    {
+        return new AdminFinancialDrilldownItemDto
+        {
+            ResourceType = item.ResourceType,
+            ProjectId = item.ProjectId,
+            ProjectCode = item.ProjectCode,
+            ProjectName = item.ProjectName,
+            OrderId = item.OrderId,
+            OrderCode = item.OrderCode,
+            OrderStatus = item.OrderStatus,
+            PaymentId = item.PaymentId,
+            PaymentCode = item.PaymentCode,
+            TransactionId = item.TransactionId,
+            PaymentType = item.PaymentType,
+            Status = item.Status,
+            Provider = item.Provider,
+            Amount = item.Amount,
+            PaidAmount = item.PaidAmount,
+            RemainingAmount = item.RemainingAmount,
+            OccurredAt = ToOffset(item.OccurredAt),
+            ExpiredAt = ToOffset(item.ExpiredAt),
+            FailureReason = item.FailureReason,
+            AgeDays = item.AgeDays
+        };
+    }
+
+    private static DateTimeOffset? ToOffset(DateTime? value)
+    {
+        if (!value.HasValue)
+        {
+            return null;
+        }
+
+        var utc = DateTime.SpecifyKind(value.Value, DateTimeKind.Utc);
+        return new DateTimeOffset(utc).ToOffset(VietnamOffset);
     }
 
     private async Task<List<AdminFinancialCollectionTrendBucketDto>> BuildMonthlyTrendSeriesAsync(

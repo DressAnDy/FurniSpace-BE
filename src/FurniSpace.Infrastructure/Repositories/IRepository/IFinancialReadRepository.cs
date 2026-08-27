@@ -77,4 +77,13 @@ public interface IFinancialReadRepository
         AdminFinancialExceptionsQueryReadModel query,
         DateTime utcNow,
         CancellationToken cancellationToken = default);
+
+    Task<AdminFinancialSummaryDrilldownReadModel> GetSummaryDrilldownAsync(
+        AdminFinancialSummaryDrilldownQueryReadModel query,
+        DateTime fromUtc,
+        DateTime toUtcExclusive,
+        DateTime utcNow,
+        string currency,
+        IReadOnlyCollection<PaymentType> canonicalPaymentTypes,
+        CancellationToken cancellationToken = default);
 }

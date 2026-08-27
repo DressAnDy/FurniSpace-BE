@@ -256,5 +256,20 @@ public sealed class AdminProjectReportServiceTests
             DateTime utcNow,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
+
+        public Task<AdminFinancialSummaryDrilldownReadModel> GetSummaryDrilldownAsync(
+            AdminFinancialSummaryDrilldownQueryReadModel query,
+            DateTime fromUtc,
+            DateTime toUtcExclusive,
+            DateTime utcNow,
+            string currency,
+            IReadOnlyCollection<PaymentType> canonicalPaymentTypes,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new AdminFinancialSummaryDrilldownReadModel
+            {
+                Metric = query.Metric,
+                Page = query.Page,
+                PageSize = query.PageSize
+            });
     }
 }

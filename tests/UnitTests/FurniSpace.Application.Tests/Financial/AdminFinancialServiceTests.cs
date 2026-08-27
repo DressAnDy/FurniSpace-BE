@@ -835,5 +835,22 @@ public sealed class AdminFinancialServiceTests
             ExceptionsQuery = query;
             return Task.FromResult(ExceptionTotalItems);
         }
+
+        public Task<AdminFinancialSummaryDrilldownReadModel> GetSummaryDrilldownAsync(
+            AdminFinancialSummaryDrilldownQueryReadModel query,
+            DateTime fromUtc,
+            DateTime toUtcExclusive,
+            DateTime utcNow,
+            string currency,
+            IReadOnlyCollection<PaymentType> canonicalPaymentTypes,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new AdminFinancialSummaryDrilldownReadModel
+            {
+                Metric = query.Metric,
+                Page = query.Page,
+                PageSize = query.PageSize
+            });
+        }
     }
 }

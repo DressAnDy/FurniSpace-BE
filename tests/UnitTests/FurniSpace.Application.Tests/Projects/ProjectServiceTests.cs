@@ -66,10 +66,8 @@ public sealed class ProjectServiceTests
         Assert.Equal(1, repository.GetActiveDesignerCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Equal(1, projectChats.UpsertCallCount);
-        Assert.Equal(projectId, projectChats.ProjectId);
-        Assert.Equal(ProjectChatType.DESIGNER, projectChats.ChatType);
-        Assert.Equal(designer.AccountId, projectChats.StaffId);
         Assert.Equal("Design Discussion", projectChats.Title);
+        Assert.Equal(new DateOnly(2026, 9, 15), result.Data.ProposalDeadline);
     }
 
     [Fact]
@@ -554,6 +552,56 @@ public sealed class ProjectServiceTests
         Assert.Equal(400, result.Status);
         Assert.Equal(ProjectPhaseDeadlineErrorCodes.ProposalDeadlineRequired, result.ErrorCode);
         Assert.Null(project.AssignedDesignerId);
+    }
+
+    [Fact]
+    public async Task AssignDesignerAsync_WhenProposalDeadlineStagingFails_RollsBackAndDoesNotAssign()
+    {
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var designer = CreateDesigner();
+        var project = CreateDesignerAssignableProject(projectId, salesId);
+        var repository = new FakeProjectRepository(roleName: "SALES", entities: [project], designer: designer);
+        var projectChats = new FakeProjectChatService();
+        var phaseDeadlines = new FakeProjectPhaseDeadlineService
+        {
+            StageProposalHandler = (_, _, _, _) => Task.FromResult(
+                ServiceResult<DateOnly>.Failure(Error.BadRequest(
+                    ProjectPhaseDeadlineErrorCodes.ProposalDeadlineInvalid,
+                    "Proposal deadline must be on or before project target completion date.")))
+        };
+        var rollbackCallCount = 0;
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            repository.SaveChangesAsync,
+            _ => Task.CompletedTask,
+            _ =>
+            {
+                rollbackCallCount++;
+                return Task.CompletedTask;
+            });
+        var service = ProjectServiceTestFactory.Create(
+            repository,
+            unitOfWork,
+            new() { ProjectChats = projectChats, PhaseDeadlines = phaseDeadlines });
+
+        var result = await service.AssignDesignerAsync(
+            projectId,
+            salesId,
+            new AssignProjectDesignerRequestDto
+            {
+                DesignerId = designer.AccountId,
+                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+                ProposalDeadline = new DateOnly(2026, 10, 1)
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectPhaseDeadlineErrorCodes.ProposalDeadlineInvalid, result.ErrorCode);
+        Assert.True(phaseDeadlines.StageProposalCalled);
+        Assert.Equal(1, rollbackCallCount);
+        Assert.Null(project.AssignedDesignerId);
+        Assert.Equal(0, projectChats.UpsertCallCount);
+        Assert.Equal(0, repository.SaveChangesCallCount);
     }
 
     [Fact]

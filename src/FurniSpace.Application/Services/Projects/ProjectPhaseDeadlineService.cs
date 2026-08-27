@@ -463,21 +463,6 @@ public sealed class ProjectPhaseDeadlineService : IProjectPhaseDeadlineService
     }
 
     private static ProjectPhaseDeadlinePlanDto ToPlanDto(
-        Project project,
-        List<ProjectPhaseTimeline> timelines,
-        DateOnly today)
-    {
-        return ToPlanDto(
-            new ProjectDetailReadModel
-            {
-                ProjectId = project.ProjectId,
-                TargetCompletionDate = project.TargetCompletionDate
-            },
-            timelines,
-            today);
-    }
-
-    private static ProjectPhaseDeadlinePlanDto ToPlanDto(
         ProjectDetailReadModel project,
         List<ProjectPhaseTimeline> timelines,
         DateOnly today)

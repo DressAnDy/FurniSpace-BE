@@ -95,6 +95,8 @@ internal sealed class FakeProjectPhaseDeadlineService : IProjectPhaseDeadlineSer
 {
     public Func<Guid, DateOnly?, DateOnly?, CancellationToken, Task<ServiceResult<DateOnly>>>? StageProposalHandler { get; init; }
 
+    public bool StageProposalCalled { get; private set; }
+
     public Task<ServiceResult<ProjectPhaseDeadlinePlanDto>> UpsertAsync(
         Guid projectId,
         Guid currentUserId,
@@ -125,6 +127,7 @@ internal sealed class FakeProjectPhaseDeadlineService : IProjectPhaseDeadlineSer
         DateOnly? targetCompletionDate,
         CancellationToken cancellationToken = default)
     {
+        StageProposalCalled = true;
         if (StageProposalHandler is not null)
         {
             return StageProposalHandler(projectId, targetCompletionDate, proposalDeadline, cancellationToken);

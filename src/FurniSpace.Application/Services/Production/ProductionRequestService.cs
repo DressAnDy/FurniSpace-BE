@@ -4,6 +4,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Projects;
@@ -101,6 +102,14 @@ public sealed class ProductionRequestService : IProductionRequestService
             return BadRequest<ProductionRequestCreatedDto>(
                 ProductionErrorCodes.DepositNotPaid,
                 "Deposit payment must be PAID.");
+        }
+
+        if (_dependencies.PhaseDeadlines is null ||
+            !await _dependencies.PhaseDeadlines.HasProductionDeadlineAsync(order.ProjectId, cancellationToken))
+        {
+            return BadRequest<ProductionRequestCreatedDto>(
+                ProjectPhaseDeadlineErrorCodes.ProductionDeadlineRequired,
+                "Production deadline must be set before creating a production request.");
         }
 
         var assigneeError = await ValidateProductionAssigneeAsync<ProductionRequestCreatedDto>(

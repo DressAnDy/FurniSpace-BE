@@ -11,6 +11,7 @@ public sealed class AdminFinancialSummaryDrilldownQueryReadModel
     public PaymentType? PaymentType { get; init; }
     public string? Status { get; init; }
     public PaymentProvider? Provider { get; init; }
+    public string? GroupBy { get; init; }
     public int Page { get; init; } = 1;
     public int PageSize { get; init; } = 10;
     public string SortBy { get; init; } = "occurredAt";
@@ -65,4 +66,11 @@ public sealed class AdminFinancialDrilldownItemReadModel
     public DateTime? ExpiredAt { get; init; }
     public string? FailureReason { get; init; }
     public int AgeDays { get; init; }
+    public decimal? ProjectStartFeeAmount { get; init; }
+    public decimal? DepositAmount { get; init; }
+    public decimal? RemainingPaymentAmount { get; init; }
+    public decimal? FullPaymentAmount { get; init; }
+    public decimal? TotalCollectedAmount { get; init; }
+    public int? PaymentCount { get; init; }
+    public DateTime? LastPaidAt { get; init; }
 }

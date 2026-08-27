@@ -97,6 +97,23 @@ public sealed class AdminFinancialSummaryDrilldownServiceTests
         Assert.Equal(TimeSpan.FromHours(7), result.Data.Items[0].OccurredAt!.Value.Offset);
     }
 
+    [Fact]
+    public async Task GetSummaryDrilldownAsync_InvalidGroupBy_ReturnsBadRequest()
+    {
+        var service = new AdminFinancialService(new FakeRepo());
+        var result = await service.GetSummaryDrilldownAsync(
+            "COLLECTED",
+            new AdminFinancialSummaryDrilldownQueryDto
+            {
+                From = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(7)),
+                To = new DateTimeOffset(2026, 8, 31, 0, 0, 0, TimeSpan.FromHours(7)),
+                GroupBy = "CUSTOMER"
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(AdminFinancialErrorCodes.GroupByInvalid, result.ErrorCode);
+    }
+
     private sealed class FakeRepo : IFinancialReadRepository
     {
         public AdminFinancialSummaryDrilldownReadModel Drilldown { get; init; } = new();

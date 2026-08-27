@@ -863,6 +863,82 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
+    public async Task SyncItemsFromSceneAsync_WhenSceneObjectRemoved_RemovesStaleProposalItem()
+    {
+        var proposalId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var chairVersionId = Guid.NewGuid();
+        var tableVersionId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        var sceneContext = CreateSceneContext(proposalId, sceneId, context.ProjectId, designerId);
+        var repository = new FakeProposalRepository(
+            context: context,
+            sceneContext: sceneContext);
+        repository.Items.AddRange(
+        [
+            CreateExistingSceneItem(proposalId, sceneId, "chair-object-id-1"),
+            CreateExistingSceneItem(proposalId, sceneId, "chair-object-id-2"),
+            CreateExistingSceneItem(proposalId, sceneId, "table-object-id-1"),
+            CreateExistingSceneItem(proposalId, sceneId, "removed-object-id")
+        ]);
+        var roomPlannerScenes = new FakeRoomPlannerSceneRepository();
+        var document = CreateRoomPlannerScene(sceneContext, "chair-object-id-1", chairVersionId);
+        document.Objects.AddRange(
+        [
+            new RoomPlannerObjectDocument
+            {
+                ObjectId = "chair-object-id-2",
+                FloorId = "floor-01",
+                ObjectType = "FURNITURE",
+                ProductVersionId = chairVersionId
+            },
+            new RoomPlannerObjectDocument
+            {
+                ObjectId = "table-object-id-1",
+                FloorId = "floor-01",
+                ObjectType = "FURNITURE",
+                ProductVersionId = tableVersionId
+            }
+        ]);
+        roomPlannerScenes.Scenes[sceneId] = document;
+        var productVersions = new FakeProductVersionRepository();
+        productVersions.ProductVersions.AddRange(
+        [
+            CreateProductVersion(chairVersionId),
+            CreateProductVersion(tableVersionId, estimatedPrice: 2500000m)
+        ]);
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            repository.SaveChangesAsync,
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER"),
+            productVersions,
+            unitOfWork,
+            roomPlannerScenes);
+
+        var result = await service.SyncItemsFromSceneAsync(
+            proposalId,
+            designerId,
+            CreateSyncRequest(sceneId));
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(3, repository.Items.Count);
+        Assert.NotNull(result.Data);
+        Assert.Equal(0, result.Data.CreatedCount);
+        Assert.Equal(3, result.Data.UpdatedCount);
+        Assert.Equal(1, result.Data.RemovedCount);
+        Assert.DoesNotContain(repository.Items, item => item.SceneObjectId == "removed-object-id");
+        Assert.Contains(result.Data.Items, item => item.SceneObjectId == "chair-object-id-1");
+        Assert.Contains(result.Data.Items, item => item.SceneObjectId == "chair-object-id-2");
+        Assert.Contains(result.Data.Items, item => item.SceneObjectId == "table-object-id-1");
+        Assert.Equal(1, repository.RemoveItemCallCount);
+    }
+
+    [Fact]
     public async Task SyncItemsFromSceneAsync_WithRevisionRequestedProposal_AddsProposalItems()
     {
         var proposalId = Guid.NewGuid();

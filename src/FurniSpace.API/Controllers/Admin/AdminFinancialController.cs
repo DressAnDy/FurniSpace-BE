@@ -106,4 +106,15 @@ public sealed class AdminFinancialController : BaseApiController
         var result = await _financial.GetExceptionsAsync(query, cancellationToken);
         return ToActionResult(result);
     }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpGet("summary/{metric}/drilldown")]
+    public async Task<IActionResult> GetSummaryDrilldown(
+        string metric,
+        [FromQuery] AdminFinancialSummaryDrilldownQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _financial.GetSummaryDrilldownAsync(metric, query, cancellationToken);
+        return ToActionResult(result);
+    }
 }

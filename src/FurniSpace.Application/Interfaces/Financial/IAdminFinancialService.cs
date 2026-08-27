@@ -36,4 +36,9 @@ public interface IAdminFinancialService
     Task<ServiceResult<AdminFinancialExceptionsDto>> GetExceptionsAsync(
         AdminFinancialExceptionsQueryDto query,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<AdminFinancialSummaryDrilldownDto>> GetSummaryDrilldownAsync(
+        string metric,
+        AdminFinancialSummaryDrilldownQueryDto query,
+        CancellationToken cancellationToken = default);
 }

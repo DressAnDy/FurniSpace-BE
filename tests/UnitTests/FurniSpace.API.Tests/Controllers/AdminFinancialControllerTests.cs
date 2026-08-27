@@ -305,5 +305,20 @@ public sealed class AdminFinancialControllerTests
             ExceptionsQuery = query;
             return Task.FromResult(_exceptionsResult);
         }
+
+        public Task<ServiceResult<AdminFinancialSummaryDrilldownDto>> GetSummaryDrilldownAsync(
+            string metric,
+            AdminFinancialSummaryDrilldownQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            DrilldownMetric = metric;
+            DrilldownQuery = query;
+            return Task.FromResult(
+                ServiceResult<AdminFinancialSummaryDrilldownDto>.Success(
+                    new AdminFinancialSummaryDrilldownDto { Metric = metric }));
+        }
+
+        public string? DrilldownMetric { get; private set; }
+        public AdminFinancialSummaryDrilldownQueryDto? DrilldownQuery { get; private set; }
     }
 }

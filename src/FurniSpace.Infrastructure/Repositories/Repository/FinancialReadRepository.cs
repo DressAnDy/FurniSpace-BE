@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FurniSpace.Infrastructure.Repositories.Repository;
 
-public sealed class FinancialReadRepository : IFinancialReadRepository
+public sealed partial class FinancialReadRepository : IFinancialReadRepository
 {
     private const string DefaultCurrency = "VND";
     private const string SeverityHigh = "HIGH";

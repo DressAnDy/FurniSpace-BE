@@ -83,6 +83,16 @@ public interface IProjectScheduleRepository : IGenericRepository<ProjectSchedule
         return Task.FromResult(StaffScheduleConflictKind.None);
     }
 
+    Task<StaffScheduleConflictKind> GetCustomerScheduleConflictAsync(
+        Guid customerId,
+        DateTime scheduledStart,
+        DateTime scheduledEnd,
+        Guid? excludedScheduleId = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(StaffScheduleConflictKind.None);
+    }
+
     Task<IReadOnlyList<ProjectSchedule>> GetUnusedFutureDeliverySchedulesAsync(
         Guid projectId,
         CancellationToken cancellationToken = default)

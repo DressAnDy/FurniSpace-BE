@@ -723,7 +723,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return scheduleTypeError;
         }
 
-        return await ValidateStaffScheduleOverlapAsync(
+        return await ValidateAppointmentScheduleConflictsAsync(
+            project.CustomerId,
             request.AssignedStaffId,
             request.ScheduleType,
             request.ScheduledStart,
@@ -1119,7 +1120,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return targetDateError;
         }
 
-        return await ValidateStaffScheduleOverlapAsync(
+        return await ValidateAppointmentScheduleConflictsAsync(
+            detail.CustomerId,
             request.AssignedStaffId ?? detail.AssignedStaffId,
             detail.ScheduleType,
             effectiveStart,
@@ -1128,7 +1130,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             cancellationToken);
     }
 
-    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateStaffScheduleOverlapAsync(
+    private async Task<ServiceResult<ProjectScheduleDto>?> ValidateAppointmentScheduleConflictsAsync(
+        Guid customerId,
         Guid? assignedStaffId,
         ProjectScheduleType? scheduleType,
         DateTime scheduledStart,
@@ -1143,6 +1146,32 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             {
                 return assignedStaffError;
             }
+
+            if (!scheduledEnd.HasValue)
+            {
+                return null;
+            }
+
+            var staffConflict = await _schedules.GetStaffScheduleConflictAsync(
+                assignedStaffId!.Value,
+                scheduledStart,
+                scheduledEnd.Value,
+                excludedScheduleId,
+                cancellationToken);
+            var staffConflictError = MapStaffScheduleConflictError(staffConflict);
+            if (staffConflictError is not null)
+            {
+                return staffConflictError;
+            }
+
+            var customerConflict = await _schedules.GetCustomerScheduleConflictAsync(
+                customerId,
+                scheduledStart,
+                scheduledEnd.Value,
+                excludedScheduleId,
+                cancellationToken);
+
+            return MapCustomerScheduleConflictError(customerConflict);
         }
 
         if (!assignedStaffId.HasValue)
@@ -1150,35 +1179,24 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             return null;
         }
 
-        if (!RequiresBusinessTimeRules(scheduleType))
-        {
-            var hasOverlap = await _schedules.HasActiveStaffOverlapAsync(
-                assignedStaffId.Value,
-                scheduledStart,
-                scheduledEnd,
-                excludedScheduleId,
-                cancellationToken);
-
-            return hasOverlap
-                ? ServiceResult<ProjectScheduleDto>.Failure(
-                    Error.Conflict(
-                        ProjectScheduleErrorCodes.StaffScheduleOverlap,
-                        "Assigned staff already has an overlapping active schedule."))
-                : null;
-        }
-
-        if (!scheduledEnd.HasValue)
-        {
-            return null;
-        }
-
-        var conflict = await _schedules.GetStaffScheduleConflictAsync(
+        var hasOverlap = await _schedules.HasActiveStaffOverlapAsync(
             assignedStaffId.Value,
             scheduledStart,
-            scheduledEnd.Value,
+            scheduledEnd,
             excludedScheduleId,
             cancellationToken);
 
+        return hasOverlap
+            ? ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.StaffScheduleOverlap,
+                    "Assigned staff already has an overlapping active schedule."))
+            : null;
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? MapStaffScheduleConflictError(
+        StaffScheduleConflictKind conflict)
+    {
         return conflict switch
         {
             StaffScheduleConflictKind.Overlap => ServiceResult<ProjectScheduleDto>.Failure(
@@ -1189,6 +1207,23 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 Error.Conflict(
                     ProjectScheduleErrorCodes.ScheduleMinimumGapNotMet,
                     "Assigned staff must have at least two hours between appointments.")),
+            _ => null
+        };
+    }
+
+    private static ServiceResult<ProjectScheduleDto>? MapCustomerScheduleConflictError(
+        StaffScheduleConflictKind conflict)
+    {
+        return conflict switch
+        {
+            StaffScheduleConflictKind.Overlap => ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.CustomerScheduleOverlap,
+                    "Customer already has an overlapping appointment.")),
+            StaffScheduleConflictKind.MinimumGapNotMet => ServiceResult<ProjectScheduleDto>.Failure(
+                Error.Conflict(
+                    ProjectScheduleErrorCodes.CustomerScheduleMinimumGapNotMet,
+                    "Customer must have at least two hours between appointments.")),
             _ => null
         };
     }
@@ -1206,6 +1241,14 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         if (scheduledStart == default || !scheduledEnd.HasValue || scheduledEnd.Value <= scheduledStart)
         {
             return ScheduleTimeInvalidResult();
+        }
+
+        if (scheduledEnd.Value - scheduledStart < TimeSpan.FromHours(MinimumAppointmentDurationHours))
+        {
+            return ServiceResult<ProjectScheduleDto>.Failure(
+                Error.BadRequest(
+                    ProjectScheduleErrorCodes.ScheduleMinimumDurationNotMet,
+                    "Schedule duration must be at least one hour."));
         }
 
         var localStart = ToVietnamLocalTime(scheduledStart);

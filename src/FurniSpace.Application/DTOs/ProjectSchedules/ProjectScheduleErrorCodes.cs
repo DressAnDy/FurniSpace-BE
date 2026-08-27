@@ -8,6 +8,9 @@ public static class ProjectScheduleErrorCodes
     public const string ScheduleOutsideBusinessHours = "SCHEDULE_OUTSIDE_BUSINESS_HOURS";
     public const string ScheduleOverlap = "SCHEDULE_OVERLAP";
     public const string ScheduleMinimumGapNotMet = "SCHEDULE_MINIMUM_GAP_NOT_MET";
+    public const string ScheduleMinimumDurationNotMet = "SCHEDULE_MINIMUM_DURATION_NOT_MET";
+    public const string CustomerScheduleOverlap = "CUSTOMER_SCHEDULE_OVERLAP";
+    public const string CustomerScheduleMinimumGapNotMet = "CUSTOMER_SCHEDULE_MINIMUM_GAP_NOT_MET";
     public const string MeasurementFileRequired = "MEASUREMENT_FILE_REQUIRED";
     public const string DesignerNotAssigned = "DESIGNER_NOT_ASSIGNED";
     public const string InvalidProjectStatus = "INVALID_PROJECT_STATUS";

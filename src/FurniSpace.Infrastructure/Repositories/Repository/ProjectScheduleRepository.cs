@@ -284,15 +284,61 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
         Guid? excludedScheduleId = null,
         CancellationToken cancellationToken = default)
     {
-        var query = DbContext.ProjectScheduleSet
-            .Where(schedule =>
-                schedule.AssignedStaffId == assignedStaffId &&
-                schedule.Status != ProjectScheduleStatus.CANCELLED &&
-                (schedule.ScheduleType == ProjectScheduleType.MEASUREMENT ||
-                 schedule.ScheduleType == ProjectScheduleType.DELIVERY) &&
-                (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
-                 schedule.Status == ProjectScheduleStatus.CONFIRMED ||
-                 (schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt != null)));
+        var query = ApplyAppointmentConflictFilters(
+            DbContext.ProjectScheduleSet.Where(schedule => schedule.AssignedStaffId == assignedStaffId),
+            excludedScheduleId);
+
+        var schedules = await query
+            .Select(schedule => new ProjectScheduleConflictEvaluator.ExistingScheduleSlot(
+                schedule.ScheduledStart,
+                schedule.ScheduledEnd,
+                schedule.CompletedAt,
+                schedule.Status))
+            .ToListAsync(cancellationToken);
+
+        return ProjectScheduleConflictEvaluator.Evaluate(scheduledStart, scheduledEnd, schedules);
+    }
+
+    public async Task<StaffScheduleConflictKind> GetCustomerScheduleConflictAsync(
+        Guid customerId,
+        DateTime scheduledStart,
+        DateTime scheduledEnd,
+        Guid? excludedScheduleId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = ApplyAppointmentConflictFilters(
+            DbContext.ProjectScheduleSet,
+            excludedScheduleId);
+
+        var schedules = await query
+            .Join(
+                DbContext.ProjectSet,
+                schedule => schedule.ProjectId,
+                project => project.ProjectId,
+                (schedule, project) => new { schedule, project })
+            .Where(item => item.project.CustomerId == customerId)
+            .Select(item => new ProjectScheduleConflictEvaluator.ExistingScheduleSlot(
+                item.schedule.ScheduledStart,
+                item.schedule.ScheduledEnd,
+                item.schedule.CompletedAt,
+                item.schedule.Status))
+            .ToListAsync(cancellationToken);
+
+        return ProjectScheduleConflictEvaluator.Evaluate(scheduledStart, scheduledEnd, schedules);
+    }
+
+    private static IQueryable<ProjectSchedule> ApplyAppointmentConflictFilters(
+        IQueryable<ProjectSchedule> query,
+        Guid? excludedScheduleId)
+    {
+        query = query.Where(schedule =>
+            schedule.Status != ProjectScheduleStatus.CANCELLED &&
+            (schedule.ScheduleType == ProjectScheduleType.MEASUREMENT ||
+             schedule.ScheduleType == ProjectScheduleType.DELIVERY) &&
+            (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
+             schedule.Status == ProjectScheduleStatus.CONFIRMED ||
+             (schedule.Status == ProjectScheduleStatus.COMPLETED && schedule.CompletedAt != null)) &&
+            (schedule.Status == ProjectScheduleStatus.COMPLETED || schedule.ScheduledEnd != null));
 
         if (excludedScheduleId.HasValue)
         {
@@ -300,34 +346,7 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
             query = query.Where(schedule => schedule.ScheduleId != scheduleId);
         }
 
-        var schedules = await query
-            .Select(schedule => new
-            {
-                schedule.ScheduledStart,
-                schedule.ScheduledEnd,
-                schedule.CompletedAt,
-                schedule.Status
-            })
-            .ToListAsync(cancellationToken);
-
-        foreach (var schedule in schedules)
-        {
-            var existingEnd = schedule.Status == ProjectScheduleStatus.COMPLETED
-                ? schedule.CompletedAt!.Value
-                : schedule.ScheduledEnd ?? schedule.ScheduledStart;
-            if (scheduledStart < existingEnd && scheduledEnd > schedule.ScheduledStart)
-            {
-                return StaffScheduleConflictKind.Overlap;
-            }
-
-            if (scheduledStart < existingEnd.AddHours(2) &&
-                scheduledEnd.AddHours(2) > schedule.ScheduledStart)
-            {
-                return StaffScheduleConflictKind.MinimumGapNotMet;
-            }
-        }
-
-        return StaffScheduleConflictKind.None;
+        return query;
     }
 
     private static DateOnly? MaxDateOnly(DateOnly? current, DateOnly candidate)

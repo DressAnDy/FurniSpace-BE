@@ -28,6 +28,11 @@ public interface IFinancialReadRepository
         DateTime utcNow,
         CancellationToken cancellationToken = default);
 
+    Task<AdminFinancialReceivableDetailReadModel?> GetReceivableOrderDetailAsync(
+        Guid orderId,
+        DateTime utcNow,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<AdminFinancialPaymentTypeBreakdownReadModel>> GetPaymentBreakdownAsync(
         DateTime fromUtc,
         DateTime toUtcExclusive,
@@ -85,5 +90,9 @@ public interface IFinancialReadRepository
         DateTime utcNow,
         string currency,
         IReadOnlyCollection<PaymentType> canonicalPaymentTypes,
+        CancellationToken cancellationToken = default);
+
+    Task<AdminFinancialProjectStatementReadModel?> GetProjectStatementAsync(
+        AdminFinancialProjectStatementQueryReadModel query,
         CancellationToken cancellationToken = default);
 }

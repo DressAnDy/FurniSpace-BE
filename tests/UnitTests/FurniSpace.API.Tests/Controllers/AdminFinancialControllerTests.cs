@@ -258,6 +258,13 @@ public sealed class AdminFinancialControllerTests
             return Task.FromResult(_receivablesResult);
         }
 
+        public Task<ServiceResult<AdminFinancialReceivableDetailDto>> GetReceivableOrderDetailAsync(
+            System.Guid orderId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<AdminFinancialReceivableDetailDto>.Success(
+                new AdminFinancialReceivableDetailDto(),
+                "ok"));
+
         public Task<ServiceResult<AdminFinancialPaymentBreakdownDto>> GetPaymentBreakdownAsync(
             AdminFinancialPaymentBreakdownQueryDto query,
             CancellationToken cancellationToken = default)
@@ -289,6 +296,14 @@ public sealed class AdminFinancialControllerTests
             ProjectId = projectId;
             return Task.FromResult(_projectResult);
         }
+
+        public Task<ServiceResult<AdminFinancialProjectStatementDto>> GetProjectStatementAsync(
+            System.Guid projectId,
+            AdminFinancialProjectStatementQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<AdminFinancialProjectStatementDto>.Success(
+                new AdminFinancialProjectStatementDto(),
+                "ok"));
 
         public Task<ServiceResult<AdminFinancialPaymentsDto>> GetPaymentsAsync(
             AdminFinancialPaymentsQueryDto query,

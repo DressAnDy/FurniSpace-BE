@@ -13,6 +13,10 @@ public interface IAdminFinancialService
         AdminFinancialReceivablesQueryDto query,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<AdminFinancialReceivableDetailDto>> GetReceivableOrderDetailAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<AdminFinancialPaymentBreakdownDto>> GetPaymentBreakdownAsync(
         AdminFinancialPaymentBreakdownQueryDto query,
         CancellationToken cancellationToken = default);
@@ -27,6 +31,11 @@ public interface IAdminFinancialService
 
     Task<ServiceResult<AdminFinancialProjectRowDto>> GetProjectAsync(
         Guid projectId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<AdminFinancialProjectStatementDto>> GetProjectStatementAsync(
+        Guid projectId,
+        AdminFinancialProjectStatementQueryDto query,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<AdminFinancialPaymentsDto>> GetPaymentsAsync(

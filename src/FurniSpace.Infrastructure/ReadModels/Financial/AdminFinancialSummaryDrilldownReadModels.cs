@@ -46,31 +46,36 @@ public sealed class AdminFinancialDrilldownBreakdownItemReadModel
 
 public sealed class AdminFinancialDrilldownItemReadModel
 {
-    public string ResourceType { get; init; } = string.Empty;
-    public Guid? ProjectId { get; init; }
-    public string? ProjectCode { get; init; }
-    public string? ProjectName { get; init; }
-    public Guid? OrderId { get; init; }
-    public string? OrderCode { get; init; }
-    public string? OrderStatus { get; init; }
-    public Guid? PaymentId { get; init; }
-    public string? PaymentCode { get; init; }
-    public Guid? TransactionId { get; init; }
-    public string? PaymentType { get; init; }
-    public string? Status { get; init; }
-    public string? Provider { get; init; }
-    public decimal Amount { get; init; }
-    public decimal? PaidAmount { get; init; }
-    public decimal? RemainingAmount { get; init; }
-    public DateTime? OccurredAt { get; init; }
-    public DateTime? ExpiredAt { get; init; }
-    public string? FailureReason { get; init; }
-    public int AgeDays { get; init; }
-    public decimal? ProjectStartFeeAmount { get; init; }
-    public decimal? DepositAmount { get; init; }
-    public decimal? RemainingPaymentAmount { get; init; }
-    public decimal? FullPaymentAmount { get; init; }
-    public decimal? TotalCollectedAmount { get; init; }
-    public int? PaymentCount { get; init; }
-    public DateTime? LastPaidAt { get; init; }
+    public string ResourceType { get; set; } = string.Empty;
+    public Guid? ProjectId { get; set; }
+    public string? ProjectCode { get; set; }
+    public string? ProjectName { get; set; }
+    public Guid? CustomerId { get; set; }
+    public string? CustomerName { get; set; }
+    public Guid? OrderId { get; set; }
+    public string? OrderCode { get; set; }
+    public string? OrderStatus { get; set; }
+    public decimal? OrderFinalTotal { get; set; }
+    public decimal? OrderPaidAmount { get; set; }
+    public decimal? OrderRemainingAmount { get; set; }
+    public Guid? PaymentId { get; set; }
+    public string? PaymentCode { get; set; }
+    public Guid? TransactionId { get; set; }
+    public string? PaymentType { get; set; }
+    public string? Status { get; set; }
+    public string? Provider { get; set; }
+    public decimal Amount { get; set; }
+    public decimal? PaidAmount { get; set; }
+    public decimal? RemainingAmount { get; set; }
+    public DateTime? OccurredAt { get; set; }
+    public DateTime? ExpiredAt { get; set; }
+    public string? FailureReason { get; set; }
+    public int AgeDays { get; set; }
+    public decimal? ProjectStartFeeAmount { get; set; }
+    public decimal? DepositAmount { get; set; }
+    public decimal? RemainingPaymentAmount { get; set; }
+    public decimal? FullPaymentAmount { get; set; }
+    public decimal? TotalCollectedAmount { get; set; }
+    public int? PaymentCount { get; set; }
+    public DateTime? LastPaidAt { get; set; }
 }

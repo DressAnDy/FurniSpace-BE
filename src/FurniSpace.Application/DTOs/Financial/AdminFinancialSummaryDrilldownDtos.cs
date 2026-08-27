@@ -77,6 +77,11 @@ public sealed class AdminFinancialDrilldownItemDto
     public int AgeDays { get; set; }
 
     // Present when groupBy=PROJECT on COLLECTED.
+    public Guid? CustomerId { get; set; }
+    public string? CustomerName { get; set; }
+    public decimal? OrderFinalTotal { get; set; }
+    public decimal? OrderPaidAmount { get; set; }
+    public decimal? OrderRemainingAmount { get; set; }
     public decimal? ProjectStartFeeAmount { get; set; }
     public decimal? DepositAmount { get; set; }
     public decimal? RemainingPaymentAmount { get; set; }

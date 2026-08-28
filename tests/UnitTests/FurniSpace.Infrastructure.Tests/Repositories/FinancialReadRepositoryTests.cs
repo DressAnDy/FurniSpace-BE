@@ -358,6 +358,43 @@ public sealed class FinancialReadRepositoryTests
     }
 
     [Fact]
+    public async Task GetProjectFinancialRowsAsync_SortsByCollectedInPeriod()
+    {
+        await using var context = CreateContext();
+        var now = new DateTime(2026, 7, 25, 0, 0, 0, DateTimeKind.Utc);
+        var periodStart = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+        var periodEnd = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        var lowCollectionProject = CreateProject(Guid.NewGuid(), null, ProjectStatus.IN_PRODUCTION, now.AddDays(-3), "Low Collection");
+        var highCollectionProject = CreateProject(Guid.NewGuid(), null, ProjectStatus.IN_PRODUCTION, now.AddDays(-3), "High Collection");
+        context.AccountSet.AddRange(
+            CreateAccount(lowCollectionProject.CustomerId, "Customer Low"),
+            CreateAccount(highCollectionProject.CustomerId, "Customer High"));
+        context.ProjectSet.AddRange(lowCollectionProject, highCollectionProject);
+        context.PaymentSet.AddRange(
+            CreatePayment(PaymentType.DEPOSIT, PaymentStatus.PAID, 100m, paidAt: periodStart.AddDays(2), projectId: lowCollectionProject.ProjectId),
+            CreatePayment(PaymentType.DEPOSIT, PaymentStatus.PAID, 500m, paidAt: periodStart.AddDays(3), projectId: highCollectionProject.ProjectId));
+        await context.SaveChangesAsync();
+        var repository = new FinancialReadRepository(context);
+        var query = new AdminFinancialProjectsQueryReadModel
+        {
+            FromUtc = periodStart,
+            ToUtcExclusive = periodEnd,
+            Page = 1,
+            PageSize = 10,
+            SortBy = "collectedInPeriod",
+            SortDirection = "desc"
+        };
+
+        var rows = await repository.GetProjectFinancialRowsAsync(query, now, CanonicalPaymentTypes);
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(highCollectionProject.ProjectId, rows[0].ProjectId);
+        Assert.Equal(500m, rows[0].CollectedInPeriod);
+        Assert.Equal(periodStart.AddDays(3), rows[0].LastPaidInPeriod);
+        Assert.Equal(100m, rows[1].CollectedInPeriod);
+    }
+
+    [Fact]
     public async Task GetProjectFinancialRowAsync_WhenProjectExists_ReturnsDetail()
     {
         await using var context = CreateContext();

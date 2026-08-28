@@ -54,6 +54,44 @@ public sealed class ProductionItemsControllerTests
     }
 
     [Fact]
+    public async Task GetUnavailableItems_ReturnsServiceResultAndPassesQuery()
+    {
+        var userId = Guid.NewGuid();
+        var response = new ProductionUnavailableItemsResponseDto
+        {
+            Items =
+            [
+                new ProductionUnavailableItemDto
+                {
+                    ProductionItemId = Guid.NewGuid(),
+                    CancellationReason = "Out of stock"
+                }
+            ],
+            TotalItems = 1
+        };
+        var service = new FakeProductionRequestService(unavailableResult: ServiceResult<ProductionUnavailableItemsResponseDto>.Success(response, "ok"));
+        var controller = BuildController(service, userId);
+        var query = new ProductionUnavailableItemsQueryDto { Page = 1, PageSize = 20 };
+
+        var result = await controller.GetUnavailableItems(query);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.Same(query, service.UnavailableQuery);
+    }
+
+    [Fact]
+    public async Task GetUnavailableItems_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeProductionRequestService(), userId: null);
+
+        var result = await controller.GetUnavailableItems(new ProductionUnavailableItemsQueryDto());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
     public async Task UpdateStatus_WithoutUser_ReturnsUnauthorized()
     {
         var controller = BuildController(new FakeProductionRequestService(), userId: null);
@@ -87,9 +125,18 @@ public sealed class ProductionItemsControllerTests
 
     private sealed class FakeProductionRequestService : IProductionRequestService
     {
+        private readonly ServiceResult<ProductionUnavailableItemsResponseDto>? _unavailableResult;
+
+        public FakeProductionRequestService(
+            ServiceResult<ProductionUnavailableItemsResponseDto>? unavailableResult = null)
+        {
+            _unavailableResult = unavailableResult;
+        }
+
         public Guid CurrentUserId { get; private set; }
         public Guid ProductionItemId { get; private set; }
         public UpdateProductionItemStatusDto? UpdateRequest { get; private set; }
+        public ProductionUnavailableItemsQueryDto? UnavailableQuery { get; private set; }
 
         public Task<ServiceResult<ProductionRequestCreatedDto>> CreateAsync(
             Guid orderId,
@@ -153,6 +200,17 @@ public sealed class ProductionItemsControllerTests
             UpdateRequest = request;
             return Task.FromResult(ServiceResult<ProductionItemStatusDto>.Success(
                 new ProductionItemStatusDto()));
+        }
+
+        public Task<ServiceResult<ProductionUnavailableItemsResponseDto>> GetUnavailableItemsAsync(
+            Guid currentUserId,
+            ProductionUnavailableItemsQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            CurrentUserId = currentUserId;
+            UnavailableQuery = query;
+            return Task.FromResult(_unavailableResult
+                ?? ServiceResult<ProductionUnavailableItemsResponseDto>.Success(new ProductionUnavailableItemsResponseDto()));
         }
     }
 }

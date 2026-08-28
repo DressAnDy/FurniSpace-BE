@@ -1,8 +1,9 @@
+using FurniSpace.Domain.Common;
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Application.DTOs.Financial;
 
-public sealed class AdminFinancialProjectRowDto
+public sealed class AdminFinancialProjectRowDto : AdminFinancialProjectPeriodCollectionShape
 {
     public Guid ProjectId { get; set; }
     public string? ProjectCode { get; set; }
@@ -30,6 +31,4 @@ public sealed class AdminFinancialProjectRowDto
     public PaymentStatus? ActivePaymentStatus { get; set; }
     public decimal TotalProjectCashCollected { get; set; }
     public DateTime? LastPaidAt { get; set; }
-    public decimal CollectedInPeriod { get; set; }
-    public DateTime? LastPaidInPeriod { get; set; }
 }

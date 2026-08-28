@@ -1,8 +1,9 @@
+using FurniSpace.Domain.Common;
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Infrastructure.ReadModels.Financial;
 
-public sealed class AdminFinancialProjectRowReadModel
+public sealed class AdminFinancialProjectRowReadModel : AdminFinancialProjectPeriodCollectionShape
 {
     public Guid ProjectId { get; set; }
     public string? ProjectCode { get; set; }
@@ -31,6 +32,4 @@ public sealed class AdminFinancialProjectRowReadModel
     public PaymentStatus? ActivePaymentStatus { get; set; }
     public decimal TotalProjectCashCollected { get; set; }
     public DateTime? LastPaidAt { get; set; }
-    public decimal CollectedInPeriod { get; set; }
-    public DateTime? LastPaidInPeriod { get; set; }
 }

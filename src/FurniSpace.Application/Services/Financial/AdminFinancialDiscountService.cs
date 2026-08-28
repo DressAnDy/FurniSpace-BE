@@ -15,10 +15,11 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
     private const string GranularityMonth = "MONTH";
     private const string SortAscending = "asc";
     private const string SortDescending = "desc";
+    private const string SortConfirmedAt = "confirmedAt";
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
     private static readonly HashSet<string> ProjectSortFields =
     [
-        "confirmedAt",
+        SortConfirmedAt,
         "totalDiscountAmount",
         "discountRate",
         "finalOrderValue"
@@ -36,7 +37,16 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
         CancellationToken cancellationToken = default)
     {
         query ??= new AdminFinancialDiscountSummaryQueryDto();
-        if (!TryCreateRequiredReadQuery(query.From, query.To, query.ProjectStatus, query.SalesId, query.CustomerId, null, null, 1, 1, "confirmedAt", SortDescending, out var readQuery, out var errorMessage))
+        if (!TryCreateRequiredReadQuery(new AdminFinancialDiscountReadQueryOptions
+        {
+            From = query.From,
+            To = query.To,
+            ProjectStatus = query.ProjectStatus,
+            SalesId = query.SalesId,
+            CustomerId = query.CustomerId,
+            SortBy = SortConfirmedAt,
+            SortDirection = SortDescending
+        }, out var readQuery, out var errorMessage))
         {
             return ServiceResult<AdminFinancialDiscountSummaryDto>.Failure(
                 Error.BadRequest(AdminFinancialDiscountErrorCodes.DateRangeInvalid, errorMessage));
@@ -75,20 +85,19 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
         CancellationToken cancellationToken = default)
     {
         query ??= new AdminFinancialDiscountProjectsQueryDto();
-        if (!TryCreateRequiredReadQuery(
-                query.From,
-                query.To,
-                null,
-                query.SalesId,
-                query.CustomerId,
-                query.ProjectId,
-                query.HasDiscount,
-                query.Page,
-                query.PageSize,
-                query.SortBy,
-                query.SortDirection,
-                out var readQuery,
-                out var errorMessage))
+        if (!TryCreateRequiredReadQuery(new AdminFinancialDiscountReadQueryOptions
+        {
+            From = query.From,
+            To = query.To,
+            SalesId = query.SalesId,
+            CustomerId = query.CustomerId,
+            ProjectId = query.ProjectId,
+            HasDiscount = query.HasDiscount,
+            Page = query.Page,
+            PageSize = query.PageSize,
+            SortBy = query.SortBy,
+            SortDirection = query.SortDirection
+        }, out var readQuery, out var errorMessage))
         {
             return ServiceResult<AdminFinancialDiscountProjectsDto>.Failure(
                 Error.BadRequest(AdminFinancialDiscountErrorCodes.FilterInvalid, errorMessage));
@@ -131,7 +140,14 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
         CancellationToken cancellationToken = default)
     {
         query ??= new AdminFinancialDiscountTrendQueryDto();
-        if (!TryCreateRequiredReadQuery(query.From, query.To, null, query.SalesId, null, null, null, 1, 1, "confirmedAt", SortDescending, out var readQuery, out var errorMessage))
+        if (!TryCreateRequiredReadQuery(new AdminFinancialDiscountReadQueryOptions
+        {
+            From = query.From,
+            To = query.To,
+            SalesId = query.SalesId,
+            SortBy = SortConfirmedAt,
+            SortDirection = SortDescending
+        }, out var readQuery, out var errorMessage))
         {
             return ServiceResult<AdminFinancialDiscountTrendDto>.Failure(
                 Error.BadRequest(AdminFinancialDiscountErrorCodes.DateRangeInvalid, errorMessage));
@@ -177,7 +193,16 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
         CancellationToken cancellationToken = default)
     {
         query ??= new AdminFinancialDiscountExceptionsQueryDto();
-        if (!TryCreateRequiredReadQuery(query.From, query.To, null, query.SalesId, null, null, null, query.Page, query.PageSize, "confirmedAt", SortDescending, out var readQuery, out var errorMessage))
+        if (!TryCreateRequiredReadQuery(new AdminFinancialDiscountReadQueryOptions
+        {
+            From = query.From,
+            To = query.To,
+            SalesId = query.SalesId,
+            Page = query.Page,
+            PageSize = query.PageSize,
+            SortBy = SortConfirmedAt,
+            SortDirection = SortDescending
+        }, out var readQuery, out var errorMessage))
         {
             return ServiceResult<AdminFinancialDiscountExceptionsDto>.Failure(
                 Error.BadRequest(AdminFinancialDiscountErrorCodes.FilterInvalid, errorMessage));
@@ -287,41 +312,31 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
         };
 
     private static bool TryCreateRequiredReadQuery(
-        DateTimeOffset? from,
-        DateTimeOffset? to,
-        Domain.Enums.ProjectStatus? projectStatus,
-        Guid? salesId,
-        Guid? customerId,
-        Guid? projectId,
-        bool? hasDiscount,
-        int page,
-        int pageSize,
-        string? sortBy,
-        string? sortDirection,
+        AdminFinancialDiscountReadQueryOptions options,
         out AdminFinancialDiscountQueryReadModel readQuery,
         out string errorMessage)
     {
         readQuery = new AdminFinancialDiscountQueryReadModel();
-        if (!TryResolveFinancialRange(from, to, out var fromUtc, out var toUtcExclusive))
+        if (!TryResolveFinancialRange(options.From, options.To, out var fromUtc, out var toUtcExclusive))
         {
             errorMessage = "Discount date range is invalid.";
             return false;
         }
 
-        if (page <= 0 || pageSize <= 0 || pageSize > MaxPageSize)
+        if (options.Page <= 0 || options.PageSize <= 0 || options.PageSize > MaxPageSize)
         {
             errorMessage = "Discount pagination is invalid.";
             return false;
         }
 
-        var normalizedSortBy = string.IsNullOrWhiteSpace(sortBy) ? "confirmedAt" : sortBy.Trim();
+        var normalizedSortBy = string.IsNullOrWhiteSpace(options.SortBy) ? SortConfirmedAt : options.SortBy.Trim();
         if (!ProjectSortFields.Contains(normalizedSortBy, StringComparer.OrdinalIgnoreCase))
         {
             errorMessage = "Discount sort field is invalid.";
             return false;
         }
 
-        var normalizedSortDirection = string.IsNullOrWhiteSpace(sortDirection) ? SortDescending : sortDirection.Trim().ToLowerInvariant();
+        var normalizedSortDirection = string.IsNullOrWhiteSpace(options.SortDirection) ? SortDescending : options.SortDirection.Trim().ToLowerInvariant();
         if (normalizedSortDirection is not SortAscending and not SortDescending)
         {
             errorMessage = "Discount sort direction is invalid.";
@@ -332,18 +347,33 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
         {
             FromUtc = fromUtc!.Value,
             ToUtcExclusive = toUtcExclusive!.Value,
-            ProjectStatus = projectStatus,
-            SalesId = salesId,
-            CustomerId = customerId,
-            ProjectId = projectId,
-            HasDiscount = hasDiscount,
-            Page = page,
-            PageSize = pageSize,
+            ProjectStatus = options.ProjectStatus,
+            SalesId = options.SalesId,
+            CustomerId = options.CustomerId,
+            ProjectId = options.ProjectId,
+            HasDiscount = options.HasDiscount,
+            Page = options.Page,
+            PageSize = options.PageSize,
             SortBy = normalizedSortBy,
             SortDirection = normalizedSortDirection
         };
         errorMessage = string.Empty;
         return true;
+    }
+
+    private sealed class AdminFinancialDiscountReadQueryOptions
+    {
+        public DateTimeOffset? From { get; init; }
+        public DateTimeOffset? To { get; init; }
+        public Domain.Enums.ProjectStatus? ProjectStatus { get; init; }
+        public Guid? SalesId { get; init; }
+        public Guid? CustomerId { get; init; }
+        public Guid? ProjectId { get; init; }
+        public bool? HasDiscount { get; init; }
+        public int Page { get; init; } = 1;
+        public int PageSize { get; init; } = 20;
+        public string? SortBy { get; init; }
+        public string? SortDirection { get; init; }
     }
 
     private static bool TryResolveFinancialRange(

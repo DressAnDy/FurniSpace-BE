@@ -46,56 +46,15 @@ public sealed class FinancialDiscountReadRepository : IFinancialDiscountReadRepo
         Guid orderId,
         CancellationToken cancellationToken = default)
     {
-        var itemAggregates = _dbContext.OrderItemSet.AsNoTracking()
-            .GroupBy(item => item.OrderId)
-            .Select(group => new
-            {
-                OrderId = group.Key,
-                GrossOrderValue = group.Sum(item => (decimal?)((item.Quantity ?? 0) * (item.UnitPrice ?? 0m))) ?? 0m,
-                ItemDiscountAmount = group.Sum(item => (decimal?)(item.DiscountAmount ?? 0m)) ?? 0m
-            });
-
-        return (
-            from order in _dbContext.OrderSet.AsNoTracking()
-            where order.OrderId == orderId
-            join aggregate in itemAggregates on order.OrderId equals aggregate.OrderId into aggregates
-            from aggregate in aggregates.DefaultIfEmpty()
-            join project in _dbContext.ProjectSet.AsNoTracking()
-                on order.ProjectId equals project.ProjectId
-            join customer in _dbContext.AccountSet.AsNoTracking()
-                on order.CustomerId equals customer.AccountId into customers
-            from customer in customers.DefaultIfEmpty()
-            join sales in _dbContext.AccountSet.AsNoTracking()
-                on order.SalesId equals sales.AccountId into salesAccounts
-            from sales in salesAccounts.DefaultIfEmpty()
-            let gross = aggregate == null ? 0m : aggregate.GrossOrderValue
-            let itemDiscount = aggregate == null ? 0m : aggregate.ItemDiscountAmount
-            let orderDiscount = order.AdditionalDiscountAmount ?? 0m
-            let totalDiscount = itemDiscount + orderDiscount
-            select new AdminFinancialDiscountOrderMetricsReadModel
-            {
-                OrderId = order.OrderId,
-                OrderCode = order.OrderCode,
-                OrderStatus = order.Status,
-                ConfirmedAt = order.ConfirmedAt,
-                ProjectId = project.ProjectId,
-                ProjectCode = project.ProjectCode,
-                ProjectName = project.ProjectName,
-                ProjectStatus = project.Status,
-                CustomerId = order.CustomerId,
-                CustomerName = customer != null ? customer.FullName : null,
-                SalesId = order.SalesId,
-                SalesName = sales != null ? sales.FullName : null,
-                GrossOrderValue = gross,
-                ItemDiscountAmount = itemDiscount,
-                OrderAdditionalDiscountAmount = orderDiscount,
-                TotalDiscountAmount = totalDiscount,
-                NetOrderValueBeforeVat = gross - totalDiscount,
-                VatRate = order.VatRate,
-                VatAmount = order.VatAmount,
-                FinalOrderValue = order.FinalTotalAmount,
-                DiscountRate = gross > 0m ? totalDiscount / gross * 100m : 0m
-            }).FirstOrDefaultAsync(cancellationToken);
+        var query = new AdminFinancialDiscountQueryReadModel
+        {
+            FromUtc = DateTime.MinValue,
+            ToUtcExclusive = DateTime.MaxValue,
+            OrderId = orderId,
+            Page = 1,
+            PageSize = 1
+        };
+        return BuildOrderMetricsQuery(query).FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<AdminFinancialDiscountOrderItemReadModel>> GetOrderItemsAsync(
@@ -127,14 +86,15 @@ public sealed class FinancialDiscountReadRepository : IFinancialDiscountReadRepo
         var rows = await BuildOrderMetricsQuery(query).ToListAsync(cancellationToken);
         return rows
             .Where(row => row.ConfirmedAt.HasValue)
-            .GroupBy(row => new { row.ConfirmedAt!.Value.Year, row.ConfirmedAt!.Value.Month })
+            .Select(row => (Row: row, ConfirmedAt: row.ConfirmedAt.Value))
+            .GroupBy(entry => new { entry.ConfirmedAt.Year, entry.ConfirmedAt.Month })
             .OrderBy(group => group.Key.Year)
             .ThenBy(group => group.Key.Month)
             .Select(group =>
             {
                 var periodStart = new DateTime(group.Key.Year, group.Key.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-                var gross = group.Sum(row => row.GrossOrderValue);
-                var totalDiscount = group.Sum(row => row.TotalDiscountAmount);
+                var gross = group.Sum(entry => entry.Row.GrossOrderValue);
+                var totalDiscount = group.Sum(entry => entry.Row.TotalDiscountAmount);
                 return new AdminFinancialDiscountTrendBucketReadModel
                 {
                     Period = $"{group.Key.Year:0000}-{group.Key.Month:00}",
@@ -142,7 +102,7 @@ public sealed class FinancialDiscountReadRepository : IFinancialDiscountReadRepo
                     GrossOrderValue = gross,
                     TotalDiscountAmount = totalDiscount,
                     DiscountRate = gross > 0m ? Math.Round(totalDiscount / gross * 100m, 2) : 0m,
-                    DiscountedOrderCount = group.Count(row => row.TotalDiscountAmount > 0m),
+                    DiscountedOrderCount = group.Count(entry => entry.Row.TotalDiscountAmount > 0m),
                     TotalOrderCount = group.Count()
                 };
             })
@@ -257,6 +217,12 @@ public sealed class FinancialDiscountReadRepository : IFinancialDiscountReadRepo
 
     private IQueryable<Domain.Entities.Order> BuildFilteredOrders(AdminFinancialDiscountQueryReadModel query)
     {
+        if (query.OrderId.HasValue)
+        {
+            return _dbContext.OrderSet.AsNoTracking()
+                .Where(order => order.OrderId == query.OrderId.Value);
+        }
+
         var orders = _dbContext.OrderSet.AsNoTracking()
             .Where(order =>
                 order.Status != OrderStatus.CANCELLED &&
@@ -334,7 +300,7 @@ public sealed class FinancialDiscountReadRepository : IFinancialDiscountReadRepo
     }
 
     private static AdminFinancialDiscountSummaryReadModel AggregateSummary(
-        IReadOnlyList<AdminFinancialDiscountOrderMetricsReadModel> rows)
+        List<AdminFinancialDiscountOrderMetricsReadModel> rows)
     {
         var gross = rows.Sum(row => row.GrossOrderValue);
         var totalDiscount = rows.Sum(row => row.TotalDiscountAmount);

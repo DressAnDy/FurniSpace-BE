@@ -12,6 +12,7 @@ public sealed class AdminFinancialDiscountQueryReadModel
     public Guid? SalesId { get; set; }
     public Guid? CustomerId { get; set; }
     public Guid? ProjectId { get; set; }
+    public Guid? OrderId { get; set; }
     public bool? HasDiscount { get; set; }
     public decimal? MinDiscountRate { get; set; }
     public int Page { get; set; } = 1;

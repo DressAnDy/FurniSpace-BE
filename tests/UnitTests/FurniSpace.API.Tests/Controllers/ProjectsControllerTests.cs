@@ -1651,4 +1651,137 @@ public sealed class ProjectsControllerTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ServiceResult<ProjectReviewDto>.Unauthorized());
     }
+
+    [Fact]
+    public async Task GetReview_ReturnsServiceResultThroughBaseController()
+    {
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var reviewService = new FakeProjectReviewService(
+            getResult: ServiceResult<ProjectReviewDto>.Success(
+                new ProjectReviewDto { ProjectId = projectId, Rating = 5 },
+                "ok"));
+        var controller = BuildReviewController(reviewService, customerId);
+
+        var result = await controller.GetReview(projectId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(projectId, reviewService.ProjectId);
+        Assert.Equal(customerId, reviewService.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task GetReview_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = BuildReviewController(new FakeProjectReviewService(), userId: null);
+
+        var result = await controller.GetReview(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task CreateReview_ReturnsServiceResultThroughBaseController()
+    {
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var request = new CreateProjectReviewRequestDto
+        {
+            Rating = 4,
+            DesignQualityRating = 5,
+            ServiceQualityRating = 4,
+            DeliveryRating = 4,
+            Comment = "Nice"
+        };
+        var reviewService = new FakeProjectReviewService(
+            createResult: ServiceResult<ProjectReviewDto>.Success(
+                new ProjectReviewDto { ProjectId = projectId, Rating = 4 },
+                "ok"));
+        var controller = BuildReviewController(reviewService, customerId);
+
+        var result = await controller.CreateReview(projectId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(projectId, reviewService.ProjectId);
+        Assert.Same(request, reviewService.CreateRequest);
+    }
+
+    [Fact]
+    public async Task CreateReview_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = BuildReviewController(new FakeProjectReviewService(), userId: null);
+
+        var result = await controller.CreateReview(
+            Guid.NewGuid(),
+            new CreateProjectReviewRequestDto { Rating = 4, DesignQualityRating = 4, ServiceQualityRating = 4, DeliveryRating = 4 });
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    private static ProjectsController BuildReviewController(IProjectReviewService reviewService, Guid? userId)
+    {
+        var controller = new ProjectsController(
+            new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
+            new FakeProjectChatMessageService(),
+            new FakeProposalService(),
+            NoOpMeasurementImages,
+            reviewService);
+
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = userId.HasValue
+                ? new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(ClaimTypes.NameIdentifier, userId.Value.ToString())
+                    ], "Test"))
+                }
+                : new DefaultHttpContext()
+        };
+
+        return controller;
+    }
+
+    private sealed class FakeProjectReviewService : IProjectReviewService
+    {
+        private readonly ServiceResult<ProjectReviewDto>? _getResult;
+        private readonly ServiceResult<ProjectReviewDto>? _createResult;
+
+        public FakeProjectReviewService(
+            ServiceResult<ProjectReviewDto>? getResult = null,
+            ServiceResult<ProjectReviewDto>? createResult = null)
+        {
+            _getResult = getResult;
+            _createResult = createResult;
+        }
+
+        public Guid ProjectId { get; private set; }
+        public Guid CurrentUserId { get; private set; }
+        public CreateProjectReviewRequestDto? CreateRequest { get; private set; }
+
+        public Task<ServiceResult<ProjectReviewDto>> GetByProjectAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_getResult ?? ServiceResult<ProjectReviewDto>.NotFound(ProjectReviewErrorCodes.NotFound));
+        }
+
+        public Task<ServiceResult<ProjectReviewDto>> CreateAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CreateProjectReviewRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            CreateRequest = request;
+            return Task.FromResult(_createResult ?? ServiceResult<ProjectReviewDto>.Unauthorized());
+        }
+    }
 }

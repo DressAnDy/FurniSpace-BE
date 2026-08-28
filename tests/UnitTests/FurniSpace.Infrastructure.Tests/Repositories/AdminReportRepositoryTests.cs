@@ -466,7 +466,6 @@ public sealed class AdminReportRepositoryTests
                 OrderId = orderId,
                 AssignedTo = prodStaffId,
                 Status = ProductionRequestStatus.IN_PRODUCTION,
-                EstimatedCompletionDate = DateOnly.FromDateTime(now.AddDays(-1)),
                 CreatedAt = now.AddDays(-3),
                 UpdatedAt = now.AddDays(-1)
             },
@@ -543,6 +542,16 @@ public sealed class AdminReportRepositoryTests
                 CreatedAt = now.AddDays(-5),
                 UpdatedAt = now.AddDays(-1)
             });
+        context.ProjectPhaseTimelineSet.Add(new ProjectPhaseTimeline
+        {
+            ProjectPhaseTimelineId = Guid.NewGuid(),
+            ProjectId = commercialProjectId,
+            Phase = ProjectPhaseType.PRODUCTION,
+            DueDate = DateOnly.FromDateTime(now.AddDays(-1)),
+            CreatedBy = salesId,
+            CreatedAt = now.AddDays(-4),
+            UpdatedAt = now.AddDays(-1)
+        });
 
         context.ProductionItemSet.Add(new ProductionItem
         {

@@ -366,7 +366,7 @@ public sealed class DashboardQueueServiceTests
                         CustomerName = "Buyer",
                         Status = ProductionRequestStatus.PENDING,
                         Priority = "medium",
-                        EstimatedCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2)),
+                        ProductionDeadline = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2)),
                         CreatedAt = DateTime.UtcNow
                     }
                 ]

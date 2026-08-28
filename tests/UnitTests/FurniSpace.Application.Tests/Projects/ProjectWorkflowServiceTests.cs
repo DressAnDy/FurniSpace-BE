@@ -475,6 +475,7 @@ public sealed class ProjectWorkflowServiceTests
                     ProductionRequestId = productionRequestId,
                     ProductionCode = null,
                     Status = ProductionRequestStatus.IN_PRODUCTION,
+                    ProductionDeadline = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2)),
                     AssignedToName = "Prod Owner",
                     CreatedAt = DateTime.UtcNow.AddDays(-1)
                 }
@@ -484,14 +485,12 @@ public sealed class ProjectWorkflowServiceTests
                 new ProjectWorkflowProductionItemReadModel
                 {
                     ProductionRequestId = productionRequestId,
-                    Status = ProductionItemStatus.IN_PRODUCTION,
-                    EstimatedCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2))
+                    Status = ProductionItemStatus.IN_PRODUCTION
                 },
                 new ProjectWorkflowProductionItemReadModel
                 {
                     ProductionRequestId = productionRequestId,
-                    Status = ProductionItemStatus.PENDING,
-                    EstimatedCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3))
+                    Status = ProductionItemStatus.PENDING
                 }
             ]
         };

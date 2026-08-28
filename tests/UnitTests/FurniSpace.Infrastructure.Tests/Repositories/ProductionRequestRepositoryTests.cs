@@ -150,7 +150,6 @@ public sealed class ProductionRequestRepositoryTests
                 ProductionCode = "PRD-LATER",
                 AssignedTo = staffId,
                 Status = ProductionRequestStatus.COMPLETED,
-                EstimatedCompletionDate = new DateOnly(2026, 12, 31),
                 ActualCompletionDate = new DateOnly(2026, 11, 15),
                 CreatedAt = DateTime.UtcNow
             });
@@ -159,7 +158,7 @@ public sealed class ProductionRequestRepositoryTests
 
         var maxDate = await repository.GetMaxOperationalProductionDateAsync(projectId);
 
-        Assert.Equal(new DateOnly(2026, 12, 31), maxDate);
+        Assert.Equal(new DateOnly(2026, 11, 15), maxDate);
     }
 
     [Fact]

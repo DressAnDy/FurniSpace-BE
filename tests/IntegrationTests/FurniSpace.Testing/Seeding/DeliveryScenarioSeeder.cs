@@ -210,8 +210,6 @@ public static class DeliveryScenarioSeeder
             AssignedTo = assignedTo,
             Status = ProductionRequestStatus.COMPLETED,
             Priority = "NORMAL",
-            EstimatedStartDate = completedDate.AddDays(-3),
-            EstimatedCompletionDate = completedDate,
             ActualStartDate = completedDate.AddDays(-3),
             ActualCompletionDate = completedDate,
             CreatedAt = CoreAccountSeeder.FixedTimestamp,
@@ -235,8 +233,7 @@ public static class DeliveryScenarioSeeder
             Quantity = orderItem.Quantity,
             Status = ProductionItemStatus.COMPLETED,
             StartedAt = CoreAccountSeeder.FixedTimestamp.AddDays(-3),
-            CompletedAt = CoreAccountSeeder.FixedTimestamp,
-            EstimatedCompletionDate = DateOnly.FromDateTime(CoreAccountSeeder.FixedTimestamp)
+            CompletedAt = CoreAccountSeeder.FixedTimestamp
         };
     }
 }

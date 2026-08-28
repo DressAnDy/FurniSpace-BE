@@ -383,7 +383,7 @@ public sealed class DashboardQueueService : IDashboardQueueService
         DashboardProductionQueueRowReadModel row,
         DateTime utcNow)
     {
-        var dueAt = DashboardDueHelper.ToDueAtUtc(row.EstimatedCompletionDate);
+        var dueAt = DashboardDueHelper.ToDueAtUtc(row.ProductionDeadline);
         var dueBucket = DashboardDueHelper.ResolveDueBucket(dueAt, utcNow);
         var next = DashboardNextActionResolver.ResolveProduction(
             row.Status,

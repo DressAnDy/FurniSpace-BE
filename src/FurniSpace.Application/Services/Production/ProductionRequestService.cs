@@ -135,15 +135,6 @@ public sealed class ProductionRequestService : IProductionRequestService
                 ProjectNotFoundMessage);
         }
 
-        var targetDateError = ProjectTimelineDateValidator.ValidateProductionEstimatedDatesWithinTarget(
-            request.EstimatedStartDate,
-            request.EstimatedCompletionDate,
-            project.TargetCompletionDate);
-        if (targetDateError is not null)
-        {
-            return ServiceResult<ProductionRequestCreatedDto>.Failure(targetDateError);
-        }
-
         var productOrderItems = await _productionRequests.GetProductOrderItemsAsync(orderId, cancellationToken);
         if (productOrderItems.Count == 0)
         {
@@ -163,7 +154,7 @@ public sealed class ProductionRequestService : IProductionRequestService
 
         var now = DateTime.UtcNow;
         var productionRequest = await BuildProductionRequestAsync(order, request, now, cancellationToken);
-        var productionItems = BuildProductionItems(productOrderItems, productionRequest.ProductionRequestId, request);
+        var productionItems = BuildProductionItems(productOrderItems, productionRequest.ProductionRequestId);
 
         try
         {
@@ -642,8 +633,6 @@ public sealed class ProductionRequestService : IProductionRequestService
             AssignedTo = request.AssignedTo,
             Status = ProductionRequestStatus.PENDING,
             Priority = NormalizePriority(request.Priority),
-            EstimatedStartDate = request.EstimatedStartDate,
-            EstimatedCompletionDate = request.EstimatedCompletionDate,
             Note = request.Note?.Trim(),
             CreatedAt = now,
             UpdatedAt = now
@@ -652,8 +641,7 @@ public sealed class ProductionRequestService : IProductionRequestService
 
     private static List<ProductionItem> BuildProductionItems(
         List<OrderItem> orderItems,
-        Guid productionRequestId,
-        CreateProductionRequestDto request)
+        Guid productionRequestId)
     {
         return orderItems
             .DistinctBy(item => item.OrderItemId)
@@ -667,7 +655,6 @@ public sealed class ProductionRequestService : IProductionRequestService
                 ProductVersionNameSnapshot = item.ProductVersionNameSnapshot,
                 Quantity = item.Quantity,
                 Status = ProductionItemStatus.PENDING,
-                EstimatedCompletionDate = request.EstimatedCompletionDate,
                 ProductionNote = item.ProductionNote,
                 StartedAt = null,
                 CompletedAt = null
@@ -941,15 +928,6 @@ public sealed class ProductionRequestService : IProductionRequestService
             return BadRequest<ProductionRequestCreatedDto>(
                 ProductionErrorCodes.ProductionStaffNotFound,
                 "Assigned production staff is required.");
-        }
-
-        if (request.EstimatedStartDate.HasValue &&
-            request.EstimatedCompletionDate.HasValue &&
-            request.EstimatedStartDate.Value > request.EstimatedCompletionDate.Value)
-        {
-            return BadRequest<ProductionRequestCreatedDto>(
-                ProductionErrorCodes.InvalidProductionRequestDate,
-                "Estimated start date must be before or equal to estimated completion date.");
         }
 
         return null;
@@ -1285,8 +1263,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             AssignedToName = item.AssignedToName,
             Status = item.Status.ToString() ?? string.Empty,
             Priority = item.Priority,
-            EstimatedStartDate = item.EstimatedStartDate,
-            EstimatedCompletionDate = item.EstimatedCompletionDate,
+            ProductionDeadline = item.ProductionDeadline,
             ProductionItemCount = item.ProductionItemCount,
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt
@@ -1310,9 +1287,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             AssignedToName = detail.AssignedToName,
             Status = detail.Status.ToString() ?? string.Empty,
             Priority = detail.Priority,
-            EstimatedStartDate = detail.EstimatedStartDate,
-            EstimatedCompletionDate = detail.EstimatedCompletionDate,
-            ProductionDeadline = productionDeadline,
+            ProductionDeadline = productionDeadline ?? detail.ProductionDeadline,
             ActualStartDate = detail.ActualStartDate,
             ActualCompletionDate = detail.ActualCompletionDate,
             CancellationReason = detail.CancellationReason,
@@ -1363,7 +1338,6 @@ public sealed class ProductionRequestService : IProductionRequestService
             Status = item.Status.ToString() ?? string.Empty,
             MaterialNote = item.MaterialNote,
             ProductionNote = item.ProductionNote,
-            EstimatedCompletionDate = item.EstimatedCompletionDate,
             StartedAt = item.StartedAt,
             CompletedAt = item.CompletedAt,
             OrderItemStatus = item.OrderItemStatus.ToString()

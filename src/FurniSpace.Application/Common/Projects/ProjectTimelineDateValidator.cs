@@ -94,33 +94,4 @@ internal static class ProjectTimelineDateValidator
         return null;
     }
 
-    internal static Error? ValidateProductionEstimatedDatesWithinTarget(
-        DateOnly? estimatedStartDate,
-        DateOnly? estimatedCompletionDate,
-        DateOnly? targetCompletionDate)
-    {
-        if (estimatedStartDate.HasValue)
-        {
-            var startError = ValidateDateOnlyWithinTarget(
-                estimatedStartDate.Value,
-                targetCompletionDate,
-                ProductionErrorCodes.ProductionDateExceedsTarget,
-                "Estimated start date must not exceed project target completion date.");
-            if (startError is not null)
-            {
-                return startError;
-            }
-        }
-
-        if (estimatedCompletionDate.HasValue)
-        {
-            return ValidateDateOnlyWithinTarget(
-                estimatedCompletionDate.Value,
-                targetCompletionDate,
-                ProductionErrorCodes.ProductionDateExceedsTarget,
-                "Estimated completion date must not exceed project target completion date.");
-        }
-
-        return null;
-    }
 }

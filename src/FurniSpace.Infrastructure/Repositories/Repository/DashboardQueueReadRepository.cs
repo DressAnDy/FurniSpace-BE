@@ -174,8 +174,10 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 cancellationToken),
             OverdueTasks = await requests.CountAsync(
                 request =>
-                    request.EstimatedCompletionDate.HasValue &&
-                    request.EstimatedCompletionDate.Value < today,
+                    _db.ProjectPhaseTimelineSet.Any(timeline =>
+                        timeline.ProjectId == request.ProjectId &&
+                        timeline.Phase == ProjectPhaseType.PRODUCTION &&
+                        timeline.DueDate < today),
                 cancellationToken)
         };
     }
@@ -280,7 +282,7 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                      EF.Functions.ILike(account.FullName, pattern)))));
     }
 
-    private static IQueryable<Domain.Entities.ProductionRequest> ApplyProductionDateRange(
+    private IQueryable<Domain.Entities.ProductionRequest> ApplyProductionDateRange(
         IQueryable<Domain.Entities.ProductionRequest> requests,
         string? dateRange,
         DateTime utcNow)
@@ -295,8 +297,13 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         if (string.Equals(range, "today", StringComparison.OrdinalIgnoreCase))
         {
             return requests.Where(request =>
-                !request.EstimatedCompletionDate.HasValue ||
-                request.EstimatedCompletionDate == today);
+                !_db.ProjectPhaseTimelineSet.Any(timeline =>
+                    timeline.ProjectId == request.ProjectId &&
+                    timeline.Phase == ProjectPhaseType.PRODUCTION) ||
+                _db.ProjectPhaseTimelineSet.Any(timeline =>
+                    timeline.ProjectId == request.ProjectId &&
+                    timeline.Phase == ProjectPhaseType.PRODUCTION &&
+                    timeline.DueDate == today));
         }
 
         if (string.Equals(range, "thisWeek", StringComparison.OrdinalIgnoreCase))
@@ -304,16 +311,27 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
             var start = today.AddDays(-(int)today.DayOfWeek);
             var end = start.AddDays(6);
             return requests.Where(request =>
-                !request.EstimatedCompletionDate.HasValue ||
-                (request.EstimatedCompletionDate >= start && request.EstimatedCompletionDate <= end));
+                !_db.ProjectPhaseTimelineSet.Any(timeline =>
+                    timeline.ProjectId == request.ProjectId &&
+                    timeline.Phase == ProjectPhaseType.PRODUCTION) ||
+                _db.ProjectPhaseTimelineSet.Any(timeline =>
+                    timeline.ProjectId == request.ProjectId &&
+                    timeline.Phase == ProjectPhaseType.PRODUCTION &&
+                    timeline.DueDate >= start &&
+                    timeline.DueDate <= end));
         }
 
         if (string.Equals(range, "thisMonth", StringComparison.OrdinalIgnoreCase))
         {
             return requests.Where(request =>
-                !request.EstimatedCompletionDate.HasValue ||
-                (request.EstimatedCompletionDate.Value.Year == today.Year &&
-                 request.EstimatedCompletionDate.Value.Month == today.Month));
+                !_db.ProjectPhaseTimelineSet.Any(timeline =>
+                    timeline.ProjectId == request.ProjectId &&
+                    timeline.Phase == ProjectPhaseType.PRODUCTION) ||
+                _db.ProjectPhaseTimelineSet.Any(timeline =>
+                    timeline.ProjectId == request.ProjectId &&
+                    timeline.Phase == ProjectPhaseType.PRODUCTION &&
+                    timeline.DueDate.Year == today.Year &&
+                    timeline.DueDate.Month == today.Month));
         }
 
         return requests;
@@ -437,7 +455,12 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                     : null,
                 Status = request.Status ?? ProductionRequestStatus.PENDING,
                 Priority = request.Priority,
-                EstimatedCompletionDate = request.EstimatedCompletionDate,
+                ProductionDeadline = _db.ProjectPhaseTimelineSet
+                    .Where(timeline =>
+                        timeline.ProjectId == request.ProjectId &&
+                        timeline.Phase == ProjectPhaseType.PRODUCTION)
+                    .Select(timeline => (DateOnly?)timeline.DueDate)
+                    .FirstOrDefault(),
                 BlockedItemCount = _db.ProductionItemSet.Count(item =>
                     item.ProductionRequestId == request.ProductionRequestId &&
                     item.Status == ProductionItemStatus.CANCELLED),

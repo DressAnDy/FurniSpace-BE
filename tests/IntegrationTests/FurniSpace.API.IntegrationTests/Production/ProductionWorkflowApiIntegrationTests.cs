@@ -224,8 +224,6 @@ public sealed class ProductionWorkflowApiIntegrationTests : IAsyncLifetime
             {
                 AssignedTo = scenario.ProductionAccountId,
                 Priority = $" {NormalPriority.ToLowerInvariant()} ",
-                EstimatedStartDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
-                EstimatedCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10)),
                 Note = " Build product items "
             });
 

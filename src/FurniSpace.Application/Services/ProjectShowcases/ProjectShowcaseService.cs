@@ -5,9 +5,12 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.Constants.ProjectShowcases;
 using FurniSpace.Application.DTOs.ProjectShowcases;
+using FurniSpace.Application.Common.ProjectShowcases;
 using FurniSpace.Application.Interfaces.ProjectShowcases;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.ProjectShowcases;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -38,19 +41,26 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
     private readonly IProjectReviewRepository _reviews;
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IFileStorageService _storage;
+    private readonly FileUploadSettings _uploadSettings;
+    private readonly FirebaseStorageSettings _firebaseSettings;
 
     public ProjectShowcaseService(
         IProjectRepository projects,
         IProjectShowcaseRepository showcases,
         IProjectReviewRepository reviews,
         IProjectFileRepository files,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        ProjectShowcaseServiceDependencies dependencies)
     {
         _projects = projects;
         _showcases = showcases;
         _reviews = reviews;
         _files = files;
         _unitOfWork = unitOfWork;
+        _storage = dependencies.Storage;
+        _uploadSettings = dependencies.UploadSettings;
+        _firebaseSettings = dependencies.FirebaseSettings;
     }
 
     public async Task<ServiceResult<ProjectShowcaseDto>> CreateAsync(

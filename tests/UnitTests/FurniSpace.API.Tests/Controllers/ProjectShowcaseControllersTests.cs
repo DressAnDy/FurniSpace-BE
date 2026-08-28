@@ -266,6 +266,16 @@ public sealed class ProjectShowcaseControllersTests
             return Task.FromResult(_addMediaResult ?? ServiceResult<ProjectShowcaseMediaDto>.Unauthorized());
         }
 
+        public Task<ServiceResult<ProjectShowcaseMediaDto>> UploadMediaAsync(
+            Guid showcaseId,
+            Guid currentUserId,
+            UploadProjectShowcaseMediaRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            LastShowcaseId = showcaseId;
+            return Task.FromResult(_addMediaResult ?? ServiceResult<ProjectShowcaseMediaDto>.Unauthorized());
+        }
+
         public Task<ServiceResult<ProjectShowcaseDto>> ReorderMediaAsync(
             Guid showcaseId,
             Guid currentUserId,

@@ -9,6 +9,7 @@ using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Quotations;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Common.MeasurementImages;
+using FurniSpace.Application.Common.ProjectShowcases;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.BusinessTypes;
 using FurniSpace.Application.Interfaces.Categories;
@@ -285,6 +286,11 @@ public static class DependencyInjection
         services.AddScoped<INotificationDispatcher, NotificationDispatcher>();
         services.AddScoped<IProjectPhaseDeadlineService, ProjectPhaseDeadlineService>();
         services.AddScoped<IProjectShowcaseService, ProjectShowcaseService>();
+        services.AddScoped<ProjectShowcaseServiceDependencies>(sp =>
+            new ProjectShowcaseServiceDependencies(
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IOptions<FileUploadSettings>>(),
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>()));
         services.AddScoped<IProjectReviewConsentService, ProjectReviewConsentService>();
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
         services.AddScoped<IProjectAreaService, ProjectAreaService>();

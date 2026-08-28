@@ -9,6 +9,7 @@ internal static class ProjectShowcaseServiceConstants
     internal const string PublishedMessage = "Project showcase published successfully.";
     internal const string ArchivedMessage = "Project showcase archived successfully.";
     internal const string MediaAddedMessage = "Showcase media added successfully.";
+    internal const string MediaUploadedMessage = "Showcase media uploaded successfully.";
     internal const string MediaReorderedMessage = "Showcase media reordered successfully.";
     internal const string CoverUpdatedMessage = "Showcase cover updated successfully.";
     internal const string MediaRemovedMessage = "Showcase media removed successfully.";

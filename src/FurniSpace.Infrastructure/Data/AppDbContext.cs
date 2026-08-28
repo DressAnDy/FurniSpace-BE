@@ -1333,6 +1333,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
             entity.HasIndex(e => new { e.ProjectShowcaseId, e.DisplayOrder });
             entity.HasIndex(e => new { e.ProjectShowcaseId, e.FileId }).IsUnique();
+            entity.HasIndex(e => e.ProjectShowcaseId)
+                .IsUnique()
+                .HasFilter("is_cover = true")
+                .HasDatabaseName("ux_project_showcase_media_one_cover");
             entity.HasOne<ProjectShowcase>().WithMany().HasForeignKey(e => e.ProjectShowcaseId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<StoredFile>().WithMany().HasForeignKey(e => e.FileId).OnDelete(DeleteBehavior.Restrict);
         });

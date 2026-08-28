@@ -53,6 +53,8 @@ public sealed class PublicShowcaseListItemReadModel
     public string? CoverUrl { get; init; }
     public string? BusinessType { get; init; }
     public DateTime? PublishedAt { get; init; }
+    public DateTime? CompletedAt { get; init; }
+    public decimal? TotalAreaSqm { get; init; }
 }
 
 public sealed record PublicShowcaseDetailReadModel
@@ -65,6 +67,11 @@ public sealed record PublicShowcaseDetailReadModel
     public string ProjectName { get; init; } = string.Empty;
     public string? BusinessType { get; init; }
     public DateTime? PublishedAt { get; init; }
+    public DateTime? CompletedAt { get; init; }
+    public DateTime? SubmittedAt { get; init; }
+    public decimal? TotalAreaSqm { get; init; }
+    public int? NumberOfFloors { get; init; }
+    public string? ProjectAddress { get; init; }
     public PublicShowcaseReviewReadModel? Review { get; init; }
     public IReadOnlyList<ProjectShowcaseMediaReadModel> Media { get; init; } = [];
 }

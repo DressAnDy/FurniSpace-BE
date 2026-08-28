@@ -4,6 +4,7 @@ using FurniSpace.Application.DTOs.ProjectShowcases;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
+using Microsoft.EntityFrameworkCore;
 using static FurniSpace.Application.Constants.ProjectShowcases.ProjectShowcaseServiceConstants;
 
 namespace FurniSpace.Application.Services.ProjectShowcases;
@@ -28,28 +29,19 @@ public sealed partial class ProjectShowcaseService
             return ServiceResult<ProjectShowcaseMediaDto>.BadRequest("File id is required.");
         }
 
+        var accessError = await ValidateShowcaseMediaWriteAccessAsync<ProjectShowcaseMediaDto>(
+            showcaseId,
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
         var showcase = await _showcases.GetForUpdateAsync(showcaseId, cancellationToken);
         if (showcase is null)
         {
             return ServiceResult<ProjectShowcaseMediaDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
-        }
-
-        var project = await _projects.GetByIdAsync(showcase.ProjectId, cancellationToken);
-        if (project is null)
-        {
-            return ServiceResult<ProjectShowcaseMediaDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
-        }
-
-        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageMedia(project, currentUserId, roleName))
-        {
-            return ServiceResult<ProjectShowcaseMediaDto>.Forbidden(ManageForbiddenMessage);
-        }
-
-        if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
-        {
-            return ServiceResult<ProjectShowcaseMediaDto>.Failure(
-                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
         }
 
         var fileValidation = await ValidateShowcaseFileAsync(showcase.ProjectId, request.FileId, cancellationToken);
@@ -60,11 +52,6 @@ public sealed partial class ProjectShowcaseService
 
         var now = DateTime.UtcNow;
         var displayOrder = await _showcases.GetNextMediaDisplayOrderAsync(showcaseId, cancellationToken);
-        if (request.SetAsCover)
-        {
-            await ClearCoverFlagsAsync(showcaseId, cancellationToken);
-        }
-
         var media = new ProjectShowcaseMedia
         {
             ProjectShowcaseMediaId = Guid.NewGuid(),
@@ -79,9 +66,35 @@ public sealed partial class ProjectShowcaseService
             UpdatedAt = now
         };
 
-        showcase.UpdatedAt = now;
-        await _showcases.AddMediaAsync(media, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            if (request.SetAsCover)
+            {
+                await UnitOfWorkTransactions.ExecuteAsync(
+                    _unitOfWork,
+                    async ct =>
+                    {
+                        await ClearCoverFlagsAsync(showcaseId, ct);
+                        await _showcases.AddMediaAsync(media, ct);
+                        showcase.UpdatedAt = now;
+                        await _unitOfWork.SaveChangesAsync(ct);
+                    },
+                    cancellationToken);
+            }
+            else
+            {
+                await _showcases.AddMediaAsync(media, cancellationToken);
+                showcase.UpdatedAt = now;
+                await _unitOfWork.SaveChangesAsync(cancellationToken);
+            }
+        }
+        catch (DbUpdateException exception) when (DatabaseExceptionMapper.IsProjectShowcaseCoverUniqueViolation(exception))
+        {
+            return ServiceResult<ProjectShowcaseMediaDto>.Failure(
+                Error.Conflict(
+                    ProjectShowcaseErrorCodes.CoverConflict,
+                    "Another showcase cover update conflicted. Please retry."));
+        }
 
         var linkedFile = await _files.GetProjectLinkedActiveFileAsync(showcase.ProjectId, request.FileId, cancellationToken);
         return ServiceResult<ProjectShowcaseMediaDto>.Created(
@@ -100,28 +113,19 @@ public sealed partial class ProjectShowcaseService
             return ServiceResult<ProjectShowcaseDto>.BadRequest("Media ids are required.");
         }
 
+        var accessError = await ValidateShowcaseMediaWriteAccessAsync<ProjectShowcaseDto>(
+            showcaseId,
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
         var showcase = await _showcases.GetForUpdateAsync(showcaseId, cancellationToken);
         if (showcase is null)
         {
             return ServiceResult<ProjectShowcaseDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
-        }
-
-        var project = await _projects.GetByIdAsync(showcase.ProjectId, cancellationToken);
-        if (project is null)
-        {
-            return ServiceResult<ProjectShowcaseDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
-        }
-
-        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageMedia(project, currentUserId, roleName))
-        {
-            return ServiceResult<ProjectShowcaseDto>.Forbidden(ManageForbiddenMessage);
-        }
-
-        if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
-        {
-            return ServiceResult<ProjectShowcaseDto>.Failure(
-                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
         }
 
         var mediaItems = await _showcases.GetMediaForUpdateAsync(showcaseId, cancellationToken);
@@ -153,28 +157,19 @@ public sealed partial class ProjectShowcaseService
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
+        var accessError = await ValidateShowcaseMediaWriteAccessAsync<ProjectShowcaseMediaDto>(
+            showcaseId,
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
         var showcase = await _showcases.GetForUpdateAsync(showcaseId, cancellationToken);
         if (showcase is null)
         {
             return ServiceResult<ProjectShowcaseMediaDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
-        }
-
-        var project = await _projects.GetByIdAsync(showcase.ProjectId, cancellationToken);
-        if (project is null)
-        {
-            return ServiceResult<ProjectShowcaseMediaDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
-        }
-
-        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageMedia(project, currentUserId, roleName))
-        {
-            return ServiceResult<ProjectShowcaseMediaDto>.Forbidden(ManageForbiddenMessage);
-        }
-
-        if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
-        {
-            return ServiceResult<ProjectShowcaseMediaDto>.Failure(
-                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
         }
 
         var media = await _showcases.GetMediaForUpdateAsync(showcaseId, mediaId, cancellationToken);
@@ -183,11 +178,28 @@ public sealed partial class ProjectShowcaseService
             return ServiceResult<ProjectShowcaseMediaDto>.NotFound(ProjectShowcaseErrorCodes.MediaNotFound);
         }
 
-        await ClearCoverFlagsAsync(showcaseId, cancellationToken);
-        media.IsCover = true;
-        media.UpdatedAt = DateTime.UtcNow;
-        showcase.UpdatedAt = DateTime.UtcNow;
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        var now = DateTime.UtcNow;
+        try
+        {
+            await UnitOfWorkTransactions.ExecuteAsync(
+                _unitOfWork,
+                async ct =>
+                {
+                    await ClearCoverFlagsAsync(showcaseId, ct);
+                    media.IsCover = true;
+                    media.UpdatedAt = now;
+                    showcase.UpdatedAt = now;
+                    await _unitOfWork.SaveChangesAsync(ct);
+                },
+                cancellationToken);
+        }
+        catch (DbUpdateException exception) when (DatabaseExceptionMapper.IsProjectShowcaseCoverUniqueViolation(exception))
+        {
+            return ServiceResult<ProjectShowcaseMediaDto>.Failure(
+                Error.Conflict(
+                    ProjectShowcaseErrorCodes.CoverConflict,
+                    "Another showcase cover update conflicted. Please retry."));
+        }
 
         var linkedFile = await _files.GetProjectLinkedActiveFileAsync(showcase.ProjectId, media.FileId, cancellationToken);
         return ServiceResult<ProjectShowcaseMediaDto>.Success(
@@ -201,28 +213,19 @@ public sealed partial class ProjectShowcaseService
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
+        var accessError = await ValidateShowcaseMediaWriteAccessAsync<ProjectShowcaseDto>(
+            showcaseId,
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
         var showcase = await _showcases.GetForUpdateAsync(showcaseId, cancellationToken);
         if (showcase is null)
         {
             return ServiceResult<ProjectShowcaseDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
-        }
-
-        var project = await _projects.GetByIdAsync(showcase.ProjectId, cancellationToken);
-        if (project is null)
-        {
-            return ServiceResult<ProjectShowcaseDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
-        }
-
-        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageMedia(project, currentUserId, roleName))
-        {
-            return ServiceResult<ProjectShowcaseDto>.Forbidden(ManageForbiddenMessage);
-        }
-
-        if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
-        {
-            return ServiceResult<ProjectShowcaseDto>.Failure(
-                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
         }
 
         var media = await _showcases.GetMediaForUpdateAsync(showcaseId, mediaId, cancellationToken);
@@ -231,13 +234,62 @@ public sealed partial class ProjectShowcaseService
             return ServiceResult<ProjectShowcaseDto>.NotFound(ProjectShowcaseErrorCodes.MediaNotFound);
         }
 
-        await _showcases.RemoveMediaAsync(media, cancellationToken);
-        showcase.UpdatedAt = DateTime.UtcNow;
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        var replacement = media.IsCover
+            ? SelectCoverReplacement(await _showcases.GetMediaForUpdateAsync(showcaseId, cancellationToken), mediaId)
+            : null;
+        var now = DateTime.UtcNow;
+
+        await UnitOfWorkTransactions.ExecuteAsync(
+            _unitOfWork,
+            async ct =>
+            {
+                await _showcases.RemoveMediaAsync(media, ct);
+                if (replacement is not null)
+                {
+                    replacement.IsCover = true;
+                    replacement.UpdatedAt = now;
+                }
+
+                showcase.UpdatedAt = now;
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
 
         return ServiceResult<ProjectShowcaseDto>.Success(
             await BuildDtoAsync(showcaseId, cancellationToken),
             MediaRemovedMessage);
+    }
+
+    private async Task<ServiceResult<T>?> ValidateShowcaseMediaWriteAccessAsync<T>(
+        Guid showcaseId,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        var showcase = await _showcases.GetForUpdateAsync(showcaseId, cancellationToken);
+        if (showcase is null)
+        {
+            return ServiceResult<T>.NotFound(ProjectShowcaseErrorCodes.NotFound);
+        }
+
+        var project = await _projects.GetByIdAsync(showcase.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<T>.NotFound(ProjectShowcaseErrorCodes.NotFound);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanManageMedia(project, currentUserId, roleName))
+        {
+            return ServiceResult<T>.Forbidden(ManageForbiddenMessage);
+        }
+
+        if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
+        {
+            return ServiceResult<T>.Failure(
+                Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
+        }
+
+        return null;
     }
 
     private async Task ClearCoverFlagsAsync(Guid showcaseId, CancellationToken cancellationToken)
@@ -248,6 +300,18 @@ public sealed partial class ProjectShowcaseService
             item.IsCover = false;
             item.UpdatedAt = DateTime.UtcNow;
         }
+    }
+
+    private static ProjectShowcaseMedia? SelectCoverReplacement(
+        IReadOnlyList<ProjectShowcaseMedia> mediaItems,
+        Guid excludedMediaId)
+    {
+        return mediaItems
+            .Where(item => item.ProjectShowcaseMediaId != excludedMediaId)
+            .OrderBy(item => item.DisplayOrder)
+            .ThenBy(item => item.CreatedAt)
+            .ThenBy(item => item.ProjectShowcaseMediaId)
+            .FirstOrDefault();
     }
 
     private async Task<ServiceResult<ProjectShowcaseMediaDto>?> ValidateShowcaseFileAsync(

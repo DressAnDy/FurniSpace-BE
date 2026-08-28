@@ -11,6 +11,7 @@ using FurniSpace.Application.DTOs.ProjectReviews;
 using FurniSpace.Application.DTOs.ProjectShowcases;
 using FurniSpace.Application.Services.ProjectReviews;
 using FurniSpace.Application.Services.ProjectShowcases;
+using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
@@ -511,6 +512,376 @@ public sealed class ProjectShowcaseServiceTests
         Assert.Null(revokeResult.Data.PublicDisplayConsentAt);
     }
 
+    [Fact]
+    public async Task UploadMediaAsync_WhenFileMissing_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context, new ShowcaseFileStorageFake());
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+
+        var result = await service.UploadMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            SalesId,
+            new UploadProjectShowcaseMediaRequestDto
+            {
+                Content = Stream.Null,
+                OriginalFileName = string.Empty,
+                FileSizeBytes = 0
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains(result.Errors!, error => error.Contains("File is required.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UploadMediaAsync_WhenFileTooLarge_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(
+            context,
+            new ShowcaseFileStorageFake(),
+            uploadSettings: new FileUploadSettings { MaxFileSizeBytes = 8 });
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+
+        await using var content = new MemoryStream([0xFF, 0xD8, 0xFF, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
+        var result = await service.UploadMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            SalesId,
+            new UploadProjectShowcaseMediaRequestDto
+            {
+                Content = content,
+                OriginalFileName = "showcase.jpg",
+                ContentType = "image/jpeg",
+                FileSizeBytes = content.Length
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains(result.Errors!, error => error.Contains("must not exceed", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UploadMediaAsync_WhenExtensionMissing_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context, new ShowcaseFileStorageFake());
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+
+        await using var content = new MemoryStream([0xFF, 0xD8, 0xFF]);
+        var result = await service.UploadMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            SalesId,
+            new UploadProjectShowcaseMediaRequestDto
+            {
+                Content = content,
+                OriginalFileName = "showcase",
+                ContentType = "image/jpeg",
+                FileSizeBytes = content.Length
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains(result.Errors!, error => error.Contains("extensions", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task UploadMediaAsync_WhenCoverConflict_ReturnsConflictAndDeletesUpload()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var storage = new ShowcaseFileStorageFake();
+        var setupService = CreateShowcaseService(context, storage);
+        var createResult = await setupService.CreateAsync(project.ProjectId, SalesId, null);
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ => throw CreateShowcaseCoverUniqueViolationException(),
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateShowcaseService(context, storage, unitOfWork);
+
+        await using var content = new MemoryStream([0xFF, 0xD8, 0xFF]);
+        var result = await service.UploadMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            SalesId,
+            new UploadProjectShowcaseMediaRequestDto
+            {
+                Content = content,
+                OriginalFileName = "showcase.jpg",
+                ContentType = "image/jpeg",
+                FileSizeBytes = content.Length,
+                SetAsCover = true
+            });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.CoverConflict, result.ErrorCode);
+        Assert.NotNull(storage.DeletedObjectName);
+    }
+
+    [Fact]
+    public async Task UploadMediaAsync_WhenDbSaveFails_DeletesUploadAndRethrows()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var storage = new ShowcaseFileStorageFake();
+        var setupService = CreateShowcaseService(context, storage);
+        var createResult = await setupService.CreateAsync(project.ProjectId, SalesId, null);
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ => throw new InvalidOperationException("save failed"),
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateShowcaseService(context, storage, unitOfWork);
+
+        await using var content = new MemoryStream([0xFF, 0xD8, 0xFF]);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.UploadMediaAsync(
+                createResult.Data!.ProjectShowcaseId,
+                SalesId,
+                new UploadProjectShowcaseMediaRequestDto
+                {
+                    Content = content,
+                    OriginalFileName = "showcase.jpg",
+                    ContentType = "image/jpeg",
+                    FileSizeBytes = content.Length
+                }));
+
+        Assert.NotNull(storage.DeletedObjectName);
+    }
+
+    [Fact]
+    public async Task SetCoverAsync_WhenCoverConflict_ReturnsConflict()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var file = await SeedProjectFileAsync(context, project.ProjectId, SalesId);
+        var setupService = CreateShowcaseService(context);
+        var createResult = await setupService.CreateAsync(project.ProjectId, SalesId, null);
+        var mediaResult = await setupService.AddMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            SalesId,
+            new AddProjectShowcaseMediaRequestDto
+            {
+                FileId = file.FileId,
+                MediaType = ProjectShowcaseMediaType.FINAL
+            });
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ => throw CreateShowcaseCoverUniqueViolationException(),
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateShowcaseService(context, unitOfWork: unitOfWork);
+
+        var result = await service.SetCoverAsync(
+            createResult.Data.ProjectShowcaseId,
+            mediaResult.Data!.ProjectShowcaseMediaId,
+            SalesId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.CoverConflict, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AddMediaAsync_WhenCoverConflict_ReturnsConflict()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var file = await SeedProjectFileAsync(context, project.ProjectId, SalesId);
+        var setupService = CreateShowcaseService(context);
+        var createResult = await setupService.CreateAsync(project.ProjectId, SalesId, null);
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ => throw CreateShowcaseCoverUniqueViolationException(),
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateShowcaseService(context, unitOfWork: unitOfWork);
+
+        var result = await service.AddMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            SalesId,
+            new AddProjectShowcaseMediaRequestDto
+            {
+                FileId = file.FileId,
+                MediaType = ProjectShowcaseMediaType.FINAL,
+                SetAsCover = true
+            });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.CoverConflict, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AddMediaAsync_WhenFileNotInProject_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+
+        var result = await service.AddMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            SalesId,
+            new AddProjectShowcaseMediaRequestDto
+            {
+                FileId = Guid.NewGuid(),
+                MediaType = ProjectShowcaseMediaType.FINAL
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.FileNotInProject, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AddMediaAsync_WhenUnsupportedMime_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var file = await SeedProjectFileAsync(
+            context,
+            project.ProjectId,
+            SalesId,
+            mimeType: "application/pdf",
+            originalFileName: "document.pdf");
+        var service = CreateShowcaseService(context);
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+
+        var result = await service.AddMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            SalesId,
+            new AddProjectShowcaseMediaRequestDto
+            {
+                FileId = file.FileId,
+                MediaType = ProjectShowcaseMediaType.OTHER
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.FileNotAllowed, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task AddMediaAsync_WhenArchivedShowcase_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var file = await SeedProjectFileAsync(context, project.ProjectId, SalesId);
+        var service = CreateShowcaseService(context);
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+        var showcase = await context.ProjectShowcaseSet.SingleAsync(
+            entity => entity.ProjectShowcaseId == createResult.Data!.ProjectShowcaseId);
+        showcase.Status = ProjectShowcaseStatus.ARCHIVED;
+        await context.SaveChangesAsync();
+
+        var result = await service.AddMediaAsync(
+            showcase.ProjectShowcaseId,
+            SalesId,
+            new AddProjectShowcaseMediaRequestDto
+            {
+                FileId = file.FileId,
+                MediaType = ProjectShowcaseMediaType.FINAL
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.ArchivedReadOnly, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReorderMediaAsync_WhenListIncomplete_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var firstFile = await SeedProjectFileAsync(context, project.ProjectId, SalesId);
+        var secondFile = await SeedProjectFileAsync(context, project.ProjectId, SalesId);
+        var service = CreateShowcaseService(context);
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+        var showcaseId = createResult.Data!.ProjectShowcaseId;
+        var firstMedia = await service.AddMediaAsync(
+            showcaseId,
+            SalesId,
+            new AddProjectShowcaseMediaRequestDto
+            {
+                FileId = firstFile.FileId,
+                MediaType = ProjectShowcaseMediaType.BEFORE
+            });
+        await service.AddMediaAsync(
+            showcaseId,
+            SalesId,
+            new AddProjectShowcaseMediaRequestDto
+            {
+                FileId = secondFile.FileId,
+                MediaType = ProjectShowcaseMediaType.AFTER
+            });
+
+        var result = await service.ReorderMediaAsync(
+            showcaseId,
+            SalesId,
+            new ReorderProjectShowcaseMediaRequestDto
+            {
+                MediaIds = [firstMedia.Data!.ProjectShowcaseMediaId]
+            });
+
+        Assert.Equal(400, result.Status);
+    }
+
+    [Fact]
+    public async Task SetCoverAsync_WhenMediaNotFound_ReturnsNotFound()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+
+        var result = await service.SetCoverAsync(
+            createResult.Data!.ProjectShowcaseId,
+            Guid.NewGuid(),
+            SalesId);
+
+        Assert.Equal(404, result.Status);
+    }
+
+    [Fact]
+    public async Task RemoveMediaAsync_WhenMediaNotFound_ReturnsNotFound()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+
+        var result = await service.RemoveMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            Guid.NewGuid(),
+            SalesId);
+
+        Assert.Equal(404, result.Status);
+    }
+
+    [Fact]
+    public async Task GetPublicListAsync_WhenProjectFieldsNull_ReturnsNullProjection()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        project.CompletedAt = null;
+        project.TotalAreaSqm = null;
+        await context.SaveChangesAsync();
+        var service = CreateShowcaseService(context);
+        var showcase = await CreateReadyForPublishShowcaseAsync(context, service, project.ProjectId);
+        showcase.Status = ProjectShowcaseStatus.PENDING_REVIEW;
+        await context.SaveChangesAsync();
+        await service.PublishAsync(showcase.ProjectShowcaseId, AdminId);
+
+        var result = await service.GetPublicListAsync(new PublicShowcaseQueryDto());
+
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Null(item.CompletedDate);
+        Assert.Null(item.TotalAreaSqm);
+    }
+
+    private static DbUpdateException CreateShowcaseCoverUniqueViolationException()
+    {
+        return new DbUpdateException(
+            "save failed",
+            new Exception("duplicate key value violates unique constraint \"ux_project_showcase_media_one_cover\""));
+    }
+
     private static async Task<ProjectShowcase> CreateReadyForPublishShowcaseAsync(
         AppDbContext context,
         ProjectShowcaseService service,
@@ -541,13 +912,15 @@ public sealed class ProjectShowcaseServiceTests
 
     private static ProjectShowcaseService CreateShowcaseService(
         AppDbContext context,
-        IFileStorageService? storage = null)
+        IFileStorageService? storage = null,
+        IUnitOfWork? unitOfWork = null,
+        FileUploadSettings? uploadSettings = null)
     {
-        var uploadSettings = Options.Create(new FileUploadSettings());
+        var uploadOptions = Options.Create(uploadSettings ?? new FileUploadSettings());
         var firebaseSettings = Options.Create(new FirebaseStorageSettings());
         var dependencies = new ProjectShowcaseServiceDependencies(
             storage ?? new ShowcaseFileStorageFake(),
-            uploadSettings,
+            uploadOptions,
             firebaseSettings);
 
         return new ProjectShowcaseService(
@@ -555,7 +928,7 @@ public sealed class ProjectShowcaseServiceTests
             new ProjectShowcaseRepository(context),
             new ProjectReviewRepository(context),
             new ProjectFileRepository(context),
-            new UnitOfWork(context),
+            unitOfWork ?? new UnitOfWork(context),
             dependencies);
     }
 
@@ -644,7 +1017,12 @@ public sealed class ProjectShowcaseServiceTests
         };
     }
 
-    private static async Task<StoredFile> SeedProjectFileAsync(AppDbContext context, Guid projectId, Guid uploadedBy)
+    private static async Task<StoredFile> SeedProjectFileAsync(
+        AppDbContext context,
+        Guid projectId,
+        Guid uploadedBy,
+        string mimeType = "image/jpeg",
+        string originalFileName = "final.jpg")
     {
         var fileId = Guid.NewGuid();
         var now = DateTime.UtcNow;
@@ -652,12 +1030,12 @@ public sealed class ProjectShowcaseServiceTests
         {
             FileId = fileId,
             UploadedBy = uploadedBy,
-            OriginalFileName = "final.jpg",
-            StoredFileName = "final.jpg",
+            OriginalFileName = originalFileName,
+            StoredFileName = originalFileName,
             FileUrl = "https://cdn.example/final.jpg",
-            StoragePath = $"projects/{projectId}/files/{fileId}/final.jpg",
-            MimeType = "image/jpeg",
-            FileExtension = ".jpg",
+            StoragePath = $"projects/{projectId}/files/{fileId}/{originalFileName}",
+            MimeType = mimeType,
+            FileExtension = Path.GetExtension(originalFileName),
             FileSizeBytes = 1024,
             Status = FileStatus.ACTIVE,
             UploadedAt = now

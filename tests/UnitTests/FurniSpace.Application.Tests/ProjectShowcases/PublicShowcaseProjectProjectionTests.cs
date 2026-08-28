@@ -55,4 +55,36 @@ public sealed class PublicShowcaseProjectProjectionTests
 
         Assert.Equal(2026, completionYear);
     }
+
+    [Fact]
+    public void ToCompletedDate_WhenNull_ReturnsNull()
+    {
+        Assert.Null(PublicShowcaseProjectProjection.ToCompletedDate(null));
+    }
+
+    [Fact]
+    public void ToCompletionYear_WhenNull_ReturnsNull()
+    {
+        Assert.Null(PublicShowcaseProjectProjection.ToCompletionYear(null));
+    }
+
+    [Fact]
+    public void ToCompletedDate_WhenUnspecifiedKind_TreatsAsUtcDate()
+    {
+        var completedDate = PublicShowcaseProjectProjection.ToCompletedDate(
+            new DateTime(2026, 8, 20, 10, 0, 0, DateTimeKind.Unspecified));
+
+        Assert.Equal(new DateOnly(2026, 8, 20), completedDate);
+    }
+
+    [Fact]
+    public void ToImplementationDurationDays_WhenLocalKind_ConvertsToUtcDate()
+    {
+        var submittedAt = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        var completedAt = new DateTime(2026, 6, 20, 0, 0, 0, DateTimeKind.Utc);
+
+        var duration = PublicShowcaseProjectProjection.ToImplementationDurationDays(submittedAt, completedAt);
+
+        Assert.Equal(19, duration);
+    }
 }

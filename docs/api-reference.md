@@ -1971,8 +1971,8 @@ Measurement photos are captured on **MEASUREMENT** schedules (§16), then option
 
 **Link flow**
 
-1. Designer registers image on a confirmed measurement schedule (`POST /project-schedules/{scheduleId}/measurement-images`).
-2. Staff links the same `fileId` to areas via `POST .../link`.
+1. Designer uploads image on a confirmed measurement schedule (`POST /project-schedules/{scheduleId}/measurement-images`, multipart).
+2. Staff links the same `fileId` to areas via `POST .../link` when area was not included at upload time.
 3. Unlink removes only the area `file_links` row; the underlying file and schedule link remain.
 
 **Gallery query** (`GET /project-areas/{projectAreaId}/measurement-images`): `page`, `limit`
@@ -1997,7 +1997,7 @@ Route: `project-schedules` (+ absolute create alias)
 | PATCH | `/project-schedules/{id}/status` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | DELETE | `/project-schedules/{id}` | SALES, PRODUCTION, ADMIN |
 | POST | `/project-schedules/{scheduleId}/request-change` | CUSTOMER, ADMIN | Request delivery schedule change |
-| POST | `/project-schedules/{scheduleId}/measurement-images` | DESIGNER, ADMIN | Register measurement photo (direct upload metadata) |
+| POST | `/project-schedules/{scheduleId}/measurement-images` | DESIGNER, ADMIN | Upload measurement photo (multipart) |
 | GET | `/project-schedules/{scheduleId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Schedule measurement gallery |
 
 ### Create
@@ -2117,23 +2117,56 @@ Errors: `SCHEDULE_CHANGE_NOTE_REQUIRED`, `INVALID_SCHEDULE_TYPE`, `INVALID_SCHED
 
 ### Measurement image capture
 
-Register after direct-to-storage upload (Firebase). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`. Future confirmed schedules are allowed, so FE does not need to wait until runtime to register measurement image metadata.
+Upload via backend multipart (same pattern as catalog/product preview). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`. Future confirmed schedules are allowed, so FE does not need to wait until runtime to upload measurement photos.
+
+**Request:** `multipart/form-data`
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `file` | file | Yes | Image only: `.jpg`, `.jpeg`, `.png`, `.webp` |
+| `visibility` | enum | No | Default `STAFF_ONLY` when omitted |
+| `note` | string | No | Saved to schedule file link description |
+| `projectAreaId` | uuid | No | When set, also links photo to the project area in the same request |
+
+**Response:** `MeasurementImageUploadResponseDto`
 
 ```json
 {
-  "storagePath": "projects/{projectId}/files/{fileId}/photo.jpg",
-  "publicUrl": "https://...",
-  "originalFileName": "area-a.jpg",
-  "contentType": "image/jpeg",
-  "fileSizeBytes": 204800,
-  "visibility": "STAFF_ONLY",
-  "note": "North wall"
+  "file": {
+    "fileId": "uuid",
+    "fileLinkId": "uuid",
+    "projectId": "uuid",
+    "referenceType": "PROJECT_SCHEDULE",
+    "referenceId": "uuid",
+    "originalFileName": "area-a.jpg",
+    "fileName": "uuid.jpg",
+    "fileType": "SPACE_IMAGE",
+    "mimeType": "image/jpeg",
+    "fileSize": 204800,
+    "storagePath": "projects/{projectId}/{fileId}.jpg",
+    "publicUrl": "https://...",
+    "visibility": "STAFF_ONLY",
+    "uploadedBy": "uuid",
+    "uploadedAt": "2026-08-28T06:00:00Z"
+  },
+  "scheduleId": "uuid",
+  "areaLink": {
+    "projectAreaId": "uuid",
+    "fileId": "uuid",
+    "fileLinkId": "uuid"
+  }
 }
 ```
 
-Creates `StoredFile` + `file_links` on the schedule (`referenceType=PROJECT_SCHEDULE`, `fileType=SPACE_IMAGE`). Returns standard project file upload response.
+`areaLink` is `null` when `projectAreaId` was not sent.
 
-One request registers one image metadata record. For multi-select upload, FE uploads each physical file first, then calls this endpoint once per uploaded file. If `visibility` is omitted, backend stores the measurement image as `STAFF_ONLY`.
+Creates one `StoredFile` + schedule `file_links` row (`referenceType=PROJECT_SCHEDULE`, `fileType=SPACE_IMAGE`). Optional area link adds a second `file_links` row (`referenceType=PROJECT_AREA`).
+
+One request uploads one image. For multi-select, FE sends one multipart request per file (parallel or sequential).
+
+**Do not use** `POST /projects/{projectId}/files` with `MEASUREMENT_REPORT` for measurement photo capture — that endpoint is for general project attachments, not the measurement gallery flow.
+
+**Link area later (optional):** if upload did not include `projectAreaId`, call `POST /project-areas/{projectAreaId}/measurement-images/{fileId}/link` (no body). Use `fileId` from upload response `file.fileId`.
 
 **Schedule gallery query**: `projectAreaId?`, `assigned?` (filter by area link presence), `page`, `limit`
 

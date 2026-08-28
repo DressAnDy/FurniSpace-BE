@@ -233,6 +233,7 @@ public static class DependencyInjection
         services.AddScoped<MeasurementImageServiceDependencies>(sp =>
             new MeasurementImageServiceDependencies(
                 sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<IFileStorageService>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>(),
                 sp.GetRequiredService<IOptions<FirebaseStorageSettings>>(),
                 sp.GetService<IProjectFileSearchIndexer>()));

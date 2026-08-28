@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +13,7 @@ using FurniSpace.Application.Tests;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
@@ -30,12 +32,11 @@ public sealed class MeasurementImageServiceTests
     }
 
     [Fact]
-    public async Task RegisterMeasurementImageAsync_AssignedDesignerDuringConfirmedSchedule_CreatesScheduleLink()
+    public async Task UploadMeasurementImageAsync_AssignedDesignerDuringConfirmedSchedule_CreatesScheduleLink()
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
         var scheduleId = Guid.NewGuid();
-        var fileId = Guid.NewGuid();
         var scheduleRepo = new MeasurementScheduleRepositoryFake
         {
             Detail = CreateMeasurementSchedule(scheduleId, projectId, designerId, ProjectScheduleStatus.CONFIRMED)
@@ -45,26 +46,63 @@ public sealed class MeasurementImageServiceTests
             RoleName = "DESIGNER",
             ProjectAccess = CreateProjectAccess(projectId, assignedDesignerId: designerId)
         };
+        var storage = new MeasurementFileStorageFake();
         var unitOfWork = new MeasurementUnitOfWorkFake();
-        var service = CreateService(scheduleRepo, fileRepo, unitOfWork);
-        var request = CreateRegisterRequest(projectId, fileId);
+        var service = CreateService(scheduleRepo, fileRepo, unitOfWork, storage);
+        var request = CreateUploadRequest();
 
-        var result = await service.RegisterMeasurementImageAsync(scheduleId, designerId, request);
+        var result = await service.UploadMeasurementImageAsync(scheduleId, designerId, request);
 
         Assert.Equal(201, result.Status);
         Assert.NotNull(result.Data);
-        Assert.Equal(fileId, result.Data.FileId);
-        Assert.Equal(FileType.SPACE_IMAGE, result.Data.FileType);
-        Assert.Equal("PROJECT_SCHEDULE", result.Data.ReferenceType);
-        Assert.Equal(scheduleId, result.Data.ReferenceId);
+        Assert.Equal(scheduleId, result.Data.ScheduleId);
+        Assert.Equal(FileType.SPACE_IMAGE, result.Data.File.FileType);
+        Assert.Equal("PROJECT_SCHEDULE", result.Data.File.ReferenceType);
+        Assert.Equal(scheduleId, result.Data.File.ReferenceId);
+        Assert.Null(result.Data.AreaLink);
         Assert.Single(fileRepo.StoredFiles);
         Assert.Single(fileRepo.FileLinks);
         Assert.Equal(FileVisibility.STAFF_ONLY, fileRepo.FileLinks[0].Visibility);
+        Assert.NotNull(storage.UploadRequest);
         Assert.Equal(1, unitOfWork.SaveChangesCallCount);
     }
 
     [Fact]
-    public async Task RegisterMeasurementImageAsync_BeforeScheduledStart_AllowsEarlyCapture()
+    public async Task UploadMeasurementImageAsync_WithProjectAreaId_CreatesScheduleAndAreaLinks()
+    {
+        var designerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var scheduleRepo = new MeasurementScheduleRepositoryFake
+        {
+            Detail = CreateMeasurementSchedule(scheduleId, projectId, designerId, ProjectScheduleStatus.CONFIRMED)
+        };
+        var fileRepo = new MeasurementProjectFileRepositoryFake
+        {
+            RoleName = "DESIGNER",
+            ProjectAccess = CreateProjectAccess(projectId, assignedDesignerId: designerId)
+        };
+        var service = CreateService(
+            scheduleRepo,
+            fileRepo,
+            new MeasurementUnitOfWorkFake(),
+            new MeasurementFileStorageFake());
+        var request = CreateUploadRequest();
+        request.ProjectAreaId = projectAreaId;
+
+        var result = await service.UploadMeasurementImageAsync(scheduleId, designerId, request);
+
+        Assert.Equal(201, result.Status);
+        Assert.NotNull(result.Data?.AreaLink);
+        Assert.Equal(projectAreaId, result.Data.AreaLink.ProjectAreaId);
+        Assert.Equal(2, fileRepo.FileLinks.Count);
+        Assert.Contains(fileRepo.FileLinks, link => link.ReferenceType == "PROJECT_SCHEDULE");
+        Assert.Contains(fileRepo.FileLinks, link => link.ReferenceType == "PROJECT_AREA");
+    }
+
+    [Fact]
+    public async Task UploadMeasurementImageAsync_BeforeScheduledStart_AllowsEarlyCapture()
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -74,18 +112,19 @@ public sealed class MeasurementImageServiceTests
         var service = CreateService(
             new MeasurementScheduleRepositoryFake { Detail = schedule },
             new MeasurementProjectFileRepositoryFake { RoleName = "DESIGNER" },
-            new MeasurementUnitOfWorkFake());
+            new MeasurementUnitOfWorkFake(),
+            new MeasurementFileStorageFake());
 
-        var result = await service.RegisterMeasurementImageAsync(
+        var result = await service.UploadMeasurementImageAsync(
             scheduleId,
             designerId,
-            CreateRegisterRequest(projectId, Guid.NewGuid()));
+            CreateUploadRequest());
 
         Assert.Equal(201, result.Status);
     }
 
     [Fact]
-    public async Task RegisterMeasurementImageAsync_WhenScheduleCompleted_ReturnsBadRequest()
+    public async Task UploadMeasurementImageAsync_WhenScheduleCompleted_ReturnsBadRequest()
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -94,19 +133,20 @@ public sealed class MeasurementImageServiceTests
         var service = CreateService(
             new MeasurementScheduleRepositoryFake { Detail = schedule },
             new MeasurementProjectFileRepositoryFake { RoleName = "DESIGNER" },
-            new MeasurementUnitOfWorkFake());
+            new MeasurementUnitOfWorkFake(),
+            new MeasurementFileStorageFake());
 
-        var result = await service.RegisterMeasurementImageAsync(
+        var result = await service.UploadMeasurementImageAsync(
             scheduleId,
             designerId,
-            CreateRegisterRequest(projectId, Guid.NewGuid()));
+            CreateUploadRequest());
 
         Assert.Equal(400, result.Status);
         Assert.Equal(MeasurementImageErrorCodes.ScheduleNotEligible, result.ErrorCode);
     }
 
     [Fact]
-    public async Task RegisterMeasurementImageAsync_UnassignedDesigner_ReturnsForbidden()
+    public async Task UploadMeasurementImageAsync_UnassignedDesigner_ReturnsForbidden()
     {
         var designerId = Guid.NewGuid();
         var otherDesignerId = Guid.NewGuid();
@@ -118,14 +158,32 @@ public sealed class MeasurementImageServiceTests
                 Detail = CreateMeasurementSchedule(scheduleId, projectId, designerId, ProjectScheduleStatus.CONFIRMED)
             },
             new MeasurementProjectFileRepositoryFake { RoleName = "DESIGNER" },
-            new MeasurementUnitOfWorkFake());
+            new MeasurementUnitOfWorkFake(),
+            new MeasurementFileStorageFake());
 
-        var result = await service.RegisterMeasurementImageAsync(
+        var result = await service.UploadMeasurementImageAsync(
             scheduleId,
             otherDesignerId,
-            CreateRegisterRequest(projectId, Guid.NewGuid()));
+            CreateUploadRequest());
 
         Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task UploadMeasurementImageAsync_WhenFileMissing_ReturnsBadRequest()
+    {
+        var service = CreateService(
+            new MeasurementScheduleRepositoryFake(),
+            new MeasurementProjectFileRepositoryFake { RoleName = "DESIGNER" },
+            new MeasurementUnitOfWorkFake(),
+            new MeasurementFileStorageFake());
+
+        var result = await service.UploadMeasurementImageAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new UploadMeasurementImageRequestDto());
+
+        Assert.Equal(400, result.Status);
     }
 
     [Fact]
@@ -142,7 +200,7 @@ public sealed class MeasurementImageServiceTests
             HasMeasurementScheduleLink = true
         };
         var unitOfWork = new MeasurementUnitOfWorkFake();
-        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, unitOfWork);
+        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, unitOfWork, new MeasurementFileStorageFake());
 
         var result = await service.LinkMeasurementImageToAreaAsync(projectAreaId, fileId, designerId);
 
@@ -177,7 +235,7 @@ public sealed class MeasurementImageServiceTests
             ExistingAreaLink = areaLink
         };
         var unitOfWork = new MeasurementUnitOfWorkFake();
-        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, unitOfWork);
+        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, unitOfWork, new MeasurementFileStorageFake());
 
         var result = await service.UnlinkMeasurementImageFromAreaAsync(projectAreaId, fileId, designerId);
 
@@ -211,7 +269,7 @@ public sealed class MeasurementImageServiceTests
                 ]
             }
         };
-        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, new MeasurementUnitOfWorkFake());
+        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, new MeasurementUnitOfWorkFake(), new MeasurementFileStorageFake());
 
         var result = await service.GetProjectMeasurementImagesAsync(
             projectId,
@@ -256,7 +314,7 @@ public sealed class MeasurementImageServiceTests
                 ]
             }
         };
-        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, new MeasurementUnitOfWorkFake());
+        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, new MeasurementUnitOfWorkFake(), new MeasurementFileStorageFake());
 
         var result = await service.GetProjectAreaMeasurementImagesAsync(
             projectAreaId,
@@ -284,7 +342,7 @@ public sealed class MeasurementImageServiceTests
         {
             Detail = CreateMeasurementSchedule(scheduleId, projectId, designerId, ProjectScheduleStatus.CONFIRMED)
         };
-        var service = CreateService(scheduleRepo, fileRepo, new MeasurementUnitOfWorkFake());
+        var service = CreateService(scheduleRepo, fileRepo, new MeasurementUnitOfWorkFake(), new MeasurementFileStorageFake());
 
         var result = await service.GetScheduleMeasurementImagesAsync(
             scheduleId,
@@ -299,13 +357,15 @@ public sealed class MeasurementImageServiceTests
     private static MeasurementImageService CreateService(
         MeasurementScheduleRepositoryFake scheduleRepo,
         MeasurementProjectFileRepositoryFake fileRepo,
-        MeasurementUnitOfWorkFake unitOfWork)
+        MeasurementUnitOfWorkFake unitOfWork,
+        MeasurementFileStorageFake storage)
     {
         return new MeasurementImageService(
             scheduleRepo,
             fileRepo,
             new MeasurementImageServiceDependencies(
                 unitOfWork,
+                storage,
                 Options.Create(new FileUploadSettings()),
                 Options.Create(new FirebaseStorageSettings { ProjectFilesPrefix = "projects" })));
     }
@@ -341,16 +401,40 @@ public sealed class MeasurementImageServiceTests
         };
     }
 
-    private static RegisterMeasurementImageRequestDto CreateRegisterRequest(Guid projectId, Guid fileId)
+    private static UploadMeasurementImageRequestDto CreateUploadRequest()
     {
-        return new RegisterMeasurementImageRequestDto
+        return new UploadMeasurementImageRequestDto
         {
-            StoragePath = $"projects/{projectId:D}/{fileId:N}.jpg",
-            PublicUrl = "https://firebasestorage.googleapis.com/v0/b/demo/o/photo.jpg",
+            Content = new MemoryStream([0xFF, 0xD8, 0xFF]),
             OriginalFileName = "kitchen.jpg",
             ContentType = "image/jpeg",
             FileSizeBytes = 1024
         };
+    }
+}
+
+internal sealed class MeasurementFileStorageFake : IFileStorageService
+{
+    public StorageUploadRequest? UploadRequest { get; private set; }
+    public string? DeletedObjectName { get; private set; }
+
+    public Task<StorageUploadResult> UploadAsync(
+        StorageUploadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        UploadRequest = request;
+        return Task.FromResult(new StorageUploadResult
+        {
+            ObjectName = request.ObjectName,
+            PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+            Bucket = "test-bucket"
+        });
+    }
+
+    public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default)
+    {
+        DeletedObjectName = objectName;
+        return Task.CompletedTask;
     }
 }
 

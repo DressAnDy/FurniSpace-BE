@@ -2,6 +2,7 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.API.DTOs.MeasurementImages;
 using FurniSpace.Application.DTOs.MeasurementImages;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.MeasurementImages;
@@ -16,6 +17,8 @@ namespace FurniSpace.API.Controllers.Projects;
 [Route("project-schedules")]
 public sealed class ProjectSchedulesController : BaseApiController
 {
+    private const long MeasurementMultipartRequestLimitBytes = 100L * 1024L * 1024L;
+
     private readonly IProjectScheduleService _schedules;
     private readonly IMeasurementImageService _measurementImages;
 
@@ -182,9 +185,11 @@ public sealed class ProjectSchedulesController : BaseApiController
 
     [Authorize(Roles = "DESIGNER,ADMIN")]
     [HttpPost("{scheduleId:guid}/measurement-images")]
-    public async Task<IActionResult> RegisterMeasurementImage(
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(MeasurementMultipartRequestLimitBytes)]
+    public async Task<IActionResult> UploadMeasurementImage(
         Guid scheduleId,
-        [FromBody] RegisterMeasurementImageRequestDto request,
+        [FromForm] UploadMeasurementImageFormRequest request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -192,10 +197,10 @@ public sealed class ProjectSchedulesController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _measurementImages.RegisterMeasurementImageAsync(
+        var result = await _measurementImages.UploadMeasurementImageAsync(
             scheduleId,
             currentUserId,
-            request,
+            request.ToRequestDto(),
             cancellationToken);
 
         return ToActionResult(result);

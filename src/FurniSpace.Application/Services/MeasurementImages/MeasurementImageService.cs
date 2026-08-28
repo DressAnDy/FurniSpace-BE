@@ -10,6 +10,7 @@ using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
 using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Persistence;
@@ -31,6 +32,7 @@ public sealed class MeasurementImageService : IMeasurementImageService
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IFileStorageService _storage;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
     private readonly IProjectFileSearchIndexer? _projectFileSearchIndexer;
@@ -43,43 +45,44 @@ public sealed class MeasurementImageService : IMeasurementImageService
         _schedules = schedules;
         _files = files;
         _unitOfWork = dependencies.UnitOfWork;
+        _storage = dependencies.Storage;
         _uploadSettings = dependencies.UploadSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
         _projectFileSearchIndexer = dependencies.ProjectFileSearchIndexer;
     }
 
-    public async Task<ServiceResult<ProjectFileUploadResponseDto>> RegisterMeasurementImageAsync(
+    public async Task<ServiceResult<MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
         Guid scheduleId,
         Guid currentUserId,
-        RegisterMeasurementImageRequestDto request,
+        UploadMeasurementImageRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (scheduleId == Guid.Empty)
         {
-            return ServiceResult<ProjectFileUploadResponseDto>.BadRequest("Schedule id is required.");
+            return ServiceResult<MeasurementImageUploadResponseDto>.BadRequest("Schedule id is required.");
         }
 
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<ProjectFileUploadResponseDto>.Unauthorized();
+            return ServiceResult<MeasurementImageUploadResponseDto>.Unauthorized();
         }
 
-        var validationErrors = ValidateRegisterRequest(request);
+        var validationErrors = ValidateUploadRequest(request);
         if (validationErrors.Count > 0)
         {
-            return ServiceResult<ProjectFileUploadResponseDto>.BadRequest(validationErrors);
+            return ServiceResult<MeasurementImageUploadResponseDto>.BadRequest(validationErrors);
         }
 
         var roleName = await _files.GetAccountRoleNameAsync(currentUserId, cancellationToken);
         if (string.IsNullOrWhiteSpace(roleName))
         {
-            return ServiceResult<ProjectFileUploadResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
+            return ServiceResult<MeasurementImageUploadResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
         }
 
         var schedule = await _schedules.GetDetailAsync(scheduleId, cancellationToken);
         if (schedule is null)
         {
-            return ServiceResult<ProjectFileUploadResponseDto>.NotFound(ScheduleNotFoundMessage);
+            return ServiceResult<MeasurementImageUploadResponseDto>.NotFound(ScheduleNotFoundMessage);
         }
 
         var eligibilityError = ValidateCaptureEligibility(schedule);
@@ -90,53 +93,61 @@ public sealed class MeasurementImageService : IMeasurementImageService
 
         if (!CanCaptureMeasurementImage(schedule, currentUserId, roleName))
         {
-            return ServiceResult<ProjectFileUploadResponseDto>.Forbidden(
-                "Only the assigned designer can register measurement images for this schedule.");
+            return ServiceResult<MeasurementImageUploadResponseDto>.Forbidden(
+                "Only the assigned designer can upload measurement images for this schedule.");
         }
 
-        if (!TryParseProjectStoragePath(
-                request.StoragePath,
-                schedule.ProjectId,
-                out var fileId,
-                out var generatedFileName))
+        var areaValidationError = await ValidateOptionalAreaLinkAsync(
+            request.ProjectAreaId,
+            schedule,
+            currentUserId,
+            roleName,
+            cancellationToken);
+        if (areaValidationError is not null)
         {
-            return BadRequestUpload(
-                MeasurementImageErrorCodes.StoragePathInvalid,
-                "Storage path is invalid for this project.");
-        }
-
-        if (await _files.ExistsByStoragePathAsync(request.StoragePath, cancellationToken))
-        {
-            return ServiceResult<ProjectFileUploadResponseDto>.Failure(
-                Error.Conflict(
-                    MeasurementImageErrorCodes.StoragePathDuplicate,
-                    "This storage path is already registered."));
+            return areaValidationError;
         }
 
         var now = DateTime.UtcNow;
+        var fileId = Guid.NewGuid();
+        var scheduleFileLinkId = Guid.NewGuid();
         var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
+        var generatedFileName = ProjectFileUploadSupport.BuildGeneratedFileName(fileId, originalFileName);
+        var objectName = ProjectFileUploadSupport.BuildProjectObjectName(
+            _firebaseSettings,
+            schedule.ProjectId,
+            generatedFileName);
         var visibility = ProjectFileUploadSupport.ResolveVisibility(
             request.Visibility,
             roleName,
             ApplicationRoles.Customer);
-        var fileLinkId = Guid.NewGuid();
+
+        var uploadResult = await _storage.UploadAsync(
+            new StorageUploadRequest
+            {
+                Content = request.Content,
+                ObjectName = objectName,
+                ContentType = ProjectFileUploadSupport.NormalizeContentType(request.ContentType)
+            },
+            cancellationToken);
+
         var storedFile = new StoredFile
         {
             FileId = fileId,
             UploadedBy = currentUserId,
             OriginalFileName = originalFileName,
             StoredFileName = generatedFileName,
-            FileUrl = request.PublicUrl.Trim(),
-            StoragePath = request.StoragePath.Trim(),
+            FileUrl = uploadResult.PublicUrl,
+            StoragePath = uploadResult.ObjectName,
             MimeType = ProjectFileUploadSupport.NormalizeContentType(request.ContentType),
             FileExtension = ProjectFileUploadSupport.NormalizeExtension(originalFileName),
             FileSizeBytes = request.FileSizeBytes,
             Status = FileStatus.ACTIVE,
             UploadedAt = now
         };
-        var fileLink = new FileLink
+        var scheduleFileLink = new FileLink
         {
-            FileLinkId = fileLinkId,
+            FileLinkId = scheduleFileLinkId,
             FileId = fileId,
             ReferenceType = ProjectScheduleReferenceType,
             ReferenceId = scheduleId,
@@ -147,37 +158,69 @@ public sealed class MeasurementImageService : IMeasurementImageService
             CreatedAt = now
         };
 
-        await ExecuteInTransactionAsync(
-            async ct =>
+        FileLink? areaFileLink = null;
+        if (request.ProjectAreaId.HasValue && request.ProjectAreaId.Value != Guid.Empty)
+        {
+            var projectAreaId = request.ProjectAreaId.Value;
+            areaFileLink = new FileLink
             {
-                await _files.AddAsync(storedFile, ct);
-                await _files.AddFileLinkAsync(fileLink, ct);
-                await _unitOfWork.SaveChangesAsync(ct);
-            },
-            cancellationToken);
+                FileLinkId = Guid.NewGuid(),
+                FileId = fileId,
+                ReferenceType = ProjectAreaReferenceType,
+                ReferenceId = projectAreaId,
+                FileType = FileType.SPACE_IMAGE,
+                Visibility = FileVisibility.STAFF_ONLY,
+                CreatedBy = currentUserId,
+                CreatedAt = now
+            };
+        }
+
+        try
+        {
+            await ExecuteInTransactionAsync(
+                async ct =>
+                {
+                    await _files.AddAsync(storedFile, ct);
+                    await _files.AddFileLinkAsync(scheduleFileLink, ct);
+                    if (areaFileLink is not null)
+                    {
+                        await _files.AddFileLinkAsync(areaFileLink, ct);
+                    }
+
+                    await _unitOfWork.SaveChangesAsync(ct);
+                },
+                cancellationToken);
+        }
+        catch
+        {
+            await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
+            throw;
+        }
 
         await SyncProjectFileIndexAsync(fileId, cancellationToken);
 
-        return ServiceResult<ProjectFileUploadResponseDto>.Created(
-            new ProjectFileUploadResponseDto
+        var fileResponse = BuildUploadResponse(
+            schedule.ProjectId,
+            scheduleId,
+            storedFile,
+            scheduleFileLink,
+            uploadResult);
+
+        return ServiceResult<MeasurementImageUploadResponseDto>.Created(
+            new MeasurementImageUploadResponseDto
             {
-                FileId = storedFile.FileId,
-                FileLinkId = fileLink.FileLinkId,
-                ProjectId = schedule.ProjectId,
-                ReferenceType = ProjectScheduleReferenceType,
-                ReferenceId = scheduleId,
-                OriginalFileName = storedFile.OriginalFileName,
-                FileName = storedFile.StoredFileName,
-                FileType = FileType.SPACE_IMAGE,
-                MimeType = storedFile.MimeType,
-                FileSize = storedFile.FileSizeBytes,
-                StoragePath = storedFile.StoragePath,
-                PublicUrl = storedFile.FileUrl,
-                Visibility = visibility,
-                UploadedBy = storedFile.UploadedBy,
-                UploadedAt = storedFile.UploadedAt
+                File = fileResponse,
+                ScheduleId = scheduleId,
+                AreaLink = areaFileLink is null
+                    ? null
+                    : new MeasurementImageAreaLinkResponseDto
+                    {
+                        ProjectAreaId = areaFileLink.ReferenceId,
+                        FileId = fileId,
+                        FileLinkId = areaFileLink.FileLinkId
+                    }
             },
-            "Measurement image registered successfully.");
+            "Measurement image uploaded successfully.");
     }
 
     public async Task<ServiceResult<MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
@@ -545,38 +588,71 @@ public sealed class MeasurementImageService : IMeasurementImageService
             message);
     }
 
-    private static ServiceResult<ProjectFileUploadResponseDto>? ValidateCaptureEligibility(
+    private static ServiceResult<MeasurementImageUploadResponseDto>? ValidateCaptureEligibility(
         ProjectScheduleDetailReadModel schedule)
     {
         if (schedule.ScheduleType != ProjectScheduleType.MEASUREMENT)
         {
             return BadRequestUpload(
                 MeasurementImageErrorCodes.ScheduleNotEligible,
-                "Measurement images can only be registered for MEASUREMENT schedules.");
+                "Measurement images can only be uploaded for MEASUREMENT schedules.");
         }
 
         if (schedule.Status != ProjectScheduleStatus.CONFIRMED)
         {
             return BadRequestUpload(
                 MeasurementImageErrorCodes.ScheduleNotEligible,
-                "Measurement images can only be registered while the schedule is CONFIRMED.");
+                "Measurement images can only be uploaded while the schedule is CONFIRMED.");
         }
 
         return null;
     }
 
-    private List<string> ValidateRegisterRequest(RegisterMeasurementImageRequestDto request)
+    private async Task<ServiceResult<MeasurementImageUploadResponseDto>?> ValidateOptionalAreaLinkAsync(
+        Guid? projectAreaId,
+        ProjectScheduleDetailReadModel schedule,
+        Guid currentUserId,
+        string roleName,
+        CancellationToken cancellationToken)
+    {
+        if (!projectAreaId.HasValue || projectAreaId.Value == Guid.Empty)
+        {
+            return null;
+        }
+
+        var project = await _files.GetReferenceProjectAccessAsync(
+            ProjectAreaReferenceType,
+            projectAreaId.Value,
+            cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<MeasurementImageUploadResponseDto>.NotFound(ProjectAreaNotFoundMessage);
+        }
+
+        if (project.ProjectId != schedule.ProjectId)
+        {
+            return ServiceResult<MeasurementImageUploadResponseDto>.Failure(
+                Error.BadRequest(
+                    MeasurementImageErrorCodes.ScheduleProjectMismatch,
+                    "Project area does not belong to the same project as the schedule."));
+        }
+
+        if (!CanManageAreaFiles(project, currentUserId, roleName))
+        {
+            return ServiceResult<MeasurementImageUploadResponseDto>.Forbidden(
+                "You do not have access to manage measurement images for this project area.");
+        }
+
+        return null;
+    }
+
+    private List<string> ValidateUploadRequest(UploadMeasurementImageRequestDto request)
     {
         var errors = new List<string>();
 
-        if (string.IsNullOrWhiteSpace(request.StoragePath))
+        if (request.Content == Stream.Null || !request.Content.CanRead)
         {
-            errors.Add("Storage path is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.PublicUrl))
-        {
-            errors.Add("Public URL is required.");
+            errors.Add("File is required.");
         }
 
         if (string.IsNullOrWhiteSpace(request.OriginalFileName))
@@ -611,42 +687,30 @@ public sealed class MeasurementImageService : IMeasurementImageService
         return errors;
     }
 
-    private bool TryParseProjectStoragePath(
-        string storagePath,
+    private static ProjectFileUploadResponseDto BuildUploadResponse(
         Guid projectId,
-        out Guid fileId,
-        out string generatedFileName)
-    {
-        fileId = Guid.Empty;
-        generatedFileName = string.Empty;
-
-        var normalizedPath = storagePath.Trim().Trim('/');
-        var prefix = string.IsNullOrWhiteSpace(_firebaseSettings.ProjectFilesPrefix)
-            ? "projects"
-            : _firebaseSettings.ProjectFilesPrefix.Trim().Trim('/');
-        var expectedPrefix = $"{prefix}/{projectId:D}/";
-
-        if (!normalizedPath.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase))
+        Guid scheduleId,
+        StoredFile storedFile,
+        FileLink scheduleFileLink,
+        StorageUploadResult uploadResult) =>
+        new()
         {
-            return false;
-        }
-
-        generatedFileName = normalizedPath[expectedPrefix.Length..];
-        if (generatedFileName.Length <= 32)
-        {
-            return false;
-        }
-
-        var idPart = generatedFileName[..32];
-        if (!Guid.TryParseExact(idPart, "N", out fileId))
-        {
-            return false;
-        }
-
-        var extension = Path.GetExtension(generatedFileName);
-        return !string.IsNullOrWhiteSpace(extension) &&
-               AllowedImageExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
-    }
+            FileId = storedFile.FileId,
+            FileLinkId = scheduleFileLink.FileLinkId,
+            ProjectId = projectId,
+            ReferenceType = ProjectScheduleReferenceType,
+            ReferenceId = scheduleId,
+            OriginalFileName = storedFile.OriginalFileName,
+            FileName = storedFile.StoredFileName,
+            FileType = FileType.SPACE_IMAGE,
+            MimeType = storedFile.MimeType,
+            FileSize = storedFile.FileSizeBytes,
+            StoragePath = storedFile.StoragePath,
+            PublicUrl = uploadResult.PublicUrl,
+            Visibility = scheduleFileLink.Visibility ?? FileVisibility.STAFF_ONLY,
+            UploadedBy = storedFile.UploadedBy,
+            UploadedAt = storedFile.UploadedAt
+        };
 
     private long ResolveMaxFileSize()
     {
@@ -723,9 +787,9 @@ public sealed class MeasurementImageService : IMeasurementImageService
         return errors;
     }
 
-    private static ServiceResult<ProjectFileUploadResponseDto> BadRequestUpload(string errorCode, string message)
+    private static ServiceResult<MeasurementImageUploadResponseDto> BadRequestUpload(string errorCode, string message)
     {
-        return ServiceResult<ProjectFileUploadResponseDto>.Failure(Error.BadRequest(errorCode, message));
+        return ServiceResult<MeasurementImageUploadResponseDto>.Failure(Error.BadRequest(errorCode, message));
     }
 
     private async Task ExecuteInTransactionAsync(

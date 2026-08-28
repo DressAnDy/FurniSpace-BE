@@ -156,12 +156,12 @@ public sealed class ProjectAreaMeasurementImagesControllerTests
 
         public MeasurementImageGalleryQueryDto? LastQuery { get; private set; }
 
-        public Task<ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>> RegisterMeasurementImageAsync(
+        public Task<ServiceResult<MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
             Guid scheduleId,
             Guid currentUserId,
-            RegisterMeasurementImageRequestDto request,
+            UploadMeasurementImageRequestDto request,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>.Unauthorized());
+            => Task.FromResult(ServiceResult<MeasurementImageUploadResponseDto>.Unauthorized());
 
         public Task<ServiceResult<MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
             Guid projectId,

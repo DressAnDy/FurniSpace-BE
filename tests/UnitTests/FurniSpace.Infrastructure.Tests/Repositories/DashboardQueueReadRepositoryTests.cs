@@ -207,7 +207,6 @@ public sealed class DashboardQueueReadRepositoryTests
             OrderId = seed.OrderId,
             AssignedTo = seed.ProductionId,
             Status = ProductionRequestStatus.IN_PRODUCTION,
-            EstimatedCompletionDate = DateOnly.FromDateTime(seed.Now.AddDays(-3)),
             CreatedAt = seed.Now,
             UpdatedAt = seed.Now
         });
@@ -219,10 +218,11 @@ public sealed class DashboardQueueReadRepositoryTests
             OrderId = seed.OrderId,
             AssignedTo = seed.ProductionId,
             Status = ProductionRequestStatus.PENDING,
-            EstimatedCompletionDate = DateOnly.FromDateTime(seed.Now),
             CreatedAt = seed.Now,
             UpdatedAt = seed.Now
         });
+        context.ProjectPhaseTimelineSet.Add(
+            CreatePhaseDeadline(seed.SalesProjectId, ProjectPhaseType.PRODUCTION, DateOnly.FromDateTime(seed.Now.AddDays(-3)), seed.SalesId, seed.Now));
         await context.SaveChangesAsync();
         var repository = new DashboardQueueReadRepository(context);
 
@@ -406,7 +406,6 @@ public sealed class DashboardQueueReadRepositoryTests
             AssignedTo = productionId,
             Status = ProductionRequestStatus.PENDING,
             Priority = "HIGH",
-            EstimatedCompletionDate = DateOnly.FromDateTime(now),
             CreatedAt = now,
             UpdatedAt = now
         });

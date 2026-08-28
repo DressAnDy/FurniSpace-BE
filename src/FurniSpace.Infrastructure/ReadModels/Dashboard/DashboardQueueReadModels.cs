@@ -120,7 +120,7 @@ public sealed class DashboardProductionQueueRowReadModel
 
     public string? Priority { get; init; }
 
-    public DateOnly? EstimatedCompletionDate { get; init; }
+    public DateOnly? ProductionDeadline { get; init; }
 
     public int BlockedItemCount { get; init; }
 

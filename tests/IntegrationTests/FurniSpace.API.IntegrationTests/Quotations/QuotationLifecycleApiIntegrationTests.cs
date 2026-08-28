@@ -343,8 +343,6 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
             {
                 AssignedTo = productionAccountId,
                 Priority = "NORMAL",
-                EstimatedStartDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)),
-                EstimatedCompletionDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(10)),
                 Note = "Create production from quotation E2E"
             });
 

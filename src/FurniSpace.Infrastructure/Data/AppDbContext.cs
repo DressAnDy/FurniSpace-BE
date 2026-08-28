@@ -1142,8 +1142,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.AssignedTo).HasColumnName("assigned_to").HasColumnType(UuidColumnType);
             entity.Property(e => e.Status).HasColumnName(StatusColumnName).HasColumnType(ProductionRequestStatusColumnType).HasDefaultValueSql("'PENDING'::production_request_status");
             entity.Property(e => e.Priority).HasColumnName("priority").HasColumnType(Varchar30ColumnType);
-            entity.Property(e => e.EstimatedStartDate).HasColumnName("estimated_start_date").HasColumnType(DateColumnType);
-            entity.Property(e => e.EstimatedCompletionDate).HasColumnName("estimated_completion_date").HasColumnType(DateColumnType);
             entity.Property(e => e.ActualStartDate).HasColumnName("actual_start_date").HasColumnType(DateColumnType);
             entity.Property(e => e.ActualCompletionDate).HasColumnName("actual_completion_date").HasColumnType(DateColumnType);
             entity.Property(e => e.CancellationReason).HasColumnName(CancellationReasonColumnName).HasColumnType(TextColumnType);
@@ -1228,7 +1226,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.MaterialNote).HasColumnName("material_note").HasColumnType(TextColumnType);
             entity.Property(e => e.ProductionNote).HasColumnName("production_note").HasColumnType(TextColumnType);
             entity.Property(e => e.CancellationReason).HasColumnName(CancellationReasonColumnName).HasColumnType(TextColumnType);
-            entity.Property(e => e.EstimatedCompletionDate).HasColumnName("estimated_completion_date").HasColumnType(DateColumnType);
             entity.Property(e => e.CompletedAt).HasColumnName(CompletedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType);
             entity.HasIndex(e => new { e.ProductionRequestId, e.OrderItemId }).IsUnique();
             entity.HasOne<ProductionRequest>().WithMany().HasForeignKey(e => e.ProductionRequestId).OnDelete(DeleteBehavior.Restrict);
@@ -1336,6 +1333,10 @@ public class AppDbContext : DbContext
             entity.Property(e => e.UpdatedAt).HasColumnName(UpdatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
             entity.HasIndex(e => new { e.ProjectShowcaseId, e.DisplayOrder });
             entity.HasIndex(e => new { e.ProjectShowcaseId, e.FileId }).IsUnique();
+            entity.HasIndex(e => e.ProjectShowcaseId)
+                .IsUnique()
+                .HasFilter("is_cover = true")
+                .HasDatabaseName("ux_project_showcase_media_one_cover");
             entity.HasOne<ProjectShowcase>().WithMany().HasForeignKey(e => e.ProjectShowcaseId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<StoredFile>().WithMany().HasForeignKey(e => e.FileId).OnDelete(DeleteBehavior.Restrict);
         });

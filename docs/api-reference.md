@@ -1707,15 +1707,13 @@ If any required field is missing/blank, response is `400 ORDER_DELIVERY_DETAILS_
 {
   "assignedTo": "...",
   "priority": "HIGH",
-  "estimatedStartDate": "2026-08-05",
-  "estimatedCompletionDate": "2026-09-01",
   "note": null
 }
 ```
 
-Estimated production dates must satisfy `estimatedStartDate <= estimatedCompletionDate <= project.targetCompletionDate`.
 `assignedTo` is required and must reference an active Production account.
 `priority` is a string; when omitted, the backend defaults it to `NORMAL`.
+Production deadline is not sent in this request. The backend reads it from `project_phase_timelines` where `phase = PRODUCTION`; configure it via `PUT /projects/{projectId}/phase-deadlines` before creating a production request.
 
 ### Create delivery batch
 
@@ -1971,8 +1969,8 @@ Measurement photos are captured on **MEASUREMENT** schedules (§16), then option
 
 **Link flow**
 
-1. Designer registers image on a confirmed measurement schedule (`POST /project-schedules/{scheduleId}/measurement-images`).
-2. Staff links the same `fileId` to areas via `POST .../link`.
+1. Designer uploads image on a confirmed measurement schedule (`POST /project-schedules/{scheduleId}/measurement-images`, multipart).
+2. Staff links the same `fileId` to areas via `POST .../link` when area was not included at upload time.
 3. Unlink removes only the area `file_links` row; the underlying file and schedule link remain.
 
 **Gallery query** (`GET /project-areas/{projectAreaId}/measurement-images`): `page`, `limit`
@@ -1997,7 +1995,7 @@ Route: `project-schedules` (+ absolute create alias)
 | PATCH | `/project-schedules/{id}/status` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | DELETE | `/project-schedules/{id}` | SALES, PRODUCTION, ADMIN |
 | POST | `/project-schedules/{scheduleId}/request-change` | CUSTOMER, ADMIN | Request delivery schedule change |
-| POST | `/project-schedules/{scheduleId}/measurement-images` | DESIGNER, ADMIN | Register measurement photo (direct upload metadata) |
+| POST | `/project-schedules/{scheduleId}/measurement-images` | DESIGNER, ADMIN | Upload measurement photo (multipart) |
 | GET | `/project-schedules/{scheduleId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Schedule measurement gallery |
 
 ### Create
@@ -2117,23 +2115,56 @@ Errors: `SCHEDULE_CHANGE_NOTE_REQUIRED`, `INVALID_SCHEDULE_TYPE`, `INVALID_SCHED
 
 ### Measurement image capture
 
-Register after direct-to-storage upload (Firebase). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`. Future confirmed schedules are allowed, so FE does not need to wait until runtime to register measurement image metadata.
+Upload via backend multipart (same pattern as catalog/product preview). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`. Future confirmed schedules are allowed, so FE does not need to wait until runtime to upload measurement photos.
+
+**Request:** `multipart/form-data`
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `file` | file | Yes | Image only: `.jpg`, `.jpeg`, `.png`, `.webp` |
+| `visibility` | enum | No | Default `STAFF_ONLY` when omitted |
+| `note` | string | No | Saved to schedule file link description |
+| `projectAreaId` | uuid | No | When set, also links photo to the project area in the same request |
+
+**Response:** `MeasurementImageUploadResponseDto`
 
 ```json
 {
-  "storagePath": "projects/{projectId}/files/{fileId}/photo.jpg",
-  "publicUrl": "https://...",
-  "originalFileName": "area-a.jpg",
-  "contentType": "image/jpeg",
-  "fileSizeBytes": 204800,
-  "visibility": "STAFF_ONLY",
-  "note": "North wall"
+  "file": {
+    "fileId": "uuid",
+    "fileLinkId": "uuid",
+    "projectId": "uuid",
+    "referenceType": "PROJECT_SCHEDULE",
+    "referenceId": "uuid",
+    "originalFileName": "area-a.jpg",
+    "fileName": "uuid.jpg",
+    "fileType": "SPACE_IMAGE",
+    "mimeType": "image/jpeg",
+    "fileSize": 204800,
+    "storagePath": "projects/{projectId}/{fileId}.jpg",
+    "publicUrl": "https://...",
+    "visibility": "STAFF_ONLY",
+    "uploadedBy": "uuid",
+    "uploadedAt": "2026-08-28T06:00:00Z"
+  },
+  "scheduleId": "uuid",
+  "areaLink": {
+    "projectAreaId": "uuid",
+    "fileId": "uuid",
+    "fileLinkId": "uuid"
+  }
 }
 ```
 
-Creates `StoredFile` + `file_links` on the schedule (`referenceType=PROJECT_SCHEDULE`, `fileType=SPACE_IMAGE`). Returns standard project file upload response.
+`areaLink` is `null` when `projectAreaId` was not sent.
 
-One request registers one image metadata record. For multi-select upload, FE uploads each physical file first, then calls this endpoint once per uploaded file. If `visibility` is omitted, backend stores the measurement image as `STAFF_ONLY`.
+Creates one `StoredFile` + schedule `file_links` row (`referenceType=PROJECT_SCHEDULE`, `fileType=SPACE_IMAGE`). Optional area link adds a second `file_links` row (`referenceType=PROJECT_AREA`).
+
+One request uploads one image. For multi-select, FE sends one multipart request per file (parallel or sequential).
+
+**Do not use** `POST /projects/{projectId}/files` with `MEASUREMENT_REPORT` for measurement photo capture — that endpoint is for general project attachments, not the measurement gallery flow.
+
+**Link area later (optional):** if upload did not include `projectAreaId`, call `POST /project-areas/{projectAreaId}/measurement-images/{fileId}/link` (no body). Use `fileId` from upload response `file.fileId`.
 
 **Schedule gallery query**: `projectAreaId?`, `assigned?` (filter by area link presence), `page`, `limit`
 
@@ -3323,12 +3354,25 @@ Route: `project-showcases/{showcaseId}/media`
 
 | Method | Path | Roles | Description |
 | --- | --- | --- | --- |
+| POST | `/project-showcases/{showcaseId}/media/upload` | SALES, DESIGNER, ADMIN | Multipart upload + attach new showcase image atomically |
 | POST | `/project-showcases/{showcaseId}/media` | SALES, DESIGNER, ADMIN | Add media from existing project file |
 | PATCH | `/project-showcases/{showcaseId}/media/reorder` | SALES, DESIGNER, ADMIN | Reorder gallery |
 | PATCH | `/project-showcases/{showcaseId}/media/{mediaId}/cover` | SALES, DESIGNER, ADMIN | Set single cover image |
-| DELETE | `/project-showcases/{showcaseId}/media/{mediaId}` | SALES, DESIGNER, ADMIN | Remove media row |
+| DELETE | `/project-showcases/{showcaseId}/media/{mediaId}` | SALES, DESIGNER, ADMIN | Remove media row; if deleted item was cover and other media remain, the next item by `displayOrder` becomes cover |
 
-**Add media body**
+**Multipart upload** (`POST .../media/upload`, `Content-Type: multipart/form-data`)
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `file` | Yes | Showcase image (`jpeg` / `png` / `webp`) |
+| `mediaType` | No | Defaults to `FINAL` |
+| `title` | No | Media title |
+| `caption` | No | Media caption |
+| `setAsCover` | No | Default `false` |
+
+Creates `StoredFile` + project `FileLink(PORTFOLIO_IMAGE)` + `ProjectShowcaseMedia` in one request. If DB persistence fails after Firebase upload, the uploaded object is deleted.
+
+**Add media body (existing project file)**
 
 ```json
 {
@@ -3375,13 +3419,41 @@ Route: `public/showcases`
 
 **List query**: `page` (default 1), `pageSize` (default 12, max 50)
 
-**List item**: `projectShowcaseId`, `title`, `slug`, `summary`, `coverUrl`, `businessType`, `publishedAt`
+**List item**: `projectShowcaseId`, `title`, `slug`, `summary`, `businessType`, `completedDate`, `totalAreaSqm`, `coverUrl`, `publishedAt`
 
-**Public detail**: adds `description`, `projectName`, `businessType`, `publishedAt`, `media[]`, optional `review` (consented featured review only)
+**List item example**
+
+```json
+{
+  "projectShowcaseId": "uuid",
+  "slug": "modern-cafe-project",
+  "title": "Modern Cafe Project",
+  "summary": "A completed commercial interior project.",
+  "businessType": "Cafe",
+  "completedDate": "2026-08-20",
+  "totalAreaSqm": 120.5,
+  "coverUrl": "https://...",
+  "publishedAt": "2026-08-25T08:00:00Z"
+}
+```
+
+Field semantics:
+- `businessType` — `Project.BusinessType`
+- `completedDate` — UTC date from `Project.CompletedAt`
+- `totalAreaSqm` — `Project.TotalAreaSqm`
+
+**Public detail**: adds `description`, `projectName`, `businessType`, `completedDate`, `totalAreaSqm`, `numberOfFloors`, `implementationDurationDays`, `projectAddress`, `completionYear`, `coverUrl`, `publishedAt`, `media[]`, optional `review` (consented featured review only)
+
+**Public detail project fields**
+- `numberOfFloors` — `Project.NumberOfFloors`
+- `implementationDurationDays` — elapsed calendar days from `Project.SubmittedAt` to `Project.CompletedAt` (null if either timestamp is null)
+- `projectAddress` — `Project.ProjectAddress`
+- `completionYear` — `Project.CompletedAt.Year`
+- `coverUrl` — cover `ProjectShowcaseMedia` (`isCover=true`) file URL
 
 Only showcases with status **`PUBLISHED`** appear on public endpoints.
 
-**Error codes**: `PROJECT_SHOWCASE_NOT_FOUND`, `PROJECT_SHOWCASE_ALREADY_EXISTS`, `PROJECT_SHOWCASE_SLUG_DUPLICATE`, `PROJECT_SHOWCASE_INVALID_STATUS_TRANSITION`, `PROJECT_SHOWCASE_PROJECT_NOT_COMPLETED`, `PROJECT_SHOWCASE_PUBLISH_REQUIREMENTS_NOT_MET`, `PROJECT_SHOWCASE_FILE_NOT_ALLOWED`, `PROJECT_SHOWCASE_FEATURED_REVIEW_INVALID`, `PROJECT_REVIEW_CONSENT_FORBIDDEN`
+**Error codes**: `PROJECT_SHOWCASE_NOT_FOUND`, `PROJECT_SHOWCASE_ALREADY_EXISTS`, `PROJECT_SHOWCASE_SLUG_DUPLICATE`, `PROJECT_SHOWCASE_INVALID_STATUS_TRANSITION`, `PROJECT_SHOWCASE_PROJECT_NOT_COMPLETED`, `PROJECT_SHOWCASE_PUBLISH_REQUIREMENTS_NOT_MET`, `PROJECT_SHOWCASE_FILE_NOT_ALLOWED`, `PROJECT_SHOWCASE_FEATURED_REVIEW_INVALID`, `PROJECT_REVIEW_CONSENT_FORBIDDEN`, `PROJECT_SHOWCASE_COVER_CONFLICT`
 
 ---
 

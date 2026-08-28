@@ -43,6 +43,12 @@ public interface IProjectShowcaseService
         AddProjectShowcaseMediaRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectShowcaseMediaDto>> UploadMediaAsync(
+        Guid showcaseId,
+        Guid currentUserId,
+        UploadProjectShowcaseMediaRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectShowcaseDto>> ReorderMediaAsync(
         Guid showcaseId,
         Guid currentUserId,

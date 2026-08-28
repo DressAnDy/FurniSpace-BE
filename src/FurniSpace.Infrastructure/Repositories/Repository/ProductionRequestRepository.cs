@@ -335,32 +335,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
 
     private IQueryable<ProductionRequestListItemReadModel> BuildQueueQuery()
     {
-        return from request in DbContext.ProductionRequestSet
-               join project in DbContext.ProjectSet on request.ProjectId equals project.ProjectId
-               join order in DbContext.OrderSet on request.OrderId equals order.OrderId
-               join assignee in DbContext.AccountSet on request.AssignedTo equals assignee.AccountId into assignees
-               from assignee in assignees.DefaultIfEmpty()
-               select new ProductionRequestListItemReadModel
-               {
-                   ProductionRequestId = request.ProductionRequestId,
-                   ProductionCode = request.ProductionCode,
-                   ProjectId = request.ProjectId,
-                   ProjectCode = project.ProjectCode,
-                   ProjectName = project.ProjectName,
-                   AssignedSalesId = project.AssignedSalesId,
-                   OrderId = request.OrderId,
-                   OrderCode = order.OrderCode,
-                   AssignedTo = request.AssignedTo,
-                   AssignedToName = assignee == null ? null : assignee.FullName,
-                   Status = request.Status,
-                   Priority = request.Priority,
-                   EstimatedStartDate = request.EstimatedStartDate,
-                   EstimatedCompletionDate = request.EstimatedCompletionDate,
-                   ProductionItemCount = DbContext.ProductionItemSet.Count(item =>
-                       item.ProductionRequestId == request.ProductionRequestId),
-                   CreatedAt = request.CreatedAt,
-                   UpdatedAt = request.UpdatedAt
-               };
+        return BuildDetailQuery();
     }
 
     private IQueryable<ProductionRequestDetailReadModel> BuildDetailQuery()
@@ -384,8 +359,14 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                    AssignedToName = assignee == null ? null : assignee.FullName,
                    Status = request.Status,
                    Priority = request.Priority,
-                   EstimatedStartDate = request.EstimatedStartDate,
-                   EstimatedCompletionDate = request.EstimatedCompletionDate,
+                   ProductionDeadline = DbContext.ProjectPhaseTimelineSet
+                       .Where(timeline =>
+                           timeline.ProjectId == request.ProjectId &&
+                           timeline.Phase == ProjectPhaseType.PRODUCTION)
+                       .Select(timeline => (DateOnly?)timeline.DueDate)
+                       .FirstOrDefault(),
+                   ProductionItemCount = DbContext.ProductionItemSet.Count(item =>
+                       item.ProductionRequestId == request.ProductionRequestId),
                    ActualStartDate = request.ActualStartDate,
                    ActualCompletionDate = request.ActualCompletionDate,
                    CancellationReason = request.CancellationReason,
@@ -441,8 +422,6 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             .Where(request => request.ProjectId == projectId)
             .Select(request => new
             {
-                request.EstimatedStartDate,
-                request.EstimatedCompletionDate,
                 request.ActualStartDate,
                 request.ActualCompletionDate
             })
@@ -451,8 +430,8 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         DateOnly? maxDate = null;
         foreach (var request in requests)
         {
-            maxDate = MaxDateOnly(maxDate, request.EstimatedStartDate);
-            maxDate = MaxDateOnly(maxDate, request.EstimatedCompletionDate);
+            maxDate = MaxDateOnly(maxDate, request.ActualStartDate);
+            maxDate = MaxDateOnly(maxDate, request.ActualCompletionDate);
         }
 
         return maxDate;

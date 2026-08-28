@@ -2,6 +2,7 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.API.DTOs.ProjectShowcases;
 using FurniSpace.Application.DTOs.ProjectShowcases;
 using FurniSpace.Application.Interfaces.ProjectShowcases;
 using Microsoft.AspNetCore.Authorization;
@@ -91,11 +92,36 @@ public sealed class ProjectShowcaseWorkflowController : BaseApiController
 [Route("project-showcases/{showcaseId:guid}/media")]
 public sealed class ProjectShowcaseMediaController : BaseApiController
 {
+    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
+
     private readonly IProjectShowcaseService _showcases;
 
     public ProjectShowcaseMediaController(IProjectShowcaseService showcases)
     {
         _showcases = showcases;
+    }
+
+[Authorize(Roles = "SALES,DESIGNER,ADMIN")]
+    [HttpPost("upload")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(MultipartRequestLimitBytes)]
+    public async Task<IActionResult> Upload(
+        Guid showcaseId,
+        [FromForm] UploadProjectShowcaseMediaFormRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _showcases.UploadMediaAsync(
+            showcaseId,
+            currentUserId,
+            request.ToRequestDto(),
+            cancellationToken);
+
+        return ToActionResult(result);
     }
 
     [Authorize(Roles = "SALES,DESIGNER,ADMIN")]

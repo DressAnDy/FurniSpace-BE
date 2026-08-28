@@ -184,6 +184,8 @@ public sealed class ProjectShowcaseRepository : IProjectShowcaseRepository
                 Summary = showcase.Summary,
                 BusinessType = project.BusinessType,
                 PublishedAt = showcase.PublishedAt,
+                CompletedAt = project.CompletedAt,
+                TotalAreaSqm = project.TotalAreaSqm,
                 CoverUrl = (
                     from media in _dbContext.ProjectShowcaseMediaSet.AsNoTracking()
                     join file in _dbContext.StoredFileSet.AsNoTracking() on media.FileId equals file.FileId
@@ -219,7 +221,12 @@ public sealed class ProjectShowcaseRepository : IProjectShowcaseRepository
                 Description = showcase.Description,
                 ProjectName = project.ProjectName,
                 BusinessType = project.BusinessType,
-                PublishedAt = showcase.PublishedAt
+                PublishedAt = showcase.PublishedAt,
+                CompletedAt = project.CompletedAt,
+                SubmittedAt = project.SubmittedAt,
+                TotalAreaSqm = project.TotalAreaSqm,
+                NumberOfFloors = project.NumberOfFloors,
+                ProjectAddress = project.ProjectAddress
             }).FirstOrDefaultAsync(cancellationToken);
 
         if (detail is null)

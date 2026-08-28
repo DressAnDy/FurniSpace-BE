@@ -1102,8 +1102,6 @@ Sau đó dùng API PayOS/SePay ở mục 6.3 và theo dõi payment đến `PAID`
 {
   "assignedTo": "production-staff-uuid",
   "priority": "HIGH",
-  "estimatedStartDate": "2026-09-06",
-  "estimatedCompletionDate": "2026-09-25",
   "note": null
 }
 ```
@@ -1113,8 +1111,7 @@ Response `201 data` gồm `productionRequestId`, `orderId`, `projectId`, status 
 Rules:
 
 - Deposit/order phải đạt điều kiện của production flow.
-- `estimatedStartDate <= estimatedCompletionDate`.
-- `estimatedCompletionDate <= project.targetCompletionDate`.
+- Production deadline khong nam trong request nay. Backend doc deadline tu `project_phase_timelines` voi `phase = PRODUCTION`; Sales can lap deadline bang `PUT /projects/{projectId}/phase-deadlines` truoc khi tao production request.
 - `assignedTo` là UUID bắt buộc và phải là account Production hợp lệ.
 - `priority` là string; nếu bỏ trống backend dùng `"NORMAL"`.
 
@@ -1169,8 +1166,7 @@ Response detail chính:
   "assignedToName": "Production One",
   "status": "IN_PRODUCTION",
   "priority": "HIGH",
-  "estimatedStartDate": "2026-09-06",
-  "estimatedCompletionDate": "2026-09-25",
+  "productionDeadline": "2026-09-25",
   "actualStartDate": "2026-09-06",
   "actualCompletionDate": null,
   "note": null,

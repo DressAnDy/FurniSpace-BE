@@ -1543,12 +1543,12 @@ public sealed class ProjectsControllerTests
         public Guid CurrentUserId { get; private set; }
         public FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto? LastQuery { get; private set; }
 
-        public Task<ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>> RegisterMeasurementImageAsync(
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
             Guid scheduleId,
             Guid currentUserId,
-            FurniSpace.Application.DTOs.MeasurementImages.RegisterMeasurementImageRequestDto request,
+            FurniSpace.Application.DTOs.MeasurementImages.UploadMeasurementImageRequestDto request,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>.NotFound());
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>.NotFound());
 
         public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
             Guid projectId,
@@ -1593,12 +1593,12 @@ public sealed class ProjectsControllerTests
 
     private sealed class NoOpMeasurementImageService : IMeasurementImageService
     {
-        public Task<ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>> RegisterMeasurementImageAsync(
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
             Guid scheduleId,
             Guid currentUserId,
-            FurniSpace.Application.DTOs.MeasurementImages.RegisterMeasurementImageRequestDto request,
+            FurniSpace.Application.DTOs.MeasurementImages.UploadMeasurementImageRequestDto request,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.ProjectFiles.ProjectFileUploadResponseDto>.NotFound());
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>.NotFound());
 
         public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
             Guid projectId,

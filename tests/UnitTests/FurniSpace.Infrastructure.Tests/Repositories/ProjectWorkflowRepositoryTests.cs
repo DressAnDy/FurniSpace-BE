@@ -173,7 +173,7 @@ public sealed class ProjectWorkflowRepositoryTests
                     ProductionRequestId = Guid.NewGuid(),
                     ProductionCode = "PR",
                     Status = ProductionRequestStatus.IN_PRODUCTION,
-                    EstimatedCompletionDate = DateOnly.FromDateTime(now),
+                    ProductionDeadline = DateOnly.FromDateTime(now),
                     AssignedTo = Guid.NewGuid(),
                     AssignedToName = "Prod",
                     CreatedAt = now
@@ -184,8 +184,7 @@ public sealed class ProjectWorkflowRepositoryTests
                 new()
                 {
                     ProductionRequestId = Guid.NewGuid(),
-                    Status = ProductionItemStatus.PENDING,
-                    EstimatedCompletionDate = DateOnly.FromDateTime(now)
+                    Status = ProductionItemStatus.PENDING
                 }
             ],
             Schedules =
@@ -384,8 +383,17 @@ public sealed class ProjectWorkflowRepositoryTests
             OrderId = orderId,
             AssignedTo = productionId,
             Status = ProductionRequestStatus.IN_PRODUCTION,
-            EstimatedCompletionDate = DateOnly.FromDateTime(now.AddDays(2)),
             CreatedAt = now.AddDays(-5),
+            UpdatedAt = now
+        });
+        context.ProjectPhaseTimelineSet.Add(new ProjectPhaseTimeline
+        {
+            ProjectPhaseTimelineId = Guid.NewGuid(),
+            ProjectId = projectId,
+            Phase = ProjectPhaseType.PRODUCTION,
+            DueDate = DateOnly.FromDateTime(now.AddDays(2)),
+            CreatedBy = salesId,
+            CreatedAt = now,
             UpdatedAt = now
         });
 
@@ -396,8 +404,7 @@ public sealed class ProjectWorkflowRepositoryTests
             OrderItemId = orderItemId,
             Status = ProductionItemStatus.IN_PRODUCTION,
             ProductNameSnapshot = "Table",
-            Quantity = 2,
-            EstimatedCompletionDate = DateOnly.FromDateTime(now.AddDays(1))
+            Quantity = 2
         });
 
         context.ProjectScheduleSet.AddRange(

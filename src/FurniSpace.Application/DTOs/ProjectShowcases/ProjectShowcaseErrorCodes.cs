@@ -13,4 +13,5 @@ public static class ProjectShowcaseErrorCodes
     public const string FileNotInProject = "PROJECT_SHOWCASE_FILE_NOT_IN_PROJECT";
     public const string FeaturedReviewInvalid = "PROJECT_SHOWCASE_FEATURED_REVIEW_INVALID";
     public const string ArchivedReadOnly = "PROJECT_SHOWCASE_ARCHIVED_READ_ONLY";
+    public const string CoverConflict = "PROJECT_SHOWCASE_COVER_CONFLICT";
 }

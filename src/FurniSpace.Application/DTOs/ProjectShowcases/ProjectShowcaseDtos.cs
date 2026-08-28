@@ -27,6 +27,18 @@ public sealed class AddProjectShowcaseMediaRequestDto
     public bool SetAsCover { get; set; }
 }
 
+public sealed class UploadProjectShowcaseMediaRequestDto
+{
+    public Stream Content { get; init; } = Stream.Null;
+    public string OriginalFileName { get; init; } = string.Empty;
+    public string ContentType { get; init; } = "application/octet-stream";
+    public long FileSizeBytes { get; init; }
+    public ProjectShowcaseMediaType MediaType { get; init; } = ProjectShowcaseMediaType.FINAL;
+    public string? Title { get; set; }
+    public string? Caption { get; set; }
+    public bool SetAsCover { get; set; }
+}
+
 public sealed class ReorderProjectShowcaseMediaRequestDto
 {
     public List<Guid> MediaIds { get; set; } = [];
@@ -85,6 +97,8 @@ public sealed class PublicShowcaseListItemDto
     public string? Summary { get; set; }
     public string? CoverUrl { get; set; }
     public string? BusinessType { get; set; }
+    public DateOnly? CompletedDate { get; set; }
+    public decimal? TotalAreaSqm { get; set; }
     public DateTime? PublishedAt { get; set; }
 }
 
@@ -115,6 +129,13 @@ public sealed class PublicShowcaseDetailDto
     public string? Description { get; set; }
     public string ProjectName { get; set; } = string.Empty;
     public string? BusinessType { get; set; }
+    public DateOnly? CompletedDate { get; set; }
+    public decimal? TotalAreaSqm { get; set; }
+    public int? NumberOfFloors { get; set; }
+    public int? ImplementationDurationDays { get; set; }
+    public string? ProjectAddress { get; set; }
+    public int? CompletionYear { get; set; }
+    public string? CoverUrl { get; set; }
     public DateTime? PublishedAt { get; set; }
     public PublicShowcaseReviewDto? Review { get; set; }
     public IReadOnlyList<ProjectShowcaseMediaDto> Media { get; set; } = [];

@@ -248,14 +248,15 @@ public sealed class AdminReportRepository : IAdminReportRepository
         var requests = await _db.ProductionRequestSet.AsNoTracking().ToListAsync(cancellationToken);
         var items = await _db.ProductionItemSet.AsNoTracking().ToListAsync(cancellationToken);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var productionDeadlines = await GetProductionDeadlinesByProjectAsync(requests, cancellationToken);
 
         var open = requests.Where(request =>
             request.Status.HasValue &&
             OpenProductionStatuses.Contains(request.Status.Value)).ToList();
 
         bool IsOverdue(Domain.Entities.ProductionRequest request) =>
-            request.EstimatedCompletionDate.HasValue &&
-            request.EstimatedCompletionDate.Value < today &&
+            productionDeadlines.TryGetValue(request.ProjectId, out var dueDate) &&
+            dueDate < today &&
             request.Status != ProductionRequestStatus.COMPLETED &&
             request.Status != ProductionRequestStatus.CANCELLED;
 
@@ -836,13 +837,14 @@ public sealed class AdminReportRepository : IAdminReportRepository
             .ToListAsync(cancellationToken);
 
         var requests = await _db.ProductionRequestSet.AsNoTracking().ToListAsync(cancellationToken);
+        var productionDeadlines = await GetProductionDeadlinesByProjectAsync(requests, cancellationToken);
 
         bool IsOpen(Domain.Entities.ProductionRequest request) =>
             request.Status.HasValue && OpenProductionStatuses.Contains(request.Status.Value);
 
         bool IsOverdue(Domain.Entities.ProductionRequest request) =>
-            request.EstimatedCompletionDate.HasValue &&
-            request.EstimatedCompletionDate.Value < today &&
+            productionDeadlines.TryGetValue(request.ProjectId, out var dueDate) &&
+            dueDate < today &&
             request.Status != ProductionRequestStatus.COMPLETED &&
             request.Status != ProductionRequestStatus.CANCELLED;
 
@@ -918,6 +920,31 @@ public sealed class AdminReportRepository : IAdminReportRepository
         }
 
         return CapacityOver;
+    }
+
+    private async Task<Dictionary<Guid, DateOnly>> GetProductionDeadlinesByProjectAsync(
+        IEnumerable<Domain.Entities.ProductionRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        var projectIds = requests
+            .Select(request => request.ProjectId)
+            .Distinct()
+            .ToList();
+
+        if (projectIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _db.ProjectPhaseTimelineSet
+            .AsNoTracking()
+            .Where(timeline =>
+                projectIds.Contains(timeline.ProjectId) &&
+                timeline.Phase == ProjectPhaseType.PRODUCTION)
+            .ToDictionaryAsync(
+                timeline => timeline.ProjectId,
+                timeline => timeline.DueDate,
+                cancellationToken);
     }
 
     private static bool InRange(DateTime? value, DateTime? from, DateTime? to)

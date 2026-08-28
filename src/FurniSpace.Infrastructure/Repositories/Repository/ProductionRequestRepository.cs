@@ -282,7 +282,6 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                     Status = pair.item.Status,
                     MaterialNote = pair.item.MaterialNote,
                     ProductionNote = pair.item.ProductionNote,
-                    EstimatedCompletionDate = pair.item.EstimatedCompletionDate,
                     StartedAt = pair.item.StartedAt,
                     CompletedAt = pair.item.CompletedAt,
                     OrderItemStatus = orderItem == null ? null : orderItem.Status
@@ -353,8 +352,12 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                    AssignedToName = assignee == null ? null : assignee.FullName,
                    Status = request.Status,
                    Priority = request.Priority,
-                   EstimatedStartDate = request.EstimatedStartDate,
-                   EstimatedCompletionDate = request.EstimatedCompletionDate,
+                   ProductionDeadline = DbContext.ProjectPhaseTimelineSet
+                       .Where(timeline =>
+                           timeline.ProjectId == request.ProjectId &&
+                           timeline.Phase == ProjectPhaseType.PRODUCTION)
+                       .Select(timeline => (DateOnly?)timeline.DueDate)
+                       .FirstOrDefault(),
                    ProductionItemCount = DbContext.ProductionItemSet.Count(item =>
                        item.ProductionRequestId == request.ProductionRequestId),
                    CreatedAt = request.CreatedAt,
@@ -383,8 +386,12 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                    AssignedToName = assignee == null ? null : assignee.FullName,
                    Status = request.Status,
                    Priority = request.Priority,
-                   EstimatedStartDate = request.EstimatedStartDate,
-                   EstimatedCompletionDate = request.EstimatedCompletionDate,
+                   ProductionDeadline = DbContext.ProjectPhaseTimelineSet
+                       .Where(timeline =>
+                           timeline.ProjectId == request.ProjectId &&
+                           timeline.Phase == ProjectPhaseType.PRODUCTION)
+                       .Select(timeline => (DateOnly?)timeline.DueDate)
+                       .FirstOrDefault(),
                    ActualStartDate = request.ActualStartDate,
                    ActualCompletionDate = request.ActualCompletionDate,
                    CancellationReason = request.CancellationReason,
@@ -440,8 +447,6 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             .Where(request => request.ProjectId == projectId)
             .Select(request => new
             {
-                request.EstimatedStartDate,
-                request.EstimatedCompletionDate,
                 request.ActualStartDate,
                 request.ActualCompletionDate
             })
@@ -450,8 +455,8 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         DateOnly? maxDate = null;
         foreach (var request in requests)
         {
-            maxDate = MaxDateOnly(maxDate, request.EstimatedStartDate);
-            maxDate = MaxDateOnly(maxDate, request.EstimatedCompletionDate);
+            maxDate = MaxDateOnly(maxDate, request.ActualStartDate);
+            maxDate = MaxDateOnly(maxDate, request.ActualCompletionDate);
         }
 
         return maxDate;

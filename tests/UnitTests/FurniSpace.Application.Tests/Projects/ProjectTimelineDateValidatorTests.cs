@@ -106,47 +106,6 @@ public sealed class ProjectTimelineDateValidatorTests
     }
 
     [Fact]
-    public void ValidateProductionEstimatedDatesWithinTarget_WhenCompletionExceedsTarget_ReturnsValidationError()
-    {
-        var target = new DateOnly(2026, 8, 20);
-
-        var error = ProjectTimelineDateValidator.ValidateProductionEstimatedDatesWithinTarget(
-            estimatedStartDate: new DateOnly(2026, 8, 10),
-            estimatedCompletionDate: new DateOnly(2026, 8, 25),
-            target);
-
-        Assert.NotNull(error);
-        Assert.Equal(ProductionErrorCodes.ProductionDateExceedsTarget, error!.Code);
-    }
-
-    [Fact]
-    public void ValidateProductionEstimatedDatesWithinTarget_WhenStartExceedsTarget_ReturnsValidationError()
-    {
-        var target = new DateOnly(2026, 8, 20);
-
-        var error = ProjectTimelineDateValidator.ValidateProductionEstimatedDatesWithinTarget(
-            estimatedStartDate: new DateOnly(2026, 8, 21),
-            estimatedCompletionDate: null,
-            target);
-
-        Assert.NotNull(error);
-        Assert.Equal(ProductionErrorCodes.ProductionDateExceedsTarget, error!.Code);
-    }
-
-    [Fact]
-    public void ValidateProductionEstimatedDatesWithinTarget_WhenDatesWithinTarget_ReturnsNull()
-    {
-        var target = new DateOnly(2026, 8, 30);
-
-        var error = ProjectTimelineDateValidator.ValidateProductionEstimatedDatesWithinTarget(
-            estimatedStartDate: new DateOnly(2026, 8, 10),
-            estimatedCompletionDate: new DateOnly(2026, 8, 20),
-            target);
-
-        Assert.Null(error);
-    }
-
-    [Fact]
     public async Task ValidateTargetNotBeforeCommittedDatesAsync_WhenScheduleDateConflicts_ReturnsConflictError()
     {
         var projectId = Guid.NewGuid();

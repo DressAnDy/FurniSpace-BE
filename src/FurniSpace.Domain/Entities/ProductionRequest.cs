@@ -12,8 +12,6 @@ public class ProductionRequest
     public Guid? AssignedTo { get; set; }
     public ProductionRequestStatus? Status { get; set; }
     public string? Priority { get; set; }
-    public DateOnly? EstimatedStartDate { get; set; }
-    public DateOnly? EstimatedCompletionDate { get; set; }
     public DateOnly? ActualStartDate { get; set; }
     public DateOnly? ActualCompletionDate { get; set; }
     public string? CancellationReason { get; set; }

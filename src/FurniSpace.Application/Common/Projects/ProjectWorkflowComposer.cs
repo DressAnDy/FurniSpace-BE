@@ -302,10 +302,11 @@ internal static class ProjectWorkflowComposer
         var openRequests = snapshot.ProductionRequests.Count(r =>
             r.Status.HasValue && openStatuses.Contains(r.Status.Value));
         var blockedCount = snapshot.ProductionItems.Count(i => i.Status == ProductionItemStatus.CANCELLED);
-        var overdueCount = snapshot.ProductionItems.Count(i =>
-            i.Status is not (ProductionItemStatus.COMPLETED or ProductionItemStatus.CANCELLED) &&
-            i.EstimatedCompletionDate.HasValue &&
-            i.EstimatedCompletionDate.Value < today);
+        var overdueCount = snapshot.ProductionRequests.Count(r =>
+            r.Status.HasValue &&
+            openStatuses.Contains(r.Status.Value) &&
+            r.ProductionDeadline.HasValue &&
+            r.ProductionDeadline.Value < today);
 
         return
         [

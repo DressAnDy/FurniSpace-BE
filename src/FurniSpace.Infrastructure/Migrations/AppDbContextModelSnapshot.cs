@@ -1456,10 +1456,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("completed_at");
 
-                    b.Property<DateOnly?>("EstimatedCompletionDate")
-                        .HasColumnType("date")
-                        .HasColumnName("estimated_completion_date");
-
                     b.Property<string>("MaterialNote")
                         .HasColumnType("text")
                         .HasColumnName("material_note");
@@ -1542,14 +1538,6 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
-
-                    b.Property<DateOnly?>("EstimatedCompletionDate")
-                        .HasColumnType("date")
-                        .HasColumnName("estimated_completion_date");
-
-                    b.Property<DateOnly?>("EstimatedStartDate")
-                        .HasColumnType("date")
-                        .HasColumnName("estimated_start_date");
 
                     b.Property<string>("Note")
                         .HasColumnType("text")

@@ -15,8 +15,6 @@ public sealed class ProductionRequestDetailDto
     public string? AssignedToName { get; set; }
     public string Status { get; set; } = string.Empty;
     public string? Priority { get; set; }
-    public DateOnly? EstimatedStartDate { get; set; }
-    public DateOnly? EstimatedCompletionDate { get; set; }
     public DateOnly? ProductionDeadline { get; set; }
     public DateOnly? ActualStartDate { get; set; }
     public DateOnly? ActualCompletionDate { get; set; }

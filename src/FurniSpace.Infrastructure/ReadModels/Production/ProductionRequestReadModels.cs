@@ -18,8 +18,7 @@ public sealed class ProductionRequestListItemReadModel
     public string? AssignedToName { get; set; }
     public ProductionRequestStatus? Status { get; set; }
     public string? Priority { get; set; }
-    public DateOnly? EstimatedStartDate { get; set; }
-    public DateOnly? EstimatedCompletionDate { get; set; }
+    public DateOnly? ProductionDeadline { get; set; }
     public int ProductionItemCount { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -39,8 +38,7 @@ public sealed class ProductionRequestDetailReadModel
     public string? AssignedToName { get; set; }
     public ProductionRequestStatus? Status { get; set; }
     public string? Priority { get; set; }
-    public DateOnly? EstimatedStartDate { get; set; }
-    public DateOnly? EstimatedCompletionDate { get; set; }
+    public DateOnly? ProductionDeadline { get; set; }
     public DateOnly? ActualStartDate { get; set; }
     public DateOnly? ActualCompletionDate { get; set; }
     public string? CancellationReason { get; set; }
@@ -62,7 +60,6 @@ public sealed class ProductionItemReadModel
     public ProductionItemStatus? Status { get; set; }
     public string? MaterialNote { get; set; }
     public string? ProductionNote { get; set; }
-    public DateOnly? EstimatedCompletionDate { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
     public OrderItemStatus? OrderItemStatus { get; set; }

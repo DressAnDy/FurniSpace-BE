@@ -15,8 +15,7 @@ public sealed class ProductionRequestListItemDto
     public string? AssignedToName { get; set; }
     public string Status { get; set; } = string.Empty;
     public string? Priority { get; set; }
-    public DateOnly? EstimatedStartDate { get; set; }
-    public DateOnly? EstimatedCompletionDate { get; set; }
+    public DateOnly? ProductionDeadline { get; set; }
     public int ProductionItemCount { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

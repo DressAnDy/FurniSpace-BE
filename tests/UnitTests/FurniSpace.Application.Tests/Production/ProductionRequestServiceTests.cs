@@ -47,8 +47,6 @@ public sealed class ProductionRequestServiceTests
             {
                 AssignedTo = _productionId,
                 Priority = " normal ",
-                EstimatedStartDate = new DateOnly(2026, 7, 25),
-                EstimatedCompletionDate = new DateOnly(2026, 8, 10),
                 Note = " Start soon "
             });
 
@@ -119,32 +117,6 @@ public sealed class ProductionRequestServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(ProjectPhaseDeadlineErrorCodes.ProductionDeadlineRequired, result.ErrorCode);
-        Assert.Empty(context.ProductionRequestSet);
-    }
-
-    [Fact]
-    public async Task CreateAsync_WhenEstimatedDatesExceedTarget_ReturnsValidationError()
-    {
-        await using var context = CreateContext();
-        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
-        await context.SaveChangesAsync();
-        var project = context.ProjectSet.Single();
-        project.TargetCompletionDate = new DateOnly(2026, 8, 1);
-        context.OrderItemSet.Add(CreateOrderItem(data.OrderId, true, "Counter"));
-        await context.SaveChangesAsync();
-        var service = BuildService(context);
-
-        var result = await service.CreateAsync(
-            data.OrderId,
-            _salesId,
-            new CreateProductionRequestDto
-            {
-                AssignedTo = _productionId,
-                EstimatedCompletionDate = new DateOnly(2026, 9, 1)
-            });
-
-        Assert.Equal(400, result.Status);
-        Assert.Equal(ProductionErrorCodes.ProductionDateExceedsTarget, result.ErrorCode);
         Assert.Empty(context.ProductionRequestSet);
     }
 
@@ -329,28 +301,6 @@ public sealed class ProductionRequestServiceTests
         Assert.Equal(201, result.Status);
         Assert.Single(context.ProductionRequestSet);
         Assert.Single(context.ProductionItemSet);
-    }
-
-    [Fact]
-    public async Task CreateAsync_WhenDateRangeInvalid_ReturnsBadRequest()
-    {
-        await using var context = CreateContext();
-        SeedRolesAndAccounts(context, AccountStatus.ACTIVE);
-        await context.SaveChangesAsync();
-        var service = BuildService(context);
-
-        var result = await service.CreateAsync(
-            Guid.NewGuid(),
-            _salesId,
-            new CreateProductionRequestDto
-            {
-                AssignedTo = _productionId,
-                EstimatedStartDate = new DateOnly(2026, 8, 10),
-                EstimatedCompletionDate = new DateOnly(2026, 7, 25)
-            });
-
-        Assert.Equal(400, result.Status);
-        Assert.Equal(ProductionErrorCodes.InvalidProductionRequestDate, result.ErrorCode);
     }
 
     [Fact]

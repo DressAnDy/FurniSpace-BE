@@ -1382,7 +1382,6 @@ public sealed class ProductionRequestService : IProductionRequestService
             MaterialNote = item.MaterialNote,
             ProductionNote = item.ProductionNote,
             CancellationReason = item.CancellationReason,
-            EstimatedCompletionDate = item.EstimatedCompletionDate,
             StartedAt = item.StartedAt,
             CompletedAt = item.CompletedAt,
             OrderItemStatus = item.OrderItemStatus.ToString()

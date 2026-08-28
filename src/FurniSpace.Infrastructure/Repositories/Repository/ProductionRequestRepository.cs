@@ -283,7 +283,6 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                     MaterialNote = pair.item.MaterialNote,
                     ProductionNote = pair.item.ProductionNote,
                     CancellationReason = pair.item.CancellationReason,
-                    EstimatedCompletionDate = pair.item.EstimatedCompletionDate,
                     StartedAt = pair.item.StartedAt,
                     CompletedAt = pair.item.CompletedAt,
                     OrderItemStatus = orderItem == null ? null : orderItem.Status

@@ -31,4 +31,6 @@ public sealed class AdminFinancialProjectRowReadModel
     public PaymentStatus? ActivePaymentStatus { get; set; }
     public decimal TotalProjectCashCollected { get; set; }
     public DateTime? LastPaidAt { get; set; }
+    public decimal CollectedInPeriod { get; set; }
+    public DateTime? LastPaidInPeriod { get; set; }
 }

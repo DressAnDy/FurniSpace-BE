@@ -39,6 +39,20 @@ public sealed class ProductionItemsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [HttpGet("unavailable")]
+    public async Task<IActionResult> GetUnavailableItems(
+        [FromQuery] ProductionUnavailableItemsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _productionRequests.GetUnavailableItemsAsync(currentUserId, query, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

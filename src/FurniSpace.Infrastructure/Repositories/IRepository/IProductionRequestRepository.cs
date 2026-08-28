@@ -93,5 +93,19 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         return Task.FromResult<DateOnly?>(null);
     }
 
+    Task<IReadOnlyList<ProductionUnavailableItemReadModel>> GetUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<ProductionUnavailableItemReadModel>>([]);
+    }
+
+    Task<int> CountUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(0);
+    }
+
     void UpdateItem(ProductionItem item);
 }

@@ -92,6 +92,7 @@ public static class DependencyInjection
         services.AddScoped<IProductionRequestRepository, ProductionRequestRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddScoped<IFinancialReadRepository, FinancialReadRepository>();
+        services.AddScoped<IFinancialDiscountReadRepository, FinancialDiscountReadRepository>();
         services.AddScoped<IDashboardQueueReadRepository, DashboardQueueReadRepository>();
         services.AddScoped<ICustomizationRequestRepository, CustomizationRequestRepository>();
         services.AddScoped<ICustomizationRequestVersionRepository, CustomizationRequestVersionRepository>();

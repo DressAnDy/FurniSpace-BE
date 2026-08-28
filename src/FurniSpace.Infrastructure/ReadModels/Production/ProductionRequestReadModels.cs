@@ -62,6 +62,7 @@ public sealed class ProductionItemReadModel
     public ProductionItemStatus? Status { get; set; }
     public string? MaterialNote { get; set; }
     public string? ProductionNote { get; set; }
+    public string? CancellationReason { get; set; }
     public DateOnly? EstimatedCompletionDate { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }

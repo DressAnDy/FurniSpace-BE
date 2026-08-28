@@ -369,6 +369,57 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
+    public async Task GetUnavailableItemsAsync_ReturnsCancelledItemsForProductionUser()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            _productionId,
+            ProductionRequestStatus.IN_PRODUCTION);
+        context.ProductionRequestSet.Add(productionRequest);
+        context.ProductionItemSet.Add(new ProductionItem
+        {
+            ProductionItemId = Guid.NewGuid(),
+            ProductionRequestId = productionRequest.ProductionRequestId,
+            OrderItemId = Guid.NewGuid(),
+            ProductVersionId = Guid.NewGuid(),
+            ProductNameSnapshot = "Counter",
+            Quantity = 1,
+            Status = ProductionItemStatus.CANCELLED,
+            CancellationReason = "Supplier delay",
+            CompletedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.GetUnavailableItemsAsync(
+            _productionId,
+            new ProductionUnavailableItemsQueryDto { Page = 1, PageSize = 10 });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, result.Data!.TotalItems);
+        Assert.Equal("Supplier delay", result.Data.Items[0].CancellationReason);
+    }
+
+    [Fact]
+    public async Task GetUnavailableItemsAsync_InvalidPagination_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        SeedRolesAndAccounts(context, AccountStatus.ACTIVE);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var result = await service.GetUnavailableItemsAsync(
+            _productionId,
+            new ProductionUnavailableItemsQueryDto { Page = 0, PageSize = 10 });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProductionErrorCodes.InvalidQuery, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task AssignAsync_WhenValid_ReassignsAndNotifies()
     {
         await using var context = CreateContext();

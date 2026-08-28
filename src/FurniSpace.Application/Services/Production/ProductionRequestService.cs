@@ -507,6 +507,49 @@ public sealed class ProductionRequestService : IProductionRequestService
             "Production item status updated successfully.");
     }
 
+    public async Task<ServiceResult<ProductionUnavailableItemsResponseDto>> GetUnavailableItemsAsync(
+        Guid currentUserId,
+        ProductionUnavailableItemsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        query ??= new ProductionUnavailableItemsQueryDto();
+        var accessError = await ValidateProductionAdminAsync<ProductionUnavailableItemsResponseDto>(
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        if (query.Page <= 0 || query.PageSize <= 0 || query.PageSize > 100)
+        {
+            return BadRequest<ProductionUnavailableItemsResponseDto>(
+                ProductionErrorCodes.InvalidQuery,
+                "Production unavailable items pagination is invalid.");
+        }
+
+        var readQuery = new ProductionUnavailableItemsQueryReadModel
+        {
+            Keyword = string.IsNullOrWhiteSpace(query.Keyword) ? null : query.Keyword.Trim(),
+            AssignedTo = query.AssignedTo,
+            Page = query.Page,
+            PageSize = query.PageSize
+        };
+
+        var totalItems = await _productionRequests.CountUnavailableItemsAsync(readQuery, cancellationToken);
+        var rows = await _productionRequests.GetUnavailableItemsAsync(readQuery, cancellationToken);
+        return ServiceResult<ProductionUnavailableItemsResponseDto>.Success(
+            new ProductionUnavailableItemsResponseDto
+            {
+                Items = rows.Select(ToUnavailableItemDto).ToList(),
+                Page = readQuery.Page,
+                PageSize = readQuery.PageSize,
+                TotalItems = totalItems,
+                TotalPages = totalItems == 0 ? 0 : (int)Math.Ceiling(totalItems / (double)readQuery.PageSize)
+            },
+            "Unavailable production items retrieved successfully.");
+    }
+
     public async Task<ServiceResult<ProductionCompletionDto>> CompleteAsync(
         Guid productionRequestId,
         Guid currentUserId,
@@ -1338,11 +1381,34 @@ public sealed class ProductionRequestService : IProductionRequestService
             Status = item.Status.ToString() ?? string.Empty,
             MaterialNote = item.MaterialNote,
             ProductionNote = item.ProductionNote,
+            CancellationReason = item.CancellationReason,
             StartedAt = item.StartedAt,
             CompletedAt = item.CompletedAt,
             OrderItemStatus = item.OrderItemStatus.ToString()
         };
     }
+
+    private static ProductionUnavailableItemDto ToUnavailableItemDto(ProductionUnavailableItemReadModel item) =>
+        new()
+        {
+            ProductionItemId = item.ProductionItemId,
+            ProductionRequestId = item.ProductionRequestId,
+            ProductionCode = item.ProductionCode,
+            ProjectId = item.ProjectId,
+            ProjectCode = item.ProjectCode,
+            ProjectName = item.ProjectName,
+            OrderId = item.OrderId,
+            OrderCode = item.OrderCode,
+            AssignedTo = item.AssignedTo,
+            AssignedToName = item.AssignedToName,
+            OrderItemId = item.OrderItemId,
+            ProductNameSnapshot = item.ProductNameSnapshot,
+            ProductVersionNameSnapshot = item.ProductVersionNameSnapshot,
+            Quantity = item.Quantity,
+            Status = item.Status,
+            CancellationReason = item.CancellationReason,
+            CompletedAt = item.CompletedAt
+        };
 
     private static ServiceResult<T> BadRequest<T>(string code, string message)
     {
@@ -1437,4 +1503,5 @@ public static class ProductionErrorCodes
     public const string ProductionStaffNotFound = "PRODUCTION_STAFF_NOT_FOUND";
     public const string ProjectNotFound = "PROJECT_NOT_FOUND";
     public const string ProductionDateExceedsTarget = "PRODUCTION_DATE_EXCEEDS_TARGET";
+    public const string InvalidQuery = "PRODUCTION_INVALID_QUERY";
 }

@@ -2,12 +2,14 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.Application.DTOs.ProjectReviews;
 using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.MeasurementImages;
 using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.ProjectReviews;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -22,17 +24,20 @@ public sealed class ProjectsController : BaseApiController
     private readonly IProjectChatMessageService _chatMessages;
     private readonly IProposalService _proposals;
     private readonly IMeasurementImageService _measurementImages;
+    private readonly IProjectReviewService _projectReviews;
 
     public ProjectsController(
         IProjectService projects,
         IProjectChatMessageService chatMessages,
         IProposalService proposals,
-        IMeasurementImageService measurementImages)
+        IMeasurementImageService measurementImages,
+        IProjectReviewService projectReviews)
     {
         _projects = projects;
         _chatMessages = chatMessages;
         _proposals = proposals;
         _measurementImages = measurementImages;
+        _projectReviews = projectReviews;
     }
 
     [Authorize(Roles = "CUSTOMER")]
@@ -338,6 +343,37 @@ public sealed class ProjectsController : BaseApiController
             },
             cancellationToken);
 
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpGet("{projectId:guid}/review")]
+    public async Task<IActionResult> GetReview(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projectReviews.GetByProjectAsync(projectId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPost("{projectId:guid}/review")]
+    public async Task<IActionResult> CreateReview(
+        Guid projectId,
+        [FromBody] CreateProjectReviewRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projectReviews.CreateAsync(projectId, currentUserId, request, cancellationToken);
         return ToActionResult(result);
     }
 

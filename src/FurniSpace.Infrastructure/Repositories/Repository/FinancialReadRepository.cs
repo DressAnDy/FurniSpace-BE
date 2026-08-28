@@ -829,7 +829,35 @@ public sealed partial class FinancialReadRepository : IFinancialReadRepository
                         payment.Currency == DefaultCurrency)
                     .OrderByDescending(payment => payment.PaidAt)
                     .Select(payment => payment.PaidAt)
-                    .FirstOrDefault()
+                    .FirstOrDefault(),
+                CollectedInPeriod = query.FromUtc.HasValue && query.ToUtcExclusive.HasValue
+                    ? _dbContext.PaymentSet
+                        .Where(payment =>
+                            payment.ProjectId == project.ProjectId &&
+                            payment.Status == PaymentStatus.PAID &&
+                            payment.PaymentType.HasValue &&
+                            canonicalPaymentTypes.Contains(payment.PaymentType.Value) &&
+                            payment.PaidAt.HasValue &&
+                            payment.PaidAt.Value >= query.FromUtc.Value &&
+                            payment.PaidAt.Value < query.ToUtcExclusive.Value &&
+                            payment.Currency == DefaultCurrency)
+                        .Sum(payment => (decimal?)payment.Amount) ?? 0m
+                    : 0m,
+                LastPaidInPeriod = query.FromUtc.HasValue && query.ToUtcExclusive.HasValue
+                    ? _dbContext.PaymentSet
+                        .Where(payment =>
+                            payment.ProjectId == project.ProjectId &&
+                            payment.Status == PaymentStatus.PAID &&
+                            payment.PaymentType.HasValue &&
+                            canonicalPaymentTypes.Contains(payment.PaymentType.Value) &&
+                            payment.PaidAt.HasValue &&
+                            payment.PaidAt.Value >= query.FromUtc.Value &&
+                            payment.PaidAt.Value < query.ToUtcExclusive.Value &&
+                            payment.Currency == DefaultCurrency)
+                        .OrderByDescending(payment => payment.PaidAt)
+                        .Select(payment => payment.PaidAt)
+                        .FirstOrDefault()
+                    : null
             };
     }
 
@@ -915,6 +943,7 @@ public sealed partial class FinancialReadRepository : IFinancialReadRepository
             "orderRemainingAmount" => rows.OrderBy(row => row.OrderRemainingAmount).ThenBy(row => row.ProjectId),
             "totalProjectCashCollected" => rows.OrderBy(row => row.TotalProjectCashCollected).ThenBy(row => row.ProjectId),
             "lastPaidAt" => rows.OrderBy(row => row.LastPaidAt).ThenBy(row => row.ProjectId),
+            "collectedInPeriod" => rows.OrderBy(row => row.CollectedInPeriod).ThenBy(row => row.ProjectId),
             _ => rows.OrderBy(row => row.ProjectCreatedAt).ThenBy(row => row.ProjectId)
         };
     }
@@ -932,6 +961,7 @@ public sealed partial class FinancialReadRepository : IFinancialReadRepository
             "orderRemainingAmount" => rows.OrderByDescending(row => row.OrderRemainingAmount).ThenByDescending(row => row.ProjectId),
             "totalProjectCashCollected" => rows.OrderByDescending(row => row.TotalProjectCashCollected).ThenByDescending(row => row.ProjectId),
             "lastPaidAt" => rows.OrderByDescending(row => row.LastPaidAt).ThenByDescending(row => row.ProjectId),
+            "collectedInPeriod" => rows.OrderByDescending(row => row.CollectedInPeriod).ThenByDescending(row => row.ProjectId),
             _ => rows.OrderByDescending(row => row.ProjectCreatedAt).ThenByDescending(row => row.ProjectId)
         };
     }

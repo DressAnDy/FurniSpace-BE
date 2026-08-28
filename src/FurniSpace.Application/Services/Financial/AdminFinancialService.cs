@@ -49,7 +49,8 @@ public sealed class AdminFinancialService : IAdminFinancialService
         "orderFinalTotal",
         "orderRemainingAmount",
         "totalProjectCashCollected",
-        "lastPaidAt"
+        "lastPaidAt",
+        "collectedInPeriod"
     ];
     private static readonly HashSet<string> PaymentSortFields =
     [
@@ -831,7 +832,9 @@ public sealed class AdminFinancialService : IAdminFinancialService
             ActivePaymentAmount = item.ActivePaymentAmount,
             ActivePaymentStatus = item.ActivePaymentStatus,
             TotalProjectCashCollected = item.TotalProjectCashCollected,
-            LastPaidAt = item.LastPaidAt
+            LastPaidAt = item.LastPaidAt,
+            CollectedInPeriod = item.CollectedInPeriod,
+            LastPaidInPeriod = item.LastPaidInPeriod
         };
     }
 

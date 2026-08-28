@@ -282,6 +282,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                     Status = pair.item.Status,
                     MaterialNote = pair.item.MaterialNote,
                     ProductionNote = pair.item.ProductionNote,
+                    CancellationReason = pair.item.CancellationReason,
                     StartedAt = pair.item.StartedAt,
                     CompletedAt = pair.item.CompletedAt,
                     OrderItemStatus = orderItem == null ? null : orderItem.Status
@@ -445,5 +446,83 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         return !current.HasValue || candidate.Value > current.Value
             ? candidate
             : current;
+    }
+
+    public Task<IReadOnlyList<ProductionUnavailableItemReadModel>> GetUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildUnavailableItemsQuery(query)
+            .OrderByDescending(item => item.CompletedAt)
+            .ThenByDescending(item => item.ProductionItemId)
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken)
+            .ContinueWith<IReadOnlyList<ProductionUnavailableItemReadModel>>(
+                task => task.Result,
+                cancellationToken);
+    }
+
+    public Task<int> CountUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildUnavailableItemsQuery(query).CountAsync(cancellationToken);
+    }
+
+    private IQueryable<ProductionUnavailableItemReadModel> BuildUnavailableItemsQuery(
+        ProductionUnavailableItemsQueryReadModel query)
+    {
+        var rows = from item in DbContext.ProductionItemSet.AsNoTracking()
+                   where item.Status == ProductionItemStatus.CANCELLED
+                   join request in DbContext.ProductionRequestSet.AsNoTracking()
+                       on item.ProductionRequestId equals request.ProductionRequestId
+                   join project in DbContext.ProjectSet.AsNoTracking()
+                       on request.ProjectId equals project.ProjectId
+                   join order in DbContext.OrderSet.AsNoTracking()
+                       on request.OrderId equals order.OrderId
+                   join assignee in DbContext.AccountSet.AsNoTracking()
+                       on request.AssignedTo equals assignee.AccountId into assignees
+                   from assignee in assignees.DefaultIfEmpty()
+                   select new ProductionUnavailableItemReadModel
+                   {
+                       ProductionItemId = item.ProductionItemId,
+                       ProductionRequestId = request.ProductionRequestId,
+                       ProductionCode = request.ProductionCode,
+                       ProjectId = project.ProjectId,
+                       ProjectCode = project.ProjectCode,
+                       ProjectName = project.ProjectName,
+                       OrderId = order.OrderId,
+                       OrderCode = order.OrderCode,
+                       AssignedTo = request.AssignedTo,
+                       AssignedToName = assignee != null ? assignee.FullName : null,
+                       OrderItemId = item.OrderItemId,
+                       ProductNameSnapshot = item.ProductNameSnapshot,
+                       ProductVersionNameSnapshot = item.ProductVersionNameSnapshot,
+                       Quantity = item.Quantity,
+                       Status = item.Status.ToString() ?? ProductionItemStatus.CANCELLED.ToString(),
+                       CancellationReason = item.CancellationReason,
+                       CompletedAt = item.CompletedAt
+                   };
+
+        if (query.AssignedTo.HasValue)
+        {
+            rows = rows.Where(item => item.AssignedTo == query.AssignedTo.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Keyword))
+        {
+            var keyword = query.Keyword.Trim();
+            rows = rows.Where(item =>
+                (item.ProductionCode != null && item.ProductionCode.Contains(keyword)) ||
+                (item.ProjectCode != null && item.ProjectCode.Contains(keyword)) ||
+                item.ProjectName.Contains(keyword) ||
+                (item.OrderCode != null && item.OrderCode.Contains(keyword)) ||
+                (item.ProductNameSnapshot != null && item.ProductNameSnapshot.Contains(keyword)) ||
+                (item.ProductVersionNameSnapshot != null && item.ProductVersionNameSnapshot.Contains(keyword)) ||
+                (item.CancellationReason != null && item.CancellationReason.Contains(keyword)));
+        }
+
+        return rows;
     }
 }

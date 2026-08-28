@@ -53,4 +53,12 @@ public interface IProductionRequestService
     {
         return Task.FromResult(ServiceResult<ProductionCompletionDto>.Unauthorized());
     }
+
+    Task<ServiceResult<ProductionUnavailableItemsResponseDto>> GetUnavailableItemsAsync(
+        Guid currentUserId,
+        ProductionUnavailableItemsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<ProductionUnavailableItemsResponseDto>.Unauthorized());
+    }
 }

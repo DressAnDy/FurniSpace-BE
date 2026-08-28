@@ -266,6 +266,72 @@ public sealed class ProductionRequestRepositoryTests
         Assert.False(hasCompleted);
     }
 
+    [Fact]
+    public async Task GetUnavailableItemsAsync_ReturnsCancelledItemsWithFilters()
+    {
+        await using var context = CreateContext();
+        var staffId = Guid.NewGuid();
+        var otherStaffId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        var cancelledItemId = Guid.NewGuid();
+        context.ProjectSet.Add(CreateProject(projectId, salesId));
+        context.OrderSet.Add(CreateOrder(orderId, projectId, salesId));
+        context.ProductionRequestSet.Add(new ProductionRequest
+        {
+            ProductionRequestId = requestId,
+            OrderId = orderId,
+            ProjectId = projectId,
+            ProductionCode = "PRD-CANCEL",
+            AssignedTo = staffId,
+            Status = ProductionRequestStatus.IN_PRODUCTION,
+            CreatedAt = DateTime.UtcNow
+        });
+        context.ProductionItemSet.AddRange(
+            new ProductionItem
+            {
+                ProductionItemId = cancelledItemId,
+                ProductionRequestId = requestId,
+                OrderItemId = Guid.NewGuid(),
+                ProductVersionId = Guid.NewGuid(),
+                ProductNameSnapshot = "Counter",
+                Quantity = 1,
+                Status = ProductionItemStatus.CANCELLED,
+                CancellationReason = "Material unavailable",
+                CompletedAt = DateTime.UtcNow.AddDays(-1)
+            },
+            new ProductionItem
+            {
+                ProductionItemId = Guid.NewGuid(),
+                ProductionRequestId = requestId,
+                OrderItemId = Guid.NewGuid(),
+                ProductVersionId = Guid.NewGuid(),
+                ProductNameSnapshot = "Chair",
+                Quantity = 1,
+                Status = ProductionItemStatus.IN_PRODUCTION
+            });
+        await context.SaveChangesAsync();
+        var repository = new ProductionRequestRepository(context);
+        var query = new FurniSpace.Infrastructure.ReadModels.Production.ProductionUnavailableItemsQueryReadModel
+        {
+            Keyword = "Material",
+            AssignedTo = staffId,
+            Page = 1,
+            PageSize = 10
+        };
+
+        var items = await repository.GetUnavailableItemsAsync(query);
+        var total = await repository.CountUnavailableItemsAsync(query);
+
+        Assert.Equal(1, total);
+        var item = Assert.Single(items);
+        Assert.Equal(cancelledItemId, item.ProductionItemId);
+        Assert.Equal("Material unavailable", item.CancellationReason);
+        Assert.Equal("PRD-CANCEL", item.ProductionCode);
+    }
+
     private static AppDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()

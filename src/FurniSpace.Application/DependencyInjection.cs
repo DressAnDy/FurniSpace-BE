@@ -132,6 +132,7 @@ public static class DependencyInjection
         });
         services.AddScoped<ILayoutAssetService, LayoutAssetService>();
         services.AddScoped<IAdminFinancialService, AdminFinancialService>();
+        services.AddScoped<IAdminFinancialDiscountService, AdminFinancialDiscountService>();
         services.AddScoped<IDashboardQueueService, DashboardQueueService>();
         services.AddScoped<ICategoryService, CategoryService>();
         services.AddScoped<IProductService, ProductService>();
@@ -292,6 +293,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<IOptions<FileUploadSettings>>(),
                 sp.GetRequiredService<IOptions<FirebaseStorageSettings>>()));
         services.AddScoped<IProjectReviewConsentService, ProjectReviewConsentService>();
+        services.AddScoped<IProjectReviewService, ProjectReviewService>();
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();
         services.AddScoped<IProjectAreaService, ProjectAreaService>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepositoryAdapter>();

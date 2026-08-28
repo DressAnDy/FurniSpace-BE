@@ -1,8 +1,9 @@
+using FurniSpace.Domain.Common;
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Infrastructure.ReadModels.Financial;
 
-public sealed class AdminFinancialProjectRowReadModel
+public sealed class AdminFinancialProjectRowReadModel : AdminFinancialProjectPeriodCollectionShape
 {
     public Guid ProjectId { get; set; }
     public string? ProjectCode { get; set; }

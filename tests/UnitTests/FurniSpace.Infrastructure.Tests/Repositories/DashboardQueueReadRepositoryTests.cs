@@ -236,8 +236,10 @@ public sealed class DashboardQueueReadRepositoryTests
 
         Assert.True(kpis.InProduction >= 1);
         Assert.True(kpis.PendingReview >= 1);
+        Assert.Equal(kpis.PendingStart, kpis.PendingReview);
         Assert.Equal(0, kpis.ReadyToComplete);
         Assert.True(kpis.OverdueTasks >= 1);
+        Assert.Equal(0, kpis.PendingCustomizationReview);
     }
 
     [Fact]

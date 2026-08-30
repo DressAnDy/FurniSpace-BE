@@ -1,8 +1,25 @@
 namespace FurniSpace.Application.DTOs.Dashboard;
 
+public sealed class DashboardQueueItemLinksDto
+{
+    public Guid? VersionId { get; set; }
+
+    public Guid? CustomizationRequestId { get; set; }
+
+    public Guid? ProjectId { get; set; }
+
+    public Guid? ProductionRequestId { get; set; }
+
+    public Guid? OrderId { get; set; }
+}
+
 public sealed class DashboardQueueItemDto
 {
     public string Id { get; set; } = string.Empty;
+
+    public string? WorkType { get; set; }
+
+    public string? EntityId { get; set; }
 
     public Guid ProjectId { get; set; }
 
@@ -25,6 +42,8 @@ public sealed class DashboardQueueItemDto
     public string Action { get; set; } = string.Empty;
 
     public string ActionPath { get; set; } = string.Empty;
+
+    public DashboardQueueItemLinksDto? Links { get; set; }
 
     public DateTime? DueAt { get; set; }
 

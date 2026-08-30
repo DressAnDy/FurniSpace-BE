@@ -197,7 +197,7 @@ public sealed class DashboardQueueServiceTests
     [Theory]
     [InlineData("scope", "invalid")]
     [InlineData("dateRange", "yesterday")]
-    [InlineData("priority", "URGENT")]
+    [InlineData("priority", "CRITICAL")]
     public async Task GetSalesActionQueueAsync_InvalidFilters_ReturnsBadRequest(string field, string value)
     {
         var query = new DashboardQueueQueryDto();
@@ -333,10 +333,15 @@ public sealed class DashboardQueueServiceTests
             {
                 ProductionKpis = new ProductionDashboardKpisReadModel
                 {
+                    PendingCustomizationReview = 5,
+                    PendingStart = 1,
                     PendingReview = 1,
                     InProduction = 2,
                     ReadyToComplete = 3,
-                    OverdueTasks = 4
+                    OverdueTasks = 4,
+                    ReadyForDelivery = 6,
+                    AwaitingDeliverySchedule = 7,
+                    CompletedInRange = 8
                 }
             },
             new FakeProjectRepository { RoleName = "PRODUCTION" });
@@ -344,10 +349,15 @@ public sealed class DashboardQueueServiceTests
         var result = await service.GetProductionKpisAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
 
         Assert.Equal(200, result.Status);
-        Assert.Equal(1, result.Data!.PendingReview);
+        Assert.Equal(5, result.Data!.PendingCustomizationReview);
+        Assert.Equal(1, result.Data.PendingStart);
+        Assert.Equal(1, result.Data.PendingReview);
         Assert.Equal(2, result.Data.InProduction);
         Assert.Equal(3, result.Data.ReadyToComplete);
         Assert.Equal(4, result.Data.OverdueTasks);
+        Assert.Equal(6, result.Data.ReadyForDelivery);
+        Assert.Equal(7, result.Data.AwaitingDeliverySchedule);
+        Assert.Equal(8, result.Data.CompletedInRange);
     }
 
     [Fact]
@@ -378,6 +388,8 @@ public sealed class DashboardQueueServiceTests
         Assert.Equal(200, result.Status);
         Assert.Equal("HIGH", result.Data!.Items[0].Priority);
         Assert.Equal("OVERDUE", result.Data.Items[0].DueBucket);
+        Assert.Equal("PRODUCTION_REQUEST", result.Data.Items[0].WorkType);
+        Assert.NotNull(result.Data.Items[0].Links);
     }
 
     [Fact]
@@ -591,6 +603,20 @@ public sealed class DashboardQueueServiceTests
             DashboardQueueFilterReadModel filter,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ProductionRows);
+
+        public IReadOnlyList<DashboardProductionCustomizationQueueRowReadModel> CustomizationRows { get; init; } = [];
+
+        public IReadOnlyList<DashboardProductionDeliveryQueueRowReadModel> DeliveryRows { get; init; } = [];
+
+        public Task<IReadOnlyList<DashboardProductionCustomizationQueueRowReadModel>> GetProductionCustomizationQueueRowsAsync(
+            DashboardQueueFilterReadModel filter,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(CustomizationRows);
+
+        public Task<IReadOnlyList<DashboardProductionDeliveryQueueRowReadModel>> GetProductionDeliveryQueueRowsAsync(
+            DashboardQueueFilterReadModel filter,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(DeliveryRows);
 
         public Task<ProductionDashboardKpisReadModel> GetProductionKpisAsync(
             DashboardQueueFilterReadModel filter,

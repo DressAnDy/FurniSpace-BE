@@ -10,6 +10,15 @@ public sealed class DashboardQueueQueryDto
 
     public string? Priority { get; set; }
 
+    /// <summary>CUSTOMIZATION_REVIEW | PRODUCTION_REQUEST | DELIVERY</summary>
+    public string? WorkType { get; set; }
+
+    /// <summary>Status filter; semantics depend on <see cref="WorkType"/>.</summary>
+    public string? Status { get; set; }
+
+    /// <summary>OVERDUE | TODAY | THIS_WEEK | LATER</summary>
+    public string? DueBucket { get; set; }
+
     public string? Search { get; set; }
 
     public int Page { get; set; } = 1;

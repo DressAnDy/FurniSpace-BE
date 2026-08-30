@@ -7,6 +7,12 @@ public sealed class DashboardQueueResponseDto
     public IReadOnlyDictionary<string, int> CountsByGroup { get; set; } =
         new Dictionary<string, int>(StringComparer.Ordinal);
 
+    public IReadOnlyDictionary<string, int> CountsByWorkType { get; set; } =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+
+    public IReadOnlyDictionary<string, int> CountsByStatus { get; set; } =
+        new Dictionary<string, int>(StringComparer.Ordinal);
+
     public int Page { get; set; }
 
     public int Limit { get; set; }

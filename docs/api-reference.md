@@ -3084,9 +3084,12 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 | `scope` | `mine` (default), `team`, `all` (`all` meaningful for ADMIN) |
 | `group` | Queue tab filter (e.g. `Intake`, `Design`, `Proposal and Quotation`, `Order and Payment`, `Delivery`, `Production`) |
 | `dateRange` | `today`, `thisWeek`, `thisMonth` (on derived due date; null due still included) |
-| `priority` | `HIGH`, `MEDIUM`, `LOW` |
+| `priority` | `HIGH`, `MEDIUM`, `LOW` (+ `URGENT` on Production queue) |
 | `search` | Project code/name or customer name |
 | `page`, `limit` | Default `1` / `20`, max `100` |
+| `workType` | Production queue only: `CUSTOMIZATION_REVIEW` \| `PRODUCTION_REQUEST` \| `DELIVERY` |
+| `status` | Production queue: status theo `workType` (xem `docs/api-spec-production-dashboard.md`) |
+| `dueBucket` | Production queue: `OVERDUE` \| `TODAY` \| `THIS_WEEK` \| `LATER` |
 
 ### Queue response
 
@@ -3121,7 +3124,7 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 
 `dueBucket`: `OVERDUE` | `TODAY` | `THIS_WEEK` | `LATER` (null when no due date).
 
-Sales next-action uses project status plus latest non-cancelled order (deposit / remaining payment / delivery confirm). Designer queue is status-first for design-active work. Production queue wraps active production requests (`PENDING`, `IN_PRODUCTION`).
+Sales next-action uses project status plus latest non-cancelled order (deposit / remaining payment / delivery confirm). Designer queue is status-first for design-active work. Production queue wraps production requests, customization reviews (`scope=all`), and delivery work from `READY_FOR_DELIVERY`.
 
 ### KPI responses
 
@@ -3129,23 +3132,23 @@ Sales next-action uses project status plus latest non-cancelled order (deposit /
 
 **Designer:** `measurementDue`, `proposalsInProgress`, `revisionRequested`, `overdueTasks`
 
-**Production:** `pendingReview`, `inProduction`, `readyToComplete`, `overdueTasks`
-`pendingReview` now counts production requests in `PENDING`. `readyToComplete` is legacy and remains `0` in the simplified production lifecycle.
+**Production:** `pendingCustomizationReview`, `pendingStart`, `pendingReview` (alias of `pendingStart`), `inProduction`, `readyToComplete`, `overdueTasks`, `readyForDelivery`, `awaitingDeliverySchedule`, `completedInRange`. Default `scope=mine`. Customization KPI chỉ khi `scope=all`. Không có `unavailableItems` đợt này. Chi tiết: `docs/api-spec-production-dashboard.md`.
 
 KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local).
 
 ### Project phase deadline risks
 
-Read-only dashboard endpoint for Sales/Admin/Designer/Production to see proposal and production phase timelines stored in **`project_phase_timelines`** (API route `/projects/{id}/phase-deadlines`). Does not infer deadlines from hardcoded SLA values and does not use the project-wide `targetCompletionDate` KPI.
+Read-only dashboard endpoint for Sales/Admin/Designer/Production to see proposal and production phase timelines stored in **`project_phase_timelines`** (API route `/projects/{id}/phase-deadlines`). Does not infer deadlines from hardcoded SLA values and does not use the project-wide `targetCompletionDate` KPI. Delivery timing uses `ProjectSchedule.DELIVERY.ScheduledEnd` (queue), not `phase=DELIVERY` on this endpoint.
 
 **Query params**
 
 | Param | Values / notes |
 | --- | --- |
-| `phase` | optional `PROPOSAL` or `PRODUCTION` |
+| `phase` | optional `PROPOSAL` or `PRODUCTION` (`DELIVERY` → 400) |
 | `status` | optional `OVERDUE`, `ON_TRACK`, `COMPLETED_ON_TIME`, `COMPLETED_LATE` |
 | `salesId` | optional assigned Sales filter |
 | `designerId` | optional assigned Designer filter |
+| `productionId` | optional ProductionRequest assignee filter |
 | `from`, `to` | optional due-date range, inclusive, `yyyy-MM-dd` |
 | `page`, `limit` | default `1` / `20`, max `100` |
 

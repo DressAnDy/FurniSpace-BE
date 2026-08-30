@@ -25,6 +25,8 @@ public sealed class ProjectPhaseDeadlineRiskQueryReadModel
 
     public Guid? DesignerId { get; init; }
 
+    public Guid? ProductionId { get; init; }
+
     public DateOnly? From { get; init; }
 
     public DateOnly? To { get; init; }
@@ -106,6 +108,8 @@ public sealed class DashboardProductionQueueRowReadModel
 
     public Guid ProjectId { get; init; }
 
+    public Guid OrderId { get; init; }
+
     public string? ProjectCode { get; init; }
 
     public string ProjectName { get; init; } = string.Empty;
@@ -123,6 +127,60 @@ public sealed class DashboardProductionQueueRowReadModel
     public DateOnly? ProductionDeadline { get; init; }
 
     public int BlockedItemCount { get; init; }
+
+    public bool AllItemsTerminal { get; init; }
+
+    public DateTime? UpdatedAt { get; init; }
+
+    public DateTime? CreatedAt { get; init; }
+}
+
+public sealed class DashboardProductionCustomizationQueueRowReadModel
+{
+    public Guid VersionId { get; init; }
+
+    public Guid CustomizationRequestId { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public string? VersionTitle { get; init; }
+
+    public bool? MaterialAvailable { get; init; }
+
+    public DateTime? SubmittedForReviewAt { get; init; }
+
+    public DateTime UpdatedAt { get; init; }
+}
+
+public sealed class DashboardProductionDeliveryQueueRowReadModel
+{
+    public Guid OrderId { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public Guid? ProductionRequestId { get; init; }
+
+    public Guid? AssignedTo { get; init; }
+
+    public string? AssignedToName { get; init; }
+
+    public OrderStatus OrderStatus { get; init; }
+
+    public string DeliveryQueueStatus { get; init; } = string.Empty;
+
+    public DateTime? ScheduledEnd { get; init; }
 
     public DateTime? UpdatedAt { get; init; }
 
@@ -155,6 +213,10 @@ public sealed class DesignerDashboardKpisReadModel
 
 public sealed class ProductionDashboardKpisReadModel
 {
+    public int PendingCustomizationReview { get; init; }
+
+    public int PendingStart { get; init; }
+
     public int PendingReview { get; init; }
 
     public int InProduction { get; init; }
@@ -162,4 +224,10 @@ public sealed class ProductionDashboardKpisReadModel
     public int ReadyToComplete { get; init; }
 
     public int OverdueTasks { get; init; }
+
+    public int ReadyForDelivery { get; init; }
+
+    public int AwaitingDeliverySchedule { get; init; }
+
+    public int CompletedInRange { get; init; }
 }

@@ -13,6 +13,8 @@ public sealed class DashboardDtoCoverageTests
         var item = new DashboardQueueItemDto
         {
             Id = "1",
+            WorkType = "PRODUCTION_REQUEST",
+            EntityId = "1",
             ProjectId = Guid.NewGuid(),
             ProjectCode = "P",
             ProjectName = "N",
@@ -24,6 +26,7 @@ public sealed class DashboardDtoCoverageTests
             Priority = "HIGH",
             Action = "Review",
             ActionPath = "/projects/1",
+            Links = new DashboardQueueItemLinksDto { ProjectId = Guid.NewGuid() },
             DueAt = DateTime.UtcNow,
             DueBucket = "TODAY",
             Warning = "w",
@@ -33,6 +36,8 @@ public sealed class DashboardDtoCoverageTests
         {
             Items = [item],
             CountsByGroup = new Dictionary<string, int> { ["Intake"] = 1 },
+            CountsByWorkType = new Dictionary<string, int> { ["PRODUCTION_REQUEST"] = 1 },
+            CountsByStatus = new Dictionary<string, int> { ["SUBMITTED"] = 1 },
             Page = 1,
             Limit = 20,
             Total = 1
@@ -43,6 +48,9 @@ public sealed class DashboardDtoCoverageTests
             Group = "Intake",
             DateRange = "today",
             Priority = "HIGH",
+            WorkType = "PRODUCTION_REQUEST",
+            Status = "PENDING",
+            DueBucket = "OVERDUE",
             Search = "x",
             Page = 2,
             Limit = 10
@@ -64,10 +72,15 @@ public sealed class DashboardDtoCoverageTests
         };
         var productionKpis = new ProductionDashboardKpisDto
         {
+            PendingCustomizationReview = 0,
+            PendingStart = 1,
             PendingReview = 1,
             InProduction = 2,
             ReadyToComplete = 3,
-            OverdueTasks = 4
+            OverdueTasks = 4,
+            ReadyForDelivery = 5,
+            AwaitingDeliverySchedule = 6,
+            CompletedInRange = 7
         };
 
         Assert.Equal(1, queue.Total);
@@ -75,6 +88,8 @@ public sealed class DashboardDtoCoverageTests
         Assert.Equal(5, salesKpis.ActiveProjects);
         Assert.Equal(4, designerKpis.OverdueTasks);
         Assert.Equal(3, productionKpis.ReadyToComplete);
+        Assert.Equal(1, productionKpis.PendingStart);
         Assert.Equal("HIGH", item.Priority);
+        Assert.Equal("PRODUCTION_REQUEST", item.WorkType);
     }
 }

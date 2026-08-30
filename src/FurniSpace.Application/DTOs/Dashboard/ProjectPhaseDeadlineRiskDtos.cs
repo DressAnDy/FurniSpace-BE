@@ -12,6 +12,8 @@ public sealed class ProjectPhaseDeadlineRiskQueryDto
 
     public Guid? DesignerId { get; set; }
 
+    public Guid? ProductionId { get; set; }
+
     public DateOnly? From { get; set; }
 
     public DateOnly? To { get; set; }

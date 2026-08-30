@@ -24,6 +24,14 @@ public interface IDashboardQueueReadRepository
         DashboardQueueFilterReadModel filter,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<DashboardProductionCustomizationQueueRowReadModel>> GetProductionCustomizationQueueRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<DashboardProductionDeliveryQueueRowReadModel>> GetProductionDeliveryQueueRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default);
+
     Task<ProductionDashboardKpisReadModel> GetProductionKpisAsync(
         DashboardQueueFilterReadModel filter,
         CancellationToken cancellationToken = default);

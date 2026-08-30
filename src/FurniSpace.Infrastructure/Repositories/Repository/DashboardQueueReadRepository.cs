@@ -38,6 +38,19 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         ProductionRequestStatus.IN_PRODUCTION
     ];
 
+    private static readonly OrderStatus[] DeliveryActiveOrderStatuses =
+    [
+        OrderStatus.READY_FOR_DELIVERY,
+        OrderStatus.DELIVERING,
+        OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
+    ];
+
+    private static readonly ProductionItemStatus[] TerminalProductionItemStatuses =
+    [
+        ProductionItemStatus.COMPLETED,
+        ProductionItemStatus.CANCELLED
+    ];
+
     private readonly AppDbContext _db;
 
     public DashboardQueueReadRepository(AppDbContext db)
@@ -150,8 +163,27 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         DashboardQueueFilterReadModel filter,
         CancellationToken cancellationToken = default)
     {
-        var query = BuildProductionQuery(filter);
+        var query = BuildProductionQuery(filter, applyDateRange: true);
         return await ProjectProductionRows(query).ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DashboardProductionCustomizationQueueRowReadModel>> GetProductionCustomizationQueueRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsScopeAll(filter.Scope))
+        {
+            return Array.Empty<DashboardProductionCustomizationQueueRowReadModel>();
+        }
+
+        return await BuildCustomizationQueueQuery(filter).ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DashboardProductionDeliveryQueueRowReadModel>> GetProductionDeliveryQueueRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildDeliveryQueueQuery(filter).ToListAsync(cancellationToken);
     }
 
     public async Task<ProductionDashboardKpisReadModel> GetProductionKpisAsync(
@@ -159,26 +191,73 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         CancellationToken cancellationToken = default)
     {
         var today = DateOnly.FromDateTime(filter.UtcNow);
-        var requests = BuildProductionQuery(filter);
+        var activeRequests = BuildProductionQuery(filter, applyDateRange: false);
+
+        var pendingStart = await activeRequests.CountAsync(
+            request => request.Status == ProductionRequestStatus.PENDING,
+            cancellationToken);
+
+        var inProduction = await activeRequests.CountAsync(
+            request => request.Status == ProductionRequestStatus.IN_PRODUCTION,
+            cancellationToken);
+
+        var readyToComplete = await activeRequests.CountAsync(
+            request =>
+                request.Status == ProductionRequestStatus.IN_PRODUCTION &&
+                _db.ProductionItemSet.Any(item =>
+                    item.ProductionRequestId == request.ProductionRequestId) &&
+                !_db.ProductionItemSet.Any(item =>
+                    item.ProductionRequestId == request.ProductionRequestId &&
+                    (item.Status == null ||
+                     !TerminalProductionItemStatuses.Contains(item.Status.Value))),
+            cancellationToken);
+
+        var overdueTasks = await activeRequests.CountAsync(
+            request =>
+                _db.ProjectPhaseTimelineSet.Any(timeline =>
+                    timeline.ProjectId == request.ProjectId &&
+                    timeline.Phase == ProjectPhaseType.PRODUCTION &&
+                    timeline.DueDate < today &&
+                    timeline.CompletedAt == null),
+            cancellationToken);
+
+        var deliveryOrders = BuildDeliveryOrderQuery(filter);
+        var readyForDelivery = await deliveryOrders.CountAsync(cancellationToken);
+        var awaitingDeliverySchedule = await deliveryOrders.CountAsync(
+            order =>
+                order.Status == OrderStatus.READY_FOR_DELIVERY &&
+                !_db.ProjectScheduleSet.Any(schedule =>
+                    schedule.ProjectId == order.ProjectId &&
+                    schedule.ScheduleType == ProjectScheduleType.DELIVERY &&
+                    schedule.Status != null &&
+                    schedule.Status != ProjectScheduleStatus.CANCELLED),
+            cancellationToken);
+
+        var pendingCustomizationReview = 0;
+        if (IsScopeAll(filter.Scope))
+        {
+            pendingCustomizationReview = await _db.CustomizationRequestVersionSet.CountAsync(
+                version =>
+                    version.Status == CustomizationVersionStatus.REVIEWING &&
+                    version.FeasibilityStatus == ProductionFeasibilityStatus.PENDING &&
+                    version.SubmittedForReviewAt != null,
+                cancellationToken);
+        }
+
+        var completedQuery = BuildCompletedProductionQuery(filter);
+        var completedInRange = await completedQuery.CountAsync(cancellationToken);
 
         return new ProductionDashboardKpisReadModel
         {
-            PendingReview = await requests.CountAsync(
-                request => request.Status == ProductionRequestStatus.PENDING,
-                cancellationToken),
-            InProduction = await requests.CountAsync(
-                request => request.Status == ProductionRequestStatus.IN_PRODUCTION,
-                cancellationToken),
-            ReadyToComplete = await requests.CountAsync(
-                request => false,
-                cancellationToken),
-            OverdueTasks = await requests.CountAsync(
-                request =>
-                    _db.ProjectPhaseTimelineSet.Any(timeline =>
-                        timeline.ProjectId == request.ProjectId &&
-                        timeline.Phase == ProjectPhaseType.PRODUCTION &&
-                        timeline.DueDate < today),
-                cancellationToken)
+            PendingCustomizationReview = pendingCustomizationReview,
+            PendingStart = pendingStart,
+            PendingReview = pendingStart,
+            InProduction = inProduction,
+            ReadyToComplete = readyToComplete,
+            OverdueTasks = overdueTasks,
+            ReadyForDelivery = readyForDelivery,
+            AwaitingDeliverySchedule = awaitingDeliverySchedule,
+            CompletedInRange = completedInRange
         };
     }
 
@@ -236,7 +315,8 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
     }
 
     private IQueryable<Domain.Entities.ProductionRequest> BuildProductionQuery(
-        DashboardQueueFilterReadModel filter)
+        DashboardQueueFilterReadModel filter,
+        bool applyDateRange)
     {
         var requests = _db.ProductionRequestSet
             .Where(request =>
@@ -245,8 +325,205 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
 
         requests = ApplyProductionScope(requests, filter);
         requests = ApplyProductionSearch(requests, filter.Search);
-        requests = ApplyProductionDateRange(requests, filter.DateRange, filter.UtcNow);
+        if (applyDateRange)
+        {
+            requests = ApplyProductionDateRange(requests, filter.DateRange, filter.UtcNow);
+        }
+
         return requests;
+    }
+
+    private IQueryable<Domain.Entities.ProductionRequest> BuildCompletedProductionQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var requests = _db.ProductionRequestSet
+            .Where(request => request.Status == ProductionRequestStatus.COMPLETED);
+
+        requests = ApplyProductionScope(requests, filter);
+        requests = ApplyProductionSearch(requests, filter.Search);
+
+        if (string.IsNullOrWhiteSpace(filter.DateRange))
+        {
+            return requests.Where(request => request.ActualCompletionDate != null);
+        }
+
+        var today = DateOnly.FromDateTime(filter.UtcNow);
+        var range = filter.DateRange.Trim();
+        if (string.Equals(range, "today", StringComparison.OrdinalIgnoreCase))
+        {
+            return requests.Where(request => request.ActualCompletionDate == today);
+        }
+
+        if (string.Equals(range, "thisWeek", StringComparison.OrdinalIgnoreCase))
+        {
+            var start = today.AddDays(-(int)today.DayOfWeek);
+            var end = start.AddDays(6);
+            return requests.Where(request =>
+                request.ActualCompletionDate >= start &&
+                request.ActualCompletionDate <= end);
+        }
+
+        if (string.Equals(range, "thisMonth", StringComparison.OrdinalIgnoreCase))
+        {
+            return requests.Where(request =>
+                request.ActualCompletionDate.HasValue &&
+                request.ActualCompletionDate.Value.Year == today.Year &&
+                request.ActualCompletionDate.Value.Month == today.Month);
+        }
+
+        return requests.Where(request => request.ActualCompletionDate != null);
+    }
+
+    private IQueryable<Domain.Entities.Order> BuildDeliveryOrderQuery(DashboardQueueFilterReadModel filter)
+    {
+        var orders = _db.OrderSet
+            .Where(order =>
+                order.Status != null &&
+                DeliveryActiveOrderStatuses.Contains(order.Status.Value));
+
+        var scope = NormalizeScope(filter.Scope);
+        if (string.Equals(scope, "mine", StringComparison.OrdinalIgnoreCase))
+        {
+            orders = orders.Where(order =>
+                _db.ProductionRequestSet.Any(request =>
+                    request.OrderId == order.OrderId &&
+                    request.AssignedTo == filter.CurrentUserId));
+        }
+
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var pattern = $"%{filter.Search.Trim()}%";
+            orders = orders.Where(order =>
+                _db.ProjectSet.Any(project =>
+                    project.ProjectId == order.ProjectId &&
+                    (EF.Functions.ILike(project.ProjectName, pattern) ||
+                     (project.ProjectCode != null && EF.Functions.ILike(project.ProjectCode, pattern)) ||
+                     _db.AccountSet.Any(account =>
+                         account.AccountId == project.CustomerId &&
+                         EF.Functions.ILike(account.FullName, pattern)))));
+        }
+
+        return orders;
+    }
+
+    private IQueryable<DashboardProductionCustomizationQueueRowReadModel> BuildCustomizationQueueQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var query =
+            from version in _db.CustomizationRequestVersionSet
+            join request in _db.CustomizationRequestSet
+                on version.CustomizationRequestId equals request.CustomizationRequestId
+            join project in _db.ProjectSet on request.ProjectId equals project.ProjectId
+            where version.Status == CustomizationVersionStatus.REVIEWING &&
+                  version.FeasibilityStatus == ProductionFeasibilityStatus.PENDING &&
+                  version.SubmittedForReviewAt != null
+            select new DashboardProductionCustomizationQueueRowReadModel
+            {
+                VersionId = version.CustomizationRequestVersionId,
+                CustomizationRequestId = version.CustomizationRequestId,
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                CustomerName = _db.AccountSet
+                    .Where(account => account.AccountId == project.CustomerId)
+                    .Select(account => account.FullName)
+                    .FirstOrDefault() ?? string.Empty,
+                VersionTitle = version.VersionTitle,
+                MaterialAvailable = version.MaterialAvailable,
+                SubmittedForReviewAt = version.SubmittedForReviewAt,
+                UpdatedAt = version.UpdatedAt
+            };
+
+        if (!string.IsNullOrWhiteSpace(filter.Search))
+        {
+            var pattern = $"%{filter.Search.Trim()}%";
+            query = query.Where(row =>
+                EF.Functions.ILike(row.ProjectName, pattern) ||
+                (row.ProjectCode != null && EF.Functions.ILike(row.ProjectCode, pattern)) ||
+                EF.Functions.ILike(row.CustomerName, pattern));
+        }
+
+        return query
+            .OrderByDescending(row => row.SubmittedForReviewAt ?? row.UpdatedAt)
+            .ThenByDescending(row => row.VersionId);
+    }
+
+    private IQueryable<DashboardProductionDeliveryQueueRowReadModel> BuildDeliveryQueueQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var orders = BuildDeliveryOrderQuery(filter);
+
+        return orders
+            .Select(order => new DashboardProductionDeliveryQueueRowReadModel
+            {
+                OrderId = order.OrderId,
+                ProjectId = order.ProjectId,
+                ProjectCode = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId)
+                    .Select(project => project.ProjectCode)
+                    .FirstOrDefault(),
+                ProjectName = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId)
+                    .Select(project => project.ProjectName)
+                    .FirstOrDefault() ?? string.Empty,
+                CustomerName = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId)
+                    .Join(
+                        _db.AccountSet,
+                        project => project.CustomerId,
+                        account => account.AccountId,
+                        (_, account) => account.FullName)
+                    .FirstOrDefault() ?? string.Empty,
+                ProductionRequestId = _db.ProductionRequestSet
+                    .Where(request => request.OrderId == order.OrderId)
+                    .OrderByDescending(request => request.UpdatedAt ?? request.CreatedAt)
+                    .ThenByDescending(request => request.ProductionRequestId)
+                    .Select(request => (Guid?)request.ProductionRequestId)
+                    .FirstOrDefault(),
+                AssignedTo = _db.ProductionRequestSet
+                    .Where(request => request.OrderId == order.OrderId && request.AssignedTo.HasValue)
+                    .OrderByDescending(request => request.UpdatedAt ?? request.CreatedAt)
+                    .ThenByDescending(request => request.ProductionRequestId)
+                    .Select(request => request.AssignedTo)
+                    .FirstOrDefault(),
+                AssignedToName = _db.ProductionRequestSet
+                    .Where(request => request.OrderId == order.OrderId && request.AssignedTo.HasValue)
+                    .OrderByDescending(request => request.UpdatedAt ?? request.CreatedAt)
+                    .ThenByDescending(request => request.ProductionRequestId)
+                    .Join(
+                        _db.AccountSet,
+                        request => request.AssignedTo,
+                        account => account.AccountId,
+                        (_, account) => account.FullName)
+                    .FirstOrDefault(),
+                OrderStatus = order.Status ?? OrderStatus.READY_FOR_DELIVERY,
+                DeliveryQueueStatus =
+                    order.Status == OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
+                        ? "AWAITING_CUSTOMER_CONFIRMATION"
+                        : _db.DeliverySet.Any(delivery =>
+                              delivery.OrderId == order.OrderId &&
+                              delivery.Status == DeliveryStatus.IN_PROGRESS)
+                            ? "IN_PROGRESS"
+                            : _db.ProjectScheduleSet.Any(schedule =>
+                                  schedule.ProjectId == order.ProjectId &&
+                                  schedule.ScheduleType == ProjectScheduleType.DELIVERY &&
+                                  schedule.Status == ProjectScheduleStatus.CONFIRMED)
+                                ? "SCHEDULED"
+                                : "AWAITING_SCHEDULE",
+                ScheduledEnd = _db.ProjectScheduleSet
+                    .Where(schedule =>
+                        schedule.ProjectId == order.ProjectId &&
+                        schedule.ScheduleType == ProjectScheduleType.DELIVERY &&
+                        schedule.Status != null &&
+                        schedule.Status != ProjectScheduleStatus.CANCELLED)
+                    .OrderByDescending(schedule => schedule.ScheduledEnd ?? schedule.ScheduledStart)
+                    .Select(schedule => schedule.ScheduledEnd)
+                    .FirstOrDefault(),
+                UpdatedAt = order.UpdatedAt,
+                CreatedAt = order.CreatedAt
+            })
+            .OrderByDescending(row => row.UpdatedAt ?? row.CreatedAt)
+            .ThenByDescending(row => row.OrderId);
     }
 
     private static IQueryable<Domain.Entities.ProductionRequest> ApplyProductionScope(
@@ -430,6 +707,7 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 ProductionRequestId = request.ProductionRequestId,
                 ProductionCode = request.ProductionCode,
                 ProjectId = request.ProjectId,
+                OrderId = request.OrderId,
                 ProjectCode = _db.ProjectSet
                     .Where(project => project.ProjectId == request.ProjectId)
                     .Select(project => project.ProjectCode)
@@ -464,6 +742,12 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 BlockedItemCount = _db.ProductionItemSet.Count(item =>
                     item.ProductionRequestId == request.ProductionRequestId &&
                     item.Status == ProductionItemStatus.CANCELLED),
+                AllItemsTerminal = _db.ProductionItemSet.Any(item =>
+                        item.ProductionRequestId == request.ProductionRequestId) &&
+                    !_db.ProductionItemSet.Any(item =>
+                        item.ProductionRequestId == request.ProductionRequestId &&
+                        (item.Status == null ||
+                         !TerminalProductionItemStatuses.Contains(item.Status.Value))),
                 UpdatedAt = request.UpdatedAt,
                 CreatedAt = request.CreatedAt
             });
@@ -477,7 +761,11 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
             from timeline in timelines
             join project in _db.ProjectSet on timeline.ProjectId equals project.ProjectId
             where (!query.SalesId.HasValue || project.AssignedSalesId == query.SalesId.Value) &&
-                  (!query.DesignerId.HasValue || project.AssignedDesignerId == query.DesignerId.Value)
+                  (!query.DesignerId.HasValue || project.AssignedDesignerId == query.DesignerId.Value) &&
+                  (!query.ProductionId.HasValue ||
+                   _db.ProductionRequestSet.Any(request =>
+                       request.ProjectId == project.ProjectId &&
+                       request.AssignedTo == query.ProductionId.Value))
             orderby timeline.DueDate, timeline.Phase, project.ProjectCode
             select new ProjectPhaseDeadlineRiskRowReadModel
             {
@@ -624,6 +912,11 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
     private static string NormalizeScope(string? scope)
     {
         return string.IsNullOrWhiteSpace(scope) ? "mine" : scope.Trim();
+    }
+
+    private static bool IsScopeAll(string? scope)
+    {
+        return string.Equals(NormalizeScope(scope), "all", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsAdmin(string? roleName)

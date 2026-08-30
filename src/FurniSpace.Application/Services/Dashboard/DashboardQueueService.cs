@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Dashboard;
 using FurniSpace.Application.Constants.Common;
+using FurniSpace.Application.Constants.Dashboard;
 using FurniSpace.Application.DTOs.Dashboard;
 using FurniSpace.Application.Interfaces.Dashboard;
 using FurniSpace.Domain.Enums;
@@ -134,14 +135,59 @@ public sealed class DashboardQueueService : IDashboardQueueService
             return prepared.Error;
         }
 
-        var rows = await _dashboard.GetProductionQueueRowsAsync(prepared.Filter!, cancellationToken);
-        var items = rows
-            .Select(row => MapProductionItem(row, prepared.UtcNow))
-            .Where(item => MatchesGroupAndPriority(item, prepared.Query!))
+        ArgumentNullException.ThrowIfNull(prepared.Query);
+        ArgumentNullException.ThrowIfNull(prepared.Filter);
+
+        var preparedQuery = prepared.Query;
+        var preparedFilter = prepared.Filter;
+
+        var workTypeError = ValidateProductionWorkType(preparedQuery.WorkType);
+        if (workTypeError is not null)
+        {
+            return workTypeError;
+        }
+
+        var dueBucketError = ValidateDueBucket(preparedQuery.DueBucket);
+        if (dueBucketError is not null)
+        {
+            return dueBucketError;
+        }
+
+        var items = new List<DashboardQueueItemDto>();
+        var includeCustomization = ShouldIncludeWorkType(preparedQuery.WorkType, WorkTypeCustomizationReview);
+        var includeProduction = ShouldIncludeWorkType(preparedQuery.WorkType, WorkTypeProductionRequest);
+        var includeDelivery = ShouldIncludeWorkType(preparedQuery.WorkType, WorkTypeDelivery);
+
+        if (includeProduction)
+        {
+            var rows = await _dashboard.GetProductionQueueRowsAsync(preparedFilter, cancellationToken);
+            items.AddRange(rows.Select(row => MapProductionRequestItem(row, prepared.UtcNow)));
+        }
+
+        if (includeCustomization)
+        {
+            var rows = await _dashboard.GetProductionCustomizationQueueRowsAsync(
+                preparedFilter,
+                cancellationToken);
+            items.AddRange(rows.Select(MapCustomizationItem));
+        }
+
+        if (includeDelivery)
+        {
+            var rows = await _dashboard.GetProductionDeliveryQueueRowsAsync(
+                preparedFilter,
+                cancellationToken);
+            items.AddRange(rows.Select(row => MapDeliveryItem(row, prepared.UtcNow)));
+        }
+
+        items = items
+            .Where(item => MatchesProductionQueueFilters(item, preparedQuery))
             .ToList();
 
+        items = SortProductionQueue(items);
+
         return ServiceResult<DashboardQueueResponseDto>.Success(
-            BuildQueueResponse(items, prepared.Query!),
+            BuildQueueResponse(items, preparedQuery),
             "Production queue retrieved successfully.");
     }
 
@@ -160,10 +206,15 @@ public sealed class DashboardQueueService : IDashboardQueueService
         return ServiceResult<ProductionDashboardKpisDto>.Success(
             new ProductionDashboardKpisDto
             {
+                PendingCustomizationReview = kpis.PendingCustomizationReview,
+                PendingStart = kpis.PendingStart,
                 PendingReview = kpis.PendingReview,
                 InProduction = kpis.InProduction,
                 ReadyToComplete = kpis.ReadyToComplete,
-                OverdueTasks = kpis.OverdueTasks
+                OverdueTasks = kpis.OverdueTasks,
+                ReadyForDelivery = kpis.ReadyForDelivery,
+                AwaitingDeliverySchedule = kpis.AwaitingDeliverySchedule,
+                CompletedInRange = kpis.CompletedInRange
             },
             "Production KPIs retrieved successfully.");
     }
@@ -228,7 +279,7 @@ public sealed class DashboardQueueService : IDashboardQueueService
         {
             return new PreparedRequest(
                 ServiceResult<DashboardQueueResponseDto>.BadRequest(
-                    "Priority must be HIGH, MEDIUM, or LOW."));
+                    "Priority must be URGENT, HIGH, MEDIUM, or LOW."));
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
@@ -303,6 +354,7 @@ public sealed class DashboardQueueService : IDashboardQueueService
             Phase = phase,
             SalesId = query.SalesId,
             DesignerId = query.DesignerId,
+            ProductionId = query.ProductionId,
             From = query.From,
             To = query.To
         };
@@ -379,12 +431,14 @@ public sealed class DashboardQueueService : IDashboardQueueService
         };
     }
 
-    private static DashboardQueueItemDto MapProductionItem(
+    private static DashboardQueueItemDto MapProductionRequestItem(
         DashboardProductionQueueRowReadModel row,
         DateTime utcNow)
     {
         var dueAt = DashboardDueHelper.ToDueAtUtc(row.ProductionDeadline);
         var dueBucket = DashboardDueHelper.ResolveDueBucket(dueAt, utcNow);
+        var isReadyToComplete = row.Status == ProductionRequestStatus.IN_PRODUCTION && row.AllItemsTerminal;
+        var queueStatus = isReadyToComplete ? StatusReadyToComplete : row.Status.ToString();
         var next = DashboardNextActionResolver.ResolveProduction(
             row.Status,
             row.ProductionRequestId,
@@ -402,23 +456,120 @@ public sealed class DashboardQueueService : IDashboardQueueService
             priority = PriorityHigh;
         }
 
+        var action = isReadyToComplete ? "Complete production request" : next.Action;
+        var warning = isReadyToComplete ? null : next.Warning;
+
         return new DashboardQueueItemDto
         {
             Id = row.ProductionRequestId.ToString("D"),
+            WorkType = WorkTypeProductionRequest,
+            EntityId = row.ProductionRequestId.ToString("D"),
             ProjectId = row.ProjectId,
             ProjectCode = row.ProjectCode,
             ProjectName = row.ProjectName,
             CustomerName = row.CustomerName,
             AssigneeName = row.AssignedToName,
             Group = next.Group,
-            Phase = next.Phase,
-            Status = row.Status.ToString(),
+            Phase = isReadyToComplete ? StatusReadyToComplete : next.Phase,
+            Status = queueStatus,
             Priority = priority,
-            Action = next.Action,
-            ActionPath = next.ActionPath,
+            Action = action,
+            ActionPath = DashboardActionPaths.ProductionRequest(row.ProductionRequestId),
+            Links = new DashboardQueueItemLinksDto
+            {
+                ProjectId = row.ProjectId,
+                ProductionRequestId = row.ProductionRequestId,
+                OrderId = row.OrderId
+            },
             DueAt = dueAt,
             DueBucket = dueBucket,
-            Warning = next.Warning,
+            Warning = warning,
+            LastUpdatedAt = DateTime.SpecifyKind(lastUpdated, DateTimeKind.Utc)
+        };
+    }
+
+    private static DashboardQueueItemDto MapCustomizationItem(
+        DashboardProductionCustomizationQueueRowReadModel row)
+    {
+        var lastUpdated = row.SubmittedForReviewAt ?? row.UpdatedAt;
+        return new DashboardQueueItemDto
+        {
+            Id = row.VersionId.ToString("D"),
+            WorkType = WorkTypeCustomizationReview,
+            EntityId = row.VersionId.ToString("D"),
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            CustomerName = row.CustomerName,
+            AssigneeName = null,
+            Group = GroupProduction,
+            Phase = PhaseCustomizationFeasibility,
+            Status = StatusReviewing,
+            Priority = PriorityHigh,
+            Action = "Review feasibility",
+            ActionPath = DashboardActionPaths.ProductionCustomizationReview(row.VersionId),
+            Links = new DashboardQueueItemLinksDto
+            {
+                VersionId = row.VersionId,
+                CustomizationRequestId = row.CustomizationRequestId,
+                ProjectId = row.ProjectId
+            },
+            DueAt = null,
+            DueBucket = null,
+            Warning = row.MaterialAvailable == false ? "Material TBD" : null,
+            LastUpdatedAt = DateTime.SpecifyKind(lastUpdated, DateTimeKind.Utc)
+        };
+    }
+
+    private static DashboardQueueItemDto MapDeliveryItem(
+        DashboardProductionDeliveryQueueRowReadModel row,
+        DateTime utcNow)
+    {
+        DateTime? dueAt = row.ScheduledEnd.HasValue
+            ? DateTime.SpecifyKind(row.ScheduledEnd.Value, DateTimeKind.Utc)
+            : null;
+        var dueBucket = DashboardDueHelper.ResolveDueBucket(dueAt, utcNow);
+        var lastUpdated = row.UpdatedAt ?? row.CreatedAt ?? utcNow;
+        var priority = string.Equals(dueBucket, DueBucketOverdue, StringComparison.Ordinal)
+            ? PriorityHigh
+            : PriorityMedium;
+
+        var action = row.DeliveryQueueStatus switch
+        {
+            StatusAwaitingSchedule => "Create DELIVERY schedule",
+            StatusScheduled => "Create delivery batch",
+            StatusInProgress => "Complete delivery batch",
+            StatusAwaitingCustomerConfirmation => "Awaiting customer confirmation",
+            _ => "Manage delivery"
+        };
+
+        return new DashboardQueueItemDto
+        {
+            Id = $"{row.OrderId:D}:delivery",
+            WorkType = WorkTypeDelivery,
+            EntityId = row.OrderId.ToString("D"),
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            CustomerName = row.CustomerName,
+            AssigneeName = row.AssignedToName,
+            Group = GroupProduction,
+            Phase = row.OrderStatus.ToString(),
+            Status = row.DeliveryQueueStatus,
+            Priority = priority,
+            Action = action,
+            ActionPath = DashboardActionPaths.ProductionReadyForDelivery(row.OrderId),
+            Links = new DashboardQueueItemLinksDto
+            {
+                ProjectId = row.ProjectId,
+                ProductionRequestId = row.ProductionRequestId,
+                OrderId = row.OrderId
+            },
+            DueAt = dueAt,
+            DueBucket = dueBucket,
+            Warning = string.Equals(row.DeliveryQueueStatus, StatusAwaitingSchedule, StringComparison.Ordinal)
+                ? "No DELIVERY schedule"
+                : null,
             LastUpdatedAt = DateTime.SpecifyKind(lastUpdated, DateTimeKind.Utc)
         };
     }
@@ -427,8 +578,17 @@ public sealed class DashboardQueueService : IDashboardQueueService
         List<DashboardQueueItemDto> items,
         DashboardQueueQueryDto query)
     {
-        var counts = items
+        var countsByGroup = items
             .GroupBy(item => item.Group, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+        var countsByWorkType = items
+            .Where(item => !string.IsNullOrWhiteSpace(item.WorkType))
+            .GroupBy(item => item.WorkType!, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+
+        var countsByStatus = items
+            .GroupBy(item => item.Status, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
 
         var page = query.Page < 1 ? DefaultPage : query.Page;
@@ -441,7 +601,9 @@ public sealed class DashboardQueueService : IDashboardQueueService
         return new DashboardQueueResponseDto
         {
             Items = paged,
-            CountsByGroup = counts,
+            CountsByGroup = countsByGroup,
+            CountsByWorkType = countsByWorkType,
+            CountsByStatus = countsByStatus,
             Page = page,
             Limit = limit,
             Total = items.Count
@@ -516,6 +678,141 @@ public sealed class DashboardQueueService : IDashboardQueueService
         return true;
     }
 
+    private static bool MatchesProductionQueueFilters(DashboardQueueItemDto item, DashboardQueueQueryDto query)
+    {
+        if (!MatchesGroupAndPriority(item, query))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Status) &&
+            !string.Equals(item.Status, query.Status.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.DueBucket) &&
+            !string.Equals(item.DueBucket, query.DueBucket.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.DateRange) &&
+            !DashboardDueHelper.MatchesDateRange(item.DueAt, query.DateRange, DateTime.UtcNow) &&
+            item.DueAt.HasValue)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static List<DashboardQueueItemDto> SortProductionQueue(List<DashboardQueueItemDto> items)
+    {
+        return items
+            .OrderBy(item => DueBucketSortRank(item.DueBucket))
+            .ThenBy(item => PrioritySortRank(item.Priority))
+            .ThenBy(item => item.DueAt ?? DateTime.MaxValue)
+            .ThenByDescending(item => item.LastUpdatedAt)
+            .ToList();
+    }
+
+    private static int DueBucketSortRank(string? dueBucket)
+    {
+        if (string.Equals(dueBucket, DueBucketOverdue, StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (string.Equals(dueBucket, DueBucketToday, StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        if (string.Equals(dueBucket, DueBucketThisWeek, StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        if (string.Equals(dueBucket, DueBucketLater, StringComparison.OrdinalIgnoreCase))
+        {
+            return 3;
+        }
+
+        return 4;
+    }
+
+    private static int PrioritySortRank(string? priority)
+    {
+        if (string.Equals(priority, PriorityUrgent, StringComparison.OrdinalIgnoreCase))
+        {
+            return 0;
+        }
+
+        if (string.Equals(priority, PriorityHigh, StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        if (string.Equals(priority, PriorityMedium, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(priority, "NORMAL", StringComparison.OrdinalIgnoreCase))
+        {
+            return 2;
+        }
+
+        if (string.Equals(priority, PriorityLow, StringComparison.OrdinalIgnoreCase))
+        {
+            return 3;
+        }
+
+        return 4;
+    }
+
+    private static bool ShouldIncludeWorkType(string? requestedWorkType, string workType)
+    {
+        return string.IsNullOrWhiteSpace(requestedWorkType) ||
+               string.Equals(requestedWorkType.Trim(), workType, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ServiceResult<DashboardQueueResponseDto>? ValidateProductionWorkType(string? workType)
+    {
+        if (string.IsNullOrWhiteSpace(workType))
+        {
+            return null;
+        }
+
+        var normalized = workType.Trim();
+        if (string.Equals(normalized, WorkTypeCustomizationReview, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, WorkTypeProductionRequest, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, WorkTypeDelivery, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return ServiceResult<DashboardQueueResponseDto>.BadRequest(
+            "WorkType must be CUSTOMIZATION_REVIEW, PRODUCTION_REQUEST, or DELIVERY.");
+    }
+
+    private static ServiceResult<DashboardQueueResponseDto>? ValidateDueBucket(string? dueBucket)
+    {
+        if (string.IsNullOrWhiteSpace(dueBucket))
+        {
+            return null;
+        }
+
+        var normalized = dueBucket.Trim();
+        if (string.Equals(normalized, DueBucketOverdue, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, DueBucketToday, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, DueBucketThisWeek, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(normalized, DueBucketLater, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return ServiceResult<DashboardQueueResponseDto>.BadRequest(
+            "DueBucket must be OVERDUE, TODAY, THIS_WEEK, or LATER.");
+    }
+
     private static bool MatchesDeadlineStatus(ProjectPhaseDeadlineRiskItemDto item, string? status)
     {
         return string.IsNullOrWhiteSpace(status) ||
@@ -561,7 +858,8 @@ public sealed class DashboardQueueService : IDashboardQueueService
 
     private static bool IsValidPriority(string priority)
     {
-        return string.Equals(priority, PriorityHigh, StringComparison.OrdinalIgnoreCase) ||
+        return string.Equals(priority, PriorityUrgent, StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(priority, PriorityHigh, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(priority, PriorityMedium, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(priority, PriorityLow, StringComparison.OrdinalIgnoreCase);
     }
@@ -573,12 +871,18 @@ public sealed class DashboardQueueService : IDashboardQueueService
             return null;
         }
 
+        if (string.Equals(priority, PriorityUrgent, StringComparison.OrdinalIgnoreCase))
+        {
+            return PriorityUrgent;
+        }
+
         if (string.Equals(priority, PriorityHigh, StringComparison.OrdinalIgnoreCase))
         {
             return PriorityHigh;
         }
 
-        if (string.Equals(priority, PriorityMedium, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(priority, PriorityMedium, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(priority, "NORMAL", StringComparison.OrdinalIgnoreCase))
         {
             return PriorityMedium;
         }
@@ -621,7 +925,7 @@ public sealed class DashboardQueueService : IDashboardQueueService
             parsed is not (ProjectPhaseType.PROPOSAL or ProjectPhaseType.PRODUCTION))
         {
             return ServiceResult<ProjectPhaseDeadlineRiskResponseDto>.BadRequest(
-                "Phase must be PROPOSAL or PRODUCTION.");
+                "Phase must be PROPOSAL or PRODUCTION. DELIVERY timing uses ProjectSchedule, not phase deadlines.");
         }
 
         phase = parsed;

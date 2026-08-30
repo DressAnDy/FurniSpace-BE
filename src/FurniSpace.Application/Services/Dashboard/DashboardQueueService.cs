@@ -135,33 +135,39 @@ public sealed class DashboardQueueService : IDashboardQueueService
             return prepared.Error;
         }
 
-        var workTypeError = ValidateProductionWorkType(prepared.Query!.WorkType);
+        ArgumentNullException.ThrowIfNull(prepared.Query);
+        ArgumentNullException.ThrowIfNull(prepared.Filter);
+
+        var preparedQuery = prepared.Query;
+        var preparedFilter = prepared.Filter;
+
+        var workTypeError = ValidateProductionWorkType(preparedQuery.WorkType);
         if (workTypeError is not null)
         {
             return workTypeError;
         }
 
-        var dueBucketError = ValidateDueBucket(prepared.Query.DueBucket);
+        var dueBucketError = ValidateDueBucket(preparedQuery.DueBucket);
         if (dueBucketError is not null)
         {
             return dueBucketError;
         }
 
         var items = new List<DashboardQueueItemDto>();
-        var includeCustomization = ShouldIncludeWorkType(prepared.Query.WorkType, WorkTypeCustomizationReview);
-        var includeProduction = ShouldIncludeWorkType(prepared.Query.WorkType, WorkTypeProductionRequest);
-        var includeDelivery = ShouldIncludeWorkType(prepared.Query.WorkType, WorkTypeDelivery);
+        var includeCustomization = ShouldIncludeWorkType(preparedQuery.WorkType, WorkTypeCustomizationReview);
+        var includeProduction = ShouldIncludeWorkType(preparedQuery.WorkType, WorkTypeProductionRequest);
+        var includeDelivery = ShouldIncludeWorkType(preparedQuery.WorkType, WorkTypeDelivery);
 
         if (includeProduction)
         {
-            var rows = await _dashboard.GetProductionQueueRowsAsync(prepared.Filter!, cancellationToken);
+            var rows = await _dashboard.GetProductionQueueRowsAsync(preparedFilter, cancellationToken);
             items.AddRange(rows.Select(row => MapProductionRequestItem(row, prepared.UtcNow)));
         }
 
         if (includeCustomization)
         {
             var rows = await _dashboard.GetProductionCustomizationQueueRowsAsync(
-                prepared.Filter!,
+                preparedFilter,
                 cancellationToken);
             items.AddRange(rows.Select(MapCustomizationItem));
         }
@@ -169,19 +175,19 @@ public sealed class DashboardQueueService : IDashboardQueueService
         if (includeDelivery)
         {
             var rows = await _dashboard.GetProductionDeliveryQueueRowsAsync(
-                prepared.Filter!,
+                preparedFilter,
                 cancellationToken);
             items.AddRange(rows.Select(row => MapDeliveryItem(row, prepared.UtcNow)));
         }
 
         items = items
-            .Where(item => MatchesProductionQueueFilters(item, prepared.Query!))
+            .Where(item => MatchesProductionQueueFilters(item, preparedQuery))
             .ToList();
 
         items = SortProductionQueue(items);
 
         return ServiceResult<DashboardQueueResponseDto>.Success(
-            BuildQueueResponse(items, prepared.Query!),
+            BuildQueueResponse(items, preparedQuery),
             "Production queue retrieved successfully.");
     }
 

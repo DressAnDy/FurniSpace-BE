@@ -257,7 +257,340 @@ public sealed class DashboardQueueReadRepositoryTests
         Assert.Equal("all", filter.Scope);
         Assert.Equal(1, new SalesDashboardKpisReadModel { NewRequests = 1 }.NewRequests);
         Assert.Equal(2, new DesignerDashboardKpisReadModel { MeasurementDue = 2 }.MeasurementDue);
-        Assert.Equal(3, new ProductionDashboardKpisReadModel { PendingReview = 3 }.PendingReview);
+        Assert.Equal(3, new ProductionDashboardKpisReadModel
+        {
+            PendingCustomizationReview = 1,
+            PendingStart = 2,
+            PendingReview = 3,
+            ReadyForDelivery = 4,
+            AwaitingDeliverySchedule = 5,
+            CompletedInRange = 6
+        }.PendingReview);
+
+        var customization = new DashboardProductionCustomizationQueueRowReadModel
+        {
+            VersionId = Guid.NewGuid(),
+            CustomizationRequestId = Guid.NewGuid(),
+            ProjectId = Guid.NewGuid(),
+            ProjectCode = "P",
+            ProjectName = "N",
+            CustomerName = "C",
+            VersionTitle = "V1",
+            MaterialAvailable = true,
+            SubmittedForReviewAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var delivery = new DashboardProductionDeliveryQueueRowReadModel
+        {
+            OrderId = Guid.NewGuid(),
+            ProjectId = Guid.NewGuid(),
+            ProjectCode = "P",
+            ProjectName = "N",
+            CustomerName = "C",
+            ProductionRequestId = Guid.NewGuid(),
+            AssignedTo = Guid.NewGuid(),
+            AssignedToName = "Prod",
+            OrderStatus = OrderStatus.READY_FOR_DELIVERY,
+            DeliveryQueueStatus = "AWAITING_SCHEDULE",
+            ScheduledEnd = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow
+        };
+        var deadlineQuery = new ProjectPhaseDeadlineRiskQueryReadModel
+        {
+            Phase = ProjectPhaseType.PRODUCTION,
+            ProductionId = Guid.NewGuid(),
+            SalesId = Guid.NewGuid(),
+            DesignerId = Guid.NewGuid()
+        };
+
+        Assert.Equal("V1", customization.VersionTitle);
+        Assert.Equal("AWAITING_SCHEDULE", delivery.DeliveryQueueStatus);
+        Assert.NotNull(deadlineQuery.ProductionId);
+    }
+
+    [Fact]
+    public async Task GetProductionKpisAsync_ScopeAll_CountsCustomizationReadyDeliveryAndCompleted()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        var readyRequestId = Guid.NewGuid();
+        var completedRequestId = Guid.NewGuid();
+        var deliveryOrderId = Guid.NewGuid();
+        var customizationRequestId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+
+        context.OrderSet.Add(new Order
+        {
+            OrderId = deliveryOrderId,
+            ProjectId = seed.SalesProjectId,
+            QuotationId = Guid.NewGuid(),
+            OrderCode = "ORD-DEL",
+            CustomerId = Guid.NewGuid(),
+            SalesId = seed.SalesId,
+            FinalTotalAmount = 1000m,
+            Status = OrderStatus.READY_FOR_DELIVERY,
+            CreatedAt = seed.Now,
+            UpdatedAt = seed.Now
+        });
+        context.ProductionRequestSet.AddRange(
+            new ProductionRequest
+            {
+                ProductionRequestId = readyRequestId,
+                ProductionCode = "PR-READY",
+                ProjectId = seed.SalesProjectId,
+                OrderId = seed.OrderId,
+                AssignedTo = seed.ProductionId,
+                Status = ProductionRequestStatus.IN_PRODUCTION,
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            },
+            new ProductionRequest
+            {
+                ProductionRequestId = completedRequestId,
+                ProductionCode = "PR-DONE",
+                ProjectId = seed.SalesProjectId,
+                OrderId = seed.OrderId,
+                AssignedTo = seed.ProductionId,
+                Status = ProductionRequestStatus.COMPLETED,
+                ActualCompletionDate = DateOnly.FromDateTime(seed.Now),
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            },
+            new ProductionRequest
+            {
+                ProductionRequestId = Guid.NewGuid(),
+                ProductionCode = "PR-DEL-OWN",
+                ProjectId = seed.SalesProjectId,
+                OrderId = deliveryOrderId,
+                AssignedTo = seed.ProductionId,
+                Status = ProductionRequestStatus.COMPLETED,
+                ActualCompletionDate = DateOnly.FromDateTime(seed.Now.AddDays(-10)),
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            });
+        context.ProductionItemSet.AddRange(
+            new ProductionItem
+            {
+                ProductionItemId = Guid.NewGuid(),
+                ProductionRequestId = readyRequestId,
+                OrderItemId = Guid.NewGuid(),
+                Status = ProductionItemStatus.COMPLETED
+            },
+            new ProductionItem
+            {
+                ProductionItemId = Guid.NewGuid(),
+                ProductionRequestId = readyRequestId,
+                OrderItemId = Guid.NewGuid(),
+                Status = ProductionItemStatus.CANCELLED
+            });
+        context.CustomizationRequestSet.Add(new CustomizationRequest
+        {
+            CustomizationRequestId = customizationRequestId,
+            ProjectId = seed.SalesProjectId,
+            ProposalId = Guid.NewGuid(),
+            SourceProductVersionId = productVersionId,
+            RequestTitle = "Custom table",
+            Status = CustomizationStatus.REVIEWING,
+            CreatedAt = seed.Now,
+            UpdatedAt = seed.Now
+        });
+        context.CustomizationRequestVersionSet.Add(new CustomizationRequestVersion
+        {
+            CustomizationRequestVersionId = Guid.NewGuid(),
+            CustomizationRequestId = customizationRequestId,
+            ProductVersionId = productVersionId,
+            VersionNo = 1,
+            CreatedByDesignerId = seed.DesignerId,
+            Status = CustomizationVersionStatus.REVIEWING,
+            FeasibilityStatus = ProductionFeasibilityStatus.PENDING,
+            SubmittedForReviewAt = seed.Now,
+            CreatedAt = seed.Now,
+            UpdatedAt = seed.Now
+        });
+        await context.SaveChangesAsync();
+
+        var repository = new DashboardQueueReadRepository(context);
+        var allFilter = new DashboardQueueFilterReadModel
+        {
+            Scope = "all",
+            CurrentUserId = seed.ProductionId,
+            CurrentUserRole = "PRODUCTION",
+            DateRange = "today",
+            UtcNow = seed.Now
+        };
+        var mineFilter = new DashboardQueueFilterReadModel
+        {
+            Scope = "mine",
+            CurrentUserId = seed.ProductionId,
+            CurrentUserRole = "PRODUCTION",
+            DateRange = "today",
+            UtcNow = seed.Now
+        };
+
+        var allKpis = await repository.GetProductionKpisAsync(allFilter);
+        var mineKpis = await repository.GetProductionKpisAsync(mineFilter);
+        var customizationRows = await repository.GetProductionCustomizationQueueRowsAsync(allFilter);
+        var emptyCustomization = await repository.GetProductionCustomizationQueueRowsAsync(mineFilter);
+        var deliveryRows = await repository.GetProductionDeliveryQueueRowsAsync(mineFilter);
+
+        Assert.True(allKpis.PendingCustomizationReview >= 1);
+        Assert.Equal(0, mineKpis.PendingCustomizationReview);
+        Assert.True(allKpis.ReadyToComplete >= 1);
+        Assert.True(allKpis.ReadyForDelivery >= 1);
+        Assert.True(allKpis.AwaitingDeliverySchedule >= 1);
+        Assert.True(allKpis.CompletedInRange >= 1);
+        Assert.NotEmpty(customizationRows);
+        Assert.Empty(emptyCustomization);
+        Assert.NotEmpty(deliveryRows);
+        Assert.Equal("AWAITING_SCHEDULE", deliveryRows[0].DeliveryQueueStatus);
+    }
+
+    [Fact]
+    public async Task GetProductionDeliveryQueueRowsAsync_ResolvesScheduledInProgressAndAwaitConfirm()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        var scheduledOrderId = Guid.NewGuid();
+        var inProgressOrderId = Guid.NewGuid();
+        var awaitConfirmOrderId = Guid.NewGuid();
+
+        context.OrderSet.AddRange(
+            new Order
+            {
+                OrderId = scheduledOrderId,
+                ProjectId = seed.SalesProjectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = "ORD-SCH",
+                CustomerId = Guid.NewGuid(),
+                FinalTotalAmount = 1m,
+                Status = OrderStatus.READY_FOR_DELIVERY,
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            },
+            new Order
+            {
+                OrderId = inProgressOrderId,
+                ProjectId = seed.SalesProjectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = "ORD-IP",
+                CustomerId = Guid.NewGuid(),
+                FinalTotalAmount = 1m,
+                Status = OrderStatus.DELIVERING,
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            },
+            new Order
+            {
+                OrderId = awaitConfirmOrderId,
+                ProjectId = seed.SalesProjectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = "ORD-AC",
+                CustomerId = Guid.NewGuid(),
+                FinalTotalAmount = 1m,
+                Status = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            });
+        context.ProductionRequestSet.AddRange(
+            new ProductionRequest
+            {
+                ProductionRequestId = Guid.NewGuid(),
+                ProjectId = seed.SalesProjectId,
+                OrderId = scheduledOrderId,
+                AssignedTo = seed.ProductionId,
+                Status = ProductionRequestStatus.COMPLETED,
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            },
+            new ProductionRequest
+            {
+                ProductionRequestId = Guid.NewGuid(),
+                ProjectId = seed.SalesProjectId,
+                OrderId = inProgressOrderId,
+                AssignedTo = seed.ProductionId,
+                Status = ProductionRequestStatus.COMPLETED,
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            },
+            new ProductionRequest
+            {
+                ProductionRequestId = Guid.NewGuid(),
+                ProjectId = seed.SalesProjectId,
+                OrderId = awaitConfirmOrderId,
+                AssignedTo = seed.ProductionId,
+                Status = ProductionRequestStatus.COMPLETED,
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            });
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = Guid.NewGuid(),
+            ProjectId = seed.SalesProjectId,
+            ScheduleType = ProjectScheduleType.DELIVERY,
+            Title = "Delivery",
+            ScheduledStart = seed.Now,
+            ScheduledEnd = seed.Now.AddDays(2),
+            Status = ProjectScheduleStatus.CONFIRMED,
+            CreatedAt = seed.Now,
+            UpdatedAt = seed.Now
+        });
+        context.DeliverySet.Add(new Delivery
+        {
+            DeliveryId = Guid.NewGuid(),
+            OrderId = inProgressOrderId,
+            Status = DeliveryStatus.IN_PROGRESS,
+            CreatedAt = seed.Now,
+            UpdatedAt = seed.Now
+        });
+        await context.SaveChangesAsync();
+
+        var repository = new DashboardQueueReadRepository(context);
+        var rows = await repository.GetProductionDeliveryQueueRowsAsync(new DashboardQueueFilterReadModel
+        {
+            Scope = "mine",
+            CurrentUserId = seed.ProductionId,
+            CurrentUserRole = "PRODUCTION",
+            UtcNow = seed.Now
+        });
+
+        Assert.Contains(rows, row => row.OrderId == scheduledOrderId && row.DeliveryQueueStatus == "SCHEDULED");
+        Assert.Contains(rows, row => row.OrderId == inProgressOrderId && row.DeliveryQueueStatus == "IN_PROGRESS");
+        Assert.Contains(rows, row =>
+            row.OrderId == awaitConfirmOrderId &&
+            row.DeliveryQueueStatus == "AWAITING_CUSTOMER_CONFIRMATION");
+    }
+
+    [Fact]
+    public async Task GetProjectPhaseDeadlineRiskRowsAsync_FiltersByProductionId()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        context.ProjectPhaseTimelineSet.Add(
+            CreatePhaseDeadline(
+                seed.SalesProjectId,
+                ProjectPhaseType.PRODUCTION,
+                DateOnly.FromDateTime(seed.Now.AddDays(5)),
+                seed.SalesId,
+                seed.Now));
+        await context.SaveChangesAsync();
+        var repository = new DashboardQueueReadRepository(context);
+
+        var matched = await repository.GetProjectPhaseDeadlineRiskRowsAsync(
+            new ProjectPhaseDeadlineRiskQueryReadModel
+            {
+                Phase = ProjectPhaseType.PRODUCTION,
+                ProductionId = seed.ProductionId
+            });
+        var missed = await repository.GetProjectPhaseDeadlineRiskRowsAsync(
+            new ProjectPhaseDeadlineRiskQueryReadModel
+            {
+                Phase = ProjectPhaseType.PRODUCTION,
+                ProductionId = Guid.NewGuid()
+            });
+
+        Assert.NotEmpty(matched);
+        Assert.Empty(missed);
     }
 
     [Fact]

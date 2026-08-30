@@ -546,6 +546,207 @@ public sealed class DashboardQueueServiceTests
         Assert.Equal(400, invalidRange.Status);
     }
 
+    [Fact]
+    public async Task GetProductionQueueAsync_MapsCustomizationDeliveryAndReadyToComplete()
+    {
+        var projectId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+        var productionRequestId = Guid.NewGuid();
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                ProductionRows =
+                [
+                    new DashboardProductionQueueRowReadModel
+                    {
+                        ProductionRequestId = productionRequestId,
+                        ProjectId = projectId,
+                        OrderId = orderId,
+                        ProjectName = "Ready job",
+                        CustomerName = "Buyer",
+                        Status = ProductionRequestStatus.IN_PRODUCTION,
+                        Priority = "URGENT",
+                        AllItemsTerminal = true,
+                        CreatedAt = DateTime.UtcNow.AddHours(-2)
+                    }
+                ],
+                CustomizationRows =
+                [
+                    new DashboardProductionCustomizationQueueRowReadModel
+                    {
+                        VersionId = versionId,
+                        CustomizationRequestId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        ProjectCode = "PRJ-C",
+                        ProjectName = "Custom job",
+                        CustomerName = "Buyer",
+                        MaterialAvailable = false,
+                        SubmittedForReviewAt = DateTime.UtcNow.AddHours(-1),
+                        UpdatedAt = DateTime.UtcNow.AddHours(-1)
+                    }
+                ],
+                DeliveryRows =
+                [
+                    new DashboardProductionDeliveryQueueRowReadModel
+                    {
+                        OrderId = orderId,
+                        ProjectId = projectId,
+                        ProjectName = "Delivery job",
+                        CustomerName = "Buyer",
+                        ProductionRequestId = productionRequestId,
+                        AssignedToName = "Prod",
+                        OrderStatus = OrderStatus.READY_FOR_DELIVERY,
+                        DeliveryQueueStatus = "AWAITING_SCHEDULE",
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new DashboardProductionDeliveryQueueRowReadModel
+                    {
+                        OrderId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        ProjectName = "Scheduled",
+                        CustomerName = "Buyer",
+                        OrderStatus = OrderStatus.READY_FOR_DELIVERY,
+                        DeliveryQueueStatus = "SCHEDULED",
+                        ScheduledEnd = DateTime.UtcNow.AddDays(3),
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new DashboardProductionDeliveryQueueRowReadModel
+                    {
+                        OrderId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        ProjectName = "In progress",
+                        CustomerName = "Buyer",
+                        OrderStatus = OrderStatus.DELIVERING,
+                        DeliveryQueueStatus = "IN_PROGRESS",
+                        ScheduledEnd = DateTime.UtcNow.AddDays(-1),
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new DashboardProductionDeliveryQueueRowReadModel
+                    {
+                        OrderId = Guid.NewGuid(),
+                        ProjectId = projectId,
+                        ProjectName = "Await confirm",
+                        CustomerName = "Buyer",
+                        OrderStatus = OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
+                        DeliveryQueueStatus = "AWAITING_CUSTOMER_CONFIRMATION",
+                        UpdatedAt = DateTime.UtcNow
+                    }
+                ]
+            },
+            new FakeProjectRepository { RoleName = "PRODUCTION" });
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new DashboardQueueQueryDto { Scope = "all", Page = 1, Limit = 20 });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(6, result.Data!.Total);
+        Assert.Contains(result.Data.Items, item => item.Status == "READY_TO_COMPLETE");
+        Assert.Contains(result.Data.Items, item => item.WorkType == "CUSTOMIZATION_REVIEW");
+        Assert.Contains(result.Data.Items, item => item.Status == "AWAITING_SCHEDULE");
+        Assert.Contains(result.Data.Items, item => item.Status == "SCHEDULED");
+        Assert.Contains(result.Data.Items, item => item.Status == "IN_PROGRESS" && item.DueBucket == "OVERDUE");
+        Assert.Contains(result.Data.Items, item => item.Status == "AWAITING_CUSTOMER_CONFIRMATION");
+        Assert.True(result.Data.CountsByWorkType["DELIVERY"] >= 4);
+        Assert.True(result.Data.CountsByStatus.ContainsKey("REVIEWING"));
+    }
+
+    [Theory]
+    [InlineData("BAD_TYPE", null, 400)]
+    [InlineData(null, "BAD_BUCKET", 400)]
+    [InlineData("DELIVERY", "OVERDUE", 200)]
+    public async Task GetProductionQueueAsync_WorkTypeDueBucketValidation(
+        string? workType,
+        string? dueBucket,
+        int expectedStatus)
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                DeliveryRows =
+                [
+                    new DashboardProductionDeliveryQueueRowReadModel
+                    {
+                        OrderId = Guid.NewGuid(),
+                        ProjectId = Guid.NewGuid(),
+                        ProjectName = "D",
+                        CustomerName = "C",
+                        OrderStatus = OrderStatus.READY_FOR_DELIVERY,
+                        DeliveryQueueStatus = "AWAITING_SCHEDULE",
+                        ScheduledEnd = DateTime.UtcNow.AddDays(-2),
+                        UpdatedAt = DateTime.UtcNow
+                    }
+                ]
+            },
+            new FakeProjectRepository { RoleName = "PRODUCTION" });
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new DashboardQueueQueryDto
+            {
+                Scope = "all",
+                WorkType = workType,
+                DueBucket = dueBucket,
+                Status = workType == "DELIVERY" ? "AWAITING_SCHEDULE" : null
+            });
+
+        Assert.Equal(expectedStatus, result.Status);
+        if (expectedStatus == 200)
+        {
+            Assert.Single(result.Data!.Items);
+            Assert.Equal("DELIVERY", result.Data.Items[0].WorkType);
+        }
+    }
+
+    [Fact]
+    public async Task GetProductionQueueAsync_ScopeMine_SkipsCustomizationRowsFromRepo()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                CustomizationRows =
+                [
+                    new DashboardProductionCustomizationQueueRowReadModel
+                    {
+                        VersionId = Guid.NewGuid(),
+                        CustomizationRequestId = Guid.NewGuid(),
+                        ProjectId = Guid.NewGuid(),
+                        ProjectName = "Should not appear when filtered by workType only production",
+                        CustomerName = "C",
+                        UpdatedAt = DateTime.UtcNow
+                    }
+                ]
+            },
+            new FakeProjectRepository { RoleName = "PRODUCTION" });
+
+        var result = await service.GetProductionQueueAsync(
+            Guid.NewGuid(),
+            new DashboardQueueQueryDto { WorkType = "CUSTOMIZATION_REVIEW", Scope = "mine" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Empty(result.Data!.Items);
+    }
+
+    [Fact]
+    public async Task GetProjectPhaseDeadlineRisksAsync_RejectsDeliveryPhase()
+    {
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository(),
+            new FakeProjectRepository { RoleName = "PRODUCTION" });
+
+        var result = await service.GetProjectPhaseDeadlineRisksAsync(
+            Guid.NewGuid(),
+            new ProjectPhaseDeadlineRiskQueryDto
+            {
+                Phase = "DELIVERY",
+                ProductionId = Guid.NewGuid()
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("ProjectSchedule", result.Message ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static ProjectPhaseDeadlineRiskRowReadModel CreateDeadlineRiskRow(
         ProjectPhaseType phase,
         DateOnly dueDate,
@@ -610,8 +811,15 @@ public sealed class DashboardQueueServiceTests
 
         public Task<IReadOnlyList<DashboardProductionCustomizationQueueRowReadModel>> GetProductionCustomizationQueueRowsAsync(
             DashboardQueueFilterReadModel filter,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(CustomizationRows);
+            CancellationToken cancellationToken = default)
+        {
+            if (!string.Equals(filter.Scope, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult<IReadOnlyList<DashboardProductionCustomizationQueueRowReadModel>>([]);
+            }
+
+            return Task.FromResult(CustomizationRows);
+        }
 
         public Task<IReadOnlyList<DashboardProductionDeliveryQueueRowReadModel>> GetProductionDeliveryQueueRowsAsync(
             DashboardQueueFilterReadModel filter,

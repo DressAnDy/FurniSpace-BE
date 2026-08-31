@@ -358,7 +358,6 @@ public sealed class ProjectScheduleRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 0m,
-            OriginalTotalAmount = 100m,
             FinalTotalAmount = 100m
         });
         context.ProjectScheduleSet.AddRange(
@@ -424,7 +423,6 @@ public sealed class ProjectScheduleRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 0m,
-            OriginalTotalAmount = 100m,
             FinalTotalAmount = 100m
         });
         context.DeliverySet.Add(new Delivery
@@ -459,7 +457,6 @@ public sealed class ProjectScheduleRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 0m,
-            OriginalTotalAmount = 100m,
             FinalTotalAmount = 100m
         });
         context.DeliverySet.Add(new Delivery

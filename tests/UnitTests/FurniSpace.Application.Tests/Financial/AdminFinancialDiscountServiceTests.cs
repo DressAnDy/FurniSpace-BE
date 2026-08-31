@@ -24,9 +24,8 @@ public sealed class AdminFinancialDiscountServiceTests
             {
                 GrossOrderValue = 1000m,
                 ItemDiscountAmount = 50m,
-                OrderAdditionalDiscountAmount = 20m,
-                TotalDiscountAmount = 70m,
-                NetOrderValueBeforeVat = 930m,
+                TotalDiscountAmount = 50m,
+                NetOrderValueBeforeVat = 950m,
                 VatAmount = 93m,
                 FinalOrderValue = 1023m,
                 AverageDiscountRate = 7m,
@@ -43,7 +42,7 @@ public sealed class AdminFinancialDiscountServiceTests
             });
 
         Assert.Equal(200, result.Status);
-        Assert.Equal(70m, result.Data!.TotalDiscountAmount);
+        Assert.Equal(50m, result.Data!.TotalDiscountAmount);
         Assert.Equal(3, result.Data.TotalOrderCount);
     }
 

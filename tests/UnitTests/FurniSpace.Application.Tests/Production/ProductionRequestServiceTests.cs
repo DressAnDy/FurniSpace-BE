@@ -1053,7 +1053,6 @@ public sealed class ProductionRequestServiceTests
             CustomerId = Guid.NewGuid(),
             SalesId = _salesId,
             OrderCode = "ORD-001",
-            OriginalTotalAmount = 10_000_000m,
             FinalTotalAmount = 10_000_000m,
             PaidAmount = 0m,
             RemainingAmount = 10_000_000m,

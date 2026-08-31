@@ -14,9 +14,6 @@ public class Order
     public Guid? SalesId { get; set; }
     public decimal VatRate { get; set; }
     public decimal VatAmount { get; set; }
-    public decimal OriginalTotalAmount { get; set; }
-    public decimal? ItemAdjustmentAmount { get; set; }
-    public decimal? AdditionalDiscountAmount { get; set; }
     public decimal FinalTotalAmount { get; set; }
     public decimal? DepositAmount { get; set; }
     public decimal? PaidAmount { get; set; }

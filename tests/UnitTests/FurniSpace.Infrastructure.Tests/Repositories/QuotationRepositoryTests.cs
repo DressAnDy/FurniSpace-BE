@@ -226,7 +226,6 @@ public sealed class QuotationRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 8m,
-            OriginalTotalAmount = 108m,
             FinalTotalAmount = 108m,
             Status = OrderStatus.DEPOSIT_PENDING
         };

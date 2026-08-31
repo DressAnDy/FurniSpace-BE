@@ -263,9 +263,6 @@ public sealed class FinancialReadRepositoryTests
             project.ProjectId,
             customerId,
             salesId);
-        latestOrder.OriginalTotalAmount = 1000m;
-        latestOrder.ItemAdjustmentAmount = 50m;
-        latestOrder.AdditionalDiscountAmount = 150m;
         latestOrder.PaidAmount = 600m;
         var activePayment = CreatePayment(
             PaymentType.REMAINING_PAYMENT,
@@ -314,9 +311,6 @@ public sealed class FinancialReadRepositoryTests
         Assert.Equal(100m, row.ProjectStartFeeAmount);
         Assert.Equal(PaymentStatus.PAID, row.ProjectStartFeeStatus);
         Assert.Equal(latestOrder.OrderId, row.OrderId);
-        Assert.Equal(1000m, row.OrderOriginalTotal);
-        Assert.Equal(50m, row.OrderAdjustmentAmount);
-        Assert.Equal(150m, row.OrderAdditionalDiscount);
         Assert.Equal(900m, row.OrderFinalTotal);
         Assert.Equal(600m, row.OrderPaidAmount);
         Assert.Equal(300m, row.OrderRemainingAmount);
@@ -739,7 +733,6 @@ public sealed class FinancialReadRepositoryTests
             OrderCode = Guid.NewGuid().ToString("N")[..12],
             CustomerId = customerId,
             SalesId = salesId,
-            OriginalTotalAmount = finalTotalAmount,
             FinalTotalAmount = finalTotalAmount,
             RemainingAmount = remainingAmount,
             Status = status,

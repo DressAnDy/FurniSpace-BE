@@ -605,6 +605,111 @@ public sealed class PaymentService : IPaymentService
             "Customer payments retrieved successfully.");
     }
 
+    public async Task<ServiceResult<OrderPaymentHistoryResponseDto>> GetPaymentsByOrderAsync(
+        Guid orderId,
+        Guid currentUserId,
+        OrderPaymentHistoryQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<OrderPaymentHistoryResponseDto>.Unauthorized();
+        }
+
+        if (orderId == Guid.Empty)
+        {
+            return Failure<OrderPaymentHistoryResponseDto>(
+                OrderErrorCodes.OrderNotFound,
+                OrderNotFoundMessage,
+                isBadRequest: true);
+        }
+
+        var order = await _orders.GetDetailAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return ServiceResult<OrderPaymentHistoryResponseDto>.NotFound(OrderNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!OrderAccessEvaluator.CanViewOrder(
+                role,
+                order.CustomerId,
+                order.AssignedSalesId,
+                order.AssignedDesignerId,
+                currentUserId,
+                order.Status))
+        {
+            return ServiceResult<OrderPaymentHistoryResponseDto>.Forbidden(
+                "You do not have access to this order's payments.");
+        }
+
+        var payments = await _payments.GetListByOrderIdAsync(
+            orderId,
+            query.Status,
+            query.PaymentType,
+            cancellationToken);
+
+        var paymentIds = payments.Select(payment => payment.PaymentId).ToList();
+        var allTransactions = await _payments.GetTransactionsByPaymentIdsAsync(paymentIds, cancellationToken);
+        var transactionsByPaymentId = allTransactions
+            .GroupBy(transaction => transaction.PaymentId)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<PaymentTransactionReadModel>)group.ToList());
+
+        var historyPayments = payments
+            .Select(payment => MapOrderPaymentHistoryPayment(payment, transactionsByPaymentId))
+            .ToList();
+
+        return ServiceResult<OrderPaymentHistoryResponseDto>.Success(
+            new OrderPaymentHistoryResponseDto
+            {
+                OrderId = orderId,
+                TotalAmount = order.TotalAmount,
+                DepositAmount = order.DepositAmount,
+                PaidAmount = order.PaidAmount,
+                RemainingAmount = order.RemainingAmount,
+                Payments = historyPayments
+            },
+            "Order payment history retrieved successfully.");
+    }
+
+    private static OrderPaymentHistoryPaymentDto MapOrderPaymentHistoryPayment(
+        PaymentListItemReadModel payment,
+        IReadOnlyDictionary<Guid, IReadOnlyList<PaymentTransactionReadModel>> transactionsByPaymentId)
+    {
+        var transactions = transactionsByPaymentId.TryGetValue(payment.PaymentId, out var paymentTransactions)
+            ? paymentTransactions
+            : [];
+
+        return new OrderPaymentHistoryPaymentDto
+        {
+            PaymentId = payment.PaymentId,
+            PaymentCode = payment.PaymentCode,
+            PaymentType = payment.PaymentType,
+            Amount = payment.Amount,
+            Currency = payment.Currency,
+            Status = payment.Status,
+            CreatedAt = payment.CreatedAt,
+            PaidAt = payment.PaidAt,
+            ExpiredAt = payment.ExpiredAt,
+            CancelledAt = payment.CancelledAt,
+            Transactions = transactions
+                .Select(transaction => new OrderPaymentHistoryTransactionDto
+                {
+                    PaymentTransactionId = transaction.PaymentTransactionId,
+                    TransactionType = transaction.TransactionType,
+                    Amount = transaction.Amount,
+                    Status = transaction.Status,
+                    PaymentProvider = transaction.PaymentProvider,
+                    PaymentMethod = transaction.PaymentMethod,
+                    ProviderTransactionId = transaction.ProviderTransactionId,
+                    ProviderReferenceCode = transaction.ProviderReferenceCode,
+                    TransactionTime = transaction.TransactionTime,
+                    FailureReason = transaction.FailureReason
+                })
+                .ToList()
+        };
+    }
+
     public async Task<ServiceResult<PaymentSummaryResponseDto>> GetSummaryAsync(
         Guid currentUserId,
         CancellationToken cancellationToken = default)
@@ -1548,7 +1653,7 @@ public sealed class PaymentService : IPaymentService
                     OrderId = order.OrderId,
                     OrderCode = order.OrderCode,
                     Status = order.Status,
-                    FinalTotalAmount = order.FinalTotalAmount,
+                    FinalTotalAmount = order.TotalAmount,
                     DepositAmount = order.DepositAmount,
                     PaidAmount = order.PaidAmount,
                     RemainingAmount = order.RemainingAmount

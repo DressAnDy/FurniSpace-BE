@@ -173,8 +173,7 @@ public sealed class FinancialDiscountReadRepository : IFinancialDiscountReadRepo
                         from sales in salesAccounts.DefaultIfEmpty()
                         let gross = aggregate == null ? 0m : aggregate.GrossOrderValue
                         let itemDiscount = aggregate == null ? 0m : aggregate.ItemDiscountAmount
-                        let orderDiscount = order.AdditionalDiscountAmount ?? 0m
-                        let totalDiscount = itemDiscount + orderDiscount
+                        let totalDiscount = itemDiscount
                         let netBeforeVat = gross - totalDiscount
                         select new AdminFinancialDiscountOrderMetricsReadModel
                         {
@@ -192,7 +191,6 @@ public sealed class FinancialDiscountReadRepository : IFinancialDiscountReadRepo
                             SalesName = sales != null ? sales.FullName : null,
                             GrossOrderValue = gross,
                             ItemDiscountAmount = itemDiscount,
-                            OrderAdditionalDiscountAmount = orderDiscount,
                             TotalDiscountAmount = totalDiscount,
                             NetOrderValueBeforeVat = netBeforeVat,
                             VatRate = order.VatRate,
@@ -308,7 +306,6 @@ public sealed class FinancialDiscountReadRepository : IFinancialDiscountReadRepo
         {
             GrossOrderValue = gross,
             ItemDiscountAmount = rows.Sum(row => row.ItemDiscountAmount),
-            OrderAdditionalDiscountAmount = rows.Sum(row => row.OrderAdditionalDiscountAmount),
             TotalDiscountAmount = totalDiscount,
             NetOrderValueBeforeVat = rows.Sum(row => row.NetOrderValueBeforeVat),
             VatAmount = rows.Sum(row => row.VatAmount),

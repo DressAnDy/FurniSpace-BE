@@ -819,13 +819,10 @@ public sealed class QuotationServiceTests
         Assert.Equal(ProjectStatus.ORDER_CONFIRMED, ProjectEntity!.Status);
         var order = Assert.Single(orders.AddedOrders);
         Assert.Equal(OrderStatus.CREATED, order.Status);
-        Assert.Equal(221.4m, order.OriginalTotalAmount);
         Assert.Equal(221.4m, order.FinalTotalAmount);
         Assert.Equal(66m, order.DepositAmount);
         Assert.Equal(FinancialConstants.DefaultVatRate, order.VatRate);
         Assert.Equal(16.4m, order.VatAmount);
-        Assert.Equal(0m, order.ItemAdjustmentAmount);
-        Assert.Equal(0m, order.AdditionalDiscountAmount);
         Assert.Equal(0m, order.PaidAmount);
         Assert.Equal(221.4m, order.RemainingAmount);
         Assert.Equal(_customerId, order.ConfirmedBy);

@@ -19,9 +19,6 @@ public sealed class AdminFinancialProjectRowDto : AdminFinancialProjectPeriodCol
     public Guid? OrderId { get; set; }
     public string? OrderCode { get; set; }
     public OrderStatus? OrderStatus { get; set; }
-    public decimal? OrderOriginalTotal { get; set; }
-    public decimal? OrderAdjustmentAmount { get; set; }
-    public decimal? OrderAdditionalDiscount { get; set; }
     public decimal? OrderFinalTotal { get; set; }
     public decimal? OrderPaidAmount { get; set; }
     public decimal? OrderRemainingAmount { get; set; }

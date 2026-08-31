@@ -337,7 +337,6 @@ public sealed class AdminReportRepositoryTests
                 OrderCode = "ORD-1",
                 CustomerId = customerId,
                 SalesId = salesId,
-                OriginalTotalAmount = 1000m,
                 FinalTotalAmount = 1000m,
                 PaidAmount = 400m,
                 RemainingAmount = 600m,
@@ -351,7 +350,6 @@ public sealed class AdminReportRepositoryTests
                 QuotationId = quotationId,
                 OrderCode = "ORD-2",
                 CustomerId = customerId,
-                OriginalTotalAmount = 500m,
                 FinalTotalAmount = 500m,
                 Status = OrderStatus.DELIVERING,
                 CreatedAt = now.AddDays(-1)

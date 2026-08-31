@@ -355,7 +355,6 @@ public sealed class PaymentRepositoryTests
             OrderCode = "ORD-001",
             CustomerId = customerId,
             SalesId = salesId,
-            OriginalTotalAmount = 100m,
             FinalTotalAmount = 100m,
             DepositAmount = 30m,
             PaidAmount = 0m,

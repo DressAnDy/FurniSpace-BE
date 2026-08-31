@@ -32,7 +32,6 @@ public sealed class AdminFinancialDiscountSummaryDto
 {
     public decimal GrossOrderValue { get; set; }
     public decimal ItemDiscountAmount { get; set; }
-    public decimal OrderAdditionalDiscountAmount { get; set; }
     public decimal TotalDiscountAmount { get; set; }
     public decimal NetOrderValueBeforeVat { get; set; }
     public decimal VatAmount { get; set; }
@@ -85,7 +84,6 @@ public sealed class AdminFinancialDiscountProjectRowDto
     public DateTimeOffset? ConfirmedAt { get; set; }
     public decimal GrossOrderValue { get; set; }
     public decimal ItemDiscountAmount { get; set; }
-    public decimal OrderAdditionalDiscountAmount { get; set; }
     public decimal TotalDiscountAmount { get; set; }
     public decimal NetOrderValueBeforeVat { get; set; }
     public decimal VatAmount { get; set; }
@@ -106,7 +104,6 @@ public sealed class AdminFinancialDiscountOrderDetailDto
     public string? CustomerName { get; set; }
     public decimal GrossOrderValue { get; set; }
     public decimal ItemDiscountAmount { get; set; }
-    public decimal OrderAdditionalDiscountAmount { get; set; }
     public decimal TotalDiscountAmount { get; set; }
     public decimal NetOrderValueBeforeVat { get; set; }
     public decimal VatRate { get; set; }

@@ -380,7 +380,6 @@ public sealed class DeliveryRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 32m,
-            OriginalTotalAmount = 400m,
             FinalTotalAmount = 400m
         });
         context.OrderItemSet.Add(new OrderItem
@@ -463,7 +462,6 @@ public sealed class DeliveryRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 40m,
-            OriginalTotalAmount = 500m,
             FinalTotalAmount = 500m,
             Status = OrderStatus.DELIVERING
         });

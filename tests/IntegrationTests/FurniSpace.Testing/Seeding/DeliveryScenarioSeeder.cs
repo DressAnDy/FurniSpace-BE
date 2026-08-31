@@ -143,7 +143,6 @@ public static class DeliveryScenarioSeeder
             SalesId = salesId,
             VatRate = VatRate,
             VatAmount = VatAmount,
-            OriginalTotalAmount = TotalAmount,
             FinalTotalAmount = TotalAmount,
             DepositAmount = 3_600_000m,
             PaidAmount = 3_600_000m,

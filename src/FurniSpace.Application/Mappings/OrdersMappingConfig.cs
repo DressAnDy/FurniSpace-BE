@@ -28,6 +28,7 @@ public sealed class OrdersMappingConfig : IRegister
                     RemainingQuantity = source.RemainingQuantity,
                     DeliveryProgressPercent = source.DeliveryProgressPercent,
                     CompletedDeliveryCount = source.CompletedDeliveryCount,
+                    InProgressDeliveryCount = source.InProgressDeliveryCount,
                     UpcomingDeliveryCount = source.UpcomingDeliveryCount,
                     NextDeliveryAt = source.NextDeliveryAt
                 })

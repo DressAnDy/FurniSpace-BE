@@ -107,8 +107,56 @@ public sealed partial class OrderService : IOrderService
         }
 
         return ServiceResult<OrderDetailDto>.Success(
-            order.Adapt<OrderDetailDto>(),
+            await BuildOrderDetailDtoAsync(order, cancellationToken),
             "Order detail retrieved successfully.");
+    }
+
+    private Task<OrderDetailDto> BuildOrderDetailDtoAsync(
+        OrderDetailReadModel order,
+        CancellationToken cancellationToken)
+    {
+        return BuildOrderDetailDtoInternalAsync(order, cancellationToken);
+    }
+
+    private async Task<OrderDetailDto> BuildOrderDetailDtoInternalAsync(
+        OrderDetailReadModel order,
+        CancellationToken cancellationToken)
+    {
+        var financialSummary = OrderFinancialSummary.FromItems(order.Items);
+        var tracking = await _deliveries.GetTrackingByOrderAsync(order.OrderId, order.ProjectId, cancellationToken);
+        var deliveries = await _deliveries.GetByOrderAsync(order.OrderId, cancellationToken);
+        var deliveryItems = deliveries.Count == 0
+            ? (IReadOnlyList<DeliveryItemReadModel>)[]
+            : await _deliveries.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+
+        return new OrderDetailDto
+        {
+            OrderId = order.OrderId,
+            ProjectId = order.ProjectId,
+            ProposalId = order.ProposalId,
+            QuotationId = order.QuotationId,
+            OrderCode = order.OrderCode,
+            CustomerId = order.CustomerId,
+            SalesId = order.SalesId,
+            VatRate = order.VatRate,
+            VatAmount = order.VatAmount,
+            ItemsGrossAmount = financialSummary.ItemsGrossAmount,
+            TotalItemDiscountAmount = financialSummary.TotalItemDiscountAmount,
+            PreVatAmount = financialSummary.PreVatAmount,
+            TotalAmount = order.TotalAmount,
+            DepositAmount = order.DepositAmount,
+            PaidAmount = order.PaidAmount,
+            RemainingAmount = order.RemainingAmount,
+            Status = order.Status,
+            CreatedAt = order.CreatedAt,
+            UpdatedAt = order.UpdatedAt,
+            CustomerConfirmedDeliveryAt = order.CustomerConfirmedDeliveryAt,
+            AwaitingCustomerConfirmation = OrderDetailDeliveryComposer.IsAwaitingCustomerConfirmation(order.Status),
+            DeliveryDetails = OrderDetailDeliveryComposer.BuildDeliveryDetails(order),
+            DeliverySummary = OrderDetailDeliveryComposer.BuildSummary(tracking),
+            Deliveries = OrderDetailDeliveryComposer.BuildDeliveries(deliveries, deliveryItems),
+            Items = order.Items.Select(item => item.Adapt<OrderItemDto>()).ToList()
+        };
     }
 
     public async Task<ServiceResult<OrderDeliveryDetailsDto>> UpdateDeliveryDetailsAsync(

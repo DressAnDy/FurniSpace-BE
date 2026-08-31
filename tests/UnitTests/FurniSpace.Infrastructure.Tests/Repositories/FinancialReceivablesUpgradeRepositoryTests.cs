@@ -229,7 +229,6 @@ public sealed class FinancialReceivablesUpgradeRepositoryTests
         SalesId = salesId,
         VatRate = 0.1m,
         VatAmount = 0m,
-        OriginalTotalAmount = finalTotal,
         FinalTotalAmount = finalTotal,
         PaidAmount = finalTotal - remaining,
         RemainingAmount = remaining,

@@ -14,6 +14,22 @@ public interface IPaymentRepository
     Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default);
     Task<PaymentSummaryReadModel> GetSummaryAsync(PaymentQueryReadModel query, DateTime utcNow, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(PaymentQueryReadModel query, DateTime utcNow, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PaymentListItemReadModel>> GetListByOrderIdAsync(
+        Guid orderId,
+        PaymentStatus? status = null,
+        PaymentType? paymentType = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<PaymentListItemReadModel>>([]);
+    }
+
+    Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdsAsync(
+        IReadOnlyCollection<Guid> paymentIds,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<PaymentTransactionReadModel>>([]);
+    }
+
     Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default);
     Task<PaymentTransaction?> GetTransactionByIdAsync(Guid paymentTransactionId, CancellationToken cancellationToken = default);
     Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(

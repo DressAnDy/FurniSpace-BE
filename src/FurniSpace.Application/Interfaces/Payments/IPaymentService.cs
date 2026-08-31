@@ -44,6 +44,15 @@ public interface IPaymentService
         PaymentQueryDto query,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<OrderPaymentHistoryResponseDto>> GetPaymentsByOrderAsync(
+        Guid orderId,
+        Guid currentUserId,
+        OrderPaymentHistoryQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<OrderPaymentHistoryResponseDto>.Unauthorized());
+    }
+
     Task<ServiceResult<PaymentSummaryResponseDto>> GetSummaryAsync(
         Guid currentUserId,
         CancellationToken cancellationToken = default);

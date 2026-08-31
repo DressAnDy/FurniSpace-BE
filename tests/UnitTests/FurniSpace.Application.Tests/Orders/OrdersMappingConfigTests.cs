@@ -30,7 +30,7 @@ public sealed class OrdersMappingConfigTests
             ProjectId = Guid.NewGuid(),
             QuotationId = Guid.NewGuid(),
             OrderCode = "ORD-001",
-            OriginalTotalAmount = 100m,
+            TotalAmount = 100m,
             DepositAmount = 30m,
             PaidAmount = 0m,
             RemainingAmount = 100m,
@@ -58,7 +58,7 @@ public sealed class OrdersMappingConfigTests
             QuotationId = Guid.NewGuid(),
             OrderCode = "ORD-002",
             CustomerId = Guid.NewGuid(),
-            FinalTotalAmount = 250m,
+            TotalAmount = 250m,
             Status = OrderStatus.DEPOSIT_PENDING,
             Items =
             [

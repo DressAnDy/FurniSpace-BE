@@ -160,6 +160,102 @@ public sealed class PaymentRepositoryTests
     }
 
     [Fact]
+    public async Task GetListByOrderIdAsync_ReturnsPaymentsOrderedByCreatedAtDesc()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var olderPaymentId = Guid.NewGuid();
+        context.PaymentSet.Add(new Payment
+        {
+            PaymentId = olderPaymentId,
+            ProjectId = data.ProjectId,
+            OrderId = data.OrderId,
+            PaymentCode = "FS11111111",
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = 70m,
+            Status = PaymentStatus.PENDING,
+            CreatedAt = DateTime.UtcNow.AddHours(-2)
+        });
+        await context.SaveChangesAsync();
+        var repository = new PaymentRepository(context);
+
+        var payments = await repository.GetListByOrderIdAsync(data.OrderId);
+
+        Assert.Equal(2, payments.Count);
+        Assert.Equal(data.PaymentId, payments[0].PaymentId);
+        Assert.Equal(olderPaymentId, payments[1].PaymentId);
+    }
+
+    [Fact]
+    public async Task GetListByOrderIdAsync_AppliesStatusAndTypeFilters()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new PaymentRepository(context);
+
+        var payments = await repository.GetListByOrderIdAsync(
+            data.OrderId,
+            PaymentStatus.PAID,
+            PaymentType.DEPOSIT);
+
+        var payment = Assert.Single(payments);
+        Assert.Equal(data.PaymentId, payment.PaymentId);
+        Assert.Equal(PaymentType.DEPOSIT, payment.PaymentType);
+    }
+
+    [Fact]
+    public async Task GetTransactionsByPaymentIdsAsync_ReturnsTransactionsForMultiplePayments()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var secondPaymentId = Guid.NewGuid();
+        context.PaymentSet.Add(new Payment
+        {
+            PaymentId = secondPaymentId,
+            ProjectId = data.ProjectId,
+            OrderId = data.OrderId,
+            PaymentCode = "FS22222222",
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = 70m,
+            Status = PaymentStatus.PENDING,
+            CreatedAt = DateTime.UtcNow
+        });
+        context.PaymentTransactionSet.AddRange(
+            new PaymentTransaction
+            {
+                PaymentTransactionId = Guid.NewGuid(),
+                PaymentId = data.PaymentId,
+                ProjectId = data.ProjectId,
+                TransactionCode = "TXN-001",
+                TransactionType = PaymentTransactionType.CHARGE,
+                Amount = 30m,
+                Status = PaymentTransactionStatus.SUCCESS,
+                CreatedAt = DateTime.UtcNow
+            },
+            new PaymentTransaction
+            {
+                PaymentTransactionId = Guid.NewGuid(),
+                PaymentId = secondPaymentId,
+                ProjectId = data.ProjectId,
+                TransactionCode = "TXN-002",
+                TransactionType = PaymentTransactionType.CHARGE,
+                Amount = 70m,
+                Status = PaymentTransactionStatus.FAILED,
+                FailureReason = "Declined",
+                CreatedAt = DateTime.UtcNow
+            });
+        await context.SaveChangesAsync();
+        var repository = new PaymentRepository(context);
+
+        var transactions = await repository.GetTransactionsByPaymentIdsAsync(
+            [data.PaymentId, secondPaymentId]);
+
+        Assert.Equal(2, transactions.Count);
+        Assert.Contains(transactions, transaction => transaction.TransactionCode == "TXN-001");
+        Assert.Contains(transactions, transaction => transaction.TransactionCode == "TXN-002");
+    }
+
+    [Fact]
     public async Task GetTransactionsByPaymentIdAsync_ReturnsTransactions()
     {
         await using var context = CreateContext();

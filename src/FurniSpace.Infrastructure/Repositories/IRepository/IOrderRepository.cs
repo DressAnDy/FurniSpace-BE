@@ -11,6 +11,22 @@ public interface IOrderRepository : IGenericRepository<Order>
         Guid projectId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<CustomerMyOrderListItemReadModel>> GetByCustomerPagedAsync(
+        Guid customerId,
+        CustomerMyOrdersQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<CustomerMyOrderListItemReadModel>>([]);
+    }
+
+    Task<int> CountByCustomerAsync(
+        Guid customerId,
+        CustomerMyOrdersQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(0);
+    }
+
     Task<OrderDetailReadModel?> GetDetailAsync(
         Guid orderId,
         CancellationToken cancellationToken = default);

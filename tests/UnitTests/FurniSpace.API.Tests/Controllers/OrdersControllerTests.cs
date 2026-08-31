@@ -251,6 +251,73 @@ public sealed class OrdersControllerTests
     }
 
     [Fact]
+    public void GetMyOrders_RequiresCustomerRole()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.GetMyOrders));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task GetMyOrders_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = CreateController(new FakeOrderService(), new FakePaymentService(), new FakeProductionRequestService(), userId: null);
+
+        var result = await controller.GetMyOrders(new CustomerMyOrdersQueryDto());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task GetMyOrders_ReturnsServiceResult()
+    {
+        var userId = Guid.NewGuid();
+        var orderService = new FakeOrderService(
+            getMyOrdersResult: ServiceResult<CustomerMyOrdersResponseDto>.Success(
+                new CustomerMyOrdersResponseDto
+                {
+                    Items = [new CustomerMyOrderItemDto { OrderCode = "ORD-ME" }],
+                    Page = 1,
+                    PageSize = 20,
+                    TotalCount = 1
+                },
+                "ok"));
+        var controller = CreateController(orderService, new FakePaymentService(), new FakeProductionRequestService(), userId);
+
+        var result = await controller.GetMyOrders(new CustomerMyOrdersQueryDto());
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
+    [Fact]
+    public void GetPayments_RequiresOrderReaderRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(OrdersController.GetPayments));
+
+        Assert.NotNull(authorize);
+        Assert.Contains("CUSTOMER", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task GetPayments_ReturnsServiceResult()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var paymentService = new FakePaymentService(
+            getPaymentsByOrderResult: ServiceResult<OrderPaymentHistoryResponseDto>.Success(
+                new OrderPaymentHistoryResponseDto { OrderId = orderId, TotalAmount = 100m },
+                "ok"));
+        var controller = CreateController(new FakeOrderService(), paymentService, new FakeProductionRequestService(), userId);
+
+        var result = await controller.GetPayments(orderId, new OrderPaymentHistoryQueryDto());
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+    }
+
+    [Fact]
     public async Task GetDetail_WithoutUser_ReturnsUnauthorized()
     {
         var controller = CreateController(new FakeOrderService(), new FakePaymentService(), new FakeProductionRequestService(), userId: null);
@@ -779,6 +846,7 @@ public sealed class OrdersControllerTests
     private sealed class FakeOrderService : IOrderService
     {
         private readonly ServiceResult<OrderListResponseDto>? _getByProjectResult;
+        private readonly ServiceResult<CustomerMyOrdersResponseDto>? _getMyOrdersResult;
         private readonly ServiceResult<OrderDetailDto>? _getDetailResult;
         private readonly ServiceResult<OrderDeliveryStartDto>? _startDeliveryResult;
         private readonly ServiceResult<OrderDeliveryCompletionDto>? _completeDeliveryResult;
@@ -794,6 +862,7 @@ public sealed class OrdersControllerTests
 
         public FakeOrderService(
             ServiceResult<OrderListResponseDto>? getByProjectResult = null,
+            ServiceResult<CustomerMyOrdersResponseDto>? getMyOrdersResult = null,
             ServiceResult<OrderDetailDto>? getDetailResult = null,
             ServiceResult<OrderDeliveryStartDto>? startDeliveryResult = null,
             ServiceResult<OrderDeliveryCompletionDto>? completeDeliveryResult = null,
@@ -808,6 +877,7 @@ public sealed class OrdersControllerTests
             ServiceResult<OrderDeliveryDetailsDto>? updateDeliveryDetailsResult = null)
         {
             _getByProjectResult = getByProjectResult;
+            _getMyOrdersResult = getMyOrdersResult;
             _getDetailResult = getDetailResult;
             _startDeliveryResult = startDeliveryResult;
             _completeDeliveryResult = completeDeliveryResult;
@@ -834,6 +904,15 @@ public sealed class OrdersControllerTests
         {
             return Task.FromResult(
                 _getByProjectResult ?? ServiceResult<OrderListResponseDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<CustomerMyOrdersResponseDto>> GetMyOrdersAsync(
+            Guid currentUserId,
+            CustomerMyOrdersQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                _getMyOrdersResult ?? ServiceResult<CustomerMyOrdersResponseDto>.Unauthorized());
         }
 
         public Task<ServiceResult<OrderDetailDto>> GetDetailAsync(
@@ -977,13 +1056,16 @@ public sealed class OrdersControllerTests
     {
         private readonly ServiceResult<PaymentDetailDto>? _createDepositResult;
         private readonly ServiceResult<PaymentDetailDto>? _createRemainingResult;
+        private readonly ServiceResult<OrderPaymentHistoryResponseDto>? _getPaymentsByOrderResult;
 
         public FakePaymentService(
             ServiceResult<PaymentDetailDto>? createDepositResult = null,
-            ServiceResult<PaymentDetailDto>? createRemainingResult = null)
+            ServiceResult<PaymentDetailDto>? createRemainingResult = null,
+            ServiceResult<OrderPaymentHistoryResponseDto>? getPaymentsByOrderResult = null)
         {
             _createDepositResult = createDepositResult;
             _createRemainingResult = createRemainingResult;
+            _getPaymentsByOrderResult = getPaymentsByOrderResult;
         }
 
         public Task<ServiceResult<PaymentDetailDto>> CreateDepositPaymentForOrderAsync(
@@ -1004,6 +1086,16 @@ public sealed class OrdersControllerTests
         {
             return Task.FromResult(
                 _createRemainingResult ?? ServiceResult<PaymentDetailDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<OrderPaymentHistoryResponseDto>> GetPaymentsByOrderAsync(
+            Guid orderId,
+            Guid currentUserId,
+            OrderPaymentHistoryQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(
+                _getPaymentsByOrderResult ?? ServiceResult<OrderPaymentHistoryResponseDto>.Unauthorized());
         }
 
         public Task<ServiceResult<PaymentDetailDto>> CreateProjectStartFeePaymentAsync(

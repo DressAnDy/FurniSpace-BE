@@ -1364,6 +1364,159 @@ public sealed class PaymentServiceTests
         Assert.Equal(PaymentStatus.EXPIRED, payment.Status);
     }
 
+    [Fact]
+    public async Task GetPaymentsByOrderAsync_WhenUnauthorized_Returns401()
+    {
+        var service = BuildService();
+
+        var result = await service.GetPaymentsByOrderAsync(
+            _orderId,
+            Guid.Empty,
+            new OrderPaymentHistoryQueryDto());
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task GetPaymentsByOrderAsync_WhenOrderMissing_ReturnsNotFound()
+    {
+        var service = BuildService(new PaymentServiceTestOptions { Role = "CUSTOMER" });
+
+        var result = await service.GetPaymentsByOrderAsync(
+            _orderId,
+            _customerId,
+            new OrderPaymentHistoryQueryDto());
+
+        Assert.Equal(404, result.Status);
+    }
+
+    [Fact]
+    public async Task GetPaymentsByOrderAsync_WhenForbidden_ReturnsForbidden()
+    {
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            OrderDetail = CreateOrderDetail(OrderStatus.DEPOSIT_PENDING, customerId: Guid.NewGuid())
+        });
+
+        var result = await service.GetPaymentsByOrderAsync(
+            _orderId,
+            _customerId,
+            new OrderPaymentHistoryQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetPaymentsByOrderAsync_WhenAuthorized_ReturnsConsolidatedHistory()
+    {
+        var repository = new PaymentServiceFakeRepository();
+        var paymentId = Guid.NewGuid();
+        repository.SeedListItem(new PaymentListItemReadModel
+        {
+            PaymentId = paymentId,
+            ProjectId = _projectId,
+            OrderId = _orderId,
+            PaymentCode = "PAY-001",
+            PaymentType = PaymentType.DEPOSIT,
+            Amount = 30m,
+            Status = PaymentStatus.PAID,
+            PaidAt = DateTime.UtcNow,
+            CancelledAt = null,
+            CreatedAt = DateTime.UtcNow.AddHours(-1)
+        });
+        repository.SeedTransaction(new PaymentTransaction
+        {
+            PaymentTransactionId = Guid.NewGuid(),
+            PaymentId = paymentId,
+            ProjectId = _projectId,
+            TransactionCode = "TXN-001",
+            TransactionType = PaymentTransactionType.CHARGE,
+            Amount = 30m,
+            Currency = "VND",
+            Status = PaymentTransactionStatus.SUCCESS,
+            PaymentProvider = PaymentProvider.SEPAY,
+            PaymentMethod = PaymentMethod.QR_CODE,
+            ProviderTransactionId = "provider-1",
+            ProviderReferenceCode = "ref-1",
+            TransactionTime = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            OrderDetail = CreateOrderDetail(
+                OrderStatus.DEPOSIT_PAID,
+                depositAmount: 30m,
+                remainingAmount: 70m),
+            Payments = repository
+        });
+
+        var result = await service.GetPaymentsByOrderAsync(
+            _orderId,
+            _customerId,
+            new OrderPaymentHistoryQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(_orderId, result.Data!.OrderId);
+        Assert.Equal(100m, result.Data.TotalAmount);
+        Assert.Equal(30m, result.Data.DepositAmount);
+        Assert.Equal(70m, result.Data.RemainingAmount);
+        var payment = Assert.Single(result.Data.Payments);
+        Assert.Equal("PAY-001", payment.PaymentCode);
+        Assert.Equal(PaymentType.DEPOSIT, payment.PaymentType);
+        var transaction = Assert.Single(payment.Transactions);
+        Assert.Equal(PaymentTransactionStatus.SUCCESS, transaction.Status);
+        Assert.Equal("provider-1", transaction.ProviderTransactionId);
+    }
+
+    [Fact]
+    public async Task GetPaymentsByOrderAsync_AppliesPaymentFilters()
+    {
+        var repository = new PaymentServiceFakeRepository();
+        repository.SeedListItem(new PaymentListItemReadModel
+        {
+            PaymentId = Guid.NewGuid(),
+            OrderId = _orderId,
+            PaymentCode = "PAY-DEP",
+            PaymentType = PaymentType.DEPOSIT,
+            Status = PaymentStatus.PAID,
+            Amount = 30m,
+            CreatedAt = DateTime.UtcNow
+        });
+        repository.SeedListItem(new PaymentListItemReadModel
+        {
+            PaymentId = Guid.NewGuid(),
+            OrderId = _orderId,
+            PaymentCode = "PAY-REM",
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Status = PaymentStatus.PENDING,
+            Amount = 70m,
+            CreatedAt = DateTime.UtcNow.AddMinutes(-5)
+        });
+
+        var service = BuildService(new PaymentServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            OrderDetail = CreateOrderDetail(OrderStatus.FINAL_PAYMENT_PENDING),
+            Payments = repository
+        });
+
+        var result = await service.GetPaymentsByOrderAsync(
+            _orderId,
+            _customerId,
+            new OrderPaymentHistoryQueryDto
+            {
+                PaymentType = PaymentType.REMAINING_PAYMENT,
+                Status = PaymentStatus.PENDING
+            });
+
+        var payment = Assert.Single(result.Data!.Payments);
+        Assert.Equal("PAY-REM", payment.PaymentCode);
+    }
+
     private static PaymentService BuildService(PaymentServiceTestOptions? options = null)
     {
         options ??= new PaymentServiceTestOptions();

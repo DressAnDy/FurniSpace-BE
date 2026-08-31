@@ -104,6 +104,63 @@ public sealed class OrderDetailDeliveryComposerTests
         Assert.Equal("09", details.ReceiverPhone);
         Assert.Equal("Note", details.DeliveryNote);
     }
+
+    [Fact]
+    public void BuildDeliveries_WhenBatchHasNoMappedItems_ReturnsEmptyItemList()
+    {
+        var deliveryId = Guid.NewGuid();
+
+        var deliveries = OrderDetailDeliveryComposer.BuildDeliveries(
+            [new DeliveryListItemReadModel { DeliveryId = deliveryId, OrderId = Guid.NewGuid() }],
+            []);
+
+        var batch = Assert.Single(deliveries);
+        Assert.Empty(batch.Items);
+    }
+
+    [Fact]
+    public void BuildDeliveries_UsesProductNameSnapshotWhenItemNameMissing()
+    {
+        var deliveryId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+
+        var deliveries = OrderDetailDeliveryComposer.BuildDeliveries(
+            [new DeliveryListItemReadModel { DeliveryId = deliveryId, OrderId = Guid.NewGuid() }],
+            [
+                new DeliveryItemReadModel
+                {
+                    DeliveryItemId = Guid.NewGuid(),
+                    DeliveryId = deliveryId,
+                    OrderItemId = orderItemId,
+                    Quantity = 1,
+                    ProductNameSnapshot = "Snapshot Chair"
+                }
+            ]);
+
+        var item = Assert.Single(Assert.Single(deliveries).Items);
+        Assert.Equal("Snapshot Chair", item.ProductName);
+    }
+
+    [Fact]
+    public void BuildSummary_WhenTrackingPresent_MapsProgressFields()
+    {
+        var summary = OrderDetailDeliveryComposer.BuildSummary(new OrderDeliveryTrackingReadModel
+        {
+            TotalOrderedQuantity = 10,
+            TotalDeliveredQuantity = 4,
+            RemainingQuantity = 6,
+            DeliveryProgressPercent = 40,
+            CompletedDeliveryCount = 1,
+            InProgressDeliveryCount = 1,
+            UpcomingDeliveryCount = 2,
+            NextDeliveryAt = DateTime.UtcNow
+        });
+
+        Assert.Equal(10, summary.TotalOrderedQuantity);
+        Assert.Equal(4, summary.TotalDeliveredQuantity);
+        Assert.Equal(40, summary.DeliveryProgressPercent);
+        Assert.Equal(1, summary.InProgressDeliveryCount);
+    }
 }
 
 public sealed class OrderFinancialSummaryTests

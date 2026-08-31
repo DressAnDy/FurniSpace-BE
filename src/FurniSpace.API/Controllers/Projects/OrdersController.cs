@@ -47,6 +47,21 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpGet("orders/me")]
+    public async Task<IActionResult> GetMyOrders(
+        [FromQuery] CustomerMyOrdersQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.GetMyOrdersAsync(currentUserId, query, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [HttpGet("orders/{orderId:guid}")]
     public async Task<IActionResult> GetDetail(

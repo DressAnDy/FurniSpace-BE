@@ -45,4 +45,6 @@ public static class OrderErrorCodes
     public const string DeliveryBatchInProgress = "DELIVERY_BATCH_IN_PROGRESS";
     public const string UnresolvedDeliverySchedule = "UNRESOLVED_DELIVERY_SCHEDULE";
     public const string NoRemainingDeliveryQuantity = "NO_REMAINING_DELIVERY_QUANTITY";
+    public const string OrderListPaginationInvalid = "ORDER_LIST_PAGINATION_INVALID";
+    public const string OrderMyOrdersForbidden = "ORDER_MY_ORDERS_FORBIDDEN";
 }

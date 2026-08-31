@@ -78,6 +78,67 @@ public sealed partial class OrderService : IOrderService
             "Orders retrieved successfully.");
     }
 
+    public async Task<ServiceResult<CustomerMyOrdersResponseDto>> GetMyOrdersAsync(
+        Guid currentUserId,
+        CustomerMyOrdersQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomerMyOrdersResponseDto>.Unauthorized();
+        }
+
+        var paginationError = OrderListPaginationSupport.ValidatePagination(query.Page, query.PageSize);
+        if (paginationError is not null)
+        {
+            return ServiceResult<CustomerMyOrdersResponseDto>.Failure(
+                Error.BadRequest(OrderErrorCodes.OrderListPaginationInvalid, paginationError));
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!string.Equals(role, "CUSTOMER", StringComparison.Ordinal))
+        {
+            return ServiceResult<CustomerMyOrdersResponseDto>.Forbidden(
+                "Only customers can access their order history.");
+        }
+
+        var readQuery = new CustomerMyOrdersQueryReadModel
+        {
+            Page = query.Page,
+            PageSize = query.PageSize,
+            Status = query.Status,
+            Search = query.Search
+        };
+
+        var totalCount = await _orders.CountByCustomerAsync(currentUserId, readQuery, cancellationToken);
+        var items = await _orders.GetByCustomerPagedAsync(currentUserId, readQuery, cancellationToken);
+
+        return ServiceResult<CustomerMyOrdersResponseDto>.Success(
+            new CustomerMyOrdersResponseDto
+            {
+                Items = items.Select(MapCustomerMyOrderItem).ToList(),
+                Page = query.Page,
+                PageSize = query.PageSize,
+                TotalCount = totalCount
+            },
+            "Customer orders retrieved successfully.");
+    }
+
+    private static CustomerMyOrderItemDto MapCustomerMyOrderItem(CustomerMyOrderListItemReadModel item) =>
+        new()
+        {
+            OrderId = item.OrderId,
+            OrderCode = item.OrderCode,
+            ProjectId = item.ProjectId,
+            Status = item.Status,
+            TotalAmount = item.TotalAmount,
+            DepositAmount = item.DepositAmount,
+            PaidAmount = item.PaidAmount,
+            RemainingAmount = item.RemainingAmount,
+            CreatedAt = item.CreatedAt,
+            UpdatedAt = item.UpdatedAt
+        };
+
     public async Task<ServiceResult<OrderDetailDto>> GetDetailAsync(
         Guid orderId,
         Guid currentUserId,

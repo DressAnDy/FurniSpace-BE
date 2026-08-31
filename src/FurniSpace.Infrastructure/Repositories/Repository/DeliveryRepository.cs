@@ -127,37 +127,13 @@ public sealed class DeliveryRepository : IDeliveryRepository
         Guid orderId,
         CancellationToken cancellationToken = default)
     {
-        return await _dbContext.DeliveryItemSet
+        var deliveryIds = _dbContext.DeliverySet
             .AsNoTracking()
-            .Where(item => _dbContext.DeliverySet
-                .Any(delivery => delivery.DeliveryId == item.DeliveryId && delivery.OrderId == orderId))
-            .GroupJoin(
-                _dbContext.OrderItemSet,
-                deliveryItem => deliveryItem.OrderItemId,
-                orderItem => orderItem.OrderItemId,
-                (deliveryItem, orderItems) => new { deliveryItem, orderItems })
-            .SelectMany(
-                pair => pair.orderItems.DefaultIfEmpty(),
-                (pair, orderItem) => new { pair.deliveryItem, orderItem })
-            .GroupJoin(
-                _dbContext.QuotationItemSet,
-                pair => pair.orderItem != null ? pair.orderItem.QuotationItemId : null,
-                quotationItem => quotationItem.QuotationItemId,
-                (pair, quotationItems) => new { pair.deliveryItem, pair.orderItem, quotationItems })
-            .SelectMany(
-                pair => pair.quotationItems.DefaultIfEmpty(),
-                (pair, quotationItem) => new DeliveryItemReadModel
-                {
-                    DeliveryItemId = pair.deliveryItem.DeliveryItemId,
-                    DeliveryId = pair.deliveryItem.DeliveryId,
-                    OrderItemId = pair.deliveryItem.OrderItemId,
-                    Quantity = pair.deliveryItem.Quantity,
-                    Note = pair.deliveryItem.Note,
-                    ProductNameSnapshot = pair.orderItem != null ? pair.orderItem.ProductNameSnapshot : null,
-                    ItemName = quotationItem != null
-                        ? quotationItem.ItemName
-                        : pair.orderItem != null ? pair.orderItem.ProductNameSnapshot : null
-                })
+            .Where(delivery => delivery.OrderId == orderId)
+            .Select(delivery => delivery.DeliveryId);
+
+        return await BuildDeliveryItemReadModelsQuery(
+                _dbContext.DeliveryItemSet.AsNoTracking().Where(item => deliveryIds.Contains(item.DeliveryId)))
             .OrderBy(item => item.DeliveryItemId)
             .ToListAsync(cancellationToken);
     }
@@ -450,46 +426,35 @@ public sealed class DeliveryRepository : IDeliveryRepository
         };
     }
 
-    private Task<List<OrderDeliveryTrackingTimelineItemReadModel>> LoadDeliveryTimelineItemsAsync(
+    private async Task<List<OrderDeliveryTrackingTimelineItemReadModel>> LoadDeliveryTimelineItemsAsync(
         Guid deliveryId,
         CancellationToken cancellationToken)
     {
-        return _dbContext.DeliveryItemSet
-            .AsNoTracking()
-            .Where(item => item.DeliveryId == deliveryId)
-            .GroupJoin(
-                _dbContext.OrderItemSet,
-                deliveryItem => deliveryItem.OrderItemId,
-                orderItem => orderItem.OrderItemId,
-                (deliveryItem, orderItems) => new { deliveryItem, orderItems })
-            .SelectMany(
-                pair => pair.orderItems.DefaultIfEmpty(),
-                (pair, orderItem) => new { pair.deliveryItem, orderItem })
-            .GroupJoin(
-                _dbContext.QuotationItemSet,
-                pair => pair.orderItem != null ? pair.orderItem.QuotationItemId : null,
-                quotationItem => quotationItem.QuotationItemId,
-                (pair, quotationItems) => new { pair.deliveryItem, pair.orderItem, quotationItems })
-            .SelectMany(
-                pair => pair.quotationItems.DefaultIfEmpty(),
-                (pair, quotationItem) => new OrderDeliveryTrackingTimelineItemReadModel
-                {
-                    OrderItemId = pair.deliveryItem.OrderItemId,
-                    ProductName = quotationItem != null
-                        ? quotationItem.ItemName
-                        : pair.orderItem != null ? pair.orderItem.ProductNameSnapshot : null,
-                    BatchQuantity = pair.deliveryItem.Quantity
-                })
-            .ToListAsync(cancellationToken);
+        var items = await LoadDeliveryItemReadModelsAsync(deliveryId, cancellationToken);
+        return items.ConvertAll(ToTimelineItem);
     }
+
+    private static OrderDeliveryTrackingTimelineItemReadModel ToTimelineItem(DeliveryItemReadModel item) =>
+        new()
+        {
+            OrderItemId = item.OrderItemId,
+            ProductName = item.ItemName ?? item.ProductNameSnapshot,
+            BatchQuantity = item.Quantity
+        };
 
     private Task<List<DeliveryItemReadModel>> LoadDeliveryItemReadModelsAsync(
         Guid deliveryId,
         CancellationToken cancellationToken)
     {
-        return _dbContext.DeliveryItemSet
-            .AsNoTracking()
-            .Where(item => item.DeliveryId == deliveryId)
+        return BuildDeliveryItemReadModelsQuery(
+                _dbContext.DeliveryItemSet.AsNoTracking().Where(item => item.DeliveryId == deliveryId))
+            .OrderBy(item => item.DeliveryItemId)
+            .ToListAsync(cancellationToken);
+    }
+
+    private IQueryable<DeliveryItemReadModel> BuildDeliveryItemReadModelsQuery(IQueryable<DeliveryItem> deliveryItems)
+    {
+        return deliveryItems
             .GroupJoin(
                 _dbContext.OrderItemSet,
                 deliveryItem => deliveryItem.OrderItemId,
@@ -516,9 +481,7 @@ public sealed class DeliveryRepository : IDeliveryRepository
                     ItemName = quotationItem != null
                         ? quotationItem.ItemName
                         : pair.orderItem != null ? pair.orderItem.ProductNameSnapshot : null
-                })
-            .OrderBy(item => item.DeliveryItemId)
-            .ToListAsync(cancellationToken);
+                });
     }
 
     private IQueryable<DeliveryScheduleSummaryReadModel> SelectScheduleSummary(Guid scheduleId)

@@ -331,6 +331,21 @@ public sealed class DeliveryRepositoryTests
     }
 
     [Fact]
+    public async Task GetItemsByOrderAsync_ReturnsItemsAcrossDeliveries()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new DeliveryRepository(context);
+
+        var items = await repository.GetItemsByOrderAsync(data.OrderId);
+
+        Assert.Single(items);
+        Assert.Equal(data.OrderItemId, items[0].OrderItemId);
+        Assert.Equal(2, items[0].Quantity);
+        Assert.Equal("Custom Oak Table", items[0].ItemName);
+    }
+
+    [Fact]
     public async Task DeliveryRepositoryInterfaceDefaults_ReturnConfiguredFallbacks()
     {
         IDeliveryRepository repository = new MinimalDeliveryRepository();

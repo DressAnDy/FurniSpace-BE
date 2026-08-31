@@ -444,6 +444,129 @@ public sealed class OrderRepositoryTests
         return new SeededData(projectId, orderId, quotationId, customerId, salesId);
     }
 
+    [Fact]
+    public async Task GetByCustomerPagedAsync_ReturnsOnlyMatchingCustomerOrders()
+    {
+        await using var context = CreateContext();
+        var customerA = Guid.NewGuid();
+        var customerB = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var olderOrderId = Guid.NewGuid();
+        var newerOrderId = Guid.NewGuid();
+        var olderCreatedAt = DateTime.UtcNow.AddDays(-2);
+        var newerCreatedAt = DateTime.UtcNow.AddDays(-1);
+
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerA,
+            ProjectCode = "PRJ-ME",
+            ProjectName = "My Project",
+            Status = ProjectStatus.ORDER_CONFIRMED,
+            CreatedAt = DateTime.UtcNow
+        });
+        context.OrderSet.AddRange(
+            new Order
+            {
+                OrderId = olderOrderId,
+                ProjectId = projectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = "ORD-OLD",
+                CustomerId = customerA,
+                FinalTotalAmount = 100m,
+                Status = OrderStatus.CREATED,
+                CreatedAt = olderCreatedAt
+            },
+            new Order
+            {
+                OrderId = newerOrderId,
+                ProjectId = projectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = "ORD-NEW",
+                CustomerId = customerA,
+                FinalTotalAmount = 200m,
+                DepositAmount = 60m,
+                PaidAmount = 60m,
+                RemainingAmount = 140m,
+                Status = OrderStatus.FINAL_PAYMENT_PENDING,
+                CreatedAt = newerCreatedAt,
+                UpdatedAt = newerCreatedAt.AddHours(1)
+            },
+            new Order
+            {
+                OrderId = Guid.NewGuid(),
+                ProjectId = projectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = "ORD-OTHER",
+                CustomerId = customerB,
+                FinalTotalAmount = 999m,
+                Status = OrderStatus.CREATED,
+                CreatedAt = DateTime.UtcNow
+            });
+        await context.SaveChangesAsync();
+
+        var repository = new OrderRepository(context);
+        var query = new CustomerMyOrdersQueryReadModel { Page = 1, PageSize = 10 };
+
+        var total = await repository.CountByCustomerAsync(customerA, query);
+        var items = await repository.GetByCustomerPagedAsync(customerA, query);
+
+        Assert.Equal(2, total);
+        Assert.Equal(2, items.Count);
+        Assert.Equal(newerOrderId, items[0].OrderId);
+        Assert.Equal("ORD-NEW", items[0].OrderCode);
+        Assert.Equal(200m, items[0].TotalAmount);
+        Assert.Equal(olderOrderId, items[1].OrderId);
+    }
+
+    [Fact]
+    public async Task GetByCustomerPagedAsync_AppliesStatusSearchAndPagination()
+    {
+        await using var context = CreateContext();
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            ProjectCode = "PRJ-ME",
+            ProjectName = "My Project",
+            Status = ProjectStatus.ORDER_CONFIRMED,
+            CreatedAt = DateTime.UtcNow
+        });
+        for (var index = 0; index < 3; index++)
+        {
+            context.OrderSet.Add(new Order
+            {
+                OrderId = Guid.NewGuid(),
+                ProjectId = projectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = $"ORD-2026-{index + 1}",
+                CustomerId = customerId,
+                FinalTotalAmount = 100m + index,
+                Status = index == 2 ? OrderStatus.DELIVERED : OrderStatus.CREATED,
+                CreatedAt = DateTime.UtcNow.AddDays(-index)
+            });
+        }
+
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+        var query = new CustomerMyOrdersQueryReadModel
+        {
+            Page = 1,
+            PageSize = 1,
+            Status = OrderStatus.CREATED,
+            Search = "ORD-2026"
+        };
+
+        var total = await repository.CountByCustomerAsync(customerId, query);
+        var page = await repository.GetByCustomerPagedAsync(customerId, query);
+
+        Assert.Equal(2, total);
+        var item = Assert.Single(page);
+        Assert.Equal("ORD-2026-1", item.OrderCode);
+    }
+
     private static Account CreateAccount(Guid accountId, Guid roleId, string email)
     {
         return new Account

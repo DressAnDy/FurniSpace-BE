@@ -369,7 +369,6 @@ public sealed class AdminProjectReportRepositoryTests
             SalesId = salesId,
             VatRate = 0.1m,
             VatAmount = 0,
-            OriginalTotalAmount = 100,
             FinalTotalAmount = 100,
             PaidAmount = 30,
             RemainingAmount = 70,

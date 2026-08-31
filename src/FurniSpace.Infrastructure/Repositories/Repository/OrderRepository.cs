@@ -27,6 +27,27 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CustomerMyOrderListItemReadModel>> GetByCustomerPagedAsync(
+        Guid customerId,
+        CustomerMyOrdersQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return await BuildCustomerMyOrdersQuery(customerId, query)
+            .OrderByDescending(order => order.CreatedAt)
+            .ThenByDescending(order => order.OrderId)
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountByCustomerAsync(
+        Guid customerId,
+        CustomerMyOrdersQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildCustomerMyOrdersQuery(customerId, query).CountAsync(cancellationToken);
+    }
+
     public async Task<OrderDetailReadModel?> GetDetailAsync(
         Guid orderId,
         CancellationToken cancellationToken = default)
@@ -48,16 +69,18 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                     SalesId = order.SalesId,
                     VatRate = order.VatRate,
                     VatAmount = order.VatAmount,
-                    OriginalTotalAmount = order.OriginalTotalAmount,
-                    ItemAdjustmentAmount = order.ItemAdjustmentAmount,
-                    AdditionalDiscountAmount = order.AdditionalDiscountAmount,
-                    FinalTotalAmount = order.FinalTotalAmount,
+                    TotalAmount = order.FinalTotalAmount,
                     DepositAmount = order.DepositAmount,
                     PaidAmount = order.PaidAmount,
                     RemainingAmount = order.RemainingAmount,
                     Status = order.Status,
                     CreatedAt = order.CreatedAt,
                     UpdatedAt = order.UpdatedAt,
+                    CustomerConfirmedDeliveryAt = order.CustomerConfirmedDeliveryAt,
+                    DeliveryAddress = order.DeliveryAddress,
+                    ReceiverName = order.ReceiverName,
+                    ReceiverPhone = order.ReceiverPhone,
+                    DeliveryNote = order.DeliveryNote,
                     AssignedSalesId = project.AssignedSalesId,
                     AssignedDesignerId = project.AssignedDesignerId
                 })
@@ -263,7 +286,7 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                     ProjectId = order.ProjectId,
                     QuotationId = order.QuotationId,
                     OrderCode = order.OrderCode,
-                    OriginalTotalAmount = order.OriginalTotalAmount,
+                    TotalAmount = order.FinalTotalAmount,
                     DepositAmount = order.DepositAmount,
                     PaidAmount = order.PaidAmount,
                     RemainingAmount = order.RemainingAmount,
@@ -273,6 +296,40 @@ public sealed class OrderRepository : GenericRepository<Order>, IOrderRepository
                     AssignedSalesId = project.AssignedSalesId,
                     AssignedDesignerId = project.AssignedDesignerId
                 });
+    }
+
+    private IQueryable<CustomerMyOrderListItemReadModel> BuildCustomerMyOrdersQuery(
+        Guid customerId,
+        CustomerMyOrdersQueryReadModel query)
+    {
+        var orders = DbContext.OrderSet
+            .AsNoTracking()
+            .Where(order => order.CustomerId == customerId);
+
+        if (query.Status.HasValue)
+        {
+            orders = orders.Where(order => order.Status == query.Status.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim();
+            orders = orders.Where(order => order.OrderCode.Contains(search));
+        }
+
+        return orders.Select(order => new CustomerMyOrderListItemReadModel
+        {
+            OrderId = order.OrderId,
+            OrderCode = order.OrderCode,
+            ProjectId = order.ProjectId,
+            Status = order.Status,
+            TotalAmount = order.FinalTotalAmount,
+            DepositAmount = order.DepositAmount,
+            PaidAmount = order.PaidAmount,
+            RemainingAmount = order.RemainingAmount,
+            CreatedAt = order.CreatedAt,
+            UpdatedAt = order.UpdatedAt
+        });
     }
 
     private async Task<IReadOnlyList<OrderItemDetailReadModel>> GetItemsAsync(

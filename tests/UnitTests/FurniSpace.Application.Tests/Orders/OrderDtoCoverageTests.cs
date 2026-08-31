@@ -21,7 +21,7 @@ public sealed class OrderDtoCoverageTests
                     ProjectId = Guid.NewGuid(),
                     QuotationId = Guid.NewGuid(),
                     OrderCode = "ORD-001",
-                    OriginalTotalAmount = 100m,
+                    TotalAmount = 100m,
                     DepositAmount = 30m,
                     Status = OrderStatus.DEPOSIT_PENDING
                 }

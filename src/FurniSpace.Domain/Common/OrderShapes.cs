@@ -25,7 +25,7 @@ public abstract class OrderListItemShape
     public Guid ProjectId { get; set; }
     public Guid QuotationId { get; set; }
     public string OrderCode { get; set; } = string.Empty;
-    public decimal OriginalTotalAmount { get; set; }
+    public decimal TotalAmount { get; set; }
     public decimal? DepositAmount { get; set; }
     public decimal? PaidAmount { get; set; }
     public decimal? RemainingAmount { get; set; }
@@ -44,10 +44,10 @@ public abstract class OrderDetailShape
     public Guid? SalesId { get; set; }
     public decimal VatRate { get; set; }
     public decimal VatAmount { get; set; }
-    public decimal OriginalTotalAmount { get; set; }
-    public decimal? ItemAdjustmentAmount { get; set; }
-    public decimal? AdditionalDiscountAmount { get; set; }
-    public decimal FinalTotalAmount { get; set; }
+    public decimal ItemsGrossAmount { get; set; }
+    public decimal TotalItemDiscountAmount { get; set; }
+    public decimal PreVatAmount { get; set; }
+    public decimal TotalAmount { get; set; }
     public decimal? DepositAmount { get; set; }
     public decimal? PaidAmount { get; set; }
     public decimal? RemainingAmount { get; set; }

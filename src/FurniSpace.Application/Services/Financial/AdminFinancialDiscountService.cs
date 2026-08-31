@@ -65,7 +65,6 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
             {
                 GrossOrderValue = summary.GrossOrderValue,
                 ItemDiscountAmount = summary.ItemDiscountAmount,
-                OrderAdditionalDiscountAmount = summary.OrderAdditionalDiscountAmount,
                 TotalDiscountAmount = summary.TotalDiscountAmount,
                 NetOrderValueBeforeVat = summary.NetOrderValueBeforeVat,
                 VatAmount = summary.VatAmount,
@@ -247,7 +246,6 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
             ConfirmedAt = ToOffset(row.ConfirmedAt),
             GrossOrderValue = row.GrossOrderValue,
             ItemDiscountAmount = row.ItemDiscountAmount,
-            OrderAdditionalDiscountAmount = row.OrderAdditionalDiscountAmount,
             TotalDiscountAmount = row.TotalDiscountAmount,
             NetOrderValueBeforeVat = row.NetOrderValueBeforeVat,
             VatAmount = row.VatAmount,
@@ -271,7 +269,6 @@ public sealed class AdminFinancialDiscountService : IAdminFinancialDiscountServi
             CustomerName = row.CustomerName,
             GrossOrderValue = row.GrossOrderValue,
             ItemDiscountAmount = row.ItemDiscountAmount,
-            OrderAdditionalDiscountAmount = row.OrderAdditionalDiscountAmount,
             TotalDiscountAmount = row.TotalDiscountAmount,
             NetOrderValueBeforeVat = row.NetOrderValueBeforeVat,
             VatRate = row.VatRate,

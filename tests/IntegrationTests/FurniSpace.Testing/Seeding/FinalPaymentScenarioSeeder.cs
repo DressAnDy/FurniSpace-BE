@@ -143,7 +143,6 @@ public static class FinalPaymentScenarioSeeder
             SalesId = salesId,
             VatRate = VatRate,
             VatAmount = VatAmount,
-            OriginalTotalAmount = FinalTotalAmount,
             FinalTotalAmount = FinalTotalAmount,
             DepositAmount = paidAmount,
             PaidAmount = paidAmount,

@@ -37,7 +37,6 @@ public sealed class AdminFinancialDiscountOrderMetricsReadModel
     public string? SalesName { get; set; }
     public decimal GrossOrderValue { get; set; }
     public decimal ItemDiscountAmount { get; set; }
-    public decimal OrderAdditionalDiscountAmount { get; set; }
     public decimal TotalDiscountAmount { get; set; }
     public decimal NetOrderValueBeforeVat { get; set; }
     public decimal VatRate { get; set; }
@@ -50,7 +49,6 @@ public sealed class AdminFinancialDiscountSummaryReadModel
 {
     public decimal GrossOrderValue { get; set; }
     public decimal ItemDiscountAmount { get; set; }
-    public decimal OrderAdditionalDiscountAmount { get; set; }
     public decimal TotalDiscountAmount { get; set; }
     public decimal NetOrderValueBeforeVat { get; set; }
     public decimal VatAmount { get; set; }

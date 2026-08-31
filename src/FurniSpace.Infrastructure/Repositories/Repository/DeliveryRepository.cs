@@ -63,7 +63,8 @@ public sealed class DeliveryRepository : IDeliveryRepository
                             ScheduledEnd = schedule.ScheduledEnd,
                             CompletedAt = schedule.CompletedAt,
                             Status = schedule.Status,
-                            AssignedStaffId = schedule.AssignedStaffId
+                            AssignedStaffId = schedule.AssignedStaffId,
+                            Location = schedule.Location
                         })
                         .FirstOrDefault(),
                 Status = entity.Status,
@@ -122,6 +123,21 @@ public sealed class DeliveryRepository : IDeliveryRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<DeliveryItemReadModel>> GetItemsByOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var deliveryIds = _dbContext.DeliverySet
+            .AsNoTracking()
+            .Where(delivery => delivery.OrderId == orderId)
+            .Select(delivery => delivery.DeliveryId);
+
+        return await BuildDeliveryItemReadModelsQuery(
+                _dbContext.DeliveryItemSet.AsNoTracking().Where(item => deliveryIds.Contains(item.DeliveryId)))
+            .OrderBy(item => item.DeliveryItemId)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<OrderDeliveryTrackingReadModel?> GetTrackingByOrderAsync(
         Guid orderId,
         Guid projectId,
@@ -141,6 +157,13 @@ public sealed class DeliveryRepository : IDeliveryRepository
         var deliverySchedules = await LoadDeliveryScheduleEntriesForTrackingAsync(projectId, cancellationToken);
         var completedDeliveryCount = deliverySchedules.Count(entry =>
             entry.DeliveryStatus == DeliveryStatus.COMPLETED);
+        var inProgressDeliveryCount = await _dbContext.DeliverySet
+            .AsNoTracking()
+            .CountAsync(
+                delivery =>
+                    delivery.OrderId == orderId &&
+                    delivery.Status == DeliveryStatus.IN_PROGRESS,
+                cancellationToken);
         var upcomingSchedules = deliverySchedules
             .Where(entry =>
                 entry.ScheduleStatus is ProjectScheduleStatus.PENDING_CONFIRMATION or ProjectScheduleStatus.CONFIRMED)
@@ -162,6 +185,7 @@ public sealed class DeliveryRepository : IDeliveryRepository
             RemainingQuantity = remaining,
             DeliveryProgressPercent = CalculateDeliveryProgressPercent(totalDelivered, totalOrdered),
             CompletedDeliveryCount = completedDeliveryCount,
+            InProgressDeliveryCount = inProgressDeliveryCount,
             UpcomingDeliveryCount = upcomingSchedules.Count,
             NextDeliveryAt = upcomingSchedules.FirstOrDefault()?.ScheduledStart,
             Items = orderItems,
@@ -402,46 +426,35 @@ public sealed class DeliveryRepository : IDeliveryRepository
         };
     }
 
-    private Task<List<OrderDeliveryTrackingTimelineItemReadModel>> LoadDeliveryTimelineItemsAsync(
+    private async Task<List<OrderDeliveryTrackingTimelineItemReadModel>> LoadDeliveryTimelineItemsAsync(
         Guid deliveryId,
         CancellationToken cancellationToken)
     {
-        return _dbContext.DeliveryItemSet
-            .AsNoTracking()
-            .Where(item => item.DeliveryId == deliveryId)
-            .GroupJoin(
-                _dbContext.OrderItemSet,
-                deliveryItem => deliveryItem.OrderItemId,
-                orderItem => orderItem.OrderItemId,
-                (deliveryItem, orderItems) => new { deliveryItem, orderItems })
-            .SelectMany(
-                pair => pair.orderItems.DefaultIfEmpty(),
-                (pair, orderItem) => new { pair.deliveryItem, orderItem })
-            .GroupJoin(
-                _dbContext.QuotationItemSet,
-                pair => pair.orderItem != null ? pair.orderItem.QuotationItemId : null,
-                quotationItem => quotationItem.QuotationItemId,
-                (pair, quotationItems) => new { pair.deliveryItem, pair.orderItem, quotationItems })
-            .SelectMany(
-                pair => pair.quotationItems.DefaultIfEmpty(),
-                (pair, quotationItem) => new OrderDeliveryTrackingTimelineItemReadModel
-                {
-                    OrderItemId = pair.deliveryItem.OrderItemId,
-                    ProductName = quotationItem != null
-                        ? quotationItem.ItemName
-                        : pair.orderItem != null ? pair.orderItem.ProductNameSnapshot : null,
-                    BatchQuantity = pair.deliveryItem.Quantity
-                })
-            .ToListAsync(cancellationToken);
+        var items = await LoadDeliveryItemReadModelsAsync(deliveryId, cancellationToken);
+        return items.ConvertAll(ToTimelineItem);
     }
+
+    private static OrderDeliveryTrackingTimelineItemReadModel ToTimelineItem(DeliveryItemReadModel item) =>
+        new()
+        {
+            OrderItemId = item.OrderItemId,
+            ProductName = item.ItemName ?? item.ProductNameSnapshot,
+            BatchQuantity = item.Quantity
+        };
 
     private Task<List<DeliveryItemReadModel>> LoadDeliveryItemReadModelsAsync(
         Guid deliveryId,
         CancellationToken cancellationToken)
     {
-        return _dbContext.DeliveryItemSet
-            .AsNoTracking()
-            .Where(item => item.DeliveryId == deliveryId)
+        return BuildDeliveryItemReadModelsQuery(
+                _dbContext.DeliveryItemSet.AsNoTracking().Where(item => item.DeliveryId == deliveryId))
+            .OrderBy(item => item.DeliveryItemId)
+            .ToListAsync(cancellationToken);
+    }
+
+    private IQueryable<DeliveryItemReadModel> BuildDeliveryItemReadModelsQuery(IQueryable<DeliveryItem> deliveryItems)
+    {
+        return deliveryItems
             .GroupJoin(
                 _dbContext.OrderItemSet,
                 deliveryItem => deliveryItem.OrderItemId,
@@ -468,9 +481,7 @@ public sealed class DeliveryRepository : IDeliveryRepository
                     ItemName = quotationItem != null
                         ? quotationItem.ItemName
                         : pair.orderItem != null ? pair.orderItem.ProductNameSnapshot : null
-                })
-            .OrderBy(item => item.DeliveryItemId)
-            .ToListAsync(cancellationToken);
+                });
     }
 
     private IQueryable<DeliveryScheduleSummaryReadModel> SelectScheduleSummary(Guid scheduleId)
@@ -484,7 +495,8 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 ScheduledEnd = schedule.ScheduledEnd,
                 CompletedAt = schedule.CompletedAt,
                 Status = schedule.Status,
-                AssignedStaffId = schedule.AssignedStaffId
+                AssignedStaffId = schedule.AssignedStaffId,
+                Location = schedule.Location
             });
     }
 

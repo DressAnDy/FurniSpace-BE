@@ -78,6 +78,67 @@ public sealed partial class OrderService : IOrderService
             "Orders retrieved successfully.");
     }
 
+    public async Task<ServiceResult<CustomerMyOrdersResponseDto>> GetMyOrdersAsync(
+        Guid currentUserId,
+        CustomerMyOrdersQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomerMyOrdersResponseDto>.Unauthorized();
+        }
+
+        var paginationError = OrderListPaginationSupport.ValidatePagination(query.Page, query.PageSize);
+        if (paginationError is not null)
+        {
+            return ServiceResult<CustomerMyOrdersResponseDto>.Failure(
+                Error.BadRequest(OrderErrorCodes.OrderListPaginationInvalid, paginationError));
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!string.Equals(role, "CUSTOMER", StringComparison.Ordinal))
+        {
+            return ServiceResult<CustomerMyOrdersResponseDto>.Forbidden(
+                "Only customers can access their order history.");
+        }
+
+        var readQuery = new CustomerMyOrdersQueryReadModel
+        {
+            Page = query.Page,
+            PageSize = query.PageSize,
+            Status = query.Status,
+            Search = query.Search
+        };
+
+        var totalCount = await _orders.CountByCustomerAsync(currentUserId, readQuery, cancellationToken);
+        var items = await _orders.GetByCustomerPagedAsync(currentUserId, readQuery, cancellationToken);
+
+        return ServiceResult<CustomerMyOrdersResponseDto>.Success(
+            new CustomerMyOrdersResponseDto
+            {
+                Items = items.Select(MapCustomerMyOrderItem).ToList(),
+                Page = query.Page,
+                PageSize = query.PageSize,
+                TotalCount = totalCount
+            },
+            "Customer orders retrieved successfully.");
+    }
+
+    private static CustomerMyOrderItemDto MapCustomerMyOrderItem(CustomerMyOrderListItemReadModel item) =>
+        new()
+        {
+            OrderId = item.OrderId,
+            OrderCode = item.OrderCode,
+            ProjectId = item.ProjectId,
+            Status = item.Status,
+            TotalAmount = item.TotalAmount,
+            DepositAmount = item.DepositAmount,
+            PaidAmount = item.PaidAmount,
+            RemainingAmount = item.RemainingAmount,
+            CreatedAt = item.CreatedAt,
+            UpdatedAt = item.UpdatedAt
+        };
+
     public async Task<ServiceResult<OrderDetailDto>> GetDetailAsync(
         Guid orderId,
         Guid currentUserId,
@@ -107,8 +168,56 @@ public sealed partial class OrderService : IOrderService
         }
 
         return ServiceResult<OrderDetailDto>.Success(
-            order.Adapt<OrderDetailDto>(),
+            await BuildOrderDetailDtoAsync(order, cancellationToken),
             "Order detail retrieved successfully.");
+    }
+
+    private Task<OrderDetailDto> BuildOrderDetailDtoAsync(
+        OrderDetailReadModel order,
+        CancellationToken cancellationToken)
+    {
+        return BuildOrderDetailDtoInternalAsync(order, cancellationToken);
+    }
+
+    private async Task<OrderDetailDto> BuildOrderDetailDtoInternalAsync(
+        OrderDetailReadModel order,
+        CancellationToken cancellationToken)
+    {
+        var financialSummary = OrderFinancialSummary.FromItems(order.Items);
+        var tracking = await _deliveries.GetTrackingByOrderAsync(order.OrderId, order.ProjectId, cancellationToken);
+        var deliveries = await _deliveries.GetByOrderAsync(order.OrderId, cancellationToken);
+        var deliveryItems = deliveries.Count == 0
+            ? (IReadOnlyList<DeliveryItemReadModel>)[]
+            : await _deliveries.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+
+        return new OrderDetailDto
+        {
+            OrderId = order.OrderId,
+            ProjectId = order.ProjectId,
+            ProposalId = order.ProposalId,
+            QuotationId = order.QuotationId,
+            OrderCode = order.OrderCode,
+            CustomerId = order.CustomerId,
+            SalesId = order.SalesId,
+            VatRate = order.VatRate,
+            VatAmount = order.VatAmount,
+            ItemsGrossAmount = financialSummary.ItemsGrossAmount,
+            TotalItemDiscountAmount = financialSummary.TotalItemDiscountAmount,
+            PreVatAmount = financialSummary.PreVatAmount,
+            TotalAmount = order.TotalAmount,
+            DepositAmount = order.DepositAmount,
+            PaidAmount = order.PaidAmount,
+            RemainingAmount = order.RemainingAmount,
+            Status = order.Status,
+            CreatedAt = order.CreatedAt,
+            UpdatedAt = order.UpdatedAt,
+            CustomerConfirmedDeliveryAt = order.CustomerConfirmedDeliveryAt,
+            AwaitingCustomerConfirmation = OrderDetailDeliveryComposer.IsAwaitingCustomerConfirmation(order.Status),
+            DeliveryDetails = OrderDetailDeliveryComposer.BuildDeliveryDetails(order),
+            DeliverySummary = OrderDetailDeliveryComposer.BuildSummary(tracking),
+            Deliveries = OrderDetailDeliveryComposer.BuildDeliveries(deliveries, deliveryItems),
+            Items = order.Items.Select(item => item.Adapt<OrderItemDto>()).ToList()
+        };
     }
 
     public async Task<ServiceResult<OrderDeliveryDetailsDto>> UpdateDeliveryDetailsAsync(

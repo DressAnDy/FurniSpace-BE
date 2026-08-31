@@ -518,7 +518,6 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
         Assert.Equal(OrderStatus.CREATED, order.Status);
         Assert.Equal(ProductVatInclusiveTotal, quotation.TotalAmount);
         Assert.Equal(ProductDepositAmount, quotation.DepositAmount);
-        Assert.Equal(ProductVatInclusiveTotal, order.OriginalTotalAmount);
         Assert.Equal(ProductVatInclusiveTotal, order.FinalTotalAmount);
         Assert.Equal(ProductVatInclusiveTotal, order.RemainingAmount);
         Assert.Equal(ProductDepositAmount, order.DepositAmount);

@@ -10,6 +10,14 @@ public interface IOrderService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<CustomerMyOrdersResponseDto>> GetMyOrdersAsync(
+        Guid currentUserId,
+        CustomerMyOrdersQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<CustomerMyOrdersResponseDto>.Unauthorized());
+    }
+
     Task<ServiceResult<OrderDetailDto>> GetDetailAsync(
         Guid orderId,
         Guid currentUserId,

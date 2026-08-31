@@ -10,6 +10,7 @@ public sealed class DeliveryScheduleSummaryDto
     public DateTime? CompletedAt { get; init; }
     public ProjectScheduleStatus? Status { get; init; }
     public Guid? AssignedStaffId { get; init; }
+    public string? Location { get; init; }
 }
 
 public sealed class DeliveryItemDto
@@ -75,6 +76,7 @@ public sealed class OrderDeliveryTrackingSummaryDto
     public int RemainingQuantity { get; init; }
     public int DeliveryProgressPercent { get; init; }
     public int CompletedDeliveryCount { get; init; }
+    public int InProgressDeliveryCount { get; init; }
     public int UpcomingDeliveryCount { get; init; }
     public DateTime? NextDeliveryAt { get; init; }
 }

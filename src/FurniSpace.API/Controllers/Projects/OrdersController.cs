@@ -4,6 +4,7 @@ using System;
 using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.Orders;
+using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Orders;
 using FurniSpace.Application.Interfaces.Payments;
@@ -43,6 +44,21 @@ public sealed class OrdersController : BaseApiController
         }
 
         var result = await _orders.GetByProjectAsync(projectId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpGet("orders/me")]
+    public async Task<IActionResult> GetMyOrders(
+        [FromQuery] CustomerMyOrdersQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.GetMyOrdersAsync(currentUserId, query, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -230,6 +246,26 @@ public sealed class OrdersController : BaseApiController
         var result = await _orders.ConfirmDeliveryAsync(
             orderId,
             currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
+    [HttpGet("orders/{orderId:guid}/payments")]
+    public async Task<IActionResult> GetPayments(
+        Guid orderId,
+        [FromQuery] OrderPaymentHistoryQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _payments.GetPaymentsByOrderAsync(
+            orderId,
+            currentUserId,
+            query,
             cancellationToken);
         return ToActionResult(result);
     }

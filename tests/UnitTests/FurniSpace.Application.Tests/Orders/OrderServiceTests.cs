@@ -74,6 +74,96 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
+    public async Task GetMyOrdersAsync_WhenUnauthorized_Returns401()
+    {
+        var service = BuildService(new OrderServiceTestOptions { Role = "CUSTOMER" });
+
+        var result = await service.GetMyOrdersAsync(Guid.Empty, new CustomerMyOrdersQueryDto());
+
+        Assert.Equal(401, result.Status);
+    }
+
+    [Fact]
+    public async Task GetMyOrdersAsync_WhenNotCustomer_ReturnsForbidden()
+    {
+        var service = BuildService(new OrderServiceTestOptions { Role = "SALES" });
+
+        var result = await service.GetMyOrdersAsync(_customerId, new CustomerMyOrdersQueryDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
+    public async Task GetMyOrdersAsync_WhenInvalidPagination_ReturnsBadRequest()
+    {
+        var service = BuildService(new OrderServiceTestOptions { Role = "CUSTOMER" });
+
+        var result = await service.GetMyOrdersAsync(
+            _customerId,
+            new CustomerMyOrdersQueryDto { Page = 0 });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(OrderErrorCodes.OrderListPaginationInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task GetMyOrdersAsync_WhenNoOrders_ReturnsEmptyCollection()
+    {
+        var service = BuildService(new OrderServiceTestOptions { Role = "CUSTOMER" });
+
+        var result = await service.GetMyOrdersAsync(_customerId, new CustomerMyOrdersQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Empty(result.Data!.Items);
+        Assert.Equal(0, result.Data.TotalCount);
+    }
+
+    [Fact]
+    public async Task GetMyOrdersAsync_ReturnsLightweightCustomerOrderSummary()
+    {
+        var orderId = Guid.NewGuid();
+        var createdAt = DateTime.UtcNow.AddDays(-2);
+        var updatedAt = DateTime.UtcNow.AddHours(-1);
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            MyCustomerOrders =
+            [
+                new CustomerMyOrderListItemReadModel
+                {
+                    OrderId = orderId,
+                    OrderCode = "ORD-ME-001",
+                    ProjectId = _projectId,
+                    Status = OrderStatus.FINAL_PAYMENT_PENDING,
+                    TotalAmount = 1_000_000m,
+                    DepositAmount = 300_000m,
+                    PaidAmount = 300_000m,
+                    RemainingAmount = 700_000m,
+                    CreatedAt = createdAt,
+                    UpdatedAt = updatedAt
+                }
+            ]
+        });
+
+        var result = await service.GetMyOrdersAsync(_customerId, new CustomerMyOrdersQueryDto());
+
+        Assert.Equal(200, result.Status);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(orderId, item.OrderId);
+        Assert.Equal("ORD-ME-001", item.OrderCode);
+        Assert.Equal(_projectId, item.ProjectId);
+        Assert.Equal(OrderStatus.FINAL_PAYMENT_PENDING, item.Status);
+        Assert.Equal(1_000_000m, item.TotalAmount);
+        Assert.Equal(300_000m, item.DepositAmount);
+        Assert.Equal(300_000m, item.PaidAmount);
+        Assert.Equal(700_000m, item.RemainingAmount);
+        Assert.Equal(createdAt, item.CreatedAt);
+        Assert.Equal(updatedAt, item.UpdatedAt);
+        Assert.Equal(1, result.Data.TotalCount);
+    }
+
+    [Fact]
     public async Task GetByProjectAsync_ProductionSeesProductionReadyOrdersOnly()
     {
         var visible = CreateListItem(OrderStatus.DEPOSIT_PAID, _customerId);
@@ -155,6 +245,81 @@ public sealed class OrderServiceTests
         Assert.Equal("Counter", result.Data.Items[0].ItemName);
         Assert.Equal(OrderItemStatus.DELIVERED, result.Data.Items[0].Status);
         Assert.NotNull(result.Data.Items[0].DeliveredAt);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_WhenAuthorized_ReturnsDeliveryEmbedAndPricingBreakdown()
+    {
+        var orderId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var orderItemId = Guid.NewGuid();
+        var detail = CreateDetail(orderId, _customerId);
+        detail.Status = OrderStatus.DELIVERING;
+        detail.DeliveryAddress = "123 ABC";
+        detail.ReceiverName = "Customer";
+        detail.ReceiverPhone = "0900000000";
+        detail.Items =
+        [
+            new OrderItemDetailReadModel
+            {
+                OrderItemId = orderItemId,
+                ItemName = "Chair",
+                Quantity = 10,
+                DeliveredQuantity = 4,
+                Status = OrderItemStatus.PARTIALLY_DELIVERED,
+                UnitPrice = 100m,
+                DiscountAmount = 10m
+            }
+        ];
+
+        var deliveries = new FakeDeliveryRepository
+        {
+            Tracking = new OrderDeliveryTrackingReadModel
+            {
+                OrderId = orderId,
+                TotalOrderedQuantity = 10,
+                TotalDeliveredQuantity = 4,
+                RemainingQuantity = 6,
+                DeliveryProgressPercent = 40,
+                CompletedDeliveryCount = 1,
+                InProgressDeliveryCount = 0,
+                UpcomingDeliveryCount = 1
+            }
+        };
+        deliveries.SeedDelivery(
+            deliveryId,
+            orderId,
+            DeliveryStatus.COMPLETED,
+            [
+                new DeliveryItem
+                {
+                    DeliveryItemId = Guid.NewGuid(),
+                    DeliveryId = deliveryId,
+                    OrderItemId = orderItemId,
+                    Quantity = 4
+                }
+            ]);
+
+        var service = BuildService(new OrderServiceTestOptions
+        {
+            Role = "CUSTOMER",
+            ProjectDetail = CreateProjectDetail(),
+            OrderDetail = detail,
+            Deliveries = deliveries
+        });
+
+        var result = await service.GetDetailAsync(orderId, _customerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("123 ABC", result.Data!.DeliveryDetails.DeliveryAddress);
+        Assert.Equal(1000m, result.Data.ItemsGrossAmount);
+        Assert.Equal(10m, result.Data.TotalItemDiscountAmount);
+        Assert.Equal(990m, result.Data.PreVatAmount);
+        Assert.Equal(4, result.Data.DeliverySummary.TotalDeliveredQuantity);
+        Assert.Equal(1, result.Data.DeliverySummary.CompletedDeliveryCount);
+        var batch = Assert.Single(result.Data.Deliveries);
+        Assert.Equal(deliveryId, batch.DeliveryId);
+        Assert.Equal(4, Assert.Single(batch.Items).Quantity);
     }
 
     [Fact]
@@ -2900,7 +3065,8 @@ public sealed class OrderServiceTests
                 options.OrderDetail,
                 options.Order,
                 options.OrderItem,
-                options.OrderItems),
+                options.OrderItems,
+                options.MyCustomerOrders),
             new FakeProjectRepository(options.ProjectDetail, options.Role, options.Project),
             payments,
             new OrderServiceDependencies(
@@ -2942,7 +3108,7 @@ public sealed class OrderServiceTests
             ProjectId = _projectId,
             QuotationId = Guid.NewGuid(),
             OrderCode = "ORD-LIST",
-            OriginalTotalAmount = 100m,
+            TotalAmount = 100m,
             DepositAmount = 30m,
             PaidAmount = 0m,
             RemainingAmount = 100m,
@@ -2964,8 +3130,7 @@ public sealed class OrderServiceTests
             OrderCode = "ORD-001",
             CustomerId = customerId,
             SalesId = _salesId,
-            OriginalTotalAmount = 100m,
-            FinalTotalAmount = 100m,
+            TotalAmount = 100m,
             DepositAmount = 30m,
             PaidAmount = 0m,
             RemainingAmount = 100m,
@@ -3059,6 +3224,8 @@ public sealed class OrderServiceTests
 
         public IReadOnlyList<ProjectSchedule> UnusedFutureDeliverySchedules { get; init; } = [];
 
+        public IReadOnlyList<CustomerMyOrderListItemReadModel> MyCustomerOrders { get; init; } = [];
+
         public Guid ProductionUserId { get; init; }
     }
 
@@ -3067,8 +3234,29 @@ public sealed class OrderServiceTests
         OrderDetailReadModel? orderDetail,
         Order? order = null,
         OrderItem? orderItem = null,
-        IReadOnlyList<OrderItem>? orderItems = null) : IOrderRepository
+        IReadOnlyList<OrderItem>? orderItems = null,
+        IReadOnlyList<CustomerMyOrderListItemReadModel>? myCustomerOrders = null) : IOrderRepository
     {
+        public Task<IReadOnlyList<CustomerMyOrderListItemReadModel>> GetByCustomerPagedAsync(
+            Guid customerId,
+            CustomerMyOrdersQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            _ = customerId;
+            _ = query;
+            return Task.FromResult<IReadOnlyList<CustomerMyOrderListItemReadModel>>(myCustomerOrders ?? []);
+        }
+
+        public Task<int> CountByCustomerAsync(
+            Guid customerId,
+            CustomerMyOrdersQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            _ = customerId;
+            _ = query;
+            return Task.FromResult(myCustomerOrders?.Count ?? 0);
+        }
+
         public Task<IReadOnlyList<OrderListItemReadModel>> GetByProjectAsync(
             Guid projectId,
             CancellationToken cancellationToken = default)
@@ -3698,6 +3886,26 @@ public sealed class OrderServiceTests
             Guid deliveryId,
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<DeliveryItem>>(_items.GetValueOrDefault(deliveryId) ?? []);
+
+        public Task<IReadOnlyList<DeliveryItemReadModel>> GetItemsByOrderAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+        {
+            var result = _deliveries.Values
+                .Where(delivery => delivery.OrderId == orderId)
+                .SelectMany(delivery => _items.GetValueOrDefault(delivery.DeliveryId) ?? [])
+                .Select(item => new DeliveryItemReadModel
+                {
+                    DeliveryItemId = item.DeliveryItemId,
+                    DeliveryId = item.DeliveryId,
+                    OrderItemId = item.OrderItemId,
+                    Quantity = item.Quantity,
+                    Note = item.Note,
+                    ProductNameSnapshot = "Product"
+                })
+                .ToList();
+            return Task.FromResult<IReadOnlyList<DeliveryItemReadModel>>(result);
+        }
 
         public Task<OrderDeliveryTrackingReadModel?> GetTrackingByOrderAsync(
             Guid orderId,

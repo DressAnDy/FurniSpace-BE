@@ -133,6 +133,88 @@ public sealed class ProjectScheduleRepositoryTests
         Assert.False(existsAnyMeasurement);
     }
 
+    [Theory]
+    [InlineData(ProjectScheduleStatus.PENDING_CONFIRMATION)]
+    [InlineData(ProjectScheduleStatus.CONFIRMED)]
+    public async Task HasCompletedMeasurementScheduleAsync_ReturnsFalseWhenMeasurementIsNotCompleted(
+        ProjectScheduleStatus status)
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Luxury Cafe",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Tables",
+            Status = ProjectStatus.MEASUREMENT_REQUIRED
+        });
+        context.ProjectScheduleSet.Add(new ProjectSchedule
+        {
+            ScheduleId = Guid.NewGuid(),
+            ProjectId = projectId,
+            ScheduleType = ProjectScheduleType.MEASUREMENT,
+            Title = "Pending measurement",
+            ScheduledStart = DateTime.UtcNow.AddDays(1),
+            Status = status,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var repository = new ProjectScheduleRepository(context);
+        var hasCompleted = await repository.HasCompletedMeasurementScheduleAsync(projectId);
+
+        Assert.False(hasCompleted);
+    }
+
+    [Fact]
+    public async Task HasCompletedMeasurementScheduleAsync_ReturnsTrueWhenOneCompletedAndOneConfirmedExist()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        var start = DateTime.UtcNow.AddDays(-2);
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Luxury Cafe",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Tables",
+            Status = ProjectStatus.MEASUREMENT_REQUIRED
+        });
+        context.ProjectScheduleSet.AddRange(
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Visit 1",
+                ScheduledStart = start,
+                ScheduledEnd = start.AddHours(2),
+                CompletedAt = start.AddHours(1),
+                Status = ProjectScheduleStatus.COMPLETED,
+                CreatedAt = start
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Visit 2",
+                ScheduledStart = DateTime.UtcNow.AddDays(1),
+                ScheduledEnd = DateTime.UtcNow.AddDays(1).AddHours(2),
+                Status = ProjectScheduleStatus.CONFIRMED,
+                CreatedAt = DateTime.UtcNow
+            });
+        await context.SaveChangesAsync();
+
+        var repository = new ProjectScheduleRepository(context);
+        var hasCompleted = await repository.HasCompletedMeasurementScheduleAsync(projectId);
+
+        Assert.True(hasCompleted);
+    }
+
     [Fact]
     public async Task HasActiveDeliveryScheduleAsync_ReturnsTrueForPendingOrConfirmedDelivery()
     {
@@ -358,7 +440,6 @@ public sealed class ProjectScheduleRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 0m,
-            OriginalTotalAmount = 100m,
             FinalTotalAmount = 100m
         });
         context.ProjectScheduleSet.AddRange(
@@ -424,7 +505,6 @@ public sealed class ProjectScheduleRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 0m,
-            OriginalTotalAmount = 100m,
             FinalTotalAmount = 100m
         });
         context.DeliverySet.Add(new Delivery
@@ -459,7 +539,6 @@ public sealed class ProjectScheduleRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 0m,
-            OriginalTotalAmount = 100m,
             FinalTotalAmount = 100m
         });
         context.DeliverySet.Add(new Delivery

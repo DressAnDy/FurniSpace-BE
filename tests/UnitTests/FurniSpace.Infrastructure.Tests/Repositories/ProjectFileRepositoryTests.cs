@@ -322,7 +322,6 @@ public sealed class ProjectFileRepositoryTests
             QuotationId = quotationId,
             OrderCode = "O-001",
             CustomerId = customerId,
-            OriginalTotalAmount = 100,
             FinalTotalAmount = 100
         });
         context.ProductSet.Add(new Product

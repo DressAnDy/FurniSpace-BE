@@ -331,6 +331,21 @@ public sealed class DeliveryRepositoryTests
     }
 
     [Fact]
+    public async Task GetItemsByOrderAsync_ReturnsItemsAcrossDeliveries()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new DeliveryRepository(context);
+
+        var items = await repository.GetItemsByOrderAsync(data.OrderId);
+
+        Assert.Single(items);
+        Assert.Equal(data.OrderItemId, items[0].OrderItemId);
+        Assert.Equal(2, items[0].Quantity);
+        Assert.Equal("Custom Oak Table", items[0].ItemName);
+    }
+
+    [Fact]
     public async Task DeliveryRepositoryInterfaceDefaults_ReturnConfiguredFallbacks()
     {
         IDeliveryRepository repository = new MinimalDeliveryRepository();
@@ -380,7 +395,6 @@ public sealed class DeliveryRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 32m,
-            OriginalTotalAmount = 400m,
             FinalTotalAmount = 400m
         });
         context.OrderItemSet.Add(new OrderItem
@@ -463,7 +477,6 @@ public sealed class DeliveryRepositoryTests
             CustomerId = Guid.NewGuid(),
             VatRate = 0.08m,
             VatAmount = 40m,
-            OriginalTotalAmount = 500m,
             FinalTotalAmount = 500m,
             Status = OrderStatus.DELIVERING
         });

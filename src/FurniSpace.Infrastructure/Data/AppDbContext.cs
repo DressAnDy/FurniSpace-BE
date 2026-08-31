@@ -966,9 +966,6 @@ public class AppDbContext : DbContext
             entity.Property(e => e.SalesId).HasColumnName("sales_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.VatRate).HasColumnName(VatRateColumnName).HasColumnType(TaxRateColumnType).HasDefaultValue(0.08m).IsRequired();
             entity.Property(e => e.VatAmount).HasColumnName(VatAmountColumnName).HasColumnType(Decimal14ColumnType).HasDefaultValue(0m).IsRequired();
-            entity.Property(e => e.OriginalTotalAmount).HasColumnName("original_total_amount").HasColumnType(Decimal12ColumnType);
-            entity.Property(e => e.ItemAdjustmentAmount).HasColumnName("item_adjustment_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
-            entity.Property(e => e.AdditionalDiscountAmount).HasColumnName("additional_discount_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.FinalTotalAmount).HasColumnName("final_total_amount").HasColumnType(Decimal12ColumnType);
             entity.Property(e => e.DepositAmount).HasColumnName("deposit_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);
             entity.Property(e => e.PaidAmount).HasColumnName("paid_amount").HasColumnType(Decimal12ColumnType).HasDefaultValue(0m);

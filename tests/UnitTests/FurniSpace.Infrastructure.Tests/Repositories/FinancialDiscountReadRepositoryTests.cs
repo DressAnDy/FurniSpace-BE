@@ -27,8 +27,7 @@ public sealed class FinancialDiscountReadRepositoryTests
 
         Assert.Equal(2000m, summary.GrossOrderValue);
         Assert.Equal(150m, summary.ItemDiscountAmount);
-        Assert.Equal(50m, summary.OrderAdditionalDiscountAmount);
-        Assert.Equal(200m, summary.TotalDiscountAmount);
+        Assert.Equal(150m, summary.TotalDiscountAmount);
         Assert.Equal(1, summary.DiscountedOrderCount);
         Assert.Equal(1, summary.TotalOrderCount);
     }
@@ -50,7 +49,7 @@ public sealed class FinancialDiscountReadRepositoryTests
         Assert.Equal(1, total);
         var row = Assert.Single(rows);
         Assert.Equal(data.OrderId, row.OrderId);
-        Assert.Equal(200m, row.TotalDiscountAmount);
+        Assert.Equal(150m, row.TotalDiscountAmount);
     }
 
     [Fact]
@@ -64,7 +63,7 @@ public sealed class FinancialDiscountReadRepositoryTests
 
         Assert.NotNull(row);
         Assert.Equal("ORD-DISC", row!.OrderCode);
-        Assert.Equal(200m, row.TotalDiscountAmount);
+        Assert.Equal(150m, row.TotalDiscountAmount);
     }
 
     [Fact]
@@ -95,7 +94,7 @@ public sealed class FinancialDiscountReadRepositoryTests
         var bucket = Assert.Single(buckets);
         Assert.Equal("2026-08", bucket.Period);
         Assert.Equal(2000m, bucket.GrossOrderValue);
-        Assert.Equal(200m, bucket.TotalDiscountAmount);
+        Assert.Equal(150m, bucket.TotalDiscountAmount);
     }
 
     [Fact]
@@ -167,7 +166,6 @@ public sealed class FinancialDiscountReadRepositoryTests
             SalesId = salesId,
             Status = OrderStatus.IN_PRODUCTION,
             ConfirmedAt = confirmedAt,
-            AdditionalDiscountAmount = 50m,
             VatRate = 10m,
             VatAmount = 180m,
             FinalTotalAmount = 1980m,

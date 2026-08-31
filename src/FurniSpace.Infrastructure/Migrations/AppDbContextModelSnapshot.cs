@@ -647,12 +647,6 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("order_id");
 
-                    b.Property<decimal?>("AdditionalDiscountAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("additional_discount_amount");
-
                     b.Property<string>("CancellationReason")
                         .HasColumnType("text")
                         .HasColumnName("cancellation_reason");
@@ -703,20 +697,10 @@ namespace FurniSpace.Infrastructure.Migrations
                         .HasColumnType("numeric(12,2)")
                         .HasColumnName("final_total_amount");
 
-                    b.Property<decimal?>("ItemAdjustmentAmount")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("numeric(12,2)")
-                        .HasDefaultValue(0m)
-                        .HasColumnName("item_adjustment_amount");
-
                     b.Property<string>("OrderCode")
                         .IsRequired()
                         .HasColumnType("varchar(50)")
                         .HasColumnName("order_code");
-
-                    b.Property<decimal>("OriginalTotalAmount")
-                        .HasColumnType("numeric(12,2)")
-                        .HasColumnName("original_total_amount");
 
                     b.Property<decimal?>("PaidAmount")
                         .ValueGeneratedOnAdd()

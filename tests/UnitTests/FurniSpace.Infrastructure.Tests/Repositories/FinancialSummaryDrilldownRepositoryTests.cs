@@ -260,7 +260,6 @@ public sealed class FinancialSummaryDrilldownRepositoryTests
             CustomerId = customerId,
             VatRate = 0.1m,
             VatAmount = 100,
-            OriginalTotalAmount = 1000,
             FinalTotalAmount = 1100,
             PaidAmount = 400,
             RemainingAmount = 700,

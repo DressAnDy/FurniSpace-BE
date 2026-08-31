@@ -20,7 +20,7 @@ internal static class ProjectMeasurementGate
         {
             return Error.Validation(
                 ProjectStatusErrorCodes.MeasurementNotCompleted,
-                "A completed measurement schedule is required before proceeding.");
+                "Measurement must be completed before the project can proceed to proposal consulting.");
         }
 
         return null;

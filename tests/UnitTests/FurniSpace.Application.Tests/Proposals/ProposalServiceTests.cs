@@ -75,6 +75,21 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
+    public async Task CreateAsync_WithMeasurementRequiredProject_ReturnsInvalidProjectStatus()
+    {
+        var designerId = Guid.NewGuid();
+        var project = CreateProjectAccess(Guid.NewGuid(), assignedDesignerId: designerId);
+        project.ProjectStatus = ProjectStatus.MEASUREMENT_REQUIRED;
+        var service = CreateService(new FakeProposalRepository(project: project));
+
+        var result = await service.CreateAsync(project.ProjectId, designerId, ValidCreateRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("INVALID_PROJECT_STATUS", result.ErrorCode);
+        Assert.Contains("PROPOSAL_CONSULTING", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task CreateAsync_WithInvalidProjectStatus_ReturnsInvalidProjectStatus()
     {
         var project = CreateProjectAccess(Guid.NewGuid(), assignedDesignerId: Guid.NewGuid());

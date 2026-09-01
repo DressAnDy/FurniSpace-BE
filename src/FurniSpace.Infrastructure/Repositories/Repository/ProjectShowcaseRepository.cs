@@ -163,7 +163,25 @@ public sealed class ProjectShowcaseRepository : IProjectShowcaseRepository
             .AnyAsync(media => media.ProjectShowcaseId == showcaseId && media.IsCover, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<PublicShowcaseListItemReadModel>> GetPublishedPagedAsync(
+    public Task<int> CountMediaAsync(Guid showcaseId, CancellationToken cancellationToken = default)
+    {
+        return _dbContext.ProjectShowcaseMediaSet
+            .AsNoTracking()
+            .CountAsync(media => media.ProjectShowcaseId == showcaseId, cancellationToken);
+    }
+
+    public Task<bool> HasInactiveMediaAsync(Guid showcaseId, CancellationToken cancellationToken = default)
+    {
+        return _dbContext.ProjectShowcaseMediaSet
+            .AsNoTracking()
+            .AnyAsync(
+                media => media.ProjectShowcaseId == showcaseId &&
+                    !_dbContext.StoredFileSet.Any(file => file.FileId == media.FileId && file.Status == FileStatus.ACTIVE),
+                cancellationToken);
+    }
+
+    public async Task<List<PublicShowcaseListItemReadModel>> GetPublishedPagedAsync(
+        ProjectShowcaseListQueryReadModel query,
         int page,
         int pageSize,
         CancellationToken cancellationToken = default)
@@ -171,37 +189,31 @@ public sealed class ProjectShowcaseRepository : IProjectShowcaseRepository
         var skip = (Math.Max(page, 1) - 1) * Math.Max(pageSize, 1);
         var take = Math.Max(pageSize, 1);
 
-        return await (
-            from showcase in _dbContext.ProjectShowcaseSet.AsNoTracking()
-            join project in _dbContext.ProjectSet.AsNoTracking() on showcase.ProjectId equals project.ProjectId
-            where showcase.Status == ProjectShowcaseStatus.PUBLISHED
-            orderby showcase.PublishedAt descending, showcase.Title
-            select new PublicShowcaseListItemReadModel
-            {
-                ProjectShowcaseId = showcase.ProjectShowcaseId,
-                Title = showcase.Title,
-                Slug = showcase.Slug,
-                Summary = showcase.Summary,
-                BusinessType = project.BusinessType,
-                PublishedAt = showcase.PublishedAt,
-                CompletedAt = project.CompletedAt,
-                TotalAreaSqm = project.TotalAreaSqm,
-                CoverUrl = (
-                    from media in _dbContext.ProjectShowcaseMediaSet.AsNoTracking()
-                    join file in _dbContext.StoredFileSet.AsNoTracking() on media.FileId equals file.FileId
-                    where media.ProjectShowcaseId == showcase.ProjectShowcaseId && media.IsCover
-                    select file.FileUrl).FirstOrDefault()
-            })
+        return await ApplyPublicSort(BuildPublishedListQuery(query), query.Sort)
             .Skip(skip)
             .Take(take)
+            .Select(item => new PublicShowcaseListItemReadModel
+            {
+                ProjectShowcaseId = item.ProjectShowcaseId,
+                ProjectName = item.ProjectName,
+                Title = item.Title,
+                Slug = item.Slug,
+                Summary = item.Summary,
+                Description = item.Description,
+                BusinessType = item.BusinessType,
+                PublishedAt = item.PublishedAt,
+                CompletedAt = item.CompletedAt,
+                TotalAreaSqm = item.TotalAreaSqm,
+                CoverUrl = item.CoverUrl
+            })
             .ToListAsync(cancellationToken);
     }
 
-    public Task<int> CountPublishedAsync(CancellationToken cancellationToken = default)
+    public Task<int> CountPublishedAsync(
+        ProjectShowcaseListQueryReadModel query,
+        CancellationToken cancellationToken = default)
     {
-        return _dbContext.ProjectShowcaseSet
-            .AsNoTracking()
-            .CountAsync(showcase => showcase.Status == ProjectShowcaseStatus.PUBLISHED, cancellationToken);
+        return BuildPublishedListQuery(query).CountAsync(cancellationToken);
     }
 
     public async Task<PublicShowcaseDetailReadModel?> GetPublishedBySlugAsync(
@@ -259,6 +271,138 @@ public sealed class ProjectShowcaseRepository : IProjectShowcaseRepository
         };
     }
 
+    public async Task<List<AdminProjectShowcaseListItemReadModel>> GetAdminPagedAsync(
+        ProjectShowcaseListQueryReadModel query,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        var skip = (Math.Max(page, 1) - 1) * Math.Max(pageSize, 1);
+        var take = Math.Max(pageSize, 1);
+
+        return await ApplyAdminSort(BuildAdminListQuery(query), query.Sort)
+            .Skip(skip)
+            .Take(take)
+            .Select(item => new AdminProjectShowcaseListItemReadModel
+            {
+                ProjectShowcaseId = item.ProjectShowcaseId,
+                ProjectId = item.ProjectId,
+                ProjectName = item.ProjectName,
+                BusinessType = item.BusinessType,
+                Title = item.Title,
+                Slug = item.Slug,
+                Description = item.Description,
+                Status = item.Status,
+                CoverUrl = item.CoverUrl,
+                CreatedAt = item.CreatedAt,
+                UpdatedAt = item.UpdatedAt,
+                PublishedAt = item.PublishedAt
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountAdminAsync(
+        ProjectShowcaseListQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildAdminListQuery(query).CountAsync(cancellationToken);
+    }
+
+    private IQueryable<ProjectShowcaseListProjection> BuildPublishedListQuery(ProjectShowcaseListQueryReadModel query)
+    {
+        return ApplyListFilters(BuildListProjection().Where(item => item.Status == ProjectShowcaseStatus.PUBLISHED), query);
+    }
+
+    private IQueryable<ProjectShowcaseListProjection> BuildAdminListQuery(ProjectShowcaseListQueryReadModel query)
+    {
+        var source = BuildListProjection();
+        return ApplyListFilters(query.Status.HasValue ? source.Where(item => item.Status == query.Status.Value) : source, query);
+    }
+
+    private IQueryable<ProjectShowcaseListProjection> BuildListProjection()
+    {
+        return
+            from showcase in _dbContext.ProjectShowcaseSet.AsNoTracking()
+            join project in _dbContext.ProjectSet.AsNoTracking() on showcase.ProjectId equals project.ProjectId
+            select new ProjectShowcaseListProjection
+            {
+                ProjectShowcaseId = showcase.ProjectShowcaseId,
+                ProjectId = showcase.ProjectId,
+                ProjectName = project.ProjectName,
+                Title = showcase.Title,
+                Slug = showcase.Slug,
+                Summary = showcase.Summary,
+                Description = showcase.Description,
+                Status = showcase.Status,
+                BusinessType = project.BusinessType,
+                PublishedAt = showcase.PublishedAt,
+                CompletedAt = project.CompletedAt,
+                TotalAreaSqm = project.TotalAreaSqm,
+                CreatedAt = showcase.CreatedAt,
+                UpdatedAt = showcase.UpdatedAt,
+                CoverUrl = (
+                    from media in _dbContext.ProjectShowcaseMediaSet.AsNoTracking()
+                    join file in _dbContext.StoredFileSet.AsNoTracking() on media.FileId equals file.FileId
+                    where media.ProjectShowcaseId == showcase.ProjectShowcaseId && media.IsCover
+                    select file.FileUrl).FirstOrDefault()
+            };
+    }
+
+    private static IQueryable<ProjectShowcaseListProjection> ApplyListFilters(
+        IQueryable<ProjectShowcaseListProjection> source,
+        ProjectShowcaseListQueryReadModel query)
+    {
+        var filtered = source;
+        if (!string.IsNullOrWhiteSpace(query.BusinessType))
+        {
+            var businessType = query.BusinessType.Trim().ToLower();
+            filtered = filtered.Where(item => item.BusinessType != null && item.BusinessType.ToLower() == businessType);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim().ToLower();
+            filtered = filtered.Where(item =>
+                item.Title.ToLower().Contains(search) ||
+                item.ProjectName.ToLower().Contains(search) ||
+                item.Slug.ToLower().Contains(search) ||
+                (item.BusinessType != null && item.BusinessType.ToLower().Contains(search)));
+        }
+
+        return filtered;
+    }
+
+    private static IQueryable<ProjectShowcaseListProjection> ApplyPublicSort(
+        IQueryable<ProjectShowcaseListProjection> source,
+        string? sort)
+    {
+        return NormalizeSort(sort) switch
+        {
+            "completeddate_asc" or "completed_at_asc" => source.OrderBy(item => item.CompletedAt).ThenBy(item => item.ProjectName),
+            "area_asc" => source.OrderBy(item => item.TotalAreaSqm).ThenByDescending(item => item.CompletedAt),
+            "area_desc" => source.OrderByDescending(item => item.TotalAreaSqm).ThenByDescending(item => item.CompletedAt),
+            _ => source.OrderByDescending(item => item.CompletedAt).ThenBy(item => item.ProjectName)
+        };
+    }
+
+    private static IQueryable<ProjectShowcaseListProjection> ApplyAdminSort(
+        IQueryable<ProjectShowcaseListProjection> source,
+        string? sort)
+    {
+        return NormalizeSort(sort) switch
+        {
+            "updatedat_asc" or "updated_at_asc" => source.OrderBy(item => item.UpdatedAt).ThenBy(item => item.Title),
+            "publishedat_desc" or "published_at_desc" => source.OrderByDescending(item => item.PublishedAt).ThenBy(item => item.Title),
+            "publishedat_asc" or "published_at_asc" => source.OrderBy(item => item.PublishedAt).ThenBy(item => item.Title),
+            _ => source.OrderByDescending(item => item.UpdatedAt).ThenBy(item => item.Title)
+        };
+    }
+
+    private static string NormalizeSort(string? sort)
+    {
+        return string.IsNullOrWhiteSpace(sort) ? string.Empty : sort.Trim().ToLowerInvariant();
+    }
+
     private async Task<IReadOnlyList<ProjectShowcaseMediaReadModel>> GetMediaReadModelsAsync(
         Guid showcaseId,
         CancellationToken cancellationToken)
@@ -281,5 +425,24 @@ public sealed class ProjectShowcaseRepository : IProjectShowcaseRepository
                 OriginalFileName = file.OriginalFileName,
                 MimeType = file.MimeType
             }).ToListAsync(cancellationToken);
+    }
+
+    private sealed class ProjectShowcaseListProjection
+    {
+        public Guid ProjectShowcaseId { get; init; }
+        public Guid ProjectId { get; init; }
+        public string ProjectName { get; init; } = string.Empty;
+        public string Title { get; init; } = string.Empty;
+        public string Slug { get; init; } = string.Empty;
+        public string? Summary { get; init; }
+        public string? Description { get; init; }
+        public ProjectShowcaseStatus Status { get; init; }
+        public string? BusinessType { get; init; }
+        public DateTime? PublishedAt { get; init; }
+        public DateTime? CompletedAt { get; init; }
+        public decimal? TotalAreaSqm { get; init; }
+        public DateTime CreatedAt { get; init; }
+        public DateTime UpdatedAt { get; init; }
+        public string? CoverUrl { get; init; }
     }
 }

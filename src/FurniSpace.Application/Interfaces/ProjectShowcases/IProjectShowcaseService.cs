@@ -37,6 +37,11 @@ public interface IProjectShowcaseService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectShowcaseDto>> RejectAsync(
+        Guid showcaseId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectShowcaseMediaDto>> AddMediaAsync(
         Guid showcaseId,
         Guid currentUserId,
@@ -73,5 +78,15 @@ public interface IProjectShowcaseService
 
     Task<ServiceResult<PublicShowcaseDetailDto>> GetPublicBySlugAsync(
         string slug,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<AdminProjectShowcaseListResponseDto>> GetAdminListAsync(
+        AdminProjectShowcaseQueryDto query,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectShowcaseDto>> GetAdminDetailAsync(
+        Guid showcaseId,
+        Guid currentUserId,
         CancellationToken cancellationToken = default);
 }

@@ -47,14 +47,38 @@ public sealed class ProjectShowcaseMediaReadModel
 public sealed class PublicShowcaseListItemReadModel
 {
     public Guid ProjectShowcaseId { get; init; }
+    public string ProjectName { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
     public string Slug { get; init; } = string.Empty;
     public string? Summary { get; init; }
+    public string? Description { get; init; }
     public string? CoverUrl { get; init; }
     public string? BusinessType { get; init; }
     public DateTime? PublishedAt { get; init; }
     public DateTime? CompletedAt { get; init; }
     public decimal? TotalAreaSqm { get; init; }
+}
+
+public sealed record ProjectShowcaseListQueryReadModel(
+    string? Search,
+    ProjectShowcaseStatus? Status,
+    string? BusinessType,
+    string? Sort);
+
+public sealed class AdminProjectShowcaseListItemReadModel
+{
+    public Guid ProjectShowcaseId { get; init; }
+    public Guid ProjectId { get; init; }
+    public string ProjectName { get; init; } = string.Empty;
+    public string? BusinessType { get; init; }
+    public string Title { get; init; } = string.Empty;
+    public string Slug { get; init; } = string.Empty;
+    public string? Description { get; init; }
+    public ProjectShowcaseStatus Status { get; init; }
+    public string? CoverUrl { get; init; }
+    public DateTime CreatedAt { get; init; }
+    public DateTime UpdatedAt { get; init; }
+    public DateTime? PublishedAt { get; init; }
 }
 
 public sealed record PublicShowcaseDetailReadModel

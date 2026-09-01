@@ -7,6 +7,7 @@ public sealed class CreateProjectShowcaseRequestDto
     public string? Title { get; set; }
     public string? Summary { get; set; }
     public string? Description { get; set; }
+    public string? Introduction { get; set; }
 }
 
 public sealed class UpdateProjectShowcaseRequestDto
@@ -14,8 +15,19 @@ public sealed class UpdateProjectShowcaseRequestDto
     public string? Title { get; set; }
     public string? Summary { get; set; }
     public string? Description { get; set; }
+    public string? Introduction { get; set; }
     public string? Slug { get; set; }
     public Guid? FeaturedReviewId { get; set; }
+}
+
+public sealed class AdminProjectShowcaseQueryDto
+{
+    public string? Search { get; set; }
+    public ProjectShowcaseStatus? Status { get; set; }
+    public string? BusinessType { get; set; }
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 20;
+    public string? Sort { get; set; }
 }
 
 public sealed class AddProjectShowcaseMediaRequestDto
@@ -68,6 +80,7 @@ public sealed class ProjectShowcaseDto
     public string Slug { get; set; } = string.Empty;
     public string? Summary { get; set; }
     public string? Description { get; set; }
+    public string? Introduction { get; set; }
     public ProjectShowcaseStatus Status { get; set; }
     public Guid? CreatedBy { get; set; }
     public Guid? ApprovedBy { get; set; }
@@ -80,11 +93,39 @@ public sealed class ProjectShowcaseDto
     public string ProjectName { get; set; } = string.Empty;
     public string? BusinessType { get; set; }
     public ProjectStatus? ProjectStatus { get; set; }
+    public string? CoverUrl { get; set; }
     public IReadOnlyList<ProjectShowcaseMediaDto> Media { get; set; } = [];
+}
+
+public sealed class AdminProjectShowcaseListItemDto
+{
+    public Guid ProjectShowcaseId { get; set; }
+    public Guid ProjectId { get; set; }
+    public string ProjectName { get; set; } = string.Empty;
+    public string? BusinessType { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Slug { get; set; } = string.Empty;
+    public string? Introduction { get; set; }
+    public ProjectShowcaseStatus Status { get; set; }
+    public string? CoverUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+    public DateTime? PublishedAt { get; set; }
+}
+
+public sealed class AdminProjectShowcaseListResponseDto
+{
+    public List<AdminProjectShowcaseListItemDto> Items { get; set; } = [];
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int Total { get; set; }
 }
 
 public sealed class PublicShowcaseQueryDto
 {
+    public string? Search { get; set; }
+    public string? BusinessType { get; set; }
+    public string? Sort { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 12;
 }
@@ -92,9 +133,11 @@ public sealed class PublicShowcaseQueryDto
 public sealed class PublicShowcaseListItemDto
 {
     public Guid ProjectShowcaseId { get; set; }
+    public string ProjectName { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
     public string? Summary { get; set; }
+    public string? Introduction { get; set; }
     public string? CoverUrl { get; set; }
     public string? BusinessType { get; set; }
     public DateOnly? CompletedDate { get; set; }
@@ -104,7 +147,7 @@ public sealed class PublicShowcaseListItemDto
 
 public sealed class PublicShowcaseListResponseDto
 {
-    public IReadOnlyList<PublicShowcaseListItemDto> Items { get; set; } = [];
+    public List<PublicShowcaseListItemDto> Items { get; set; } = [];
     public int Page { get; set; }
     public int PageSize { get; set; }
     public int Total { get; set; }
@@ -127,6 +170,7 @@ public sealed class PublicShowcaseDetailDto
     public string Slug { get; set; } = string.Empty;
     public string? Summary { get; set; }
     public string? Description { get; set; }
+    public string? Introduction { get; set; }
     public string ProjectName { get; set; } = string.Empty;
     public string? BusinessType { get; set; }
     public DateOnly? CompletedDate { get; set; }

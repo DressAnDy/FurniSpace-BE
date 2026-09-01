@@ -32,12 +32,29 @@ public interface IProjectShowcaseRepository
 
     Task<bool> HasCoverMediaAsync(Guid showcaseId, CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<PublicShowcaseListItemReadModel>> GetPublishedPagedAsync(
+    Task<int> CountMediaAsync(Guid showcaseId, CancellationToken cancellationToken = default);
+
+    Task<bool> HasInactiveMediaAsync(Guid showcaseId, CancellationToken cancellationToken = default);
+
+    Task<List<PublicShowcaseListItemReadModel>> GetPublishedPagedAsync(
+        ProjectShowcaseListQueryReadModel query,
         int page,
         int pageSize,
         CancellationToken cancellationToken = default);
 
-    Task<int> CountPublishedAsync(CancellationToken cancellationToken = default);
+    Task<int> CountPublishedAsync(
+        ProjectShowcaseListQueryReadModel query,
+        CancellationToken cancellationToken = default);
 
     Task<PublicShowcaseDetailReadModel?> GetPublishedBySlugAsync(string slug, CancellationToken cancellationToken = default);
+
+    Task<List<AdminProjectShowcaseListItemReadModel>> GetAdminPagedAsync(
+        ProjectShowcaseListQueryReadModel query,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken = default);
+
+    Task<int> CountAdminAsync(
+        ProjectShowcaseListQueryReadModel query,
+        CancellationToken cancellationToken = default);
 }

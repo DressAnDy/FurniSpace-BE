@@ -82,6 +82,21 @@ public sealed class ProjectShowcaseWorkflowController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "ADMIN")]
+    [HttpPatch("reject")]
+    public async Task<IActionResult> Reject(
+        Guid showcaseId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _showcases.RejectAsync(showcaseId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);
@@ -101,7 +116,8 @@ public sealed class ProjectShowcaseMediaController : BaseApiController
         _showcases = showcases;
     }
 
-[Authorize(Roles = "SALES,DESIGNER,ADMIN")]
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPost]
     [HttpPost("upload")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(MultipartRequestLimitBytes)]
@@ -124,8 +140,9 @@ public sealed class ProjectShowcaseMediaController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
-    [HttpPost]
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPost("from-file")]
+    [Consumes("application/json")]
     public async Task<IActionResult> Add(
         Guid showcaseId,
         [FromBody] AddProjectShowcaseMediaRequestDto request,
@@ -140,7 +157,7 @@ public sealed class ProjectShowcaseMediaController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
+    [Authorize(Roles = "SALES,ADMIN")]
     [HttpPatch("reorder")]
     public async Task<IActionResult> Reorder(
         Guid showcaseId,
@@ -156,7 +173,7 @@ public sealed class ProjectShowcaseMediaController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
+    [Authorize(Roles = "SALES,ADMIN")]
     [HttpPatch("{mediaId:guid}/cover")]
     public async Task<IActionResult> SetCover(
         Guid showcaseId,
@@ -172,7 +189,7 @@ public sealed class ProjectShowcaseMediaController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
+    [Authorize(Roles = "SALES,ADMIN")]
     [HttpDelete("{mediaId:guid}")]
     public async Task<IActionResult> Remove(
         Guid showcaseId,

@@ -139,6 +139,12 @@ public sealed class PublicShowcasesControllerTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<ProjectShowcaseDto>.Unauthorized());
 
+        public Task<ServiceResult<ProjectShowcaseDto>> RejectAsync(
+            Guid showcaseId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProjectShowcaseDto>.Unauthorized());
+
         public Task<ServiceResult<ProjectShowcaseMediaDto>> AddMediaAsync(
             Guid showcaseId,
             Guid currentUserId,
@@ -157,6 +163,18 @@ public sealed class PublicShowcasesControllerTests
             Guid showcaseId,
             Guid currentUserId,
             ReorderProjectShowcaseMediaRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProjectShowcaseDto>.Unauthorized());
+
+        public Task<ServiceResult<AdminProjectShowcaseListResponseDto>> GetAdminListAsync(
+            AdminProjectShowcaseQueryDto query,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<AdminProjectShowcaseListResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<ProjectShowcaseDto>> GetAdminDetailAsync(
+            Guid showcaseId,
+            Guid currentUserId,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<ProjectShowcaseDto>.Unauthorized());
 

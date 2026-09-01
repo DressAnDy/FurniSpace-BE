@@ -277,16 +277,16 @@ public sealed partial class ProjectShowcaseService
             return ServiceResult<T>.NotFound(ProjectShowcaseErrorCodes.NotFound);
         }
 
-        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageMedia(project, currentUserId, roleName))
-        {
-            return ServiceResult<T>.Forbidden(ManageForbiddenMessage);
-        }
-
         if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
         {
             return ServiceResult<T>.Failure(
                 Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanManageMedia(project, currentUserId, roleName, showcase.Status))
+        {
+            return ServiceResult<T>.Forbidden(ManageForbiddenMessage);
         }
 
         return null;

@@ -7,24 +7,22 @@ using FurniSpace.Application.Interfaces.ProjectShowcases;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace FurniSpace.API.Controllers.Projects;
+namespace FurniSpace.API.Controllers.Admin;
 
-[Authorize]
-[Route("projects/{projectId:guid}/showcase")]
-public sealed class ProjectShowcasesController : BaseApiController
+[Authorize(Roles = "ADMIN")]
+[Route("admin/project-showcases")]
+public sealed class AdminProjectShowcasesController : BaseApiController
 {
     private readonly IProjectShowcaseService _showcases;
 
-    public ProjectShowcasesController(IProjectShowcaseService showcases)
+    public AdminProjectShowcasesController(IProjectShowcaseService showcases)
     {
         _showcases = showcases;
     }
 
-    [Authorize(Roles = "SALES,ADMIN")]
-    [HttpPost]
-    public async Task<IActionResult> Create(
-        Guid projectId,
-        [FromBody] CreateProjectShowcaseRequestDto? request,
+    [HttpGet]
+    public async Task<IActionResult> GetList(
+        [FromQuery] AdminProjectShowcaseQueryDto query,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -32,14 +30,13 @@ public sealed class ProjectShowcasesController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _showcases.CreateAsync(projectId, currentUserId, request, cancellationToken);
+        var result = await _showcases.GetAdminListAsync(query, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,ADMIN")]
-    [HttpGet]
-    public async Task<IActionResult> Get(
-        Guid projectId,
+    [HttpGet("{showcaseId:guid}")]
+    public async Task<IActionResult> GetDetail(
+        Guid showcaseId,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -47,7 +44,7 @@ public sealed class ProjectShowcasesController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _showcases.GetByProjectAsync(projectId, currentUserId, cancellationToken);
+        var result = await _showcases.GetAdminDetailAsync(showcaseId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 

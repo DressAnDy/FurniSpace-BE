@@ -8,6 +8,7 @@ public static class ProjectShowcaseErrorCodes
     public const string InvalidStatusTransition = "PROJECT_SHOWCASE_INVALID_STATUS_TRANSITION";
     public const string ProjectNotCompleted = "PROJECT_SHOWCASE_PROJECT_NOT_COMPLETED";
     public const string PublishRequirementsNotMet = "PROJECT_SHOWCASE_PUBLISH_REQUIREMENTS_NOT_MET";
+    public const string IntroductionRequired = "SHOWCASE_INTRODUCTION_REQUIRED";
     public const string MediaNotFound = "PROJECT_SHOWCASE_MEDIA_NOT_FOUND";
     public const string FileNotAllowed = "PROJECT_SHOWCASE_FILE_NOT_ALLOWED";
     public const string FileNotInProject = "PROJECT_SHOWCASE_FILE_NOT_IN_PROJECT";

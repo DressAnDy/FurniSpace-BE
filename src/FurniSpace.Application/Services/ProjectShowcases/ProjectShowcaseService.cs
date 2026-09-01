@@ -80,8 +80,16 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
             return ServiceResult<ProjectShowcaseDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
         }
 
+        if (project.Status != ProjectStatus.COMPLETED)
+        {
+            return ServiceResult<ProjectShowcaseDto>.Failure(
+                Error.BadRequest(
+                    ProjectShowcaseErrorCodes.ProjectNotCompleted,
+                    "Project must be COMPLETED before creating a showcase."));
+        }
+
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageContent(project, currentUserId, roleName))
+        if (!CanManageContent(project, currentUserId, roleName, ProjectShowcaseStatus.DRAFT))
         {
             return ServiceResult<ProjectShowcaseDto>.Forbidden(ManageForbiddenMessage);
         }
@@ -102,7 +110,7 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
             Title = title,
             Slug = slug,
             Summary = NormalizeOptionalText(request?.Summary),
-            Description = NormalizeOptionalText(request?.Description),
+            Description = ResolveIntroduction(request),
             Status = ProjectShowcaseStatus.DRAFT,
             CreatedBy = currentUserId,
             CreatedAt = now,
@@ -172,16 +180,16 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
             return ServiceResult<ProjectShowcaseDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
         }
 
-        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageContent(project, currentUserId, roleName))
-        {
-            return ServiceResult<ProjectShowcaseDto>.Forbidden(ManageForbiddenMessage);
-        }
-
         if (showcase.Status == ProjectShowcaseStatus.ARCHIVED)
         {
             return ServiceResult<ProjectShowcaseDto>.Failure(
                 Error.BadRequest(ProjectShowcaseErrorCodes.ArchivedReadOnly, ArchivedReadOnlyMessage));
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanManageContent(project, currentUserId, roleName, showcase.Status))
+        {
+            return ServiceResult<ProjectShowcaseDto>.Forbidden(ManageForbiddenMessage);
         }
 
         var fieldUpdateError = await ApplyShowcaseFieldUpdatesAsync(showcase, request, cancellationToken);
@@ -216,7 +224,7 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
         }
 
         var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanManageContent(project, currentUserId, roleName))
+        if (!CanManageContent(project, currentUserId, roleName, showcase.Status))
         {
             return ServiceResult<ProjectShowcaseDto>.Forbidden(SubmitForbiddenMessage);
         }
@@ -224,6 +232,12 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
         if (showcase.Status != ProjectShowcaseStatus.DRAFT)
         {
             return InvalidTransition<ProjectShowcaseDto>();
+        }
+
+        var submitValidation = await ValidateShowcaseCompletionRequirementsAsync(showcase, project, cancellationToken);
+        if (submitValidation is not null)
+        {
+            return submitValidation;
         }
 
         showcase.Status = ProjectShowcaseStatus.PENDING_REVIEW;
@@ -263,15 +277,7 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
             return InvalidTransition<ProjectShowcaseDto>();
         }
 
-        if (project.Status != ProjectStatus.COMPLETED)
-        {
-            return ServiceResult<ProjectShowcaseDto>.Failure(
-                Error.BadRequest(
-                    ProjectShowcaseErrorCodes.ProjectNotCompleted,
-                    "Project must be COMPLETED before publishing a showcase."));
-        }
-
-        var publishValidation = await ValidatePublishRequirementsAsync(showcase, cancellationToken);
+        var publishValidation = await ValidateShowcaseCompletionRequirementsAsync(showcase, project, cancellationToken);
         if (publishValidation is not null)
         {
             return publishValidation;
@@ -324,14 +330,46 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
             ArchivedMessage);
     }
 
+    public async Task<ServiceResult<ProjectShowcaseDto>> RejectAsync(
+        Guid showcaseId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var showcase = await _showcases.GetForUpdateAsync(showcaseId, cancellationToken);
+        if (showcase is null)
+        {
+            return ServiceResult<ProjectShowcaseDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!IsAdmin(roleName))
+        {
+            return ServiceResult<ProjectShowcaseDto>.Forbidden(PublishForbiddenMessage);
+        }
+
+        if (showcase.Status != ProjectShowcaseStatus.PENDING_REVIEW)
+        {
+            return InvalidTransition<ProjectShowcaseDto>();
+        }
+
+        showcase.Status = ProjectShowcaseStatus.DRAFT;
+        showcase.UpdatedAt = DateTime.UtcNow;
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return ServiceResult<ProjectShowcaseDto>.Success(
+            await BuildDtoAsync(showcase.ProjectShowcaseId, cancellationToken),
+            RejectedMessage);
+    }
+
     public async Task<ServiceResult<PublicShowcaseListResponseDto>> GetPublicListAsync(
         PublicShowcaseQueryDto query,
         CancellationToken cancellationToken = default)
     {
         var page = Math.Max(query.Page, 1);
         var pageSize = Math.Clamp(query.PageSize, 1, 50);
-        var items = await _showcases.GetPublishedPagedAsync(page, pageSize, cancellationToken);
-        var total = await _showcases.CountPublishedAsync(cancellationToken);
+        var readQuery = new ProjectShowcaseListQueryReadModel(query.Search, null, query.BusinessType, query.Sort);
+        var items = await _showcases.GetPublishedPagedAsync(readQuery, page, pageSize, cancellationToken);
+        var total = await _showcases.CountPublishedAsync(readQuery, cancellationToken);
 
         return ServiceResult<PublicShowcaseListResponseDto>.Success(
             new PublicShowcaseListResponseDto
@@ -363,6 +401,54 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
         return ServiceResult<PublicShowcaseDetailDto>.Success(detail.Adapt<PublicShowcaseDetailDto>(), RetrievedMessage);
     }
 
+    public async Task<ServiceResult<AdminProjectShowcaseListResponseDto>> GetAdminListAsync(
+        AdminProjectShowcaseQueryDto query,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!IsAdmin(roleName))
+        {
+            return ServiceResult<AdminProjectShowcaseListResponseDto>.Forbidden(ViewForbiddenMessage);
+        }
+
+        var page = Math.Max(query.Page, 1);
+        var pageSize = Math.Clamp(query.PageSize, 1, 100);
+        var readQuery = new ProjectShowcaseListQueryReadModel(query.Search, query.Status, query.BusinessType, query.Sort);
+        var items = await _showcases.GetAdminPagedAsync(readQuery, page, pageSize, cancellationToken);
+        var total = await _showcases.CountAdminAsync(readQuery, cancellationToken);
+
+        return ServiceResult<AdminProjectShowcaseListResponseDto>.Success(
+            new AdminProjectShowcaseListResponseDto
+            {
+                Items = items.Adapt<List<AdminProjectShowcaseListItemDto>>(),
+                Page = page,
+                PageSize = pageSize,
+                Total = total
+            },
+            AdminListRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<ProjectShowcaseDto>> GetAdminDetailAsync(
+        Guid showcaseId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!IsAdmin(roleName))
+        {
+            return ServiceResult<ProjectShowcaseDto>.Forbidden(ViewForbiddenMessage);
+        }
+
+        var detail = await _showcases.GetDetailAsync(showcaseId, cancellationToken);
+        if (detail is null)
+        {
+            return ServiceResult<ProjectShowcaseDto>.NotFound(ProjectShowcaseErrorCodes.NotFound);
+        }
+
+        return ServiceResult<ProjectShowcaseDto>.Success(detail.Adapt<ProjectShowcaseDto>(), RetrievedMessage);
+    }
+
     private async Task<ProjectShowcaseDto> BuildDtoAsync(Guid showcaseId, CancellationToken cancellationToken)
     {
         var detail = await _showcases.GetDetailAsync(showcaseId, cancellationToken);
@@ -391,16 +477,41 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
         return null;
     }
 
-    private async Task<ServiceResult<ProjectShowcaseDto>?> ValidatePublishRequirementsAsync(
+    private async Task<ServiceResult<ProjectShowcaseDto>?> ValidateShowcaseCompletionRequirementsAsync(
         ProjectShowcase showcase,
+        Project project,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(showcase.Title) || string.IsNullOrWhiteSpace(showcase.Summary))
+        if (project.Status != ProjectStatus.COMPLETED)
+        {
+            return ServiceResult<ProjectShowcaseDto>.Failure(
+                Error.BadRequest(
+                    ProjectShowcaseErrorCodes.ProjectNotCompleted,
+                    "Project must be COMPLETED before publishing a showcase."));
+        }
+
+        if (string.IsNullOrWhiteSpace(showcase.Description))
+        {
+            return ServiceResult<ProjectShowcaseDto>.Failure(
+                Error.BadRequest(
+                    ProjectShowcaseErrorCodes.IntroductionRequired,
+                    IntroductionRequiredMessage));
+        }
+
+        if (await _showcases.CountMediaAsync(showcase.ProjectShowcaseId, cancellationToken) == 0)
         {
             return ServiceResult<ProjectShowcaseDto>.Failure(
                 Error.BadRequest(
                     ProjectShowcaseErrorCodes.PublishRequirementsNotMet,
-                    "Published showcases require title and summary."));
+                    "Project showcase requires at least one media item."));
+        }
+
+        if (await _showcases.HasInactiveMediaAsync(showcase.ProjectShowcaseId, cancellationToken))
+        {
+            return ServiceResult<ProjectShowcaseDto>.Failure(
+                Error.BadRequest(
+                    ProjectShowcaseErrorCodes.PublishRequirementsNotMet,
+                    "Project showcase media must reference active files."));
         }
 
         if (!await _showcases.HasCoverMediaAsync(showcase.ProjectShowcaseId, cancellationToken))
@@ -499,6 +610,11 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
             showcase.Description = NormalizeOptionalText(request.Description);
         }
 
+        if (request.Introduction is not null)
+        {
+            showcase.Description = NormalizeOptionalText(request.Introduction);
+        }
+
         if (request.Slug is not null)
         {
             var slug = NormalizeSlug(request.Slug);
@@ -561,16 +677,29 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
         return false;
     }
 
-    private static bool CanManageContent(Project project, Guid currentUserId, string? roleName)
+    private static bool CanManageContent(
+        Project project,
+        Guid currentUserId,
+        string? roleName,
+        ProjectShowcaseStatus status)
     {
-        return IsAdmin(roleName) || (IsSales(roleName) && project.AssignedSalesId == currentUserId);
+        return (IsAdmin(roleName) && status != ProjectShowcaseStatus.ARCHIVED) ||
+            (IsSales(roleName) && project.AssignedSalesId == currentUserId && status == ProjectShowcaseStatus.DRAFT);
     }
 
-    internal static bool CanManageMedia(Project project, Guid currentUserId, string? roleName)
+    internal static bool CanManageMedia(
+        Project project,
+        Guid currentUserId,
+        string? roleName,
+        ProjectShowcaseStatus status)
     {
-        return IsAdmin(roleName) ||
-            (IsSales(roleName) && project.AssignedSalesId == currentUserId) ||
-            (IsDesigner(roleName) && project.AssignedDesignerId == currentUserId);
+        return (IsAdmin(roleName) && status != ProjectShowcaseStatus.ARCHIVED) ||
+            (IsSales(roleName) && project.AssignedSalesId == currentUserId && status == ProjectShowcaseStatus.DRAFT);
+    }
+
+    private static string? ResolveIntroduction(CreateProjectShowcaseRequestDto? request)
+    {
+        return NormalizeOptionalText(request?.Introduction) ?? NormalizeOptionalText(request?.Description);
     }
 
     private static bool IsAdmin(string? roleName)

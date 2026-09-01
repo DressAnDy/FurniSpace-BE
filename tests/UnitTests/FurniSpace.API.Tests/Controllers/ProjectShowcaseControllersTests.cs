@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Projects;
+using FurniSpace.API.Controllers.Admin;
 using FurniSpace.API.DTOs.ProjectShowcases;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectShowcases;
@@ -54,7 +55,7 @@ public sealed class ProjectShowcaseControllersTests
         var projectId = Guid.NewGuid();
         var service = new FakeProjectShowcaseService(
             getByProjectResult: ServiceResult<ProjectShowcaseDto>.Success(new ProjectShowcaseDto { ProjectId = projectId }));
-        var controller = WithUser(new ProjectShowcasesController(service), "DESIGNER");
+        var controller = WithUser(new ProjectShowcasesController(service), "SALES");
 
         var actionResult = await controller.Get(projectId);
 
@@ -94,11 +95,11 @@ public sealed class ProjectShowcaseControllersTests
     }
 
     [Fact]
-    public void Media_Upload_RequiresSalesDesignerAndAdmin()
+    public void Media_Upload_RequiresSalesAndAdmin()
     {
         var authorize = GetMethodAuthorize<ProjectShowcaseMediaController>(nameof(ProjectShowcaseMediaController.Upload));
 
-        Assert.Equal("SALES,DESIGNER,ADMIN", authorize.Roles);
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
     }
 
     [Fact]
@@ -109,7 +110,7 @@ public sealed class ProjectShowcaseControllersTests
             uploadMediaResult: ServiceResult<ProjectShowcaseMediaDto>.Created(
                 new ProjectShowcaseMediaDto { IsCover = true, MediaType = ProjectShowcaseMediaType.FINAL },
                 "Uploaded"));
-        var controller = WithUser(new ProjectShowcaseMediaController(service), "DESIGNER");
+        var controller = WithUser(new ProjectShowcaseMediaController(service), "SALES");
         var request = new UploadProjectShowcaseMediaFormRequest
         {
             File = CreateFormFile("showcase.jpg", "image/jpeg", "file-content"),
@@ -158,7 +159,7 @@ public sealed class ProjectShowcaseControllersTests
             reorderMediaResult: ServiceResult<ProjectShowcaseDto>.Success(new ProjectShowcaseDto()),
             setCoverResult: ServiceResult<ProjectShowcaseMediaDto>.Success(new ProjectShowcaseMediaDto { IsCover = true }),
             removeMediaResult: ServiceResult<ProjectShowcaseDto>.Success(new ProjectShowcaseDto()));
-        var controller = WithUser(new ProjectShowcaseMediaController(service), "DESIGNER");
+        var controller = WithUser(new ProjectShowcaseMediaController(service), "SALES");
 
         var addResult = await controller.Add(showcaseId, new AddProjectShowcaseMediaRequestDto { FileId = Guid.NewGuid() });
         var reorderResult = await controller.Reorder(showcaseId, new ReorderProjectShowcaseMediaRequestDto { MediaIds = [mediaId] });
@@ -169,6 +170,43 @@ public sealed class ProjectShowcaseControllersTests
         Assert.Equal(200, Assert.IsType<ObjectResult>(reorderResult).StatusCode);
         Assert.Equal(200, Assert.IsType<ObjectResult>(coverResult).StatusCode);
         Assert.Equal(200, Assert.IsType<ObjectResult>(removeResult).StatusCode);
+    }
+
+    [Fact]
+    public async Task Workflow_Reject_ReturnsServiceResult()
+    {
+        var showcaseId = Guid.NewGuid();
+        var service = new FakeProjectShowcaseService(
+            rejectResult: ServiceResult<ProjectShowcaseDto>.Success(new ProjectShowcaseDto
+            {
+                Status = ProjectShowcaseStatus.DRAFT
+            }));
+        var controller = WithUser(new ProjectShowcaseWorkflowController(service), "ADMIN");
+
+        var actionResult = await controller.Reject(showcaseId);
+
+        Assert.Equal(200, Assert.IsType<ObjectResult>(actionResult).StatusCode);
+        Assert.Equal(showcaseId, service.LastShowcaseId);
+    }
+
+    [Fact]
+    public async Task AdminShowcases_GetListAndDetail_ReturnServiceResults()
+    {
+        var showcaseId = Guid.NewGuid();
+        var service = new FakeProjectShowcaseService(
+            adminListResult: ServiceResult<AdminProjectShowcaseListResponseDto>.Success(new AdminProjectShowcaseListResponseDto()),
+            adminDetailResult: ServiceResult<ProjectShowcaseDto>.Success(new ProjectShowcaseDto
+            {
+                ProjectShowcaseId = showcaseId
+            }));
+        var controller = WithUser(new AdminProjectShowcasesController(service), "ADMIN");
+
+        var listResult = await controller.GetList(new AdminProjectShowcaseQueryDto());
+        var detailResult = await controller.GetDetail(showcaseId);
+
+        Assert.Equal(200, Assert.IsType<ObjectResult>(listResult).StatusCode);
+        Assert.Equal(200, Assert.IsType<ObjectResult>(detailResult).StatusCode);
+        Assert.Equal(showcaseId, service.LastShowcaseId);
     }
 
     [Fact]
@@ -235,6 +273,9 @@ public sealed class ProjectShowcaseControllersTests
         private readonly ServiceResult<ProjectShowcaseDto>? _submitResult;
         private readonly ServiceResult<ProjectShowcaseDto>? _publishResult;
         private readonly ServiceResult<ProjectShowcaseDto>? _archiveResult;
+        private readonly ServiceResult<ProjectShowcaseDto>? _rejectResult;
+        private readonly ServiceResult<AdminProjectShowcaseListResponseDto>? _adminListResult;
+        private readonly ServiceResult<ProjectShowcaseDto>? _adminDetailResult;
         private readonly ServiceResult<ProjectShowcaseMediaDto>? _addMediaResult;
         private readonly ServiceResult<ProjectShowcaseMediaDto>? _uploadMediaResult;
         private readonly ServiceResult<ProjectShowcaseDto>? _reorderMediaResult;
@@ -248,6 +289,9 @@ public sealed class ProjectShowcaseControllersTests
             ServiceResult<ProjectShowcaseDto>? submitResult = null,
             ServiceResult<ProjectShowcaseDto>? publishResult = null,
             ServiceResult<ProjectShowcaseDto>? archiveResult = null,
+            ServiceResult<ProjectShowcaseDto>? rejectResult = null,
+            ServiceResult<AdminProjectShowcaseListResponseDto>? adminListResult = null,
+            ServiceResult<ProjectShowcaseDto>? adminDetailResult = null,
             ServiceResult<ProjectShowcaseMediaDto>? addMediaResult = null,
             ServiceResult<ProjectShowcaseMediaDto>? uploadMediaResult = null,
             ServiceResult<ProjectShowcaseDto>? reorderMediaResult = null,
@@ -260,6 +304,9 @@ public sealed class ProjectShowcaseControllersTests
             _submitResult = submitResult;
             _publishResult = publishResult;
             _archiveResult = archiveResult;
+            _rejectResult = rejectResult;
+            _adminListResult = adminListResult;
+            _adminDetailResult = adminDetailResult;
             _addMediaResult = addMediaResult;
             _uploadMediaResult = uploadMediaResult;
             _reorderMediaResult = reorderMediaResult;
@@ -329,6 +376,15 @@ public sealed class ProjectShowcaseControllersTests
             return Task.FromResult(_archiveResult ?? ServiceResult<ProjectShowcaseDto>.Unauthorized());
         }
 
+        public Task<ServiceResult<ProjectShowcaseDto>> RejectAsync(
+            Guid showcaseId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            LastShowcaseId = showcaseId;
+            return Task.FromResult(_rejectResult ?? ServiceResult<ProjectShowcaseDto>.Unauthorized());
+        }
+
         public Task<ServiceResult<ProjectShowcaseMediaDto>> AddMediaAsync(
             Guid showcaseId,
             Guid currentUserId,
@@ -389,5 +445,20 @@ public sealed class ProjectShowcaseControllersTests
             string slug,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<PublicShowcaseDetailDto>.Unauthorized());
+
+        public Task<ServiceResult<AdminProjectShowcaseListResponseDto>> GetAdminListAsync(
+            AdminProjectShowcaseQueryDto query,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_adminListResult ?? ServiceResult<AdminProjectShowcaseListResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<ProjectShowcaseDto>> GetAdminDetailAsync(
+            Guid showcaseId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            LastShowcaseId = showcaseId;
+            return Task.FromResult(_adminDetailResult ?? ServiceResult<ProjectShowcaseDto>.Unauthorized());
+        }
     }
 }

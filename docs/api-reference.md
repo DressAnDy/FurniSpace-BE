@@ -3458,6 +3458,73 @@ Only showcases with status **`PUBLISHED`** appear on public endpoints.
 
 **Error codes**: `PROJECT_SHOWCASE_NOT_FOUND`, `PROJECT_SHOWCASE_ALREADY_EXISTS`, `PROJECT_SHOWCASE_SLUG_DUPLICATE`, `PROJECT_SHOWCASE_INVALID_STATUS_TRANSITION`, `PROJECT_SHOWCASE_PROJECT_NOT_COMPLETED`, `PROJECT_SHOWCASE_PUBLISH_REQUIREMENTS_NOT_MET`, `PROJECT_SHOWCASE_FILE_NOT_ALLOWED`, `PROJECT_SHOWCASE_FEATURED_REVIEW_INVALID`, `PROJECT_REVIEW_CONSENT_FORBIDDEN`, `PROJECT_SHOWCASE_COVER_CONFLICT`
 
+### Project showcase current behavior update
+
+This section supersedes the older showcase notes above where they differ.
+
+**Internal project tab**
+
+| Method | Path | Roles | Notes |
+| --- | --- | --- | --- |
+| POST | `/projects/{projectId}/showcase` | SALES, ADMIN | Creates one DRAFT showcase only when project status is `COMPLETED` |
+| GET | `/projects/{projectId}/showcase` | SALES, ADMIN | Reads the showcase attached to a project |
+
+**Create/update content**
+
+New FE should use `introduction`; backend stores it in `project_showcases.description`.
+
+```json
+{
+  "introduction": "A warm minimalist cafe interior completed for a boutique coffee brand."
+}
+```
+
+Legacy `title`, `summary`, and `description` are still accepted for backward compatibility. `title` defaults from `Project.ProjectName` when omitted.
+
+**Workflow**
+
+| Method | Path | Roles | Notes |
+| --- | --- | --- | --- |
+| PATCH | `/project-showcases/{showcaseId}` | SALES, ADMIN | Sales can edit only `DRAFT`; Admin can edit `DRAFT`, `PENDING_REVIEW`, `PUBLISHED` |
+| PATCH | `/project-showcases/{showcaseId}/submit` | SALES, ADMIN | Validates project completed, non-empty introduction, at least one media, and one cover |
+| PATCH | `/project-showcases/{showcaseId}/publish` | ADMIN | Revalidates the same publish requirements |
+| PATCH | `/project-showcases/{showcaseId}/reject` | ADMIN | Moves `PENDING_REVIEW` back to `DRAFT`; no `REJECTED` status is used |
+| PATCH | `/project-showcases/{showcaseId}/archive` | ADMIN | Moves `PUBLISHED` to `ARCHIVED`; archived showcases are read-only |
+
+If introduction is missing during submit/publish, response code is `SHOWCASE_INTRODUCTION_REQUIRED`.
+
+**Media**
+
+| Method | Path | Roles | Notes |
+| --- | --- | --- | --- |
+| POST | `/project-showcases/{showcaseId}/media` | SALES, ADMIN | Multipart upload. Creates `StoredFile`, `FileLink(PORTFOLIO_IMAGE)`, and `ProjectShowcaseMedia` atomically |
+| POST | `/project-showcases/{showcaseId}/media/upload` | SALES, ADMIN | Backward-compatible upload alias |
+| POST | `/project-showcases/{showcaseId}/media/from-file` | SALES, ADMIN | Adds showcase media from an existing active project file |
+| PATCH | `/project-showcases/{showcaseId}/media/{mediaId}/cover` | SALES, ADMIN | Sets the single cover media |
+| PATCH | `/project-showcases/{showcaseId}/media/reorder` | SALES, ADMIN | Reorders all showcase media |
+| DELETE | `/project-showcases/{showcaseId}/media/{mediaId}` | SALES, ADMIN | Deletes only showcase media row; if cover is removed, next media by display order is promoted |
+
+Sales can manage media only while `DRAFT`. Admin can manage media in `DRAFT`, `PENDING_REVIEW`, and `PUBLISHED`. Cover is determined only by `ProjectShowcaseMedia.IsCover == true`.
+
+**Admin management**
+
+| Method | Path | Roles | Notes |
+| --- | --- | --- | --- |
+| GET | `/admin/project-showcases` | ADMIN | Internal showcase list |
+| GET | `/admin/project-showcases/{showcaseId}` | ADMIN | Internal showcase detail with project data, introduction, media, and cover |
+
+Admin list query: `search`, `status`, `businessType`, `page` default `1`, `pageSize` default `20` max `100`, `sort` default `updatedAt_desc`.
+
+**Public portfolio**
+
+`GET /public/showcases` supports `search`, `businessType`, `sort`, `page`, `pageSize`. Supported sort values: default newest completed date, `completedDate_asc`, `area_asc`, `area_desc`.
+
+Public list primary fields for FE: `projectShowcaseId`, `slug`, `projectName`, `businessType`, `completedDate`, `totalAreaSqm`, `coverUrl`.
+
+`GET /public/showcases/{slug}` primary fields for FE: `projectShowcaseId`, `slug`, `projectName`, `introduction`, `businessType`, `completedDate`, `numberOfFloors`, `implementationDurationDays`, `projectAddress`, `completionYear`, `totalAreaSqm`, `coverUrl`, `media`.
+
+Only `PUBLISHED` showcases are public. Public media comes only from curated `ProjectShowcaseMedia`; project files, production files, quotation files, and internal files are not exposed through portfolio endpoints.
+
 ---
 
 ## 24. Enums

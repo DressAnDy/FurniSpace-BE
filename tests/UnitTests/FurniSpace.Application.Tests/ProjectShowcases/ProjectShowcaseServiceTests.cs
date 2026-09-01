@@ -51,12 +51,27 @@ public sealed class ProjectShowcaseServiceTests
             new CreateProjectShowcaseRequestDto
             {
                 Title = "Cafe Renovation",
-                Summary = "Before and after transformation"
+                Summary = "Before and after transformation",
+                Introduction = "Completed showcase intro"
             });
 
         Assert.Equal(201, result.Status);
         Assert.Equal(ProjectShowcaseStatus.DRAFT, result.Data!.Status);
         Assert.Equal("cafe-renovation", result.Data.Slug);
+        Assert.Equal("Completed showcase intro", result.Data.Introduction);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WhenProjectNotCompleted_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.DELIVERED);
+        var service = CreateShowcaseService(context);
+
+        var result = await service.CreateAsync(project.ProjectId, SalesId, null);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.ProjectNotCompleted, result.ErrorCode);
     }
 
     [Fact]
@@ -94,9 +109,7 @@ public sealed class ProjectShowcaseServiceTests
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.DELIVERED);
         var service = CreateShowcaseService(context);
-        var showcase = await CreateReadyForPublishShowcaseAsync(context, service, project.ProjectId);
-        showcase.Status = ProjectShowcaseStatus.PENDING_REVIEW;
-        await context.SaveChangesAsync();
+        var showcase = await SeedShowcaseAsync(context, project.ProjectId, ProjectShowcaseStatus.PENDING_REVIEW);
 
         var result = await service.PublishAsync(showcase.ProjectShowcaseId, AdminId);
 
@@ -122,6 +135,94 @@ public sealed class ProjectShowcaseServiceTests
     }
 
     [Fact]
+    public async Task SubmitAsync_WhenIntroductionMissing_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+        var file = await SeedProjectFileAsync(context, project.ProjectId, SalesId);
+        await service.AddMediaAsync(
+            createResult.Data!.ProjectShowcaseId,
+            SalesId,
+            new AddProjectShowcaseMediaRequestDto
+            {
+                FileId = file.FileId,
+                MediaType = ProjectShowcaseMediaType.FINAL,
+                SetAsCover = true
+            });
+
+        var result = await service.SubmitAsync(createResult.Data.ProjectShowcaseId, SalesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.IntroductionRequired, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_WhenReady_MovesToPendingReview()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var showcase = await CreateReadyForPublishShowcaseAsync(context, service, project.ProjectId);
+
+        var result = await service.SubmitAsync(showcase.ProjectShowcaseId, SalesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectShowcaseStatus.PENDING_REVIEW, result.Data!.Status);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_WhenMediaFileInactive_ReturnsBadRequest()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var showcase = await CreateReadyForPublishShowcaseAsync(context, service, project.ProjectId);
+        var mediaFileId = await context.ProjectShowcaseMediaSet
+            .Where(media => media.ProjectShowcaseId == showcase.ProjectShowcaseId)
+            .Select(media => media.FileId)
+            .SingleAsync();
+        var storedFile = await context.StoredFileSet.SingleAsync(file => file.FileId == mediaFileId);
+        storedFile.Status = FileStatus.ARCHIVED;
+        await context.SaveChangesAsync();
+
+        var result = await service.SubmitAsync(showcase.ProjectShowcaseId, SalesId);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProjectShowcaseErrorCodes.PublishRequirementsNotMet, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task RejectAsync_AdminReturnsPendingReviewToDraft()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var showcase = await CreateReadyForPublishShowcaseAsync(context, service, project.ProjectId);
+        showcase.Status = ProjectShowcaseStatus.PENDING_REVIEW;
+        await context.SaveChangesAsync();
+
+        var result = await service.RejectAsync(showcase.ProjectShowcaseId, AdminId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectShowcaseStatus.DRAFT, result.Data!.Status);
+    }
+
+    [Fact]
+    public async Task RejectAsync_SalesIsForbidden()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var showcase = await SeedShowcaseAsync(context, project.ProjectId, ProjectShowcaseStatus.PENDING_REVIEW);
+
+        var result = await service.RejectAsync(showcase.ProjectShowcaseId, SalesId);
+
+        Assert.Equal(403, result.Status);
+    }
+
+    [Fact]
     public async Task UpdateAsync_WhenArchived_ReturnsBadRequest()
     {
         await using var context = CreateContext();
@@ -143,7 +244,7 @@ public sealed class ProjectShowcaseServiceTests
     }
 
     [Fact]
-    public async Task AddMediaAsync_DesignerCanAttachMediaToAssignedProject()
+    public async Task AddMediaAsync_DesignerCannotAttachMediaToAssignedProject()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
@@ -161,8 +262,7 @@ public sealed class ProjectShowcaseServiceTests
                 SetAsCover = true
             });
 
-        Assert.Equal(201, result.Status);
-        Assert.True(result.Data!.IsCover);
+        Assert.Equal(403, result.Status);
     }
 
     [Fact]
@@ -424,6 +524,31 @@ public sealed class ProjectShowcaseServiceTests
     }
 
     [Fact]
+    public async Task GetPublicListAsync_AppliesSearchBusinessTypeAndSort()
+    {
+        await using var context = CreateContext();
+        var cafeProject = await SeedProjectAsync(context, ProjectStatus.COMPLETED, "Cafe Portfolio");
+        var shopProject = await SeedProjectAsync(context, ProjectStatus.COMPLETED, "Shop Portfolio");
+        shopProject.BusinessType = "Retail";
+        shopProject.TotalAreaSqm = 50;
+        cafeProject.TotalAreaSqm = 200;
+        await context.SaveChangesAsync();
+        var service = CreateShowcaseService(context);
+        var cafeShowcase = await CreatePublishedShowcaseAsync(context, service, cafeProject.ProjectId, "Cafe Hero");
+        await CreatePublishedShowcaseAsync(context, service, shopProject.ProjectId, "Retail Hero");
+
+        var result = await service.GetPublicListAsync(new PublicShowcaseQueryDto
+        {
+            Search = "cafe",
+            BusinessType = "Cafe",
+            Sort = "area_asc"
+        });
+
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(cafeShowcase.ProjectShowcaseId, item.ProjectShowcaseId);
+    }
+
+    [Fact]
     public async Task GetPublicListAsync_ProjectsCompletedDateAndTotalAreaSqm()
     {
         await using var context = CreateContext();
@@ -440,6 +565,7 @@ public sealed class ProjectShowcaseServiceTests
         Assert.Equal(new DateOnly(2026, 8, 20), item.CompletedDate);
         Assert.Equal(120.5m, item.TotalAreaSqm);
         Assert.Equal("Cafe", item.BusinessType);
+        Assert.Equal("Showcase Project", item.ProjectName);
         Assert.NotNull(item.CoverUrl);
     }
 
@@ -467,7 +593,56 @@ public sealed class ProjectShowcaseServiceTests
         Assert.Equal(80, detail.ImplementationDurationDays);
         Assert.Equal("Full project overview.", detail.Description);
         Assert.NotNull(detail.CoverUrl);
-        Assert.True(detail.Media.Any(item => item.IsCover));
+        Assert.Contains(detail.Media, item => item.IsCover);
+    }
+
+    [Fact]
+    public async Task GetAdminListAsync_AdminGetsFilteredShowcases()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED, "Admin Portfolio");
+        var service = CreateShowcaseService(context);
+        var showcase = await CreateReadyForPublishShowcaseAsync(context, service, project.ProjectId, "Admin Showcase");
+
+        var result = await service.GetAdminListAsync(
+            new AdminProjectShowcaseQueryDto
+            {
+                Search = "admin",
+                Status = ProjectShowcaseStatus.DRAFT,
+                BusinessType = "Cafe",
+                Sort = "updated_at_asc"
+            },
+            AdminId);
+
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(showcase.ProjectShowcaseId, item.ProjectShowcaseId);
+        Assert.NotNull(item.CoverUrl);
+    }
+
+    [Fact]
+    public async Task GetAdminDetailAsync_AdminGetsFullShowcase()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context);
+        var showcase = await CreateReadyForPublishShowcaseAsync(context, service, project.ProjectId);
+
+        var result = await service.GetAdminDetailAsync(showcase.ProjectShowcaseId, AdminId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Published introduction", result.Data!.Introduction);
+        Assert.NotNull(result.Data.CoverUrl);
+    }
+
+    [Fact]
+    public async Task GetAdminListAsync_SalesIsForbidden()
+    {
+        await using var context = CreateContext();
+        var service = CreateShowcaseService(context);
+
+        var result = await service.GetAdminListAsync(new AdminProjectShowcaseQueryDto(), SalesId);
+
+        Assert.Equal(403, result.Status);
     }
 
     [Fact]
@@ -894,7 +1069,8 @@ public sealed class ProjectShowcaseServiceTests
             new CreateProjectShowcaseRequestDto
             {
                 Title = title,
-                Summary = "Published summary"
+                Summary = "Published summary",
+                Introduction = "Published introduction"
             });
         var file = await SeedProjectFileAsync(context, projectId, SalesId);
         await service.AddMediaAsync(
@@ -908,6 +1084,43 @@ public sealed class ProjectShowcaseServiceTests
             });
 
         return (await context.ProjectShowcaseSet.FirstAsync(item => item.ProjectShowcaseId == createResult.Data.ProjectShowcaseId))!;
+    }
+
+    private static async Task<ProjectShowcase> CreatePublishedShowcaseAsync(
+        AppDbContext context,
+        ProjectShowcaseService service,
+        Guid projectId,
+        string title)
+    {
+        var showcase = await CreateReadyForPublishShowcaseAsync(context, service, projectId, title);
+        showcase.Status = ProjectShowcaseStatus.PENDING_REVIEW;
+        await context.SaveChangesAsync();
+        await service.PublishAsync(showcase.ProjectShowcaseId, AdminId);
+        return (await context.ProjectShowcaseSet.FirstAsync(item => item.ProjectShowcaseId == showcase.ProjectShowcaseId))!;
+    }
+
+    private static async Task<ProjectShowcase> SeedShowcaseAsync(
+        AppDbContext context,
+        Guid projectId,
+        ProjectShowcaseStatus status)
+    {
+        var now = DateTime.UtcNow;
+        var showcase = new ProjectShowcase
+        {
+            ProjectShowcaseId = Guid.NewGuid(),
+            ProjectId = projectId,
+            Title = "Seed Showcase",
+            Slug = $"seed-showcase-{Guid.NewGuid():N}",
+            Summary = "Seed summary",
+            Description = "Seed introduction",
+            Status = status,
+            CreatedBy = SalesId,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        context.ProjectShowcaseSet.Add(showcase);
+        await context.SaveChangesAsync();
+        return showcase;
     }
 
     private static ProjectShowcaseService CreateShowcaseService(

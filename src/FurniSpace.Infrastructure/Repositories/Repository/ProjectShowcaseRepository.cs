@@ -310,13 +310,19 @@ public sealed class ProjectShowcaseRepository : IProjectShowcaseRepository
 
     private IQueryable<ProjectShowcaseListProjection> BuildPublishedListQuery(ProjectShowcaseListQueryReadModel query)
     {
-        return ApplyListFilters(BuildListProjection().Where(item => item.Status == ProjectShowcaseStatus.PUBLISHED), query);
+        return ApplyListFilters(
+            BuildListProjection().Where(item => item.Status == ProjectShowcaseStatus.PUBLISHED),
+            query,
+            UsesInMemoryProvider());
     }
 
     private IQueryable<ProjectShowcaseListProjection> BuildAdminListQuery(ProjectShowcaseListQueryReadModel query)
     {
         var source = BuildListProjection();
-        return ApplyListFilters(query.Status.HasValue ? source.Where(item => item.Status == query.Status.Value) : source, query);
+        return ApplyListFilters(
+            query.Status.HasValue ? source.Where(item => item.Status == query.Status.Value) : source,
+            query,
+            UsesInMemoryProvider());
     }
 
     private IQueryable<ProjectShowcaseListProjection> BuildListProjection()
@@ -350,26 +356,68 @@ public sealed class ProjectShowcaseRepository : IProjectShowcaseRepository
 
     private static IQueryable<ProjectShowcaseListProjection> ApplyListFilters(
         IQueryable<ProjectShowcaseListProjection> source,
-        ProjectShowcaseListQueryReadModel query)
+        ProjectShowcaseListQueryReadModel query,
+        bool useClientStringComparison)
     {
         var filtered = source;
         if (!string.IsNullOrWhiteSpace(query.BusinessType))
         {
-            var businessType = query.BusinessType.Trim().ToLower();
-            filtered = filtered.Where(item => item.BusinessType != null && item.BusinessType.ToLower() == businessType);
+            var businessType = query.BusinessType.Trim();
+            filtered = useClientStringComparison
+                ? filtered.Where(item =>
+                    item.BusinessType != null &&
+                    item.BusinessType.Equals(businessType, StringComparison.OrdinalIgnoreCase))
+                : filtered.Where(item =>
+                    item.BusinessType != null &&
+                    EF.Functions.ILike(item.BusinessType, businessType));
         }
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var search = query.Search.Trim().ToLower();
-            filtered = filtered.Where(item =>
-                item.Title.ToLower().Contains(search) ||
-                item.ProjectName.ToLower().Contains(search) ||
-                item.Slug.ToLower().Contains(search) ||
-                (item.BusinessType != null && item.BusinessType.ToLower().Contains(search)));
+            var search = query.Search.Trim();
+            filtered = useClientStringComparison
+                ? ApplyClientSearchFilter(filtered, search)
+                : ApplyDatabaseSearchFilter(filtered, ToContainsPattern(search));
         }
 
         return filtered;
+    }
+
+    private bool UsesInMemoryProvider()
+    {
+        return string.Equals(_dbContext.Database.ProviderName, "Microsoft.EntityFrameworkCore.InMemory", StringComparison.Ordinal);
+    }
+
+    private static IQueryable<ProjectShowcaseListProjection> ApplyClientSearchFilter(
+        IQueryable<ProjectShowcaseListProjection> source,
+        string search)
+    {
+        return source.Where(item =>
+            HasSearchMatch(item.Title, search) ||
+            HasSearchMatch(item.ProjectName, search) ||
+            HasSearchMatch(item.Slug, search) ||
+            HasSearchMatch(item.BusinessType, search));
+    }
+
+    private static bool HasSearchMatch(string? source, string search)
+    {
+        return source?.IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static IQueryable<ProjectShowcaseListProjection> ApplyDatabaseSearchFilter(
+        IQueryable<ProjectShowcaseListProjection> source,
+        string searchPattern)
+    {
+        return source.Where(item =>
+            EF.Functions.ILike(item.Title, searchPattern) ||
+            EF.Functions.ILike(item.ProjectName, searchPattern) ||
+            EF.Functions.ILike(item.Slug, searchPattern) ||
+            (item.BusinessType != null && EF.Functions.ILike(item.BusinessType, searchPattern)));
+    }
+
+    private static string ToContainsPattern(string value)
+    {
+        return $"%{value}%";
     }
 
     private static IQueryable<ProjectShowcaseListProjection> ApplyPublicSort(

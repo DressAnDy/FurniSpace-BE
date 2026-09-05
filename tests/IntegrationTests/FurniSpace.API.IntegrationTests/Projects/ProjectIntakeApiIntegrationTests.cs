@@ -191,7 +191,14 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
         Assert.Equal("Shelving, counters, and seating", project.FurnitureRequirement);
         Assert.Equal("12 Nguyen Hue", project.ProjectAddress);
 
-        Assert.Equal(2, await verification.ProjectChatSet.CountAsync(c => c.ProjectId == projectId));
+        Assert.Equal(3, await verification.ProjectChatSet.CountAsync(c => c.ProjectId == projectId));
+        var projectChatTypes = await verification.ProjectChatSet
+            .Where(c => c.ProjectId == projectId)
+            .Select(c => c.ChatType)
+            .ToListAsync();
+        Assert.Contains(ProjectChatType.SALES, projectChatTypes);
+        Assert.Contains(ProjectChatType.DESIGNER, projectChatTypes);
+        Assert.Contains(ProjectChatType.DESIGNER_SALES, projectChatTypes);
         Assert.Equal(
             1,
             await verification.PaymentSet.CountAsync(p =>
@@ -421,9 +428,13 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
         Assert.Equal(scenario.DesignerAccountId, project.AssignedDesignerId);
         Assert.NotNull(project.DesignerAssignedAt);
 
-        var chat = await verification.ProjectChatSet.SingleAsync();
-        Assert.Equal(ProjectChatType.DESIGNER, chat.ChatType);
-        Assert.Equal(scenario.DesignerAccountId, chat.StaffId);
+        var chat = await verification.ProjectChatSet
+            .OrderBy(item => item.ChatType)
+            .ToListAsync();
+        Assert.Equal(2, chat.Count);
+        Assert.Equal(ProjectChatType.DESIGNER, chat[0].ChatType);
+        Assert.Equal(ProjectChatType.DESIGNER_SALES, chat[1].ChatType);
+        Assert.All(chat, item => Assert.Equal(scenario.DesignerAccountId, item.StaffId));
     }
 
     [Fact]

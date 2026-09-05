@@ -553,6 +553,21 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             return false;
         }
 
+        if (access.ChatType == ProjectChatType.DESIGNER_SALES)
+        {
+            if (IsRole(access.RoleName, ApplicationRoles.Sales))
+            {
+                return access.AssignedSalesId == currentUserId;
+            }
+
+            if (IsRole(access.RoleName, ApplicationRoles.Designer))
+            {
+                return access.ChatStaffId == currentUserId;
+            }
+
+            return false;
+        }
+
         if (IsRole(access.RoleName, ApplicationRoles.Customer))
         {
             return access.CustomerId == currentUserId &&
@@ -699,6 +714,7 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         {
             ProjectChatType.SALES => new[] { access.CustomerId, access.AssignedSalesId },
             ProjectChatType.DESIGNER => new[] { access.CustomerId, access.AssignedSalesId, access.AssignedDesignerId },
+            ProjectChatType.DESIGNER_SALES => new[] { access.AssignedSalesId, access.ChatStaffId },
             ProjectChatType.PRODUCTION => new[] { access.AssignedSalesId, access.ChatStaffId },
             ProjectChatType.INTERNAL => new[] { access.AssignedSalesId, access.AssignedDesignerId, access.ChatStaffId },
             _ => new[] { access.CustomerId, access.AssignedSalesId, access.AssignedDesignerId, access.ChatStaffId }

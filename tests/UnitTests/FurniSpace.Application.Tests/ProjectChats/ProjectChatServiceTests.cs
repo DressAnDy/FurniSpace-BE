@@ -20,7 +20,12 @@ namespace FurniSpace.Application.Tests.ProjectChats;
 
 public sealed class ProjectChatServiceTests
 {
-    private static readonly string[] SalesAndDesignerChatTypes = ["SALES", "DESIGNER"];
+    private static readonly string[] CustomerVisibleChatTypes = ["SALES", "DESIGNER"];
+    private static readonly string[] SalesStaffVisibleChatTypes = ["SALES", "DESIGNER", "DESIGNER_SALES"];
+    private static readonly ProjectChatType[] SalesStaffAllowedChatTypes =
+        [ProjectChatType.SALES, ProjectChatType.DESIGNER, ProjectChatType.DESIGNER_SALES, ProjectChatType.PRODUCTION];
+    private static readonly ProjectChatType[] DesignerAllowedChatTypes =
+        [ProjectChatType.DESIGNER, ProjectChatType.DESIGNER_SALES];
 
     private static ProjectChatService CreateService(
         FakeProjectChatRepository repository,
@@ -278,6 +283,7 @@ public sealed class ProjectChatServiceTests
     [Theory]
     [InlineData(ProjectChatType.SALES)]
     [InlineData(ProjectChatType.DESIGNER)]
+    [InlineData(ProjectChatType.DESIGNER_SALES)]
     public async Task CreateManualAsync_WithAssignmentChatType_ReturnsBadRequest(
         ProjectChatType chatType)
     {
@@ -289,7 +295,7 @@ public sealed class ProjectChatServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(
-            "Sales and Designer chats must be created through project assignment.",
+            "Sales, Designer, and Designer-Sales coordination chats must be created through project assignment.",
             result.Message);
     }
 
@@ -419,6 +425,7 @@ public sealed class ProjectChatServiceTests
             [
                 CreateListItem(projectId, ProjectChatType.SALES, ProjectChatStatus.OPEN),
                 CreateListItem(projectId, ProjectChatType.DESIGNER, ProjectChatStatus.OPEN),
+                CreateListItem(projectId, ProjectChatType.DESIGNER_SALES, ProjectChatStatus.OPEN),
                 CreateListItem(projectId, ProjectChatType.GENERAL, ProjectChatStatus.OPEN)
             ]);
         var service = CreateService(repository);
@@ -430,13 +437,14 @@ public sealed class ProjectChatServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
-        Assert.Equal(2, result.Data.Total);
+        Assert.Equal(3, result.Data.Total);
         Assert.All(result.Data.Items, item =>
-            Assert.Contains(item.ChatType, SalesAndDesignerChatTypes));
+            Assert.Contains(item.ChatType, SalesStaffVisibleChatTypes));
+        Assert.Equal(SalesStaffAllowedChatTypes, repository.LastListQuery!.AllowedChatTypes);
     }
 
     [Fact]
-    public async Task GetProjectChatsAsync_WithAssignedDesigner_ReturnsOnlyDesignerChat()
+    public async Task GetProjectChatsAsync_WithAssignedDesigner_ReturnsDesignerAndCoordinationChats()
     {
         var projectId = Guid.NewGuid();
         var designerId = Guid.NewGuid();
@@ -445,7 +453,8 @@ public sealed class ProjectChatServiceTests
             listItems:
             [
                 CreateListItem(projectId, ProjectChatType.SALES, ProjectChatStatus.OPEN),
-                CreateListItem(projectId, ProjectChatType.DESIGNER, ProjectChatStatus.OPEN)
+                CreateListItem(projectId, ProjectChatType.DESIGNER, ProjectChatStatus.OPEN),
+                CreateListItem(projectId, ProjectChatType.DESIGNER_SALES, ProjectChatStatus.OPEN)
             ]);
         var service = CreateService(repository);
 
@@ -456,9 +465,61 @@ public sealed class ProjectChatServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
-        var item = Assert.Single(result.Data.Items);
-        Assert.Equal(ProjectChatType.DESIGNER.ToString(), item.ChatType);
-        Assert.Equal([ProjectChatType.DESIGNER], repository.LastListQuery!.AllowedChatTypes);
+        Assert.Equal(2, result.Data.Items.Count);
+        Assert.Equal(DesignerAllowedChatTypes, repository.LastListQuery!.AllowedChatTypes);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedSales_ClosesOpenDesignerSalesChat()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var chat = CreateChat(Guid.NewGuid(), designerId, ProjectChatStatus.OPEN, ProjectChatType.DESIGNER_SALES, chatId);
+        var repository = new FakeProjectChatRepository(
+            chats: [chat],
+            statusAccess: CreateStatusAccess(
+                chatId,
+                salesId,
+                "SALES",
+                ProjectChatType.DESIGNER_SALES,
+                ProjectChatStatus.OPEN,
+                chatStaffId: designerId));
+        var service = CreateService(repository);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            salesId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("CLOSED", result.Data?.Status);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithAssignedDesignerStaff_ClosesOpenDesignerSalesChat()
+    {
+        var chatId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var chat = CreateChat(Guid.NewGuid(), designerId, ProjectChatStatus.OPEN, ProjectChatType.DESIGNER_SALES, chatId);
+        var repository = new FakeProjectChatRepository(
+            chats: [chat],
+            statusAccess: CreateStatusAccess(
+                chatId,
+                designerId,
+                "DESIGNER",
+                ProjectChatType.DESIGNER_SALES,
+                ProjectChatStatus.OPEN,
+                chatStaffId: designerId));
+        var service = CreateService(repository);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            designerId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("CLOSED", result.Data?.Status);
     }
 
     [Fact]
@@ -1144,7 +1205,8 @@ public sealed class ProjectChatServiceTests
         Guid currentUserId,
         string roleName,
         ProjectChatType chatType,
-        ProjectChatStatus chatStatus)
+        ProjectChatStatus chatStatus,
+        Guid? chatStaffId = null)
     {
         return new ProjectChatStatusAccessReadModel
         {
@@ -1152,6 +1214,7 @@ public sealed class ProjectChatServiceTests
             ProjectId = Guid.NewGuid(),
             ChatType = chatType,
             ChatStatus = chatStatus,
+            ChatStaffId = chatStaffId,
             CustomerId = Guid.NewGuid(),
             AssignedSalesId = string.Equals(roleName, "SALES", StringComparison.OrdinalIgnoreCase)
                 ? currentUserId

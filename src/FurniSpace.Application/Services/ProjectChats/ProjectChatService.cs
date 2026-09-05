@@ -292,10 +292,10 @@ public sealed class ProjectChatService : IProjectChatService
             return ServiceResult<ProjectChatSummaryDto>.BadRequest("Project chat type is invalid.");
         }
 
-        if (request.ChatType is ProjectChatType.SALES or ProjectChatType.DESIGNER)
+        if (request.ChatType is ProjectChatType.SALES or ProjectChatType.DESIGNER or ProjectChatType.DESIGNER_SALES)
         {
             return ServiceResult<ProjectChatSummaryDto>.BadRequest(
-                "Sales and Designer chats must be created through project assignment.");
+                "Sales, Designer, and Designer-Sales coordination chats must be created through project assignment.");
         }
 
         if (request.StaffId == Guid.Empty)
@@ -433,6 +433,9 @@ public sealed class ProjectChatService : IProjectChatService
             ProjectChatType.DESIGNER =>
                 (IsRole(access.RoleName, ApplicationRoles.Designer) && access.AssignedDesignerId == currentUserId) ||
                 (IsRole(access.RoleName, ApplicationRoles.Sales) && access.AssignedSalesId == currentUserId),
+            ProjectChatType.DESIGNER_SALES =>
+                (IsRole(access.RoleName, ApplicationRoles.Sales) && access.AssignedSalesId == currentUserId) ||
+                (IsRole(access.RoleName, ApplicationRoles.Designer) && access.ChatStaffId == currentUserId),
             ProjectChatType.PRODUCTION =>
                 (IsRole(access.RoleName, ApplicationRoles.Sales) && access.AssignedSalesId == currentUserId) ||
                 (IsRole(access.RoleName, ApplicationRoles.Production) && access.ChatStaffId == currentUserId),

@@ -55,7 +55,7 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_area_type", new[] { "STORE", "FLOOR", "ROOM", "ZONE", "OUTDOOR_AREA", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_chat_message_type", new[] { "TEXT", "FILE", "SYSTEM" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_chat_status", new[] { "OPEN", "CLOSED", "ARCHIVED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_chat_type", new[] { "SALES", "DESIGNER", "PRODUCTION", "DELIVERY", "GENERAL", "INTERNAL" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_chat_type", new[] { "SALES", "DESIGNER", "DESIGNER_SALES", "PRODUCTION", "DELIVERY", "GENERAL", "INTERNAL" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_phase_type", new[] { "CONSULTATION", "MEASUREMENT", "PROPOSAL", "QUOTATION", "PRODUCTION", "DELIVERY", "HANDOVER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_schedule_status", new[] { "PENDING_CONFIRMATION", "CONFIRMED", "COMPLETED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_schedule_type", new[] { "MEASUREMENT", "CONSULTATION", "DESIGN_REVIEW", "DELIVERY", "HANDOVER", "OTHER" });

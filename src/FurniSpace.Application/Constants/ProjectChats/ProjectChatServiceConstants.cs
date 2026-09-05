@@ -10,11 +10,13 @@ internal static class ProjectChatServiceConstants
         [ProjectChatType.SALES, ProjectChatType.DESIGNER];
 
     internal static readonly ProjectChatType[] SalesStaffChatTypes =
-        [ProjectChatType.SALES, ProjectChatType.DESIGNER, ProjectChatType.PRODUCTION];
+        [ProjectChatType.SALES, ProjectChatType.DESIGNER, ProjectChatType.DESIGNER_SALES, ProjectChatType.PRODUCTION];
 
     internal static readonly ProjectChatType[] ProductionStaffChatTypes = [ProjectChatType.PRODUCTION];
 
-    internal static readonly ProjectChatType[] DesignerChatTypes = [ProjectChatType.DESIGNER];
+    internal static readonly ProjectChatType[] DesignerChatTypes =
+        [ProjectChatType.DESIGNER, ProjectChatType.DESIGNER_SALES];
 
     internal const string ProductionChatTitle = "Production Coordination";
+    internal const string DesignerSalesCoordinationChatTitle = "Designer - Sales Coordination";
 }

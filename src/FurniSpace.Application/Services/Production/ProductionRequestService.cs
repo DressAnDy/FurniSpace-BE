@@ -359,6 +359,7 @@ public sealed class ProductionRequestService : IProductionRequestService
         var items = await _productionRequests.GetQueueAsync(
             new ProductionRequestQueueReadModel
             {
+                ProjectId = query.ProjectId,
                 Status = query.Status,
                 AssignedTo = query.AssignedTo,
                 Priority = NormalizeOptionalPriority(query.Priority),

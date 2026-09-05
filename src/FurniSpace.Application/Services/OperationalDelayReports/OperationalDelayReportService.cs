@@ -17,8 +17,6 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
     private const string ProjectNotFoundMessage = "Project not found.";
     private const string ReportNotFoundMessage = "Operational delay report not found.";
     private const string ForbiddenMessage = "You do not have access to operational delay reports for this project.";
-    private const int MaxReasonCodeLength = 100;
-    private const int MaxReasonDetailLength = 4000;
 
     private readonly IOperationalDelayReportRepository _reports;
     private readonly IProjectRepository _projects;
@@ -100,7 +98,7 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             productionDeadline.Value,
             now,
             currentUserId,
-            request.ReasonCode,
+            request.ProductionReasonCode,
             request.ReasonDetail,
             productionRequestId: request.ProductionRequestId);
 
@@ -187,7 +185,7 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             project.TargetCompletionDate.Value,
             now,
             currentUserId,
-            request.ReasonCode,
+            request.DeliveryReasonCode,
             request.ReasonDetail,
             orderId: request.OrderId,
             deliveryId: request.DeliveryId);
@@ -275,18 +273,22 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             "Operational delay report retrieved successfully.");
     }
 
-    private static OperationalDelayReport BuildReport(
+    private static OperationalDelayReport BuildProductionReport(
         Guid projectId,
         OperationalDelayPhase phase,
         DateOnly deadlineSnapshot,
         DateTime reportedAt,
         Guid reportedBy,
-        string? reasonCode,
+        string productionReasonCode,
         string reasonDetail,
         Guid? productionRequestId = null,
         Guid? orderId = null,
         Guid? deliveryId = null)
     {
+        _ = OperationalDelayReasonCodeSupport.TryParseProductionReasonCode(
+            productionReasonCode,
+            out var parsedProductionReasonCode);
+
         return new OperationalDelayReport
         {
             OperationalDelayReportId = Guid.NewGuid(),
@@ -297,11 +299,85 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             DeliveryId = deliveryId,
             DeadlineSnapshot = deadlineSnapshot,
             DelayState = OperationalDelayClassificationSupport.DeriveDelayState(deadlineSnapshot, reportedAt),
-            ReasonCode = NormalizeOptionalText(reasonCode),
+            ProductionReasonCode = parsedProductionReasonCode,
+            DeliveryReasonCode = null,
             ReasonDetail = reasonDetail.Trim(),
             ReportedBy = reportedBy,
             ReportedAt = reportedAt,
             CreatedAt = reportedAt
+        };
+    }
+
+    private static OperationalDelayReport BuildDeliveryReport(
+        Guid projectId,
+        OperationalDelayPhase phase,
+        DateOnly deadlineSnapshot,
+        DateTime reportedAt,
+        Guid reportedBy,
+        string deliveryReasonCode,
+        string reasonDetail,
+        Guid? orderId = null,
+        Guid? deliveryId = null)
+    {
+        _ = OperationalDelayReasonCodeSupport.TryParseDeliveryReasonCode(
+            deliveryReasonCode,
+            out var parsedDeliveryReasonCode);
+
+        return new OperationalDelayReport
+        {
+            OperationalDelayReportId = Guid.NewGuid(),
+            ProjectId = projectId,
+            ReportPhase = phase,
+            ProductionRequestId = null,
+            OrderId = orderId,
+            DeliveryId = deliveryId,
+            DeadlineSnapshot = deadlineSnapshot,
+            DelayState = OperationalDelayClassificationSupport.DeriveDelayState(deadlineSnapshot, reportedAt),
+            ProductionReasonCode = null,
+            DeliveryReasonCode = parsedDeliveryReasonCode,
+            ReasonDetail = reasonDetail.Trim(),
+            ReportedBy = reportedBy,
+            ReportedAt = reportedAt,
+            CreatedAt = reportedAt
+        };
+    }
+
+    private static OperationalDelayReport BuildReport(
+        Guid projectId,
+        OperationalDelayPhase phase,
+        DateOnly deadlineSnapshot,
+        DateTime reportedAt,
+        Guid reportedBy,
+        string reasonCode,
+        string reasonDetail,
+        Guid? productionRequestId = null,
+        Guid? orderId = null,
+        Guid? deliveryId = null)
+    {
+        return phase switch
+        {
+            OperationalDelayPhase.PRODUCTION => BuildProductionReport(
+                projectId,
+                phase,
+                deadlineSnapshot,
+                reportedAt,
+                reportedBy,
+                reasonCode,
+                reasonDetail,
+                productionRequestId,
+                orderId,
+                deliveryId),
+            OperationalDelayPhase.DELIVERY => BuildDeliveryReport(
+                projectId,
+                phase,
+                deadlineSnapshot,
+                reportedAt,
+                reportedBy,
+                reasonCode,
+                reasonDetail,
+                orderId,
+                deliveryId),
+            _ => throw new InvalidOperationException("Unsupported operational delay report phase.")
         };
     }
 
@@ -376,7 +452,10 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             return BadRequest(OperationalDelayReportErrorCodes.InvalidRequest, "Production request id is required.");
         }
 
-        return ValidateReasonFields(request.ReasonCode, request.ReasonDetail);
+        return OperationalDelayReasonCodeSupport.ValidateProductionReasonCode<OperationalDelayReportDto>(
+            request.ProductionReasonCode,
+            request.DeliveryReasonCode,
+            request.ReasonDetail);
     }
 
     private static ServiceResult<OperationalDelayReportDto>? ValidateDeliveryCreateRequest(
@@ -389,33 +468,10 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             return BadRequest(OperationalDelayReportErrorCodes.InvalidRequest, "Project id is required.");
         }
 
-        return ValidateReasonFields(request.ReasonCode, request.ReasonDetail);
-    }
-
-    private static ServiceResult<OperationalDelayReportDto>? ValidateReasonFields(
-        string? reasonCode,
-        string reasonDetail)
-    {
-        if (string.IsNullOrWhiteSpace(reasonDetail))
-        {
-            return BadRequest(OperationalDelayReportErrorCodes.InvalidRequest, "Reason detail is required.");
-        }
-
-        if (reasonDetail.Trim().Length > MaxReasonDetailLength)
-        {
-            return BadRequest(
-                OperationalDelayReportErrorCodes.InvalidRequest,
-                $"Reason detail must not exceed {MaxReasonDetailLength} characters.");
-        }
-
-        if (!string.IsNullOrWhiteSpace(reasonCode) && reasonCode.Trim().Length > MaxReasonCodeLength)
-        {
-            return BadRequest(
-                OperationalDelayReportErrorCodes.InvalidRequest,
-                $"Reason code must not exceed {MaxReasonCodeLength} characters.");
-        }
-
-        return null;
+        return OperationalDelayReasonCodeSupport.ValidateDeliveryReasonCode<OperationalDelayReportDto>(
+            request.ProductionReasonCode,
+            request.DeliveryReasonCode,
+            request.ReasonDetail);
     }
 
     private static OperationalDelayReportDto ToDto(
@@ -434,7 +490,8 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             DeliveryId = report.DeliveryId,
             DeadlineSnapshot = report.DeadlineSnapshot,
             DelayState = report.DelayState.ToString(),
-            ReasonCode = report.ReasonCode,
+            ProductionReasonCode = report.ProductionReasonCode?.ToString(),
+            DeliveryReasonCode = report.DeliveryReasonCode?.ToString(),
             ReasonDetail = report.ReasonDetail,
             ReportedBy = report.ReportedBy,
             ReporterName = reporterName,
@@ -455,7 +512,8 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             DeliveryId = item.DeliveryId,
             DeadlineSnapshot = item.DeadlineSnapshot,
             DelayState = item.DelayState.ToString(),
-            ReasonCode = item.ReasonCode,
+            ProductionReasonCode = item.ProductionReasonCode?.ToString(),
+            DeliveryReasonCode = item.DeliveryReasonCode?.ToString(),
             ReasonDetail = item.ReasonDetail,
             ReportedBy = item.ReportedBy,
             ReporterName = item.ReporterName,
@@ -469,11 +527,6 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
         var dto = ToDto((OperationalDelayReportListItemReadModel)item);
         dto.ProjectName = item.ProjectName;
         return dto;
-    }
-
-    private static string? NormalizeOptionalText(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private static bool IsAdmin(string? roleName) =>

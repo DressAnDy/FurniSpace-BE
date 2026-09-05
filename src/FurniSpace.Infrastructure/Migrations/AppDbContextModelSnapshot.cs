@@ -25,7 +25,7 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "customization_status", new[] { "SUBMITTED", "REVIEWING", "ACCEPTED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "customization_version_status", new[] { "DRAFT", "REVIEWING", "PRODUCTION_REJECTED", "ACCEPTED", "WITHDRAWN" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_status", new[] { "ACTIVE", "ARCHIVED" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_type", new[] { "SPACE_IMAGE", "FLOOR_PLAN", "REFERENCE_IMAGE", "BRAND_ASSET", "CAD_FILE", "PDF_DRAWING", "MEASUREMENT_REPORT", "LIDAR_SCAN", "MODEL_3D", "TEXTURE", "PREVIEW", "PRODUCT_PREVIEW", "PROPOSAL_PREVIEW", "PROPOSAL_FILE", "QUOTATION_FILE", "ORDER_DOCUMENT", "PRODUCTION_FILE", "DELIVERY_PHOTO", "DELIVERY_NOTE", "REVIEW_IMAGE", "PORTFOLIO_IMAGE", "OTHER" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_type", new[] { "SPACE_IMAGE", "FLOOR_PLAN", "REFERENCE_IMAGE", "BRAND_ASSET", "CAD_FILE", "PDF_DRAWING", "MEASUREMENT_REPORT", "LIDAR_SCAN", "MODEL_3D", "TEXTURE", "PREVIEW", "PRODUCT_PREVIEW", "PROPOSAL_PREVIEW", "PROPOSAL_FILE", "QUOTATION_FILE", "ORDER_DOCUMENT", "PRODUCTION_FILE", "DELIVERY_PHOTO", "DELIVERY_NOTE", "PRODUCT_ISSUE_EVIDENCE", "REVIEW_IMAGE", "PORTFOLIO_IMAGE", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "file_visibility", new[] { "CUSTOMER_VISIBLE", "STAFF_ONLY", "PRIVATE" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "layout_asset_status", new[] { "ACTIVE", "INACTIVE", "ARCHIVED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "project_showcase_media_type", new[] { "BEFORE", "AFTER", "FINAL", "DETAIL", "OTHER" });
@@ -33,7 +33,12 @@ namespace FurniSpace.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "layout_asset_type", new[] { "WALL_MATERIAL", "FLOOR_MATERIAL", "STAIR", "DOOR", "WINDOW", "COLUMN", "BEAM", "DECORATIVE_WALL", "DECORATIVE_FLOOR", "DECORATIVE_OBJECT", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "notification_status", new[] { "UNREAD", "READ" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "delivery_status", new[] { "IN_PROGRESS", "COMPLETED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "delivery_product_issue_type", new[] { "DAMAGED", "WRONG_ITEM", "WRONG_SPECIFICATION", "MISSING_PART", "QUALITY_DEFECT", "INSTALLATION_ISSUE", "QUANTITY_MISMATCH", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_item_status", new[] { "PENDING", "IN_PRODUCTION", "READY", "PARTIALLY_DELIVERED", "PHYSICALLY_DELIVERED", "UNAVAILABLE", "DELIVERED", "CANCELLED" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "operational_delay_phase", new[] { "PRODUCTION", "DELIVERY" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "operational_delay_state", new[] { "AT_RISK", "OVERDUE" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "production_delay_reason_code", new[] { "MATERIAL_DELAY", "TECHNICAL_ISSUE", "CUSTOMIZATION_ISSUE", "CAPACITY_CONSTRAINT", "QUALITY_REWORK", "DEPENDENCY_DELAY", "OTHER" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "delivery_delay_reason_code", new[] { "CUSTOMER_RESCHEDULE", "VEHICLE_ISSUE", "PRODUCT_NOT_READY", "SITE_NOT_READY", "STAFF_UNAVAILABLE", "WEATHER", "ACCESS_RESTRICTION", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "order_status", new[] { "CREATED", "DEPOSIT_PENDING", "DEPOSIT_PAID", "IN_PRODUCTION", "READY_FOR_DELIVERY", "DELIVERING", "AWAITING_CUSTOMER_CONFIRMATION", "DELIVERED", "FINAL_PAYMENT_PENDING", "COMPLETED", "CANCELLED" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_method", new[] { "PAYMENT_LINK", "QR_CODE", "BANK_TRANSFER", "CASH", "OTHER" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "payment_provider", new[] { "PAYOS", "SEPAY", "CASH", "MANUAL_BANK_TRANSFER", "OTHER" });
@@ -1565,6 +1570,152 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasIndex("ProjectId");
 
                     b.ToTable("production_requests", (string)null);
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.OperationalDelayReport", b =>
+                {
+                    b.Property<Guid>("OperationalDelayReportId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("operational_delay_report_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateOnly>("DeadlineSnapshot")
+                        .HasColumnType("date")
+                        .HasColumnName("deadline_snapshot");
+
+                    b.Property<OperationalDelayState>("DelayState")
+                        .HasColumnType("operational_delay_state")
+                        .HasColumnName("delay_state");
+
+                    b.Property<DeliveryDelayReasonCode?>("DeliveryReasonCode")
+                        .HasColumnType("delivery_delay_reason_code")
+                        .HasColumnName("delivery_reason_code");
+
+                    b.Property<Guid?>("DeliveryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("delivery_id");
+
+                    b.Property<Guid?>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<ProductionDelayReasonCode?>("ProductionReasonCode")
+                        .HasColumnType("production_delay_reason_code")
+                        .HasColumnName("production_reason_code");
+
+                    b.Property<Guid?>("ProductionRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("production_request_id");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("ReasonDetail")
+                        .HasColumnType("text")
+                        .HasColumnName("reason_detail");
+
+                    b.Property<OperationalDelayPhase>("ReportPhase")
+                        .HasColumnType("operational_delay_phase")
+                        .HasColumnName("report_phase");
+
+                    b.Property<DateTime>("ReportedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reported_at");
+
+                    b.Property<Guid>("ReportedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reported_by");
+
+                    b.HasKey("OperationalDelayReportId");
+
+                    b.HasIndex("OrderId")
+                        .HasDatabaseName("idx_operational_delay_reports_order");
+
+                    b.HasIndex("ProductionRequestId")
+                        .HasDatabaseName("idx_operational_delay_reports_production_request");
+
+                    b.HasIndex("ReportedAt")
+                        .HasDatabaseName("idx_operational_delay_reports_reported_at");
+
+                    b.HasIndex("ProjectId", "ReportPhase")
+                        .HasDatabaseName("idx_operational_delay_reports_project_phase");
+
+                    b.ToTable("operational_delay_reports", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_operational_delay_reports_phase_reason", "(report_phase = 'PRODUCTION'::operational_delay_phase AND production_reason_code IS NOT NULL AND delivery_reason_code IS NULL) OR (report_phase = 'DELIVERY'::operational_delay_phase AND delivery_reason_code IS NOT NULL AND production_reason_code IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.DeliveryProductIssueReport", b =>
+                {
+                    b.Property<Guid>("DeliveryProductIssueReportId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("delivery_product_issue_report_id");
+
+                    b.Property<int?>("AffectedQuantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("affected_quantity");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("DeliveryItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("delivery_item_id");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<DeliveryProductIssueType>("IssueType")
+                        .HasColumnType("delivery_product_issue_type")
+                        .HasColumnName("issue_type");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<Guid>("OrderItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_item_id");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("project_id");
+
+                    b.Property<DateTime>("ReportedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reported_at");
+
+                    b.Property<Guid>("ReportedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reported_by");
+
+                    b.HasKey("DeliveryProductIssueReportId");
+
+                    b.HasIndex("DeliveryItemId")
+                        .HasDatabaseName("idx_delivery_product_issue_reports_delivery_item");
+
+                    b.HasIndex("OrderId")
+                        .HasDatabaseName("idx_delivery_product_issue_reports_order");
+
+                    b.HasIndex("OrderItemId")
+                        .HasDatabaseName("idx_delivery_product_issue_reports_order_item");
+
+                    b.HasIndex("ProjectId")
+                        .HasDatabaseName("idx_delivery_product_issue_reports_project");
+
+                    b.HasIndex("ReportedAt")
+                        .HasDatabaseName("idx_delivery_product_issue_reports_reported_at");
+
+                    b.ToTable("delivery_product_issue_reports", (string)null);
                 });
 
             modelBuilder.Entity("FurniSpace.Domain.Entities.Project", b =>
@@ -3199,6 +3350,68 @@ namespace FurniSpace.Infrastructure.Migrations
                     b.HasOne("FurniSpace.Domain.Entities.Order", null)
                         .WithMany()
                         .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.OperationalDelayReport", b =>
+                {
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ReportedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.Delivery", null)
+                        .WithMany()
+                        .HasForeignKey("DeliveryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.Order", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.ProductionRequest", null)
+                        .WithMany()
+                        .HasForeignKey("ProductionRequestId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.Project", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("FurniSpace.Domain.Entities.DeliveryProductIssueReport", b =>
+                {
+                    b.HasOne("FurniSpace.Domain.Entities.Account", null)
+                        .WithMany()
+                        .HasForeignKey("ReportedBy")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.DeliveryItem", null)
+                        .WithMany()
+                        .HasForeignKey("DeliveryItemId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("FurniSpace.Domain.Entities.Order", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("FurniSpace.Domain.Entities.OrderItem", null)
+                        .WithMany()
+                        .HasForeignKey("OrderItemId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 

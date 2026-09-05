@@ -62,6 +62,8 @@ public class AppDbContext : DbContext
     private const string ProductionItemStatusColumnType = "production_item_status";
     private const string OperationalDelayPhaseColumnType = "operational_delay_phase";
     private const string OperationalDelayStateColumnType = "operational_delay_state";
+    private const string ProductionDelayReasonCodeColumnType = "production_delay_reason_code";
+    private const string DeliveryDelayReasonCodeColumnType = "delivery_delay_reason_code";
     private const string DeliveryProductIssueTypeColumnType = "delivery_product_issue_type";
 
     private const string ProjectChatTypeColumnType = "project_chat_type";
@@ -182,6 +184,8 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:production_item_status", "PENDING,IN_PRODUCTION,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:operational_delay_phase", "PRODUCTION,DELIVERY");
         modelBuilder.HasAnnotation("Npgsql:Enum:operational_delay_state", "AT_RISK,OVERDUE");
+        modelBuilder.HasAnnotation("Npgsql:Enum:production_delay_reason_code", "MATERIAL_DELAY,TECHNICAL_ISSUE,CUSTOMIZATION_ISSUE,CAPACITY_CONSTRAINT,QUALITY_REWORK,DEPENDENCY_DELAY,OTHER");
+        modelBuilder.HasAnnotation("Npgsql:Enum:delivery_delay_reason_code", "CUSTOMER_RESCHEDULE,VEHICLE_ISSUE,PRODUCT_NOT_READY,SITE_NOT_READY,STAFF_UNAVAILABLE,WEATHER,ACCESS_RESTRICTION,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:delivery_product_issue_type", "DAMAGED,WRONG_ITEM,WRONG_SPECIFICATION,MISSING_PART,QUALITY_DEFECT,INSTALLATION_ISSUE,QUANTITY_MISMATCH,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:notification_status", "UNREAD,READ");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,PRODUCTION,DELIVERY,GENERAL,INTERNAL");
@@ -1245,7 +1249,9 @@ public class AppDbContext : DbContext
     {
         modelBuilder.Entity<OperationalDelayReport>(entity =>
         {
-            entity.ToTable("operational_delay_reports");
+            entity.ToTable("operational_delay_reports", tableBuilder => tableBuilder.HasCheckConstraint(
+                "ck_operational_delay_reports_phase_reason",
+                "(report_phase = 'PRODUCTION'::operational_delay_phase AND production_reason_code IS NOT NULL AND delivery_reason_code IS NULL) OR (report_phase = 'DELIVERY'::operational_delay_phase AND delivery_reason_code IS NOT NULL AND production_reason_code IS NULL)"));
             entity.HasKey(e => e.OperationalDelayReportId);
             entity.Property(e => e.OperationalDelayReportId).HasColumnName("operational_delay_report_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
@@ -1255,7 +1261,8 @@ public class AppDbContext : DbContext
             entity.Property(e => e.DeliveryId).HasColumnName("delivery_id").HasColumnType(UuidColumnType);
             entity.Property(e => e.DeadlineSnapshot).HasColumnName("deadline_snapshot").HasColumnType(DateColumnType).IsRequired();
             entity.Property(e => e.DelayState).HasColumnName("delay_state").HasColumnType(OperationalDelayStateColumnType).IsRequired();
-            entity.Property(e => e.ReasonCode).HasColumnName("reason_code").HasColumnType(Varchar100ColumnType);
+            entity.Property(e => e.ProductionReasonCode).HasColumnName("production_reason_code").HasColumnType(ProductionDelayReasonCodeColumnType);
+            entity.Property(e => e.DeliveryReasonCode).HasColumnName("delivery_reason_code").HasColumnType(DeliveryDelayReasonCodeColumnType);
             entity.Property(e => e.ReasonDetail).HasColumnName("reason_detail").HasColumnType(TextColumnType).IsRequired();
             entity.Property(e => e.ReportedBy).HasColumnName("reported_by").HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.ReportedAt).HasColumnName("reported_at").HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();

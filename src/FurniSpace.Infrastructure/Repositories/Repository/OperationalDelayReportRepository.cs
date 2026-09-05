@@ -38,7 +38,8 @@ public sealed class OperationalDelayReportRepository
                 DeliveryId = item.report.DeliveryId,
                 DeadlineSnapshot = item.report.DeadlineSnapshot,
                 DelayState = item.report.DelayState,
-                ReasonCode = item.report.ReasonCode,
+                ProductionReasonCode = item.report.ProductionReasonCode,
+                DeliveryReasonCode = item.report.DeliveryReasonCode,
                 ReasonDetail = item.report.ReasonDetail,
                 ReportedBy = item.report.ReportedBy,
                 ReporterName = DbContext.AccountSet
@@ -70,7 +71,8 @@ public sealed class OperationalDelayReportRepository
                 DeliveryId = report.DeliveryId,
                 DeadlineSnapshot = report.DeadlineSnapshot,
                 DelayState = report.DelayState,
-                ReasonCode = report.ReasonCode,
+                ProductionReasonCode = report.ProductionReasonCode,
+                DeliveryReasonCode = report.DeliveryReasonCode,
                 ReasonDetail = report.ReasonDetail,
                 ReportedBy = report.ReportedBy,
                 ReporterName = DbContext.AccountSet

@@ -19,7 +19,8 @@ public static class OperationalDelayReportErrorCodes
 public sealed class CreateProductionDelayReportRequestDto
 {
     public Guid ProductionRequestId { get; set; }
-    public string? ReasonCode { get; set; }
+    public string ProductionReasonCode { get; set; } = string.Empty;
+    public string? DeliveryReasonCode { get; set; }
     public string ReasonDetail { get; set; } = string.Empty;
 }
 
@@ -27,7 +28,8 @@ public sealed class CreateDeliveryDelayReportRequestDto
 {
     public Guid? OrderId { get; set; }
     public Guid? DeliveryId { get; set; }
-    public string? ReasonCode { get; set; }
+    public string? ProductionReasonCode { get; set; }
+    public string DeliveryReasonCode { get; set; } = string.Empty;
     public string ReasonDetail { get; set; } = string.Empty;
 }
 
@@ -42,7 +44,8 @@ public sealed class OperationalDelayReportDto
     public Guid? DeliveryId { get; set; }
     public DateOnly DeadlineSnapshot { get; set; }
     public string DelayState { get; set; } = string.Empty;
-    public string? ReasonCode { get; set; }
+    public string? ProductionReasonCode { get; set; }
+    public string? DeliveryReasonCode { get; set; }
     public string ReasonDetail { get; set; } = string.Empty;
     public Guid ReportedBy { get; set; }
     public string? ReporterName { get; set; }

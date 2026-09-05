@@ -12,7 +12,8 @@ public class OperationalDelayReportListItemReadModel
     public Guid? DeliveryId { get; init; }
     public DateOnly DeadlineSnapshot { get; init; }
     public OperationalDelayState DelayState { get; init; }
-    public string? ReasonCode { get; init; }
+    public ProductionDelayReasonCode? ProductionReasonCode { get; init; }
+    public DeliveryDelayReasonCode? DeliveryReasonCode { get; init; }
     public string ReasonDetail { get; init; } = string.Empty;
     public Guid ReportedBy { get; init; }
     public string? ReporterName { get; init; }

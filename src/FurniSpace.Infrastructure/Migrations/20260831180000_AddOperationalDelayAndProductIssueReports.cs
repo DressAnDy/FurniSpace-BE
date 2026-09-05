@@ -7,8 +7,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace FurniSpace.Infrastructure.Migrations;
 
-[DbContext(typeof(AppDbContext))]
-[Migration("20260831180000_AddOperationalDelayAndProductIssueReports")]
 public partial class AddOperationalDelayAndProductIssueReports : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

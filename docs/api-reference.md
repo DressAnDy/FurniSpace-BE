@@ -2301,9 +2301,13 @@ Project-wide gallery: `GET /projects/{projectId}/measurement-images` with option
 }
 ```
 
-`chatType`: `SALES`, `DESIGNER`, `PRODUCTION`, `DELIVERY`, `GENERAL`, `INTERNAL`
+`chatType`: `SALES`, `DESIGNER`, `DESIGNER_SALES`, `PRODUCTION`, `DELIVERY`, `GENERAL`, `INTERNAL`
+
+`DESIGNER_SALES` is an internal Designer–Sales coordination chat (auto-created on designer assignment). **CUSTOMER** and **PRODUCTION** cannot access it.
 
 `PRODUCTION` chat is auto-created/upserted when a production request is created or reassigned (`StaffId` = assigned production user). Assigned **SALES** and assigned **PRODUCTION** staff (matching chat `staffId`) may read/send; **CUSTOMER** and **DESIGNER** cannot access `PRODUCTION` chats.
+
+`DESIGNER_SALES` chat is auto-created/upserted when a designer is assigned (`PATCH .../designer-assignment`). Assigned **SALES** and assigned **DESIGNER** (matching chat `staffId`) may read/send; **CUSTOMER** and **PRODUCTION** cannot access `DESIGNER_SALES` chats.
 
 ### Update status
 
@@ -3633,7 +3637,7 @@ All values are JSON strings matching C# member names.
 | `LayoutAssetStatus` | `ACTIVE`, `INACTIVE`, `ARCHIVED` |
 | `ProjectShowcaseStatus` | `DRAFT`, `PENDING_REVIEW`, `PUBLISHED`, `ARCHIVED` |
 | `ProjectShowcaseMediaType` | `BEFORE`, `AFTER`, `FINAL`, `DETAIL`, `OTHER` |
-| `ProjectChatType` | `SALES`, `DESIGNER`, `PRODUCTION`, `DELIVERY`, `GENERAL`, `INTERNAL` |
+| `ProjectChatType` | `SALES`, `DESIGNER`, `DESIGNER_SALES`, `PRODUCTION`, `DELIVERY`, `GENERAL`, `INTERNAL` |
 | `ProjectChatStatus` | `OPEN`, `CLOSED`, `ARCHIVED` |
 | `ProjectChatMessageType` | `TEXT`, `FILE`, `SYSTEM` |
 | `FileStatus` | `ACTIVE`, `ARCHIVED` |

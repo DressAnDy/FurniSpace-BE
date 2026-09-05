@@ -714,6 +714,66 @@ public sealed class ProjectChatMessageServiceTests
         Assert.True(repository.LastQuery.SortDescending);
     }
 
+    [Fact]
+    public async Task SendTextMessageAsync_WithDesignerSalesChat_AllowsAssignedSalesAndDesignerStaff()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var salesAccess = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ProjectName = "Coordination Project",
+            ChatType = ProjectChatType.DESIGNER_SALES,
+            ChatTitle = "Designer - Sales Coordination",
+            ChatStatus = ProjectChatStatus.OPEN,
+            ChatStaffId = designerId,
+            AssignedSalesId = salesId,
+            AssignedDesignerId = designerId,
+            CurrentUserName = "Sales User",
+            RoleName = "SALES"
+        };
+        var designerAccess = CopyAccess(
+            salesAccess,
+            currentUserName: "Designer User",
+            roleName: "DESIGNER");
+
+        Assert.Equal(201, (await CreateService(new FakeProjectChatMessageRepository(salesAccess))
+            .SendTextMessageAsync(chatId, salesId, ValidSendRequest())).Status);
+        Assert.Equal(201, (await CreateService(new FakeProjectChatMessageRepository(designerAccess))
+            .SendTextMessageAsync(chatId, designerId, ValidSendRequest())).Status);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WithDesignerSalesChat_RejectsCustomerAndProduction()
+    {
+        var chatId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var access = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ChatType = ProjectChatType.DESIGNER_SALES,
+            ChatStatus = ProjectChatStatus.OPEN,
+            ChatStaffId = designerId,
+            AssignedSalesId = Guid.NewGuid(),
+            AssignedDesignerId = designerId,
+            RoleName = "CUSTOMER",
+            CustomerId = customerId
+        };
+
+        var customerResult = await CreateService(new FakeProjectChatMessageRepository(access))
+            .SendTextMessageAsync(chatId, customerId, ValidSendRequest());
+        var productionResult = await CreateService(new FakeProjectChatMessageRepository(
+            CopyAccess(access, roleName: "PRODUCTION")))
+            .SendTextMessageAsync(chatId, Guid.NewGuid(), ValidSendRequest());
+
+        Assert.Equal(403, customerResult.Status);
+        Assert.Equal(403, productionResult.Status);
+    }
+
     [Theory]
     [InlineData("CUSTOMER", ProjectChatType.SALES)]
     [InlineData("CUSTOMER", ProjectChatType.DESIGNER)]
@@ -1075,7 +1135,8 @@ public sealed class ProjectChatMessageServiceTests
         ProjectChatStatus? chatStatus = ProjectChatStatus.OPEN,
         string? currentUserName = null,
         Guid? chatStaffId = null,
-        Guid? productionRequestId = null)
+        Guid? productionRequestId = null,
+        string? roleName = null)
     {
         return new ProjectChatMessageAccessReadModel
         {
@@ -1091,7 +1152,7 @@ public sealed class ProjectChatMessageServiceTests
             AssignedDesignerId = source.AssignedDesignerId,
             ProductionRequestId = productionRequestId ?? source.ProductionRequestId,
             CurrentUserName = currentUserName ?? source.CurrentUserName,
-            RoleName = source.RoleName
+            RoleName = roleName ?? source.RoleName
         };
     }
 

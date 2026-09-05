@@ -4,6 +4,7 @@ using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Constants.Common;
+using FurniSpace.Application.Constants.ProjectChats;
 using static FurniSpace.Application.Constants.Accounts.AccountServiceConstants;
 using static FurniSpace.Application.Constants.Projects.ProjectServiceConstants;
 using FurniSpace.Application.DTOs.Orders;
@@ -1375,6 +1376,13 @@ public sealed class ProjectService : IProjectService
                 ProjectChatType.DESIGNER,
                 designer.AccountId,
                 "Design Discussion",
+                cancellationToken);
+
+            await projectChats.UpsertProjectChatAsync(
+                project.ProjectId,
+                ProjectChatType.DESIGNER_SALES,
+                designer.AccountId,
+                ProjectChatServiceConstants.DesignerSalesCoordinationChatTitle,
                 cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);

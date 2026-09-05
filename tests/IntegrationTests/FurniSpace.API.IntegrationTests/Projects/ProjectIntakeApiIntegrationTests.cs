@@ -421,9 +421,13 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
         Assert.Equal(scenario.DesignerAccountId, project.AssignedDesignerId);
         Assert.NotNull(project.DesignerAssignedAt);
 
-        var chat = await verification.ProjectChatSet.SingleAsync();
-        Assert.Equal(ProjectChatType.DESIGNER, chat.ChatType);
-        Assert.Equal(scenario.DesignerAccountId, chat.StaffId);
+        var chat = await verification.ProjectChatSet
+            .OrderBy(item => item.ChatType)
+            .ToListAsync();
+        Assert.Equal(2, chat.Count);
+        Assert.Equal(ProjectChatType.DESIGNER, chat[0].ChatType);
+        Assert.Equal(ProjectChatType.DESIGNER_SALES, chat[1].ChatType);
+        Assert.All(chat, item => Assert.Equal(scenario.DesignerAccountId, item.StaffId));
     }
 
     [Fact]

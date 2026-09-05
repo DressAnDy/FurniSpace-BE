@@ -65,8 +65,13 @@ public sealed class ProjectServiceTests
         Assert.Equal(1, repository.GetAccountRoleNameCallCount);
         Assert.Equal(1, repository.GetActiveDesignerCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
-        Assert.Equal(1, projectChats.UpsertCallCount);
-        Assert.Equal("Design Discussion", projectChats.Title);
+        Assert.Equal(2, projectChats.UpsertCallCount);
+        Assert.Contains(
+            (ProjectChatType.DESIGNER, "Design Discussion"),
+            projectChats.UpsertCalls);
+        Assert.Contains(
+            (ProjectChatType.DESIGNER_SALES, "Designer - Sales Coordination"),
+            projectChats.UpsertCalls);
         Assert.Equal(new DateOnly(2026, 9, 15), result.Data.ProposalDeadline);
     }
 
@@ -93,7 +98,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(200, result.Status);
         Assert.NotNull(result.Data);
         Assert.Equal(ProjectStatus.MEASUREMENT_REQUIRED, result.Data.Status);
-        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(2, projectChats.UpsertCallCount);
     }
 
     [Fact]
@@ -358,7 +363,7 @@ public sealed class ProjectServiceTests
         Assert.Equal([designer.AccountId], dispatcher.LastReceiverIds);
         Assert.NotNull(dispatcher.LastParameters);
         Assert.Equal("Moc Coffee Interior Setup", dispatcher.LastParameters["ProjectName"]);
-        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(2, projectChats.UpsertCallCount);
     }
 
     [Fact]
@@ -385,7 +390,7 @@ public sealed class ProjectServiceTests
         Assert.Equal(ProjectStatus.MEASUREMENT_REQUIRED, result.Data.Status);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Equal(1, dispatcher.DispatchCallCount);
-        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(2, projectChats.UpsertCallCount);
     }
 
     [Fact]
@@ -436,7 +441,7 @@ public sealed class ProjectServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal(1, beginCallCount);
-        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(2, projectChats.UpsertCallCount);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Equal(1, commitCallCount);
         Assert.Equal(0, rollbackCallCount);
@@ -527,7 +532,7 @@ public sealed class ProjectServiceTests
                 }));
 
         Assert.Equal("Project save failed.", exception.Message);
-        Assert.Equal(1, projectChats.UpsertCallCount);
+        Assert.Equal(2, projectChats.UpsertCallCount);
         Assert.Equal(0, commitCallCount);
         Assert.Equal(1, rollbackCallCount);
         Assert.Equal(0, dispatcher.DispatchCallCount);
@@ -3618,6 +3623,7 @@ public sealed class ProjectServiceTests
         }
 
         public int UpsertCallCount { get; private set; }
+        public List<(ProjectChatType ChatType, string Title)> UpsertCalls { get; } = [];
         public Guid ProjectId { get; private set; }
         public ProjectChatType ChatType { get; private set; }
         public Guid StaffId { get; private set; }
@@ -3652,6 +3658,7 @@ public sealed class ProjectServiceTests
             CancellationToken cancellationToken = default)
         {
             UpsertCallCount++;
+            UpsertCalls.Add((chatType, title));
             ProjectId = projectId;
             ChatType = chatType;
             StaffId = staffId;

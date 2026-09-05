@@ -188,7 +188,7 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:delivery_delay_reason_code", "CUSTOMER_RESCHEDULE,VEHICLE_ISSUE,PRODUCT_NOT_READY,SITE_NOT_READY,STAFF_UNAVAILABLE,WEATHER,ACCESS_RESTRICTION,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:delivery_product_issue_type", "DAMAGED,WRONG_ITEM,WRONG_SPECIFICATION,MISSING_PART,QUALITY_DEFECT,INSTALLATION_ISSUE,QUANTITY_MISMATCH,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:notification_status", "UNREAD,READ");
-        modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,PRODUCTION,DELIVERY,GENERAL,INTERNAL");
+        modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,DESIGNER_SALES,PRODUCTION,DELIVERY,GENERAL,INTERNAL");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_status", "OPEN,CLOSED,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_message_type", "TEXT,FILE,SYSTEM");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_status", "ACTIVE,ARCHIVED");

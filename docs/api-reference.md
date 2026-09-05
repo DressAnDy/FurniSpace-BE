@@ -1843,7 +1843,7 @@ Create production report:
 ```json
 {
   "productionRequestId": "uuid",
-  "reasonCode": "MATERIAL_DELAY",
+  "productionReasonCode": "MATERIAL_DELAY",
   "reasonDetail": "Material shipment delayed."
 }
 ```
@@ -1854,7 +1854,7 @@ Create delivery report:
 {
   "orderId": "uuid",
   "deliveryId": "uuid",
-  "reasonCode": "SITE_NOT_READY",
+  "deliveryReasonCode": "SITE_NOT_READY",
   "reasonDetail": "Customer site is not ready."
 }
 ```
@@ -1862,7 +1862,9 @@ Create delivery report:
 Backend derives `deadlineSnapshot`, `delayState` (`AT_RISK` on/before deadline, `OVERDUE` after), `reportedBy`, `reportedAt`. Client must not send these fields.
 
 `OperationalDelayPhase`: `PRODUCTION`, `DELIVERY`  
-`OperationalDelayState`: `AT_RISK`, `OVERDUE`
+`OperationalDelayState`: `AT_RISK`, `OVERDUE`  
+`ProductionDelayReasonCode`: `MATERIAL_DELAY`, `TECHNICAL_ISSUE`, `CUSTOMIZATION_ISSUE`, `CAPACITY_CONSTRAINT`, `QUALITY_REWORK`, `DEPENDENCY_DELAY`, `OTHER`  
+`DeliveryDelayReasonCode`: `CUSTOMER_RESCHEDULE`, `VEHICLE_ISSUE`, `PRODUCT_NOT_READY`, `SITE_NOT_READY`, `STAFF_UNAVAILABLE`, `WEATHER`, `ACCESS_RESTRICTION`, `OTHER`
 
 ---
 
@@ -2357,7 +2359,7 @@ Realtime:
 - Chat stream: join chat via SignalR `ProjectChatHub` (see §22). Server pushes `project_chat.message_sent` to `project:{projectId}` and `project_chat:{chatId}` groups after DB save.
 - In-app notification: after a text/file message is saved, the backend also creates a notification for other chat participants and pushes `project_chat.message_sent` through `NotificationsHub` to each `user:{accountId}` receiver.
 - Notification `referenceType`: `PROJECT_CHAT_MESSAGE`; `referenceId`: `messageId`.
-- Notification metadata includes `chatId`, `chatType`, `messageId`, `messageType`, `senderId`, `senderName`, `projectName`, `contentPreview`.
+- Notification metadata includes `chatId`, `chatType`, `messageId`, `messageType`, `senderId`, `senderName`, `projectName`, `contentPreview`. For `chatType = PRODUCTION`, metadata also includes `productionRequestId` (latest production request for the project assigned to chat `staffId`) so FE can deep-link to production request detail.
 
 ---
 
@@ -3275,7 +3277,7 @@ Create production request: `POST /orders/{orderId}/production-request` (§13).
 
 ### List query
 
-`status?`, `assignedTo?`, `priority?`
+`projectId?`, `status?`, `assignedTo?`, `priority?`
 
 ### Assign
 
@@ -3639,6 +3641,8 @@ All values are JSON strings matching C# member names.
 | `FileType` | `SPACE_IMAGE`, `FLOOR_PLAN`, `REFERENCE_IMAGE`, `BRAND_ASSET`, `CAD_FILE`, `PDF_DRAWING`, `MEASUREMENT_REPORT`, `LIDAR_SCAN`, `MODEL_3D`, `TEXTURE`, `PREVIEW`, `PRODUCT_PREVIEW`, `PROPOSAL_PREVIEW`, `PROPOSAL_FILE`, `QUOTATION_FILE`, `ORDER_DOCUMENT`, `PRODUCTION_FILE`, `DELIVERY_PHOTO`, `DELIVERY_NOTE`, `PRODUCT_ISSUE_EVIDENCE`, `REVIEW_IMAGE`, `PORTFOLIO_IMAGE`, `OTHER` |
 | `OperationalDelayPhase` | `PRODUCTION`, `DELIVERY` |
 | `OperationalDelayState` | `AT_RISK`, `OVERDUE` |
+| `ProductionDelayReasonCode` | `MATERIAL_DELAY`, `TECHNICAL_ISSUE`, `CUSTOMIZATION_ISSUE`, `CAPACITY_CONSTRAINT`, `QUALITY_REWORK`, `DEPENDENCY_DELAY`, `OTHER` |
+| `DeliveryDelayReasonCode` | `CUSTOMER_RESCHEDULE`, `VEHICLE_ISSUE`, `PRODUCT_NOT_READY`, `SITE_NOT_READY`, `STAFF_UNAVAILABLE`, `WEATHER`, `ACCESS_RESTRICTION`, `OTHER` |
 | `DeliveryProductIssueType` | `DAMAGED`, `WRONG_ITEM`, `WRONG_SPECIFICATION`, `MISSING_PART`, `QUALITY_DEFECT`, `INSTALLATION_ISSUE`, `QUANTITY_MISMATCH`, `OTHER` |
 | `NotificationStatus` | `UNREAD`, `READ` |
 

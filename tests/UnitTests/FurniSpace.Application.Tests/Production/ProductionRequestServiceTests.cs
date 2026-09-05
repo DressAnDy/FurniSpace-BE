@@ -602,6 +602,28 @@ public sealed class ProductionRequestServiceTests
     }
 
     [Fact]
+    public async Task GetQueueAsync_FiltersByProjectId()
+    {
+        await using var context = CreateContext();
+        var own = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        var otherProject = SeedOrderProjectRequest(context, _salesId, _productionId, ProductionRequestStatus.PENDING, "NORMAL");
+        var ownRequest = CreateProductionRequest(own.ProjectId, own.OrderId, _productionId, ProductionRequestStatus.PENDING);
+        ownRequest.Priority = "NORMAL";
+        context.ProductionRequestSet.Add(ownRequest);
+        await context.SaveChangesAsync();
+        var service = BuildService(context);
+
+        var filtered = await service.GetQueueAsync(
+            _productionId,
+            new ProductionRequestQueryDto { ProjectId = own.ProjectId });
+
+        Assert.Equal(200, filtered.Status);
+        var item = Assert.Single(filtered.Data!.Items);
+        Assert.Equal(ownRequest.ProductionRequestId, item.ProductionRequestId);
+        Assert.Equal(own.ProjectId, item.ProjectId);
+    }
+
+    [Fact]
     public async Task GetQueueAsync_ReturnsVisibleProductionRequestsWithFilters()
     {
         await using var context = CreateContext();

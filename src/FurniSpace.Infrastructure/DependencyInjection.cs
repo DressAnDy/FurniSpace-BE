@@ -185,6 +185,8 @@ public static class DependencyInjection
         builder.MapEnum<ProductionItemStatus>("production_item_status", translator);
         builder.MapEnum<OperationalDelayPhase>("operational_delay_phase", translator);
         builder.MapEnum<OperationalDelayState>("operational_delay_state", translator);
+        builder.MapEnum<ProductionDelayReasonCode>("production_delay_reason_code", translator);
+        builder.MapEnum<DeliveryDelayReasonCode>("delivery_delay_reason_code", translator);
         builder.MapEnum<DeliveryProductIssueType>("delivery_product_issue_type", translator);
 
         builder.MapEnum<ProjectChatType>("project_chat_type", translator);

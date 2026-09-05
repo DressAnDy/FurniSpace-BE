@@ -717,7 +717,7 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         ProjectChatMessage message,
         ProjectChatMessageDto response)
     {
-        return new Dictionary<string, object?>
+        var metadata = new Dictionary<string, object?>
         {
             ["chatId"] = message.ChatId,
             ["chatType"] = access.ChatType.ToString(),
@@ -728,6 +728,13 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             ["projectName"] = access.ProjectName,
             ["contentPreview"] = BuildContentPreview(response)
         };
+
+        if (access.ChatType == ProjectChatType.PRODUCTION && access.ProductionRequestId.HasValue)
+        {
+            metadata["productionRequestId"] = access.ProductionRequestId.Value;
+        }
+
+        return metadata;
     }
 
     private static string? BuildContentPreview(ProjectChatMessageDto response)

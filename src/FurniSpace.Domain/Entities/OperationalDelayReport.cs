@@ -13,7 +13,8 @@ public class OperationalDelayReport
     public Guid? DeliveryId { get; set; }
     public DateOnly DeadlineSnapshot { get; set; }
     public OperationalDelayState DelayState { get; set; }
-    public string? ReasonCode { get; set; }
+    public ProductionDelayReasonCode? ProductionReasonCode { get; set; }
+    public DeliveryDelayReasonCode? DeliveryReasonCode { get; set; }
     public string ReasonDetail { get; set; } = string.Empty;
     public Guid ReportedBy { get; set; }
     public DateTime ReportedAt { get; set; }

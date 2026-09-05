@@ -534,6 +534,32 @@ public sealed class ProjectChatMessageServiceTests
     }
 
     [Fact]
+    public async Task SendTextMessageAsync_WithProductionChat_IncludesProductionRequestIdInNotificationMetadata()
+    {
+        var chatId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var productionId = Guid.NewGuid();
+        var productionRequestId = Guid.NewGuid();
+        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.PRODUCTION);
+        access = CopyAccess(
+            access,
+            projectId: projectId,
+            chatStaffId: productionId,
+            productionRequestId: productionRequestId);
+        var repository = new FakeProjectChatMessageRepository(access);
+        var notifications = new FakeNotificationDispatcher();
+        var service = CreateService(repository, notifications: notifications);
+
+        var result = await service.SendTextMessageAsync(chatId, salesId, ValidSendRequest());
+
+        Assert.Equal(201, result.Status);
+        var metadata = notifications.Requests[0].Request!.Metadata!;
+        Assert.Equal(productionRequestId, metadata["productionRequestId"]);
+        Assert.Equal(ProjectChatType.PRODUCTION.ToString(), metadata["chatType"]);
+    }
+
+    [Fact]
     public async Task CanAccessChatAsync_WithProductionChat_AllowsAssignedSalesAndProductionStaff()
     {
         var chatId = Guid.NewGuid();
@@ -1048,7 +1074,8 @@ public sealed class ProjectChatMessageServiceTests
         Guid? projectId = null,
         ProjectChatStatus? chatStatus = ProjectChatStatus.OPEN,
         string? currentUserName = null,
-        Guid? chatStaffId = null)
+        Guid? chatStaffId = null,
+        Guid? productionRequestId = null)
     {
         return new ProjectChatMessageAccessReadModel
         {
@@ -1062,6 +1089,7 @@ public sealed class ProjectChatMessageServiceTests
             CustomerId = source.CustomerId,
             AssignedSalesId = source.AssignedSalesId,
             AssignedDesignerId = source.AssignedDesignerId,
+            ProductionRequestId = productionRequestId ?? source.ProductionRequestId,
             CurrentUserName = currentUserName ?? source.CurrentUserName,
             RoleName = source.RoleName
         };

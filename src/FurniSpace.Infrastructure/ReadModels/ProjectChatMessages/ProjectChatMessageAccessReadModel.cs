@@ -14,6 +14,7 @@ public sealed class ProjectChatMessageAccessReadModel
     public Guid? CustomerId { get; init; }
     public Guid? AssignedSalesId { get; init; }
     public Guid? AssignedDesignerId { get; init; }
+    public Guid? ProductionRequestId { get; init; }
     public string? CurrentUserName { get; init; }
     public string? RoleName { get; init; }
 }

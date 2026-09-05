@@ -46,7 +46,7 @@ public sealed class OperationalDelayReportServiceTests
             new CreateProductionDelayReportRequestDto
             {
                 ProductionRequestId = ids.ProductionRequestId,
-                ReasonCode = " MATERIAL ",
+                ProductionReasonCode = " MATERIAL_DELAY ",
                 ReasonDetail = " Supplier delay "
             });
 
@@ -54,7 +54,8 @@ public sealed class OperationalDelayReportServiceTests
         Assert.Equal("Production delay report recorded successfully.", result.Message);
         Assert.Equal(ids.ProjectId, result.Data!.ProjectId);
         Assert.Equal("PRODUCTION", result.Data.ReportPhase);
-        Assert.Equal("MATERIAL", result.Data.ReasonCode);
+        Assert.Equal("MATERIAL_DELAY", result.Data.ProductionReasonCode);
+        Assert.Null(result.Data.DeliveryReasonCode);
         Assert.Equal("Supplier delay", result.Data.ReasonDetail);
         Assert.Single(reports.AddedReports);
         Assert.Equal(1, reports.SaveChangesCallCount);
@@ -83,6 +84,7 @@ public sealed class OperationalDelayReportServiceTests
             new CreateProductionDelayReportRequestDto
             {
                 ProductionRequestId = ids.ProductionRequestId,
+                ProductionReasonCode = "OTHER",
                 ReasonDetail = "Machine maintenance"
             });
 
@@ -189,6 +191,7 @@ public sealed class OperationalDelayReportServiceTests
             new CreateProductionDelayReportRequestDto
             {
                 ProductionRequestId = ids.ProductionRequestId,
+                ProductionReasonCode = "MATERIAL_DELAY",
                 ReasonDetail = reasonDetail
             });
 
@@ -215,11 +218,14 @@ public sealed class OperationalDelayReportServiceTests
             new CreateDeliveryDelayReportRequestDto
             {
                 OrderId = ids.OrderId,
+                DeliveryReasonCode = "SITE_NOT_READY",
                 ReasonDetail = "Traffic delay"
             });
 
         Assert.Equal(201, result.Status);
         Assert.Equal("DELIVERY", result.Data!.ReportPhase);
+        Assert.Null(result.Data.ProductionReasonCode);
+        Assert.Equal("SITE_NOT_READY", result.Data.DeliveryReasonCode);
         Assert.Equal(ids.OrderId, result.Data.OrderId);
         Assert.Equal(new DateOnly(2026, 10, 1), result.Data.DeadlineSnapshot);
         Assert.Single(reports.AddedReports);
@@ -237,7 +243,11 @@ public sealed class OperationalDelayReportServiceTests
         var result = await service.CreateDeliveryReportAsync(
             ids.ProjectId,
             ids.SalesId,
-            new CreateDeliveryDelayReportRequestDto { ReasonDetail = "Late shipment" });
+            new CreateDeliveryDelayReportRequestDto
+            {
+                DeliveryReasonCode = "OTHER",
+                ReasonDetail = "Late shipment"
+            });
 
         Assert.Equal(400, result.Status);
         Assert.Equal(OperationalDelayReportErrorCodes.TargetCompletionDateMissing, result.ErrorCode);
@@ -263,6 +273,7 @@ public sealed class OperationalDelayReportServiceTests
             new CreateDeliveryDelayReportRequestDto
             {
                 OrderId = ids.OrderId,
+                DeliveryReasonCode = "OTHER",
                 ReasonDetail = "Wrong order"
             });
 
@@ -295,6 +306,7 @@ public sealed class OperationalDelayReportServiceTests
             new CreateDeliveryDelayReportRequestDto
             {
                 DeliveryId = ids.DeliveryId,
+                DeliveryReasonCode = "OTHER",
                 ReasonDetail = "Delivery mismatch"
             });
 
@@ -370,6 +382,96 @@ public sealed class OperationalDelayReportServiceTests
         Assert.Equal(OperationalDelayReportErrorCodes.ReportNotFound, result.ErrorCode);
     }
 
+    [Fact]
+    public async Task CreateProductionReportAsync_WithInvalidProductionReasonCode_ReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeOperationalDelayReportRepository(),
+            project: CreateProject(ids),
+            roleName: SalesRole,
+            productionRequest: CreateProductionRequest(ids),
+            productionDeadline: new DateOnly(2026, 9, 20));
+
+        var result = await service.CreateProductionReportAsync(
+            ids.ProjectId,
+            ids.SalesId,
+            new CreateProductionDelayReportRequestDto
+            {
+                ProductionRequestId = ids.ProductionRequestId,
+                ProductionReasonCode = "WEATHER",
+                ReasonDetail = "Wrong phase reason"
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Production reason code is invalid.", result.Message);
+    }
+
+    [Fact]
+    public async Task CreateProductionReportAsync_WithDeliveryReasonField_ReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeOperationalDelayReportRepository(),
+            project: CreateProject(ids),
+            roleName: SalesRole);
+
+        var result = await service.CreateProductionReportAsync(
+            ids.ProjectId,
+            ids.SalesId,
+            new CreateProductionDelayReportRequestDto
+            {
+                ProductionRequestId = ids.ProductionRequestId,
+                ProductionReasonCode = "MATERIAL_DELAY",
+                DeliveryReasonCode = "WEATHER",
+                ReasonDetail = "Both fields"
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Contains("Delivery reason code is not accepted", result.Message);
+    }
+
+    [Fact]
+    public async Task CreateDeliveryReportAsync_WithInvalidDeliveryReasonCode_ReturnsBadRequest()
+    {
+        var ids = CreateIds();
+        var project = CreateProject(ids);
+        project.TargetCompletionDate = new DateOnly(2026, 10, 1);
+        var service = CreateService(
+            new FakeOperationalDelayReportRepository(),
+            project: project,
+            roleName: SalesRole);
+
+        var result = await service.CreateDeliveryReportAsync(
+            ids.ProjectId,
+            ids.SalesId,
+            new CreateDeliveryDelayReportRequestDto
+            {
+                DeliveryReasonCode = "MATERIAL_DELAY",
+                ReasonDetail = "Wrong phase reason"
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Delivery reason code is invalid.", result.Message);
+    }
+
+    [Fact]
+    public async Task GetDetailAsync_WithMigratedProductionReason_ReturnsPhaseSpecificFields()
+    {
+        var ids = CreateIds();
+        var detail = CreateDetail(ids);
+        var service = CreateService(
+            new FakeOperationalDelayReportRepository { Detail = detail },
+            project: CreateProject(ids),
+            roleName: AdminRole);
+
+        var result = await service.GetDetailAsync(detail.OperationalDelayReportId, Guid.NewGuid());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("MATERIAL_DELAY", result.Data!.ProductionReasonCode);
+        Assert.Null(result.Data.DeliveryReasonCode);
+    }
+
     private static OperationalDelayReportService CreateService(
         FakeOperationalDelayReportRepository reports,
         Project? project,
@@ -403,6 +505,7 @@ public sealed class OperationalDelayReportServiceTests
         return new CreateProductionDelayReportRequestDto
         {
             ProductionRequestId = ids.ProductionRequestId,
+            ProductionReasonCode = "OTHER",
             ReasonDetail = "Delay reason"
         };
     }
@@ -472,6 +575,7 @@ public sealed class OperationalDelayReportServiceTests
             ProductionRequestId = ids.ProductionRequestId,
             DeadlineSnapshot = new DateOnly(2026, 9, 15),
             DelayState = OperationalDelayState.AT_RISK,
+            ProductionReasonCode = ProductionDelayReasonCode.OTHER,
             ReasonDetail = "Supplier delay",
             ReportedBy = ids.SalesId,
             ReporterName = "Sales User",
@@ -491,6 +595,7 @@ public sealed class OperationalDelayReportServiceTests
             ProductionRequestId = ids.ProductionRequestId,
             DeadlineSnapshot = new DateOnly(2026, 9, 15),
             DelayState = OperationalDelayState.OVERDUE,
+            ProductionReasonCode = ProductionDelayReasonCode.MATERIAL_DELAY,
             ReasonDetail = "Overdue production",
             ReportedBy = ids.SalesId,
             ReporterName = "Sales User",

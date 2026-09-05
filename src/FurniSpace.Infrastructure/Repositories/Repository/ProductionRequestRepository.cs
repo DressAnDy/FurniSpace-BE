@@ -396,6 +396,11 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             query = query.Where(request => request.AssignedTo == filter.AssignedTo.Value);
         }
 
+        if (filter.ProjectId.HasValue)
+        {
+            query = query.Where(request => request.ProjectId == filter.ProjectId.Value);
+        }
+
         if (!string.IsNullOrWhiteSpace(filter.Priority))
         {
             var priority = filter.Priority.Trim().ToUpperInvariant();

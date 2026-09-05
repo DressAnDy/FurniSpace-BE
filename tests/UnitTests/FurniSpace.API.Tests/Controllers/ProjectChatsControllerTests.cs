@@ -44,7 +44,7 @@ public sealed class ProjectChatsControllerTests
             .Cast<AuthorizeAttribute>()
             .Single();
 
-        Assert.Equal("CUSTOMER,SALES,DESIGNER,ADMIN", authorize.Roles);
+        Assert.Equal("CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN", authorize.Roles);
     }
 
     [Fact]

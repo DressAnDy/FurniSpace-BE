@@ -48,6 +48,10 @@ public interface IDeliveryRepository
         Guid deliveryId,
         CancellationToken cancellationToken = default);
 
+    Task<DeliveryItem?> GetItemByIdAsync(
+        Guid deliveryItemId,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<DeliveryItemReadModel>> GetItemsByOrderAsync(
         Guid orderId,
         CancellationToken cancellationToken = default)

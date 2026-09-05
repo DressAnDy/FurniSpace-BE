@@ -42,7 +42,7 @@ public sealed class ProjectChatsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [HttpGet]
     public async Task<IActionResult> GetList(
         Guid projectId,

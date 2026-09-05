@@ -34,7 +34,9 @@ using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Application.Interfaces.ProjectReviews;
 using FurniSpace.Application.Interfaces.ProjectShowcases;
 using FurniSpace.Application.Interfaces.Orders;
+using FurniSpace.Application.Interfaces.OperationalDelayReports;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.ProductIssues;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Reports;
 using FurniSpace.Application.Interfaces.RoomPlanner;
@@ -64,7 +66,9 @@ using FurniSpace.Application.Services.ProjectSchedules;
 using FurniSpace.Application.Services.ProjectReviews;
 using FurniSpace.Application.Services.ProjectShowcases;
 using FurniSpace.Application.Services.Orders;
+using FurniSpace.Application.Services.OperationalDelayReports;
 using FurniSpace.Application.Services.Payments;
+using FurniSpace.Application.Services.ProductIssues;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Services.Reports;
 using FurniSpace.Application.Services.RoomPlanner;
@@ -146,9 +150,12 @@ public static class DependencyInjection
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetService<INotificationDispatcher>(),
                 sp.GetService<ILogger<ProductionRequestService>>(),
-                sp.GetRequiredService<IProjectPhaseDeadlineService>());
+                sp.GetRequiredService<IProjectPhaseDeadlineService>(),
+                sp.GetRequiredService<IProjectChatService>());
         });
         services.AddScoped<IProductionRequestService, ProductionRequestService>();
+        services.AddScoped<IOperationalDelayReportService, OperationalDelayReportService>();
+        services.AddScoped<IDeliveryProductIssueReportService, DeliveryProductIssueReportService>();
         services.AddScoped<ProposalServiceDependencies>(sp =>
         {
             return new ProposalServiceDependencies(

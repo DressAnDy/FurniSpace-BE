@@ -1623,6 +1623,10 @@ Absolute routes on `OrdersController`.
 | GET | `/orders/{orderId}/deliveries/{deliveryId}` | same |
 | POST | `/orders/{orderId}/deliveries` | SALES, PRODUCTION, ADMIN · create delivery batch |
 | PATCH | `/orders/{orderId}/deliveries/{deliveryId}/complete` | SALES, PRODUCTION, ADMIN · complete batch |
+| GET | `/orders/me` | CUSTOMER · paginated my orders |
+| POST | `/orders/{orderId}/product-issues` | CUSTOMER · multipart evidence |
+| GET | `/orders/{orderId}/product-issues` | CUSTOMER, SALES, PRODUCTION, ADMIN |
+| GET | `/product-issues/{issueId}` | same |
 
 **Delivery flow (multi-batch + legacy shortcut):**
 
@@ -1798,6 +1802,67 @@ Order item formula:
 `OrderStatus`: `CREATED`, `DEPOSIT_PENDING`, `DEPOSIT_PAID`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `DELIVERED`, `FINAL_PAYMENT_PENDING`, `COMPLETED`, `CANCELLED`
 
 `OrderItemStatus`: `PENDING`, `IN_PRODUCTION`, `READY`, `UNAVAILABLE`, `PARTIALLY_DELIVERED`, `DELIVERED`, `CANCELLED`
+
+### Product issue reports (record-only)
+
+Customer may report an issue when `orderItem.deliveredQuantity > 0`. Does not block delivery confirmation, remaining payment, or project completion.
+
+`POST /orders/{orderId}/product-issues` — `multipart/form-data`
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `orderItemId` | yes | Must belong to order |
+| `deliveryItemId` | no | Trace batch; must match order item |
+| `issueType` | yes | See `DeliveryProductIssueType` |
+| `description` | yes | Human-readable explanation |
+| `affectedQuantity` | no | `> 0` and `<= deliveredQuantity` when supplied |
+| `files[]` | no | Evidence; `FileType=PRODUCT_ISSUE_EVIDENCE`, `ReferenceType=DELIVERY_PRODUCT_ISSUE_REPORT` |
+
+`GET /projects/{projectId}/product-issues` — same read roles as order list.
+
+`DeliveryProductIssueType`: `DAMAGED`, `WRONG_ITEM`, `WRONG_SPECIFICATION`, `MISSING_PART`, `QUALITY_DEFECT`, `INSTALLATION_ISSUE`, `QUANTITY_MISMATCH`, `OTHER`
+
+---
+
+## 13a. Operational delay reports
+
+Record-only internal evidence. No resolve/update workflow. `CUSTOMER` and `DESIGNER` cannot access.
+
+| Method | Path | Roles |
+| --- | --- | --- |
+| POST | `/projects/{projectId}/delay-reports/production` | SALES, PRODUCTION, ADMIN |
+| POST | `/projects/{projectId}/delay-reports/delivery` | SALES, PRODUCTION, ADMIN |
+| GET | `/projects/{projectId}/delay-reports?phase=PRODUCTION\|DELIVERY` | same |
+| GET | `/delay-reports/{reportId}` | same |
+
+Production deadline source: `ProjectPhaseTimeline(PRODUCTION).dueDate` (snapshotted at create).  
+Delivery deadline source: `Project.targetCompletionDate` (not delivery schedule `scheduledEnd`).
+
+Create production report:
+
+```json
+{
+  "productionRequestId": "uuid",
+  "reasonCode": "MATERIAL_DELAY",
+  "reasonDetail": "Material shipment delayed."
+}
+```
+
+Create delivery report:
+
+```json
+{
+  "orderId": "uuid",
+  "deliveryId": "uuid",
+  "reasonCode": "SITE_NOT_READY",
+  "reasonDetail": "Customer site is not ready."
+}
+```
+
+Backend derives `deadlineSnapshot`, `delayState` (`AT_RISK` on/before deadline, `OVERDUE` after), `reportedBy`, `reportedAt`. Client must not send these fields.
+
+`OperationalDelayPhase`: `PRODUCTION`, `DELIVERY`  
+`OperationalDelayState`: `AT_RISK`, `OVERDUE`
 
 ---
 
@@ -2218,9 +2283,9 @@ Project-wide gallery: `GET /projects/{projectId}/measurement-images` with option
 | Method | Path | Roles |
 | --- | --- | --- |
 | POST | `/projects/{projectId}/chats` | ADMIN |
-| GET | `/projects/{projectId}/chats` | CUSTOMER, SALES, DESIGNER, ADMIN |
-| PATCH | `/project-chats/{chatId}/status` | SALES, DESIGNER, ADMIN |
-| POST | `/project-chats/{chatId}/messages` | CUSTOMER, SALES, DESIGNER, ADMIN |
+| GET | `/projects/{projectId}/chats` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
+| PATCH | `/project-chats/{chatId}/status` | SALES, DESIGNER, PRODUCTION, ADMIN |
+| POST | `/project-chats/{chatId}/messages` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | POST | `/project-chats/{chatId}/messages/files` | same · multipart |
 | GET | `/project-chats/{chatId}/messages` | same |
 
@@ -2235,6 +2300,8 @@ Project-wide gallery: `GET /projects/{projectId}/measurement-images` with option
 ```
 
 `chatType`: `SALES`, `DESIGNER`, `PRODUCTION`, `DELIVERY`, `GENERAL`, `INTERNAL`
+
+`PRODUCTION` chat is auto-created/upserted when a production request is created or reassigned (`StaffId` = assigned production user). Assigned **SALES** and assigned **PRODUCTION** staff (matching chat `staffId`) may read/send; **CUSTOMER** and **DESIGNER** cannot access `PRODUCTION` chats.
 
 ### Update status
 
@@ -3569,7 +3636,10 @@ All values are JSON strings matching C# member names.
 | `ProjectChatMessageType` | `TEXT`, `FILE`, `SYSTEM` |
 | `FileStatus` | `ACTIVE`, `ARCHIVED` |
 | `FileVisibility` | `CUSTOMER_VISIBLE`, `STAFF_ONLY`, `PRIVATE` |
-| `FileType` | `SPACE_IMAGE`, `FLOOR_PLAN`, `REFERENCE_IMAGE`, `BRAND_ASSET`, `CAD_FILE`, `PDF_DRAWING`, `MEASUREMENT_REPORT`, `LIDAR_SCAN`, `MODEL_3D`, `TEXTURE`, `PREVIEW`, `PRODUCT_PREVIEW`, `PROPOSAL_PREVIEW`, `PROPOSAL_FILE`, `QUOTATION_FILE`, `ORDER_DOCUMENT`, `PRODUCTION_FILE`, `DELIVERY_PHOTO`, `DELIVERY_NOTE`, `REVIEW_IMAGE`, `PORTFOLIO_IMAGE`, `OTHER` |
+| `FileType` | `SPACE_IMAGE`, `FLOOR_PLAN`, `REFERENCE_IMAGE`, `BRAND_ASSET`, `CAD_FILE`, `PDF_DRAWING`, `MEASUREMENT_REPORT`, `LIDAR_SCAN`, `MODEL_3D`, `TEXTURE`, `PREVIEW`, `PRODUCT_PREVIEW`, `PROPOSAL_PREVIEW`, `PROPOSAL_FILE`, `QUOTATION_FILE`, `ORDER_DOCUMENT`, `PRODUCTION_FILE`, `DELIVERY_PHOTO`, `DELIVERY_NOTE`, `PRODUCT_ISSUE_EVIDENCE`, `REVIEW_IMAGE`, `PORTFOLIO_IMAGE`, `OTHER` |
+| `OperationalDelayPhase` | `PRODUCTION`, `DELIVERY` |
+| `OperationalDelayState` | `AT_RISK`, `OVERDUE` |
+| `DeliveryProductIssueType` | `DAMAGED`, `WRONG_ITEM`, `WRONG_SPECIFICATION`, `MISSING_PART`, `QUALITY_DEFECT`, `INSTALLATION_ISSUE`, `QUANTITY_MISMATCH`, `OTHER` |
 | `NotificationStatus` | `UNREAD`, `READ` |
 
 ---

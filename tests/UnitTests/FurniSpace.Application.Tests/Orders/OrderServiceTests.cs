@@ -3887,6 +3887,11 @@ public sealed class OrderServiceTests
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<DeliveryItem>>(_items.GetValueOrDefault(deliveryId) ?? []);
 
+        public Task<DeliveryItem?> GetItemByIdAsync(
+            Guid deliveryItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_items.Values.SelectMany(items => items).FirstOrDefault(item => item.DeliveryItemId == deliveryItemId));
+
         public Task<IReadOnlyList<DeliveryItemReadModel>> GetItemsByOrderAsync(
             Guid orderId,
             CancellationToken cancellationToken = default)

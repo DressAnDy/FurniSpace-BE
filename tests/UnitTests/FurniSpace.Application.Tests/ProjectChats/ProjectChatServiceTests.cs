@@ -7,9 +7,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.Services.ProjectChats;
+using FurniSpace.Application.Tests.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.ReadModels.ProjectChats;
 using Xunit;
@@ -20,6 +22,17 @@ public sealed class ProjectChatServiceTests
 {
     private static readonly string[] SalesAndDesignerChatTypes = ["SALES", "DESIGNER"];
 
+    private static ProjectChatService CreateService(
+        FakeProjectChatRepository repository,
+        IUnitOfWork? unitOfWork = null,
+        IProductionRequestRepository? productionRequests = null)
+    {
+        return new ProjectChatService(
+            repository,
+            productionRequests ?? new FakeProjectProductionRequestRepository(),
+            unitOfWork ?? TestUnitOfWork.Instance);
+    }
+
     [Fact]
     public async Task CanAccessProjectAsync_WithAdmin_ReturnsTrue()
     {
@@ -27,7 +40,7 @@ public sealed class ProjectChatServiceTests
         var adminId = Guid.NewGuid();
         var repository = new FakeProjectChatRepository(
             access: CreateAccess(projectId, adminId, "ADMIN"));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var canAccess = await service.CanAccessProjectAsync(projectId, adminId);
 
@@ -43,7 +56,7 @@ public sealed class ProjectChatServiceTests
         bool emptyCurrentUserId)
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var canAccess = await service.CanAccessProjectAsync(
             emptyProjectId ? Guid.Empty : Guid.NewGuid(),
@@ -67,12 +80,10 @@ public sealed class ProjectChatServiceTests
                 RoleName = "CUSTOMER"
             });
 
-        Assert.False(await new ProjectChatService(
-            missingRepository,
-            TestUnitOfWork.Instance).CanAccessProjectAsync(projectId, userId));
-        Assert.False(await new ProjectChatService(
-            forbiddenRepository,
-            TestUnitOfWork.Instance).CanAccessProjectAsync(projectId, userId));
+        Assert.False(await CreateService(missingRepository)
+            .CanAccessProjectAsync(projectId, userId));
+        Assert.False(await CreateService(forbiddenRepository)
+            .CanAccessProjectAsync(projectId, userId));
     }
 
     [Fact]
@@ -89,7 +100,7 @@ public sealed class ProjectChatServiceTests
             saveChangesCallCount++;
             return Task.FromResult(1);
         });
-        var service = new ProjectChatService(repository, unitOfWork);
+        var service = CreateService(repository, unitOfWork);
 
         var result = await service.CreateManualAsync(
             projectId,
@@ -129,7 +140,7 @@ public sealed class ProjectChatServiceTests
         var repository = new FakeProjectChatRepository(
             chats: [archivedChat],
             access: CreateAccess(projectId, adminId, "ADMIN"));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.CreateManualAsync(
             projectId,
@@ -157,7 +168,7 @@ public sealed class ProjectChatServiceTests
             chats: [activeChat],
             access: CreateAccess(projectId, adminId, "ADMIN"));
         var saveChangesCallCount = 0;
-        var service = new ProjectChatService(
+        var service = CreateService(
             repository,
             TestUnitOfWork.ForSaveChanges(_ =>
             {
@@ -189,7 +200,7 @@ public sealed class ProjectChatServiceTests
         var customerId = Guid.NewGuid();
         var repository = new FakeProjectChatRepository(
             access: CreateAccess(projectId, customerId, "CUSTOMER"));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.CreateManualAsync(
             projectId,
@@ -206,7 +217,7 @@ public sealed class ProjectChatServiceTests
     public async Task CreateManualAsync_WhenProjectDoesNotExist_ReturnsNotFound()
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.CreateManualAsync(
             Guid.NewGuid(),
@@ -223,7 +234,7 @@ public sealed class ProjectChatServiceTests
     public async Task CreateManualAsync_WithEmptyProjectId_ReturnsBadRequest()
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.CreateManualAsync(
             Guid.Empty,
@@ -239,7 +250,7 @@ public sealed class ProjectChatServiceTests
     public async Task CreateManualAsync_WithEmptyCurrentUserId_ReturnsUnauthorized()
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.CreateManualAsync(
             Guid.NewGuid(),
@@ -256,9 +267,7 @@ public sealed class ProjectChatServiceTests
     {
         var request = ValidManualCreateRequest();
         request.ChatType = (ProjectChatType)999;
-        var service = new ProjectChatService(
-            new FakeProjectChatRepository(),
-            TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var result = await service.CreateManualAsync(Guid.NewGuid(), Guid.NewGuid(), request);
 
@@ -274,9 +283,7 @@ public sealed class ProjectChatServiceTests
     {
         var request = ValidManualCreateRequest();
         request.ChatType = chatType;
-        var service = new ProjectChatService(
-            new FakeProjectChatRepository(),
-            TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var result = await service.CreateManualAsync(Guid.NewGuid(), Guid.NewGuid(), request);
 
@@ -291,9 +298,7 @@ public sealed class ProjectChatServiceTests
     {
         var request = ValidManualCreateRequest();
         request.StaffId = Guid.Empty;
-        var service = new ProjectChatService(
-            new FakeProjectChatRepository(),
-            TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var result = await service.CreateManualAsync(Guid.NewGuid(), Guid.NewGuid(), request);
 
@@ -309,9 +314,7 @@ public sealed class ProjectChatServiceTests
     {
         var request = ValidManualCreateRequest();
         request.Title = title!;
-        var service = new ProjectChatService(
-            new FakeProjectChatRepository(),
-            TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var result = await service.CreateManualAsync(Guid.NewGuid(), Guid.NewGuid(), request);
 
@@ -324,9 +327,7 @@ public sealed class ProjectChatServiceTests
     {
         var request = ValidManualCreateRequest();
         request.Title = new string('T', 151);
-        var service = new ProjectChatService(
-            new FakeProjectChatRepository(),
-            TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var result = await service.CreateManualAsync(Guid.NewGuid(), Guid.NewGuid(), request);
 
@@ -353,7 +354,7 @@ public sealed class ProjectChatServiceTests
         var repository = new FakeProjectChatRepository(
             access: CreateAccess(projectId, adminId, "ADMIN"),
             listItems: [closedChat, archivedChat]);
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             projectId,
@@ -391,7 +392,7 @@ public sealed class ProjectChatServiceTests
                 CreateListItem(projectId, ProjectChatType.DESIGNER, ProjectChatStatus.CLOSED),
                 CreateListItem(projectId, ProjectChatType.INTERNAL, ProjectChatStatus.OPEN)
             ]);
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             projectId,
@@ -420,7 +421,7 @@ public sealed class ProjectChatServiceTests
                 CreateListItem(projectId, ProjectChatType.DESIGNER, ProjectChatStatus.OPEN),
                 CreateListItem(projectId, ProjectChatType.GENERAL, ProjectChatStatus.OPEN)
             ]);
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             projectId,
@@ -446,7 +447,7 @@ public sealed class ProjectChatServiceTests
                 CreateListItem(projectId, ProjectChatType.SALES, ProjectChatStatus.OPEN),
                 CreateListItem(projectId, ProjectChatType.DESIGNER, ProjectChatStatus.OPEN)
             ]);
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             projectId,
@@ -468,7 +469,7 @@ public sealed class ProjectChatServiceTests
         var repository = new FakeProjectChatRepository(
             access: CreateAccess(projectId, adminId, "ADMIN"),
             listItems: [CreateListItem(projectId, ProjectChatType.DESIGNER, ProjectChatStatus.OPEN)]);
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             projectId,
@@ -508,7 +509,7 @@ public sealed class ProjectChatServiceTests
                 AssignedDesignerId = Guid.NewGuid(),
                 RoleName = roleName
             });
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             projectId,
@@ -526,7 +527,7 @@ public sealed class ProjectChatServiceTests
     public async Task GetProjectChatsAsync_WhenProjectDoesNotExist_ReturnsNotFound()
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             Guid.NewGuid(),
@@ -544,7 +545,7 @@ public sealed class ProjectChatServiceTests
     public async Task GetProjectChatsAsync_WithEmptyProjectId_ReturnsBadRequest()
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             Guid.Empty,
@@ -560,7 +561,7 @@ public sealed class ProjectChatServiceTests
     public async Task GetProjectChatsAsync_WithEmptyCurrentUser_ReturnsUnauthorized()
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             Guid.NewGuid(),
@@ -582,7 +583,7 @@ public sealed class ProjectChatServiceTests
         string expectedMessage)
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             Guid.NewGuid(),
@@ -598,7 +599,7 @@ public sealed class ProjectChatServiceTests
     public async Task GetProjectChatsAsync_WithInvalidStatus_ReturnsBadRequest()
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             Guid.NewGuid(),
@@ -614,7 +615,7 @@ public sealed class ProjectChatServiceTests
     public async Task GetProjectChatsAsync_WithInvalidChatType_ReturnsBadRequest()
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.GetProjectChatsAsync(
             Guid.NewGuid(),
@@ -634,7 +635,7 @@ public sealed class ProjectChatServiceTests
         var projectId = Guid.NewGuid();
         var staffId = Guid.NewGuid();
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpsertProjectChatAsync(
             projectId,
@@ -672,7 +673,7 @@ public sealed class ProjectChatServiceTests
             Content = "Existing message"
         };
         var repository = new FakeProjectChatRepository([chat], [message]);
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpsertProjectChatAsync(
             projectId,
@@ -698,7 +699,7 @@ public sealed class ProjectChatServiceTests
         var projectId = Guid.NewGuid();
         var chat = CreateChat(projectId, Guid.NewGuid(), ProjectChatStatus.CLOSED);
         var repository = new FakeProjectChatRepository([chat]);
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
         var newStaffId = Guid.NewGuid();
 
         var result = await service.UpsertProjectChatAsync(
@@ -721,7 +722,7 @@ public sealed class ProjectChatServiceTests
         var chat = CreateChat(projectId, Guid.NewGuid(), ProjectChatStatus.OPEN);
         chat.Status = null;
         var repository = new FakeProjectChatRepository([chat]);
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpsertProjectChatAsync(
             projectId,
@@ -740,7 +741,7 @@ public sealed class ProjectChatServiceTests
         var projectId = Guid.NewGuid();
         var archivedChat = CreateChat(projectId, Guid.NewGuid(), ProjectChatStatus.ARCHIVED);
         var repository = new FakeProjectChatRepository([archivedChat]);
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpsertProjectChatAsync(
             projectId,
@@ -759,7 +760,7 @@ public sealed class ProjectChatServiceTests
     public async Task UpsertProjectChatAsync_WithInvalidChatType_ThrowsValidationError()
     {
         var repository = new FakeProjectChatRepository();
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var exception = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
             service.UpsertProjectChatAsync(
@@ -775,9 +776,7 @@ public sealed class ProjectChatServiceTests
     [Fact]
     public async Task UpsertProjectChatAsync_WithEmptyProjectId_ThrowsValidationError()
     {
-        var service = new ProjectChatService(
-            new FakeProjectChatRepository(),
-            TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
             service.UpsertProjectChatAsync(
@@ -792,9 +791,7 @@ public sealed class ProjectChatServiceTests
     [Fact]
     public async Task UpsertProjectChatAsync_WithEmptyStaffId_ThrowsValidationError()
     {
-        var service = new ProjectChatService(
-            new FakeProjectChatRepository(),
-            TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
             service.UpsertProjectChatAsync(
@@ -812,9 +809,7 @@ public sealed class ProjectChatServiceTests
     [InlineData(" ")]
     public async Task UpsertProjectChatAsync_WithMissingTitle_ThrowsValidationError(string? title)
     {
-        var service = new ProjectChatService(
-            new FakeProjectChatRepository(),
-            TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
             service.UpsertProjectChatAsync(
@@ -829,9 +824,7 @@ public sealed class ProjectChatServiceTests
     [Fact]
     public async Task UpsertProjectChatAsync_WithTooLongTitle_ThrowsValidationError()
     {
-        var service = new ProjectChatService(
-            new FakeProjectChatRepository(),
-            TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var exception = await Assert.ThrowsAsync<ArgumentException>(() =>
             service.UpsertProjectChatAsync(
@@ -852,7 +845,7 @@ public sealed class ProjectChatServiceTests
         var repository = new FakeProjectChatRepository(
             chats: [chat],
             statusAccess: CreateStatusAccess(chatId, salesId, "SALES", ProjectChatType.SALES, ProjectChatStatus.OPEN));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpdateStatusAsync(
             chatId,
@@ -881,7 +874,7 @@ public sealed class ProjectChatServiceTests
                 "DESIGNER",
                 ProjectChatType.DESIGNER,
                 ProjectChatStatus.OPEN));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpdateStatusAsync(
             chatId,
@@ -907,7 +900,7 @@ public sealed class ProjectChatServiceTests
                 "SALES",
                 ProjectChatType.DESIGNER,
                 ProjectChatStatus.OPEN));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpdateStatusAsync(
             chatId,
@@ -929,7 +922,7 @@ public sealed class ProjectChatServiceTests
                 "CUSTOMER",
                 ProjectChatType.SALES,
                 ProjectChatStatus.OPEN));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpdateStatusAsync(
             chatId,
@@ -952,7 +945,7 @@ public sealed class ProjectChatServiceTests
                 "DESIGNER",
                 ProjectChatType.SALES,
                 ProjectChatStatus.OPEN));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpdateStatusAsync(
             chatId,
@@ -974,7 +967,7 @@ public sealed class ProjectChatServiceTests
                 "SALES",
                 ProjectChatType.SALES,
                 ProjectChatStatus.CLOSED));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpdateStatusAsync(
             chatId,
@@ -987,7 +980,7 @@ public sealed class ProjectChatServiceTests
     [Fact]
     public async Task UpdateStatusAsync_WhenStatusIsNotClosed_ReturnsBadRequest()
     {
-        var service = new ProjectChatService(new FakeProjectChatRepository(), TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var result = await service.UpdateStatusAsync(
             Guid.NewGuid(),
@@ -1000,7 +993,7 @@ public sealed class ProjectChatServiceTests
     [Fact]
     public async Task UpdateStatusAsync_WhenChatNotFound_ReturnsNotFound()
     {
-        var service = new ProjectChatService(new FakeProjectChatRepository(), TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var result = await service.UpdateStatusAsync(
             Guid.NewGuid(),
@@ -1024,7 +1017,7 @@ public sealed class ProjectChatServiceTests
                 "ADMIN",
                 ProjectChatType.SALES,
                 ProjectChatStatus.OPEN));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpdateStatusAsync(
             chatId,
@@ -1047,7 +1040,7 @@ public sealed class ProjectChatServiceTests
                 "SALES",
                 ProjectChatType.SALES,
                 ProjectChatStatus.ARCHIVED));
-        var service = new ProjectChatService(repository, TestUnitOfWork.Instance);
+        var service = CreateService(repository);
 
         var result = await service.UpdateStatusAsync(
             chatId,
@@ -1060,7 +1053,7 @@ public sealed class ProjectChatServiceTests
     [Fact]
     public async Task UpdateStatusAsync_WithEmptyChatId_ReturnsBadRequest()
     {
-        var service = new ProjectChatService(new FakeProjectChatRepository(), TestUnitOfWork.Instance);
+        var service = CreateService(new FakeProjectChatRepository());
 
         var result = await service.UpdateStatusAsync(
             Guid.Empty,

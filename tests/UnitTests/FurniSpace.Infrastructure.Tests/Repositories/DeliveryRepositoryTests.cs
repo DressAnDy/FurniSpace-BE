@@ -586,6 +586,11 @@ public sealed class DeliveryRepositoryTests
             CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<DeliveryItem>>([]);
 
+        public Task<DeliveryItem?> GetItemByIdAsync(
+            Guid deliveryItemId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<DeliveryItem?>(null);
+
         public void Update(Delivery delivery)
         {
         }

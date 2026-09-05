@@ -123,6 +123,15 @@ public sealed class DeliveryRepository : IDeliveryRepository
             .ToListAsync(cancellationToken);
     }
 
+    public Task<DeliveryItem?> GetItemByIdAsync(
+        Guid deliveryItemId,
+        CancellationToken cancellationToken = default)
+    {
+        return _dbContext.DeliveryItemSet.FirstOrDefaultAsync(
+            item => item.DeliveryItemId == deliveryItemId,
+            cancellationToken);
+    }
+
     public async Task<IReadOnlyList<DeliveryItemReadModel>> GetItemsByOrderAsync(
         Guid orderId,
         CancellationToken cancellationToken = default)

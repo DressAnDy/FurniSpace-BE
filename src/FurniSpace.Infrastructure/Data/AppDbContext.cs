@@ -60,6 +60,9 @@ public class AppDbContext : DbContext
     private const string PaymentTransactionStatusColumnType = "payment_transaction_status";
     private const string ProductionRequestStatusColumnType = "production_request_status";
     private const string ProductionItemStatusColumnType = "production_item_status";
+    private const string OperationalDelayPhaseColumnType = "operational_delay_phase";
+    private const string OperationalDelayStateColumnType = "operational_delay_state";
+    private const string DeliveryProductIssueTypeColumnType = "delivery_product_issue_type";
 
     private const string ProjectChatTypeColumnType = "project_chat_type";
     private const string ProjectChatStatusColumnType = "project_chat_status";
@@ -140,6 +143,8 @@ public class AppDbContext : DbContext
     public DbSet<PaymentTransaction> PaymentTransactionSet => Set<PaymentTransaction>();
     public DbSet<ProductionRequest> ProductionRequestSet => Set<ProductionRequest>();
     public DbSet<ProductionItem> ProductionItemSet => Set<ProductionItem>();
+    public DbSet<OperationalDelayReport> OperationalDelayReportSet => Set<OperationalDelayReport>();
+    public DbSet<DeliveryProductIssueReport> DeliveryProductIssueReportSet => Set<DeliveryProductIssueReport>();
     public DbSet<ProjectReview> ProjectReviewSet => Set<ProjectReview>();
     public DbSet<ProjectShowcase> ProjectShowcaseSet => Set<ProjectShowcase>();
     public DbSet<ProjectShowcaseMedia> ProjectShowcaseMediaSet => Set<ProjectShowcaseMedia>();
@@ -175,13 +180,16 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:payment_transaction_status", "PENDING,SUCCESS,FAILED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:production_request_status", "PENDING,IN_PRODUCTION,COMPLETED,CANCELLED");
         modelBuilder.HasAnnotation("Npgsql:Enum:production_item_status", "PENDING,IN_PRODUCTION,COMPLETED,CANCELLED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:operational_delay_phase", "PRODUCTION,DELIVERY");
+        modelBuilder.HasAnnotation("Npgsql:Enum:operational_delay_state", "AT_RISK,OVERDUE");
+        modelBuilder.HasAnnotation("Npgsql:Enum:delivery_product_issue_type", "DAMAGED,WRONG_ITEM,WRONG_SPECIFICATION,MISSING_PART,QUALITY_DEFECT,INSTALLATION_ISSUE,QUANTITY_MISMATCH,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:notification_status", "UNREAD,READ");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,PRODUCTION,DELIVERY,GENERAL,INTERNAL");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_status", "OPEN,CLOSED,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_message_type", "TEXT,FILE,SYSTEM");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_status", "ACTIVE,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_visibility", "CUSTOMER_VISIBLE,STAFF_ONLY,PRIVATE");
-        modelBuilder.HasAnnotation("Npgsql:Enum:file_type", "SPACE_IMAGE,FLOOR_PLAN,REFERENCE_IMAGE,BRAND_ASSET,CAD_FILE,PDF_DRAWING,MEASUREMENT_REPORT,LIDAR_SCAN,MODEL_3D,TEXTURE,PREVIEW,PRODUCT_PREVIEW,PROPOSAL_PREVIEW,PROPOSAL_FILE,QUOTATION_FILE,ORDER_DOCUMENT,PRODUCTION_FILE,DELIVERY_PHOTO,DELIVERY_NOTE,REVIEW_IMAGE,PORTFOLIO_IMAGE,OTHER");
+        modelBuilder.HasAnnotation("Npgsql:Enum:file_type", "SPACE_IMAGE,FLOOR_PLAN,REFERENCE_IMAGE,BRAND_ASSET,CAD_FILE,PDF_DRAWING,MEASUREMENT_REPORT,LIDAR_SCAN,MODEL_3D,TEXTURE,PREVIEW,PRODUCT_PREVIEW,PROPOSAL_PREVIEW,PROPOSAL_FILE,QUOTATION_FILE,ORDER_DOCUMENT,PRODUCTION_FILE,DELIVERY_PHOTO,DELIVERY_NOTE,PRODUCT_ISSUE_EVIDENCE,REVIEW_IMAGE,PORTFOLIO_IMAGE,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:product_status", "ACTIVE,INACTIVE,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:product_version_type", "STANDARD,CUSTOM,PROJECT_SPECIFIC");
         modelBuilder.HasAnnotation("Npgsql:Enum:layout_asset_type", "WALL_MATERIAL,FLOOR_MATERIAL,STAIR,DOOR,WINDOW,COLUMN,BEAM,DECORATIVE_WALL,DECORATIVE_FLOOR,DECORATIVE_OBJECT,OTHER");
@@ -221,6 +229,8 @@ public class AppDbContext : DbContext
         ConfigurePaymentTransactions(modelBuilder);
         ConfigureProductionRequests(modelBuilder);
         ConfigureProductionItems(modelBuilder);
+        ConfigureOperationalDelayReports(modelBuilder);
+        ConfigureDeliveryProductIssueReports(modelBuilder);
         ConfigureProjectReviews(modelBuilder);
         ConfigureProjectShowcases(modelBuilder);
         ConfigureProjectShowcaseMedia(modelBuilder);
@@ -1228,6 +1238,67 @@ public class AppDbContext : DbContext
             entity.HasOne<ProductionRequest>().WithMany().HasForeignKey(e => e.ProductionRequestId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<OrderItem>().WithMany().HasForeignKey(e => e.OrderItemId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<ProductVersion>().WithMany().HasForeignKey(e => e.ProductVersionId).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureOperationalDelayReports(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<OperationalDelayReport>(entity =>
+        {
+            entity.ToTable("operational_delay_reports");
+            entity.HasKey(e => e.OperationalDelayReportId);
+            entity.Property(e => e.OperationalDelayReportId).HasColumnName("operational_delay_report_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ReportPhase).HasColumnName("report_phase").HasColumnType(OperationalDelayPhaseColumnType).IsRequired();
+            entity.Property(e => e.ProductionRequestId).HasColumnName("production_request_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.OrderId).HasColumnName(OrderIdColumnName).HasColumnType(UuidColumnType);
+            entity.Property(e => e.DeliveryId).HasColumnName("delivery_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.DeadlineSnapshot).HasColumnName("deadline_snapshot").HasColumnType(DateColumnType).IsRequired();
+            entity.Property(e => e.DelayState).HasColumnName("delay_state").HasColumnType(OperationalDelayStateColumnType).IsRequired();
+            entity.Property(e => e.ReasonCode).HasColumnName("reason_code").HasColumnType(Varchar100ColumnType);
+            entity.Property(e => e.ReasonDetail).HasColumnName("reason_detail").HasColumnType(TextColumnType).IsRequired();
+            entity.Property(e => e.ReportedBy).HasColumnName("reported_by").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ReportedAt).HasColumnName("reported_at").HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.HasIndex(e => new { e.ProjectId, e.ReportPhase }).HasDatabaseName("idx_operational_delay_reports_project_phase");
+            entity.HasIndex(e => e.ProductionRequestId).HasDatabaseName("idx_operational_delay_reports_production_request");
+            entity.HasIndex(e => e.OrderId).HasDatabaseName("idx_operational_delay_reports_order");
+            entity.HasIndex(e => e.ReportedAt).HasDatabaseName("idx_operational_delay_reports_reported_at");
+            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ProductionRequest>().WithMany().HasForeignKey(e => e.ProductionRequestId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Delivery>().WithMany().HasForeignKey(e => e.DeliveryId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ReportedBy).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static void ConfigureDeliveryProductIssueReports(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<DeliveryProductIssueReport>(entity =>
+        {
+            entity.ToTable("delivery_product_issue_reports");
+            entity.HasKey(e => e.DeliveryProductIssueReportId);
+            entity.Property(e => e.DeliveryProductIssueReportId).HasColumnName("delivery_product_issue_report_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.ProjectId).HasColumnName(ProjectIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.OrderId).HasColumnName(OrderIdColumnName).HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.OrderItemId).HasColumnName("order_item_id").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.DeliveryItemId).HasColumnName("delivery_item_id").HasColumnType(UuidColumnType);
+            entity.Property(e => e.IssueType).HasColumnName("issue_type").HasColumnType(DeliveryProductIssueTypeColumnType).IsRequired();
+            entity.Property(e => e.Description).HasColumnName(DescriptionColumnName).HasColumnType(TextColumnType).IsRequired();
+            entity.Property(e => e.AffectedQuantity).HasColumnName("affected_quantity").HasColumnType(IntegerColumnType);
+            entity.Property(e => e.ReportedBy).HasColumnName("reported_by").HasColumnType(UuidColumnType).IsRequired();
+            entity.Property(e => e.ReportedAt).HasColumnName("reported_at").HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.HasIndex(e => e.ProjectId).HasDatabaseName("idx_delivery_product_issue_reports_project");
+            entity.HasIndex(e => e.OrderId).HasDatabaseName("idx_delivery_product_issue_reports_order");
+            entity.HasIndex(e => e.OrderItemId).HasDatabaseName("idx_delivery_product_issue_reports_order_item");
+            entity.HasIndex(e => e.DeliveryItemId).HasDatabaseName("idx_delivery_product_issue_reports_delivery_item");
+            entity.HasIndex(e => e.ReportedAt).HasDatabaseName("idx_delivery_product_issue_reports_reported_at");
+            entity.HasOne<Project>().WithMany().HasForeignKey(e => e.ProjectId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Order>().WithMany().HasForeignKey(e => e.OrderId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<OrderItem>().WithMany().HasForeignKey(e => e.OrderItemId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<DeliveryItem>().WithMany().HasForeignKey(e => e.DeliveryItemId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Account>().WithMany().HasForeignKey(e => e.ReportedBy).OnDelete(DeleteBehavior.Restrict);
         });
     }
 

@@ -90,6 +90,8 @@ public static class DependencyInjection
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IDeliveryRepository, DeliveryRepository>();
         services.AddScoped<IProductionRequestRepository, ProductionRequestRepository>();
+        services.AddScoped<IOperationalDelayReportRepository, OperationalDelayReportRepository>();
+        services.AddScoped<IDeliveryProductIssueReportRepository, DeliveryProductIssueReportRepository>();
         services.AddScoped<IPaymentRepository, PaymentRepository>();
         services.AddScoped<IFinancialReadRepository, FinancialReadRepository>();
         services.AddScoped<IFinancialDiscountReadRepository, FinancialDiscountReadRepository>();
@@ -181,6 +183,9 @@ public static class DependencyInjection
         builder.MapEnum<PaymentTransactionStatus>("payment_transaction_status", translator);
         builder.MapEnum<ProductionRequestStatus>("production_request_status", translator);
         builder.MapEnum<ProductionItemStatus>("production_item_status", translator);
+        builder.MapEnum<OperationalDelayPhase>("operational_delay_phase", translator);
+        builder.MapEnum<OperationalDelayState>("operational_delay_state", translator);
+        builder.MapEnum<DeliveryProductIssueType>("delivery_product_issue_type", translator);
 
         builder.MapEnum<ProjectChatType>("project_chat_type", translator);
         builder.MapEnum<ProjectChatStatus>("project_chat_status", translator);

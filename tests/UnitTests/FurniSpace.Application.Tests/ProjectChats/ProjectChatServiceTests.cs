@@ -627,9 +627,85 @@ public sealed class ProjectChatServiceTests
         Assert.Equal(0, repository.GetAccessCallCount);
     }
 
+    [Fact]
+    public async Task CanAccessProjectAsync_WithProductionAssignment_ReturnsTrue()
+    {
+        var projectId = Guid.NewGuid();
+        var productionId = Guid.NewGuid();
+        var repository = new FakeProjectChatRepository(
+            access: CreateAccess(projectId, productionId, "PRODUCTION"));
+        var productionRequests = new FakeProjectProductionRequestRepository
+        {
+            HasViewableAssignedRequest = true
+        };
+        var service = CreateService(repository, productionRequests: productionRequests);
+
+        var canAccess = await service.CanAccessProjectAsync(projectId, productionId);
+
+        Assert.True(canAccess);
+    }
+
+    [Fact]
+    public async Task GetProjectChatsAsync_WithProductionRole_FiltersToProductionChatType()
+    {
+        var projectId = Guid.NewGuid();
+        var productionId = Guid.NewGuid();
+        var repository = new FakeProjectChatRepository(
+            access: CreateAccess(projectId, productionId, "PRODUCTION"),
+            listItems:
+            [
+                CreateListItem(projectId, ProjectChatType.PRODUCTION, ProjectChatStatus.OPEN),
+                CreateListItem(projectId, ProjectChatType.SALES, ProjectChatStatus.OPEN)
+            ]);
+        var productionRequests = new FakeProjectProductionRequestRepository
+        {
+            HasViewableAssignedRequest = true
+        };
+        var service = CreateService(repository, productionRequests: productionRequests);
+
+        var result = await service.GetProjectChatsAsync(
+            projectId,
+            productionId,
+            new ProjectChatListQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(result.Data!.Items);
+        Assert.Equal(ProjectChatType.PRODUCTION.ToString(), result.Data.Items[0].ChatType);
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_WithProductionChat_AllowsAssignedProductionStaff()
+    {
+        var chatId = Guid.NewGuid();
+        var productionId = Guid.NewGuid();
+        var chat = CreateChat(Guid.NewGuid(), productionId, ProjectChatStatus.OPEN, ProjectChatType.PRODUCTION, chatId);
+        var repository = new FakeProjectChatRepository(
+            chats: [chat],
+            statusAccess: new ProjectChatStatusAccessReadModel
+            {
+                ChatId = chatId,
+                ProjectId = chat.ProjectId,
+                ChatType = ProjectChatType.PRODUCTION,
+                ChatStatus = ProjectChatStatus.OPEN,
+                ChatStaffId = productionId,
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = Guid.NewGuid(),
+                RoleName = "PRODUCTION"
+            });
+        var service = CreateService(repository);
+
+        var result = await service.UpdateStatusAsync(
+            chatId,
+            productionId,
+            new UpdateProjectChatStatusRequestDto { Status = ProjectChatStatus.CLOSED });
+
+        Assert.Equal(200, result.Status);
+    }
+
     [Theory]
     [InlineData(ProjectChatType.SALES)]
     [InlineData(ProjectChatType.DESIGNER)]
+    [InlineData(ProjectChatType.PRODUCTION)]
     public async Task UpsertProjectChatAsync_WhenActiveChatDoesNotExist_AddsOpenChat(ProjectChatType chatType)
     {
         var projectId = Guid.NewGuid();

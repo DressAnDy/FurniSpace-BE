@@ -67,6 +67,22 @@ public sealed class DeliveryRepositoryTests
     }
 
     [Fact]
+    public async Task GetItemByIdAsync_ReturnsMatchingDeliveryItem()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new DeliveryRepository(context);
+        var expectedItem = await context.DeliveryItemSet
+            .SingleAsync(item => item.DeliveryId == data.NewerDeliveryId);
+
+        var item = await repository.GetItemByIdAsync(expectedItem.DeliveryItemId);
+
+        Assert.NotNull(item);
+        Assert.Equal(expectedItem.DeliveryItemId, item!.DeliveryItemId);
+        Assert.Equal(data.OrderItemId, item.OrderItemId);
+    }
+
+    [Fact]
     public async Task GetDetailAsync_ReturnsLinkedScheduleSummary()
     {
         await using var context = CreateContext();

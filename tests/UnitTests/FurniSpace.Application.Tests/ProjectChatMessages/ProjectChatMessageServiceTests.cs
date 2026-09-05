@@ -534,6 +534,38 @@ public sealed class ProjectChatMessageServiceTests
     }
 
     [Fact]
+    public async Task CanAccessChatAsync_WithProductionChat_AllowsAssignedSalesAndProductionStaff()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var productionId = Guid.NewGuid();
+        var salesAccess = CreateAccess(chatId, salesId, "SALES", ProjectChatType.PRODUCTION);
+        salesAccess = CopyAccess(salesAccess, chatStaffId: productionId);
+        var productionAccess = CreateAccess(chatId, productionId, "PRODUCTION", ProjectChatType.PRODUCTION);
+        productionAccess = CopyAccess(productionAccess, chatStaffId: productionId);
+
+        Assert.True(await CreateService(new FakeProjectChatMessageRepository(salesAccess))
+            .CanAccessChatAsync(chatId, salesId));
+        Assert.True(await CreateService(new FakeProjectChatMessageRepository(productionAccess))
+            .CanAccessChatAsync(chatId, productionId));
+    }
+
+    [Fact]
+    public async Task CanAccessChatAsync_WithProductionChat_RejectsCustomerAndDesigner()
+    {
+        var chatId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var customerAccess = CreateAccess(chatId, customerId, "CUSTOMER", ProjectChatType.PRODUCTION);
+        var designerAccess = CreateAccess(chatId, designerId, "DESIGNER", ProjectChatType.PRODUCTION);
+
+        Assert.False(await CreateService(new FakeProjectChatMessageRepository(customerAccess))
+            .CanAccessChatAsync(chatId, customerId));
+        Assert.False(await CreateService(new FakeProjectChatMessageRepository(designerAccess))
+            .CanAccessChatAsync(chatId, designerId));
+    }
+
+    [Fact]
     public async Task CanAccessChatAsync_WithValidParticipant_ReturnsTrue()
     {
         var chatId = Guid.NewGuid();
@@ -1015,7 +1047,8 @@ public sealed class ProjectChatMessageServiceTests
         ProjectChatMessageAccessReadModel source,
         Guid? projectId = null,
         ProjectChatStatus? chatStatus = ProjectChatStatus.OPEN,
-        string? currentUserName = null)
+        string? currentUserName = null,
+        Guid? chatStaffId = null)
     {
         return new ProjectChatMessageAccessReadModel
         {
@@ -1024,7 +1057,7 @@ public sealed class ProjectChatMessageServiceTests
             ProjectName = source.ProjectName,
             ChatType = source.ChatType,
             ChatTitle = source.ChatTitle,
-            ChatStaffId = source.ChatStaffId,
+            ChatStaffId = chatStaffId ?? source.ChatStaffId,
             ChatStatus = chatStatus,
             CustomerId = source.CustomerId,
             AssignedSalesId = source.AssignedSalesId,

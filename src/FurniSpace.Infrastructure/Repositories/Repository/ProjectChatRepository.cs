@@ -59,6 +59,7 @@ public sealed class ProjectChatRepository : GenericRepository<ProjectChat>, IPro
                     CustomerId = project.CustomerId,
                     AssignedSalesId = project.AssignedSalesId,
                     AssignedDesignerId = project.AssignedDesignerId,
+                    ChatStaffId = chat.StaffId,
                     RoleName = DbContext.AccountSet
                         .Where(account =>
                             account.AccountId == currentUserId &&

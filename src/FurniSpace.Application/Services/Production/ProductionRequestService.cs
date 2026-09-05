@@ -7,6 +7,7 @@ using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Production;
 using FurniSpace.Domain.Entities;
@@ -16,6 +17,7 @@ using FurniSpace.Infrastructure.ReadModels.Production;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 using Microsoft.Extensions.Logging;
+using static FurniSpace.Application.Constants.ProjectChats.ProjectChatServiceConstants;
 
 namespace FurniSpace.Application.Services.Production;
 
@@ -168,6 +170,15 @@ public sealed class ProductionRequestService : IProductionRequestService
             MoveOrderAndProjectToProduction(order, project, now);
             _orders.Update(order);
             _projects.Update(project);
+            if (_dependencies.ProjectChats is not null && request.AssignedTo != Guid.Empty)
+            {
+                await _dependencies.ProjectChats.UpsertProjectChatAsync(
+                    order.ProjectId,
+                    ProjectChatType.PRODUCTION,
+                    request.AssignedTo,
+                    ProductionChatTitle,
+                    cancellationToken);
+            }
             await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
             await _dependencies.UnitOfWork.CommitTransactionAsync(cancellationToken);
         }
@@ -299,6 +310,15 @@ public sealed class ProductionRequestService : IProductionRequestService
         productionRequest.Note = MergeAssignmentNote(productionRequest.Note, request.AssignmentNote);
         productionRequest.UpdatedAt = DateTime.UtcNow;
         _productionRequests.Update(productionRequest);
+        if (_dependencies.ProjectChats is not null && request.AssignedTo != Guid.Empty)
+        {
+            await _dependencies.ProjectChats.UpsertProjectChatAsync(
+                detail.ProjectId,
+                ProjectChatType.PRODUCTION,
+                request.AssignedTo,
+                ProductionChatTitle,
+                cancellationToken);
+        }
         await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         await DispatchAssignedNotificationAsync(
@@ -1467,18 +1487,21 @@ public sealed class ProductionRequestServiceDependencies
         IUnitOfWork unitOfWork,
         INotificationDispatcher? notifications,
         ILogger<ProductionRequestService>? logger,
-        IProjectPhaseDeadlineService? phaseDeadlines = null)
+        IProjectPhaseDeadlineService? phaseDeadlines = null,
+        IProjectChatService? projectChats = null)
     {
         UnitOfWork = unitOfWork;
         Notifications = notifications;
         Logger = logger;
         PhaseDeadlines = phaseDeadlines;
+        ProjectChats = projectChats;
     }
 
     public IUnitOfWork UnitOfWork { get; }
     public INotificationDispatcher? Notifications { get; }
     public ILogger<ProductionRequestService>? Logger { get; }
     public IProjectPhaseDeadlineService? PhaseDeadlines { get; }
+    public IProjectChatService? ProjectChats { get; }
 }
 
 public static class ProductionErrorCodes

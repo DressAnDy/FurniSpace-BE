@@ -1014,6 +1014,7 @@ internal sealed class FakeProjectReopenProposalRepository : IProposalRepository
 internal sealed class FakeProjectProductionRequestRepository : IProductionRequestRepository
 {
     public bool HasProductionRequest { get; set; }
+    public bool HasViewableAssignedRequest { get; set; }
     public DateOnly? MaxOperationalProductionDate { get; set; }
 
     public Task<DateOnly?> GetMaxOperationalProductionDateAsync(
@@ -1037,7 +1038,7 @@ internal sealed class FakeProjectProductionRequestRepository : IProductionReques
         => Task.FromResult(new List<Infrastructure.ReadModels.Production.AvailableProductionStaffReadModel>());
     public Task<List<Infrastructure.ReadModels.Production.ProductionRequestListItemReadModel>> GetQueueAsync(Infrastructure.ReadModels.Production.ProductionRequestQueueReadModel query, CancellationToken cancellationToken = default)
         => Task.FromResult(new List<Infrastructure.ReadModels.Production.ProductionRequestListItemReadModel>());
-    public Task<bool> HasViewableAssignedRequestAsync(Guid projectId, Guid productionAccountId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+    public Task<bool> HasViewableAssignedRequestAsync(Guid projectId, Guid productionAccountId, CancellationToken cancellationToken = default) => Task.FromResult(HasViewableAssignedRequest);
     public Task<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?> GetDetailAsync(Guid productionRequestId, CancellationToken cancellationToken = default)
         => Task.FromResult<Infrastructure.ReadModels.Production.ProductionRequestDetailReadModel?>(null);
     public Task<ProductionItem?> GetItemByIdAsync(Guid productionItemId, CancellationToken cancellationToken = default) => Task.FromResult<ProductionItem?>(null);
@@ -1124,5 +1125,7 @@ internal sealed class FakeProjectDeliveryRepository : IDeliveryRepository
         => Task.FromResult<Delivery?>(null);
     public Task<IReadOnlyList<DeliveryItem>> GetItemsByDeliveryAsync(Guid deliveryId, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<DeliveryItem>>([]);
+    public Task<DeliveryItem?> GetItemByIdAsync(Guid deliveryItemId, CancellationToken cancellationToken = default)
+        => Task.FromResult<DeliveryItem?>(null);
     public void Update(Delivery delivery) { }
 }

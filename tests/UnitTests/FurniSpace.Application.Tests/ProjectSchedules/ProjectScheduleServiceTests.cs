@@ -2346,6 +2346,8 @@ public sealed class ProjectScheduleServiceTests
                 (LinkedDelivery is not null && LinkedDelivery.ProjectScheduleId == projectScheduleId));
         public Task<IReadOnlyList<DeliveryItem>> GetItemsByDeliveryAsync(Guid deliveryId, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<DeliveryItem>>([]);
+        public Task<DeliveryItem?> GetItemByIdAsync(Guid deliveryItemId, CancellationToken cancellationToken = default)
+            => Task.FromResult<DeliveryItem?>(null);
         public void Update(Delivery delivery) { }
     }
 }

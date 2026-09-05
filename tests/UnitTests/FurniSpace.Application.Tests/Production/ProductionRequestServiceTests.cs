@@ -8,8 +8,10 @@ using System.Threading.Tasks;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Notifications;
-using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.DTOs.Production;
+using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.DTOs.ProjectChats;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Services.Production;
@@ -38,7 +40,8 @@ public sealed class ProductionRequestServiceTests
             CreateOrderItem(data.OrderId, false, "Shipping"));
         await context.SaveChangesAsync();
         var dispatcher = new CapturingNotificationDispatcher();
-        var service = BuildService(context, dispatcher);
+        var projectChats = new CapturingProjectChatService();
+        var service = BuildService(context, dispatcher, projectChats: projectChats);
 
         var result = await service.CreateAsync(
             data.OrderId,
@@ -74,6 +77,37 @@ public sealed class ProductionRequestServiceTests
             dispatch => dispatch.Type == NotificationType.ProductionRequestAssigned &&
                         dispatch.Receivers.Contains(_salesId) &&
                         dispatch.Receivers.Contains(_productionId));
+        Assert.Equal(data.ProjectId, projectChats.ProjectId);
+        Assert.Equal(ProjectChatType.PRODUCTION, projectChats.ChatType);
+        Assert.Equal(_productionId, projectChats.StaffId);
+    }
+
+    [Fact]
+    public async Task AssignAsync_WhenValid_UpsertsProductionChat()
+    {
+        await using var context = CreateContext();
+        var data = SeedBase(context, OrderStatus.DEPOSIT_PAID, PaymentStatus.PAID);
+        context.OrderItemSet.Add(CreateOrderItem(data.OrderId, true, "Counter"));
+        var productionRequest = CreateProductionRequest(
+            data.ProjectId,
+            data.OrderId,
+            Guid.Empty,
+            ProductionRequestStatus.PENDING);
+        context.ProductionRequestSet.Add(productionRequest);
+        await context.SaveChangesAsync();
+        var projectChats = new CapturingProjectChatService();
+        var service = BuildService(context, projectChats: projectChats);
+
+        var result = await service.AssignAsync(
+            productionRequest.ProductionRequestId,
+            _salesId,
+            new AssignProductionRequestDto { AssignedTo = _productionId });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(data.ProjectId, projectChats.ProjectId);
+        Assert.Equal(ProjectChatType.PRODUCTION, projectChats.ChatType);
+        Assert.Equal(_productionId, projectChats.StaffId);
+        Assert.Equal(1, projectChats.CallCount);
     }
 
     [Theory]
@@ -1018,7 +1052,8 @@ public sealed class ProductionRequestServiceTests
     private static ProductionRequestService BuildService(
         AppDbContext context,
         INotificationDispatcher? dispatcher = null,
-        IProjectPhaseDeadlineService? phaseDeadlines = null)
+        IProjectPhaseDeadlineService? phaseDeadlines = null,
+        IProjectChatService? projectChats = null)
     {
         return new ProductionRequestService(
             new ProductionRequestRepository(context),
@@ -1029,7 +1064,8 @@ public sealed class ProductionRequestServiceTests
                 new InMemoryUnitOfWork(context),
                 dispatcher,
                 logger: null,
-                phaseDeadlines ?? new CapturingProjectPhaseDeadlineService()));
+                phaseDeadlines ?? new CapturingProjectPhaseDeadlineService(),
+                projectChats));
     }
 
     private SeededData SeedBase(AppDbContext context, OrderStatus orderStatus, PaymentStatus paymentStatus)
@@ -1289,6 +1325,60 @@ public sealed class ProductionRequestServiceTests
             Status = ProductionItemStatus.PENDING,
             ProductionNote = orderItem.ProductionNote
         };
+    }
+
+    private sealed class CapturingProjectChatService : IProjectChatService
+    {
+        public int CallCount { get; private set; }
+        public Guid ProjectId { get; private set; }
+        public ProjectChatType ChatType { get; private set; }
+        public Guid StaffId { get; private set; }
+        public string Title { get; private set; } = string.Empty;
+
+        public Task<bool> CanAccessProjectAsync(Guid projectId, Guid currentUserId, CancellationToken cancellationToken = default)
+            => Task.FromResult(true);
+
+        public Task<ServiceResult<ProjectChatSummaryDto>> CreateManualAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CreateProjectChatRequestDto request,
+            CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<ServiceResult<ProjectChatListResponseDto>> GetProjectChatsAsync(
+            Guid projectId,
+            Guid currentUserId,
+            ProjectChatListQueryDto query,
+            CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<ProjectChatSummaryDto> UpsertProjectChatAsync(
+            Guid projectId,
+            ProjectChatType chatType,
+            Guid staffId,
+            string title,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            ProjectId = projectId;
+            ChatType = chatType;
+            StaffId = staffId;
+            Title = title;
+            return Task.FromResult(new ProjectChatSummaryDto
+            {
+                ProjectId = projectId,
+                ChatType = chatType.ToString(),
+                StaffId = staffId,
+                Title = title
+            });
+        }
+
+        public Task<ServiceResult<ProjectChatSummaryDto>> UpdateStatusAsync(
+            Guid chatId,
+            Guid currentUserId,
+            UpdateProjectChatStatusRequestDto request,
+            CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
     }
 
     private sealed class InMemoryUnitOfWork : IUnitOfWork

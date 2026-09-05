@@ -15,11 +15,16 @@ namespace FurniSpace.Application.Services.ProjectChats;
 public sealed class ProjectChatService : IProjectChatService
 {
     private readonly IProjectChatRepository _chats;
+    private readonly IProductionRequestRepository _productionRequests;
     private readonly IUnitOfWork _unitOfWork;
 
-    public ProjectChatService(IProjectChatRepository chats, IUnitOfWork unitOfWork)
+    public ProjectChatService(
+        IProjectChatRepository chats,
+        IProductionRequestRepository productionRequests,
+        IUnitOfWork unitOfWork)
     {
         _chats = chats;
+        _productionRequests = productionRequests;
         _unitOfWork = unitOfWork;
     }
 
@@ -34,7 +39,7 @@ public sealed class ProjectChatService : IProjectChatService
         }
 
         var access = await _chats.GetAccessAsync(projectId, currentUserId, cancellationToken);
-        return access is not null && CanAccessProject(access, currentUserId);
+        return access is not null && await CanAccessProjectAsync(access, currentUserId, cancellationToken);
     }
 
     public async Task<ServiceResult<ProjectChatSummaryDto>> CreateManualAsync(
@@ -105,7 +110,7 @@ public sealed class ProjectChatService : IProjectChatService
             return ServiceResult<ProjectChatListResponseDto>.NotFound("Project not found.");
         }
 
-        if (!CanAccessProject(access, currentUserId))
+        if (!await CanAccessProjectAsync(access, currentUserId, cancellationToken))
         {
             return ServiceResult<ProjectChatListResponseDto>.Forbidden(
                 "You do not have access to view chats for this project.");
@@ -378,7 +383,10 @@ public sealed class ProjectChatService : IProjectChatService
             : null;
     }
 
-    private static bool CanAccessProject(ProjectChatAccessReadModel access, Guid currentUserId)
+    private async Task<bool> CanAccessProjectAsync(
+        ProjectChatAccessReadModel access,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
     {
         if (IsRole(access.RoleName, ApplicationRoles.Admin))
         {
@@ -395,8 +403,20 @@ public sealed class ProjectChatService : IProjectChatService
             return access.AssignedSalesId == currentUserId;
         }
 
-        return IsRole(access.RoleName, ApplicationRoles.Designer) &&
-            access.AssignedDesignerId == currentUserId;
+        if (IsRole(access.RoleName, ApplicationRoles.Designer))
+        {
+            return access.AssignedDesignerId == currentUserId;
+        }
+
+        if (IsRole(access.RoleName, ApplicationRoles.Production))
+        {
+            return await _productionRequests.HasViewableAssignedRequestAsync(
+                access.ProjectId,
+                currentUserId,
+                cancellationToken);
+        }
+
+        return false;
     }
 
     private static bool CanCloseChat(ProjectChatStatusAccessReadModel access, Guid currentUserId)
@@ -413,6 +433,9 @@ public sealed class ProjectChatService : IProjectChatService
             ProjectChatType.DESIGNER =>
                 (IsRole(access.RoleName, ApplicationRoles.Designer) && access.AssignedDesignerId == currentUserId) ||
                 (IsRole(access.RoleName, ApplicationRoles.Sales) && access.AssignedSalesId == currentUserId),
+            ProjectChatType.PRODUCTION =>
+                (IsRole(access.RoleName, ApplicationRoles.Sales) && access.AssignedSalesId == currentUserId) ||
+                (IsRole(access.RoleName, ApplicationRoles.Production) && access.ChatStaffId == currentUserId),
             _ => false
         };
     }
@@ -424,9 +447,22 @@ public sealed class ProjectChatService : IProjectChatService
             return null;
         }
 
-        return IsRole(roleName, ApplicationRoles.Designer)
-            ? DesignerChatTypes
-            : CustomerAndSalesChatTypes;
+        if (IsRole(roleName, ApplicationRoles.Designer))
+        {
+            return DesignerChatTypes;
+        }
+
+        if (IsRole(roleName, ApplicationRoles.Production))
+        {
+            return ProductionStaffChatTypes;
+        }
+
+        if (IsRole(roleName, ApplicationRoles.Sales))
+        {
+            return SalesStaffChatTypes;
+        }
+
+        return CustomerAndSalesChatTypes;
     }
 
     private static bool IsRole(string? roleName, string expectedRole)

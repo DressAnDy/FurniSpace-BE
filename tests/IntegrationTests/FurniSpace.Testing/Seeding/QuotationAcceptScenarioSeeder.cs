@@ -104,6 +104,96 @@ public static class QuotationAcceptScenarioSeeder
             productVersion.ProductVersionId);
     }
 
+    public static async Task<QuotationDraftScenario> SeedSelectedProposalWithEquivalentCommercialItemsAsync(
+        AppDbContext context,
+        CancellationToken cancellationToken = default)
+    {
+        var roles = await CoreAccountSeeder.EnsureRolesAsync(
+            context,
+            cancellationToken,
+            CoreRoles.Customer,
+            CoreRoles.Sales,
+            CoreRoles.Designer);
+
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var customer = CoreAccountSeeder.CreateAccount(
+            roles[CoreRoles.Customer].RoleId,
+            $"quotation-aggregate-customer-{suffix}@integration.test",
+            "Quotation Aggregate Customer");
+        var sales = CoreAccountSeeder.CreateAccount(
+            roles[CoreRoles.Sales].RoleId,
+            $"quotation-aggregate-sales-{suffix}@integration.test",
+            "Quotation Aggregate Sales");
+        var designer = CoreAccountSeeder.CreateAccount(
+            roles[CoreRoles.Designer].RoleId,
+            $"quotation-aggregate-designer-{suffix}@integration.test",
+            "Quotation Aggregate Designer");
+
+        var project = ProjectScenarioSeeder.CreateProject(
+            customer.AccountId,
+            sales.AccountId,
+            $"PRJ-QA-{suffix}",
+            "Quotation Aggregate Project",
+            ProjectStatus.PROPOSAL_SELECTED,
+            designer.AccountId);
+
+        var area = MeasurementScenarioSeeder.CreateArea(
+            project.ProjectId,
+            "Main Floor",
+            ProjectAreaType.FLOOR,
+            floorNumber: 1,
+            status: ProjectAreaStatus.VERIFIED);
+
+        var (category, product, productVersion) = ProposalScenarioSeeder.CreateCatalog(suffix);
+        var proposal = ProposalScenarioSeeder.CreateProposal(
+            project.ProjectId,
+            designer.AccountId,
+            "Aggregated quotation proposal",
+            ProposalStatus.SELECTED);
+        proposal.SelectedAt = CoreAccountSeeder.FixedTimestamp;
+
+        var scene = ProposalScenarioSeeder.CreateScene(
+            proposal.ProposalId,
+            designer.AccountId,
+            "Aggregated room planner scene");
+        var firstItem = ProposalScenarioSeeder.CreateProposalItem(
+            proposal.ProposalId,
+            scene.SceneId,
+            area.ProjectAreaId,
+            productVersion.ProductVersionId,
+            "Quotation sofa",
+            quantity: 1,
+            unitPrice: 5_000_000m);
+        var secondItem = ProposalScenarioSeeder.CreateProposalItem(
+            proposal.ProposalId,
+            scene.SceneId,
+            area.ProjectAreaId,
+            productVersion.ProductVersionId,
+            "Quotation sofa",
+            quantity: 1,
+            unitPrice: 5_000_000m);
+
+        context.AccountSet.AddRange(customer, sales, designer);
+        context.ProjectSet.Add(project);
+        context.ProjectAreaSet.Add(area);
+        context.CategorySet.Add(category);
+        context.ProductSet.Add(product);
+        context.ProductVersionSet.Add(productVersion);
+        context.ProposalSet.Add(proposal);
+        context.ProposalSceneSet.Add(scene);
+        context.ProposalItemSet.AddRange(firstItem, secondItem);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return new QuotationDraftScenario(
+            customer.AccountId,
+            sales.AccountId,
+            designer.AccountId,
+            project.ProjectId,
+            proposal.ProposalId,
+            firstItem.ProposalItemId,
+            productVersion.ProductVersionId);
+    }
+
     public static async Task<QuotationAcceptScenario> SeedSentQuotationAsync(
         AppDbContext context,
         CancellationToken cancellationToken = default)

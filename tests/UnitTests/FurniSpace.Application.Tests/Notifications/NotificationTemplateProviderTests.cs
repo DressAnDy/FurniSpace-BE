@@ -185,6 +185,16 @@ public sealed class NotificationTemplateProviderTests
     }
 
     [Fact]
+    public void Get_ProductionDelayReported_UsesInAppRealtimeAndOperationalEvent()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProductionDelayReported);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("production.delay.reported", template.SignalREventName);
+        Assert.Contains("{DelayState}", template.MessageTemplate);
+    }
+
+    [Fact]
     public void Get_FeCatalogEvents_MatchFrontendContract()
     {
         var catalog = new Dictionary<NotificationType, string>
@@ -216,7 +226,10 @@ public sealed class NotificationTemplateProviderTests
             [NotificationType.ProjectScheduleCompleted] = "project_schedule.completed",
             [NotificationType.OrderItemDeliveryUpdated] = "order.item.delivery_updated",
             [NotificationType.OrderItemDeliveryConfirmed] = "order.item.delivery_confirmed",
-            [NotificationType.ProjectChatMessageSent] = "project_chat.message_sent"
+            [NotificationType.ProjectChatMessageSent] = "project_chat.message_sent",
+            [NotificationType.ProductionDelayReported] = "production.delay.reported",
+            [NotificationType.DeliveryDelayReported] = "delivery.delay.reported",
+            [NotificationType.ProductIssueReported] = "product_issue.reported"
         };
 
         foreach (var (type, expectedEvent) in catalog)

@@ -42,5 +42,8 @@ public enum NotificationType
     OrderDelivered,
     OrderCompleted,
     OrderItemDeliveryUpdated,
-    OrderItemDeliveryConfirmed
+    OrderItemDeliveryConfirmed,
+    ProductionDelayReported,
+    DeliveryDelayReported,
+    ProductIssueReported
 }

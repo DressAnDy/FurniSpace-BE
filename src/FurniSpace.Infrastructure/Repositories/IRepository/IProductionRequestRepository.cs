@@ -59,6 +59,20 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         Guid productionAccountId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<Guid>>([]);
+    }
+
+    Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<Guid>>([]);
+    }
+
     Task<bool> HasAssignedCompletedProductionForProjectAsync(
         Guid projectId,
         Guid productionAccountId,

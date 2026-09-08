@@ -6,8 +6,10 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.OperationalDelayReports;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Services.OperationalDelayReports;
 using FurniSpace.Application.Tests.TestDoubles;
@@ -59,6 +61,33 @@ public sealed class OperationalDelayReportServiceTests
         Assert.Equal("Supplier delay", result.Data.ReasonDetail);
         Assert.Single(reports.AddedReports);
         Assert.Equal(1, reports.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task CreateProductionReportAsync_AfterSave_DispatchesProductionDelayNotification()
+    {
+        var ids = CreateIds();
+        var reports = new FakeOperationalDelayReportRepository();
+        var dispatcher = new CapturingDelayNotificationDispatcher();
+        var service = CreateService(
+            reports,
+            project: CreateProject(ids),
+            roleName: SalesRole,
+            productionRequest: CreateProductionRequest(ids),
+            productionDeadline: new DateOnly(2026, 9, 15),
+            notifications: dispatcher,
+            adminIds: [ids.ProductionId]);
+
+        var result = await service.CreateProductionReportAsync(
+            ids.ProjectId,
+            ids.SalesId,
+            ValidProductionRequest(ids));
+
+        Assert.Equal(201, result.Status);
+        var dispatch = Assert.Single(dispatcher.Dispatches);
+        Assert.Equal(NotificationType.ProductionDelayReported, dispatch.Type);
+        Assert.Contains(ids.SalesId, dispatch.Receivers);
+        Assert.Contains(ids.ProductionId, dispatch.Receivers);
     }
 
     [Fact]
@@ -480,11 +509,13 @@ public sealed class OperationalDelayReportServiceTests
         DateOnly? productionDeadline = null,
         Order? order = null,
         Delivery? delivery = null,
-        FakeDelayProductionRequestRepository? productionRequests = null)
+        FakeDelayProductionRequestRepository? productionRequests = null,
+        INotificationDispatcher? notifications = null,
+        IReadOnlyList<Guid>? adminIds = null)
     {
         return new OperationalDelayReportService(
             reports,
-            new FakeDelayProjectRepository(project, roleName),
+            new FakeDelayProjectRepository(project, roleName, adminIds),
             productionRequests ?? new FakeDelayProductionRequestRepository
             {
                 ProductionRequest = productionRequest,
@@ -497,7 +528,8 @@ public sealed class OperationalDelayReportServiceTests
             {
                 reports.SaveChangesCallCount++;
                 return Task.FromResult(1);
-            }));
+            }),
+            notifications);
     }
 
     private static CreateProductionDelayReportRequestDto ValidProductionRequest(TestIds ids)
@@ -650,11 +682,16 @@ public sealed class OperationalDelayReportServiceTests
     {
         private readonly Project? _project;
         private readonly string _roleName;
+        private readonly IReadOnlyList<Guid> _adminIds;
 
-        public FakeDelayProjectRepository(Project? project, string roleName)
+        public FakeDelayProjectRepository(
+            Project? project,
+            string roleName,
+            IReadOnlyList<Guid>? adminIds = null)
         {
             _project = project;
             _roleName = roleName;
+            _adminIds = adminIds ?? [];
         }
 
         public Task<Project?> GetByIdAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -669,7 +706,7 @@ public sealed class OperationalDelayReportServiceTests
         public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(
             IReadOnlyCollection<string> roleNames,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<Guid>>([]);
+            => Task.FromResult(_adminIds);
 
         public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default)
             => Task.FromResult(0);
@@ -715,6 +752,24 @@ public sealed class OperationalDelayReportServiceTests
         public void Remove(Project entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
     }
+
+    private sealed class CapturingDelayNotificationDispatcher : INotificationDispatcher
+    {
+        public List<CapturedDelayDispatch> Dispatches { get; } = [];
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+        {
+            Dispatches.Add(new CapturedDelayDispatch(type, receiverIds.ToList()));
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed record CapturedDelayDispatch(NotificationType Type, List<Guid> Receivers);
 
     private sealed class FakeDelayProductionRequestRepository : IProductionRequestRepository
     {

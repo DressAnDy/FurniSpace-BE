@@ -328,6 +328,75 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task CreateDraftAsync_WhenEquivalentProposalItems_AggregatesIntoOneCommercialLine()
+    {
+        var productVersionId = Guid.NewGuid();
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 100m
+        });
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 100m
+        });
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        Assert.Single(quotations.AddedItems);
+        Assert.Equal(2, quotations.AddedItems[0].Quantity);
+        Assert.Null(quotations.AddedItems[0].ProposalItemId);
+        Assert.Equal(200m, quotations.AddedItems[0].GrossAmount);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenSameProductHasDifferentUnitPrice_KeepsSeparateLines()
+    {
+        var productVersionId = Guid.NewGuid();
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 100m
+        });
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 120m,
+            TotalPriceSnapshot = 120m
+        });
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(2, quotations.AddedItems.Count);
+    }
+
+    [Fact]
     public async Task CreateDraftAsync_WhenProjectStatusInvalid_ReturnsProjectNotReady()
     {
         var project = MakeProject();
@@ -795,6 +864,34 @@ public sealed class QuotationServiceTests
         Assert.Equal(400, result.Status);
         Assert.Equal(QuotationErrorCodes.QuotationNotReadyToSend, result.ErrorCode);
         Assert.Equal(QuotationStatus.DRAFT, quotation.Status);
+    }
+
+    [Fact]
+    public async Task SendAsync_WhenAggregatedLineHasNullProposalItemId_Succeeds()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        SeedDepositForTotal(quotation, 160m);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
+        var item = MakeQuotationItem(quotation.QuotationId, subtotal: 160m);
+        item.ProposalItemId = null;
+        item.Quantity = 2;
+        item.UnitPrice = 100m;
+        item.DiscountAmount = 40m;
+        var detail = MakeDetail(QuotationStatus.DRAFT);
+        detail.QuotationId = quotation.QuotationId;
+        detail.QuotationCode = quotation.QuotationCode;
+        detail.TotalAmount = quotation.TotalAmount;
+        detail.ValidUntil = quotation.ValidUntil;
+        detail.Items = [new QuotationItemReadModel { QuotationItemId = item.QuotationItemId, QuotationId = quotation.QuotationId }];
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.SendAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.SENT, quotation.Status);
     }
 
     [Fact]

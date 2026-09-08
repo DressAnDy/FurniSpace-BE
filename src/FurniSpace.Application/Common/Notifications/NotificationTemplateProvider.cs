@@ -249,6 +249,24 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "production_item.cancelled"),
 
+            NotificationType.ProductionDelayReported => new NotificationTemplate(
+                "Production delay reported",
+                "Production delay ({DelayState}) reported for project \"{ProjectName}\". Reason: {ReasonCode}.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "production.delay.reported"),
+
+            NotificationType.DeliveryDelayReported => new NotificationTemplate(
+                "Delivery delay reported",
+                "Delivery delay ({DelayState}) reported for project \"{ProjectName}\". Reason: {ReasonCode}.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "delivery.delay.reported"),
+
+            NotificationType.ProductIssueReported => new NotificationTemplate(
+                "Product issue reported",
+                "A product issue ({IssueType}) was reported for \"{ProductName}\" in order \"{OrderCode}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "product_issue.reported"),
+
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown notification type.")
         };
     }

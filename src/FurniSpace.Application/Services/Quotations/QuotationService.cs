@@ -179,9 +179,9 @@ public sealed class QuotationService : IQuotationService
 
         var proposalItems = await _quotations.GetProposalItemsAsync(selected.ProposalId, cancellationToken);
         var quotation = CreateDraftQuotation(selected, currentUserId);
-        var quotationItems = proposalItems
-            .Select(item => ToQuotationItem(quotation.QuotationId, item))
-            .ToList();
+        var quotationItems = QuotationCommercialLineAggregator.AggregateFromProposalItems(
+            quotation.QuotationId,
+            proposalItems);
 
         QuotationRecalculationService.Recalculate(quotation, quotationItems);
         ApplyInitialDeposit(quotation, _orderWorkflowSettings.DepositPercent);
@@ -272,9 +272,9 @@ public sealed class QuotationService : IQuotationService
                 ProposalId = proposalId
             },
             triggeredByUserId);
-        var quotationItems = proposalItems
-            .Select(item => ToQuotationItem(quotation.QuotationId, item))
-            .ToList();
+        var quotationItems = QuotationCommercialLineAggregator.AggregateFromProposalItems(
+            quotation.QuotationId,
+            proposalItems);
 
         QuotationRecalculationService.Recalculate(quotation, quotationItems);
         ApplyInitialDeposit(quotation, _orderWorkflowSettings.DepositPercent);
@@ -933,40 +933,6 @@ public sealed class QuotationService : IQuotationService
         };
     }
 
-    private static QuotationItem ToQuotationItem(
-        Guid quotationId,
-        ProposalItem item)
-    {
-        var now = DateTime.UtcNow;
-        var quantity = item.Quantity ?? 0;
-        var unitPrice = item.UnitPriceSnapshot ?? 0m;
-        var grossAmount = quantity * unitPrice;
-        var linePreVatTotal = item.TotalPriceSnapshot ?? grossAmount;
-        var discountAmount = grossAmount > linePreVatTotal
-            ? grossAmount - linePreVatTotal
-            : 0m;
-
-        return new QuotationItem
-        {
-            QuotationItemId = Guid.NewGuid(),
-            QuotationId = quotationId,
-            ProposalItemId = item.ProposalItemId,
-            ProductVersionId = item.ProductVersionId,
-            ProductNameSnapshot = item.ItemName,
-            ProductVersionNameSnapshot = item.ItemName,
-            ItemName = item.ItemName,
-            DisplayOrder = 0,
-            Quantity = quantity,
-            UnitPrice = unitPrice,
-            DiscountAmount = discountAmount,
-            IsCustomized = item.IsCustomized,
-            CustomizationNote = item.Note,
-            Note = item.Note,
-            CreatedAt = now,
-            UpdatedAt = now
-        };
-    }
-
     private static ServiceResult<QuotationDetailDto>? ValidateSendState(
         Quotation quotation,
         List<QuotationItem> items)
@@ -986,8 +952,7 @@ public sealed class QuotationService : IQuotationService
 
     private static bool IsInvalidSendItem(QuotationItem item)
     {
-        return !item.ProposalItemId.HasValue ||
-            !item.ProductVersionId.HasValue ||
+        return !item.ProductVersionId.HasValue ||
             ValidateQuotationItem(
                 item.ItemName,
                 item.Quantity,

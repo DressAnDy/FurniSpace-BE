@@ -237,6 +237,36 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.ProductionRequestSet
+            .Where(request =>
+                request.ProjectId == projectId &&
+                request.AssignedTo.HasValue &&
+                request.Status.HasValue &&
+                ScheduleReadRequestStatuses.Contains(request.Status.Value))
+            .Select(request => request.AssignedTo!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.ProductionRequestSet
+            .Where(request =>
+                request.OrderId == orderId &&
+                request.AssignedTo.HasValue &&
+                request.Status.HasValue &&
+                ScheduleReadRequestStatuses.Contains(request.Status.Value))
+            .Select(request => request.AssignedTo!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<bool> HasAssignedCompletedProductionForProjectAsync(
         Guid projectId,
         Guid productionAccountId,

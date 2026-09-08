@@ -72,6 +72,48 @@ public sealed class QuotationLifecycleApiIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CreateDraft_WhenEquivalentProposalItems_AggregatesCommercialLines()
+    {
+        await using var context = _fixture.Database.CreateDbContext();
+        var scenario = await QuotationAcceptScenarioSeeder
+            .SeedSelectedProposalWithEquivalentCommercialItemsAsync(context);
+
+        var response = await CreateDraftAsync(scenario);
+        var result = await ReadQuotationAsync(response);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.NotNull(result.Data);
+        Assert.Single(result.Data.Items);
+
+        var item = result.Data.Items[0];
+        Assert.Equal(2, item.Quantity);
+        Assert.Null(item.ProposalItemId);
+        Assert.Equal(scenario.ProductVersionId, item.ProductVersionId);
+        Assert.Equal(10_000_000m, item.GrossAmount);
+        Assert.Equal(10_000_000m, item.TotalAmount);
+
+        await using var verifyContext = _fixture.Database.CreateDbContext();
+        Assert.Equal(1, await verifyContext.QuotationItemSet.CountAsync());
+    }
+
+    [Fact]
+    public async Task Send_WhenAggregatedCommercialLineHasNullProposalItemId_Succeeds()
+    {
+        await using var context = _fixture.Database.CreateDbContext();
+        var scenario = await QuotationAcceptScenarioSeeder
+            .SeedSelectedProposalWithEquivalentCommercialItemsAsync(context);
+        var quotationId = await CreateReadyDraftAsync(scenario);
+
+        var response = await SendAsync(scenario.SalesAccountId, quotationId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        await using var verifyContext = _fixture.Database.CreateDbContext();
+        var persistedItem = await verifyContext.QuotationItemSet.SingleAsync();
+        Assert.Null(persistedItem.ProposalItemId);
+        Assert.Equal(2, persistedItem.Quantity);
+    }
+
+    [Fact]
     public async Task CreateDraft_WhenCustomerCalls_ReturnsForbiddenAndCreatesNothing()
     {
         var scenario = await SeedSelectedProposalAsync();

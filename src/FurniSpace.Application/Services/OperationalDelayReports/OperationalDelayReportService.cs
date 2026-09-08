@@ -2,6 +2,7 @@ using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.OperationalDelayReports;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.DTOs.OperationalDelayReports;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.OperationalDelayReports;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Entities;
@@ -9,6 +10,7 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.OperationalDelayReports;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using Microsoft.Extensions.Logging;
 
 namespace FurniSpace.Application.Services.OperationalDelayReports;
 
@@ -25,6 +27,8 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
     private readonly IDeliveryRepository _deliveries;
     private readonly IProjectPhaseDeadlineService _phaseDeadlines;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly INotificationDispatcher? _notifications;
+    private readonly ILogger<OperationalDelayReportService>? _logger;
 
     public OperationalDelayReportService(
         IOperationalDelayReportRepository reports,
@@ -33,7 +37,9 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
         IOrderRepository orders,
         IDeliveryRepository deliveries,
         IProjectPhaseDeadlineService phaseDeadlines,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        INotificationDispatcher? notifications = null,
+        ILogger<OperationalDelayReportService>? logger = null)
     {
         _reports = reports;
         _projects = projects;
@@ -42,6 +48,8 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
         _deliveries = deliveries;
         _phaseDeadlines = phaseDeadlines;
         _unitOfWork = unitOfWork;
+        _notifications = notifications;
+        _logger = logger;
     }
 
     public async Task<ServiceResult<OperationalDelayReportDto>> CreateProductionReportAsync(
@@ -104,6 +112,15 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
 
         await _reports.AddAsync(report, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await OperationalDelayNotificationSupport.TryDispatchProductionDelayReportedAsync(
+            _notifications,
+            _projects,
+            _logger,
+            report,
+            project,
+            productionRequest,
+            cancellationToken);
 
         return ServiceResult<OperationalDelayReportDto>.Created(
             ToDto(report, project.ProjectName, null),
@@ -192,6 +209,15 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
 
         await _reports.AddAsync(report, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await OperationalDelayNotificationSupport.TryDispatchDeliveryDelayReportedAsync(
+            _notifications,
+            _projects,
+            _productionRequests,
+            _logger,
+            report,
+            project,
+            cancellationToken);
 
         return ServiceResult<OperationalDelayReportDto>.Created(
             ToDto(report, project.ProjectName, null),

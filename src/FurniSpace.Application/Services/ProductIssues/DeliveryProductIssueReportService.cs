@@ -1,8 +1,10 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.ProductIssues;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.Constants.ProductIssues;
 using FurniSpace.Application.DTOs.ProductIssues;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProductIssues;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -11,6 +13,7 @@ using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.ProductIssues;
 using FurniSpace.Infrastructure.Repositories.IRepository;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using static FurniSpace.Application.Constants.ProductIssues.ProductIssueServiceConstants;
 
@@ -33,6 +36,8 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
     private readonly IFileStorageService _storage;
     private readonly IFileUploadValidator _fileUploadValidator;
     private readonly FirebaseStorageSettings _firebaseSettings;
+    private readonly INotificationDispatcher? _notifications;
+    private readonly ILogger<DeliveryProductIssueReportService>? _logger;
 
     public DeliveryProductIssueReportService(
         IDeliveryProductIssueReportRepository issues,
@@ -44,7 +49,9 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
         IUnitOfWork unitOfWork,
         IFileStorageService storage,
         IFileUploadValidator fileUploadValidator,
-        IOptions<FirebaseStorageSettings> firebaseSettings)
+        IOptions<FirebaseStorageSettings> firebaseSettings,
+        INotificationDispatcher? notifications = null,
+        ILogger<DeliveryProductIssueReportService>? logger = null)
     {
         _issues = issues;
         _orders = orders;
@@ -56,6 +63,8 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
         _storage = storage;
         _fileUploadValidator = fileUploadValidator;
         _firebaseSettings = firebaseSettings.Value;
+        _notifications = notifications;
+        _logger = logger;
     }
 
     public async Task<ServiceResult<ProductIssueReportDto>> CreateAsync(
@@ -173,6 +182,17 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
             await DeleteUploadedObjectsAsync(uploadedObjects, cancellationToken);
             throw;
         }
+
+        await ProductIssueNotificationSupport.TryDispatchReportedAsync(
+            _notifications,
+            _projects,
+            _productionRequests,
+            _logger,
+            issue,
+            project,
+            order,
+            orderItem,
+            cancellationToken);
 
         var detail = await _issues.GetDetailAsync(issueId, cancellationToken);
         return ServiceResult<ProductIssueReportDto>.Created(

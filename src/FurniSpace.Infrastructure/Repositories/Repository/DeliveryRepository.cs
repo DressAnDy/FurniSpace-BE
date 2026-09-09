@@ -64,7 +64,8 @@ public sealed class DeliveryRepository : IDeliveryRepository
                             CompletedAt = schedule.CompletedAt,
                             Status = schedule.Status,
                             AssignedStaffId = schedule.AssignedStaffId,
-                            Location = schedule.Location
+                            Location = schedule.Location,
+                            CustomerNote = schedule.CustomerNote
                         })
                         .FirstOrDefault(),
                 Status = entity.Status,
@@ -505,7 +506,8 @@ public sealed class DeliveryRepository : IDeliveryRepository
                 CompletedAt = schedule.CompletedAt,
                 Status = schedule.Status,
                 AssignedStaffId = schedule.AssignedStaffId,
-                Location = schedule.Location
+                Location = schedule.Location,
+                CustomerNote = schedule.CustomerNote
             });
     }
 

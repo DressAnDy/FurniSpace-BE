@@ -76,6 +76,7 @@ internal static class OrderDetailDeliveryComposer
             ScheduledStart = delivery.Schedule?.ScheduledStart,
             ScheduledEnd = delivery.Schedule?.ScheduledEnd,
             Location = delivery.Schedule?.Location,
+            CustomerNote = delivery.Schedule?.CustomerNote,
             CreatedAt = delivery.CreatedAt,
             CompletedAt = delivery.CompletedAt,
             Items = items

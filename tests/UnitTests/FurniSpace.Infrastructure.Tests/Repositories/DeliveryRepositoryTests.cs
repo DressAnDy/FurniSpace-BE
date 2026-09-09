@@ -99,7 +99,8 @@ public sealed class DeliveryRepositoryTests
             AssignedStaffId = Guid.NewGuid(),
             ScheduledStart = scheduledStart,
             ScheduledEnd = scheduledStart.AddHours(2),
-            Title = "Batch delivery"
+            Title = "Batch delivery",
+            CustomerNote = "Leave at reception desk"
         });
         delivery.ProjectScheduleId = scheduleId;
         await context.SaveChangesAsync();
@@ -113,6 +114,7 @@ public sealed class DeliveryRepositoryTests
         Assert.Equal(scheduleId, detail.Schedule!.ProjectScheduleId);
         Assert.Equal(ProjectScheduleStatus.CONFIRMED, detail.Schedule.Status);
         Assert.Equal(scheduledStart, detail.Schedule.ScheduledStart);
+        Assert.Equal("Leave at reception desk", detail.Schedule.CustomerNote);
     }
 
     [Fact]
@@ -132,7 +134,8 @@ public sealed class DeliveryRepositoryTests
             AssignedStaffId = Guid.NewGuid(),
             ScheduledStart = scheduledStart,
             ScheduledEnd = scheduledStart.AddHours(2),
-            Title = "Batch delivery"
+            Title = "Batch delivery",
+            CustomerNote = "Leave at reception desk"
         });
         delivery.ProjectScheduleId = scheduleId;
         await context.SaveChangesAsync();
@@ -144,6 +147,7 @@ public sealed class DeliveryRepositoryTests
         Assert.Equal(scheduleId, inProgress.ProjectScheduleId);
         Assert.NotNull(inProgress.Schedule);
         Assert.Equal(scheduleId, inProgress.Schedule!.ProjectScheduleId);
+        Assert.Equal("Leave at reception desk", inProgress.Schedule.CustomerNote);
     }
 
     [Fact]

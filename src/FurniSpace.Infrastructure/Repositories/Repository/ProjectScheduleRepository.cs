@@ -114,6 +114,7 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
                     ScheduledEnd = s.ScheduledEnd,
                     Location = s.Location,
                     Status = s.Status,
+                    CustomerNote = s.CustomerNote,
                     CreatedAt = s.CreatedAt,
                     CompletedAt = s.CompletedAt
                 })

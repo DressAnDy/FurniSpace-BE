@@ -1,47 +1,261 @@
-# FurniSpace REST API Reference
+# FurniSpace API Reference — Role, Contract & Integration Guide
 
-Complete HTTP + SignalR API reference for FurniSpace backend.
+Tài liệu dùng chung cho Backend, Web Frontend và Mobile. Nội dung được đối chiếu từ controller, DTO, service, domain enum và `docs/backend-api-dev-guide.md`; khi tài liệu và code khác nhau, **code hiện tại là source of truth**.
 
 | Item | Value |
 | --- | --- |
 | Spec source | Controllers under `src/FurniSpace.API/Controllers` + DTOs under `src/FurniSpace.Application/DTOs` |
 | Live OpenAPI | `GET /swagger/v1/swagger.json` (Swagger UI at `/`) |
-| Related | `docs/backend-api-dev-guide.md`, `docs/payment-service-guide.md`, `docs/signalr-notification-guide.md` |
+| Secondary guide | `docs/backend-api-dev-guide.md` |
+| Role count | **5** — `ADMIN`, `SALES`, `DESIGNER`, `CUSTOMER`, `PRODUCTION` |
+| Access outside roles | Public/anonymous, JWT without a specific role, infrastructure/debug, and known authorization gaps |
+| Source coverage snapshot | **56 controller files · 292 actions · 296 HTTP route variants** |
 
 ---
 
 ## Table of contents
 
-1. [Conventions](#1-conventions)
-2. [Authentication](#2-authentication)
-3. [Auth](#3-auth--auth)
-4. [Accounts](#4-accounts)
-4b. [Admin Reports](#4b-admin-reports-scrum-428--scrum-436)
-5. [Catalog — Business Types](#5-catalog--business-types)
-6. [Catalog — Categories](#6-catalog--categories)
-7. [Catalog — Products](#7-catalog--products)
-8. [Catalog — Product Versions](#8-catalog--product-versions)
-8a. [Catalog — Admin management list](#8a-catalog--admin-management-list)
-8b. [Catalog — Designer project catalog](#8b-catalog--designer-project-catalog)
-8c. [Catalog — Layout assets](#8c-catalog--layout-assets)
-9. [Projects](#9-projects)
-10. [Proposals & scenes](#10-proposals--scenes)
-11. [Room planner](#11-room-planner)
-12. [Quotations](#12-quotations)
-13. [Orders](#13-orders)
-14. [Customization requests](#14-customization-requests)
-15. [Project areas](#15-project-areas)
-16. [Project schedules](#16-project-schedules)
-17. [Project files & shared files](#17-project-files--shared-files)
-18. [Chat](#18-chat)
-19. [Notifications](#19-notifications)
-20. [Payments](#20-payments)
-20a. [Admin Financial Dashboard](#20a-admin-financial-dashboard)
-20b. [Role Dashboards (queues + KPIs)](#20b-role-dashboards-queues--kpis)
-21. [Production](#21-production)
-22. [SignalR hubs](#22-signalr-hubs)
-23. [Portfolio & public showcases](#23-portfolio--public-showcases)
-24. [Enums](#24-enums)
+- [0. Role & access map](#0-role--access-map)
+  - [CUSTOMER](#01-customer)
+  - [SALES](#02-sales)
+  - [DESIGNER](#03-designer)
+  - [PRODUCTION](#04-production)
+  - [ADMIN](#05-admin)
+  - [Public / no-role / auth gaps](#06-public--no-role--auth-gaps)
+  - [JWT without a specific role](#07-jwt-without-a-specific-role)
+- [1. Conventions and contract standard](#1-conventions)
+- [2–24. Canonical API details by domain](#2-authentication)
+- [Appendix A. Misc/infrastructure endpoints](#appendix-a--misc-endpoints)
+- [Appendix B. End-to-end customer flow](#appendix-b--typical-end-to-end-flow-customer-project)
+- [Appendix C. Admin project attention reports](#appendix-c--admin-project-attention-reports)
+- [Appendix D. Admin cross-domain reports](#appendix-d--admin-reports-scrum-428--scrum-436)
+- [Appendix E. Coverage and maintenance](#appendix-e--coverage-and-maintenance-notes)
+
+---
+
+## 0. Role & access map
+
+### 0.0 Role count and authorization model
+
+The database seeder defines exactly **5 business roles**:
+
+| Role | Main responsibility | Important scope rule |
+| --- | --- | --- |
+| `CUSTOMER` | Submit projects, approve design/quotation/delivery, pay and review | Usually limited to resources owned by the current account |
+| `SALES` | Intake, consultation, assignment, commercial and delivery coordination | Usually limited to assigned projects; some lists support team scope |
+| `DESIGNER` | Measurement, proposal, room planner and customization design | Usually must be the project's assigned Designer |
+| `PRODUCTION` | Customization feasibility, production execution and delivery operations | Usually must be assigned to the production request/schedule |
+| `ADMIN` | Account/catalog administration, reporting, finance and workflow oversight | Not automatically allowed on customer-only actions |
+
+An endpoint shared by several roles has one canonical contract:
+
+1. This section indexes each role's APIs and end-to-end flow.
+2. Sections 2–24 define request, response, filters, validation, enums, messages, errors and special cases.
+3. Route authorization runs first; resource ownership/assignment/visibility rules run in Application services.
+
+`401` means no valid session/token. `403` means authenticated but the role or resource scope is not allowed. A role listed on a route therefore does not guarantee access to every resource ID.
+
+### 0.1 CUSTOMER
+
+**Flow**
+
+```text
+Register/login -> create project -> complete information
+-> review/select proposal -> review/accept quotation
+-> complete delivery details -> pay deposit
+-> follow production/delivery -> confirm delivery
+-> pay remaining amount -> review/public consent
+```
+
+| Area | APIs available to CUSTOMER | Contract detail |
+| --- | --- | --- |
+| Identity | Current profile/password/logout and `PATCH /accounts/me` | [Auth](#3-auth--auth), [Accounts](#4-accounts) |
+| Projects | Create; list/detail/by-user; published proposal; basic information; target date; reopen; measurement gallery; own review | [Projects](#9-projects) |
+| Proposals | Read proposals/scenes/items; `select-final`; `request-revision` | [Proposals](#10-proposals--scenes) |
+| Room planner | Read scene; resolve referenced products/layout assets | [Room planner](#11-room-planner) |
+| Quotations | List/detail; `accept`, `request-revision`, `reject` | [Quotations](#12-quotations) |
+| Orders/delivery | List/detail/my orders; delivery details; deposit; deliveries; confirm; product issues | [Orders](#13-orders) |
+| Customization | Read request/version; create request; accept feasible version; cancel | [Customization](#14-customization-requests) |
+| Areas/schedules | Read allowed areas/images/schedules; update allowed status; request delivery change | [Areas](#15-project-areas), [Schedules](#16-project-schedules) |
+| Files/chat/notification | Scoped project files, participant chats and own notifications | [Files](#17-project-files--shared-files), [Chat](#18-chat), [Notifications](#19-notifications) |
+| Payments | Own list/detail/summary/status; attempts; cancel attempt; PayOS/SePay helpers | [Payments](#20-payments) |
+| Portfolio/realtime | Review public consent; authorized hub groups | [Showcases](#23-portfolio--public-showcases), [SignalR](#22-signalr-hubs) |
+
+**Cases to handle**
+
+- Ownership checks can return `403` even when `CUSTOMER` is listed.
+- Selecting a final proposal can auto-create a draft quotation; use returned `quotationId`.
+- Accepting a quotation creates order `CREATED`; it does not settle the deposit.
+- Delivery details lock after deposit settlement.
+- Provider webhook, not return URL, confirms payment.
+- Customer file access requires appropriate `FileVisibility`.
+
+### 0.2 SALES
+
+**Flow**
+
+```text
+Receive SUBMITTED project -> assign Sales/request information
+-> create project-start fee if required -> assign Designer
+-> coordinate proposal -> prepare/send quotation
+-> coordinate deposit -> create/assign production request
+-> schedule and monitor delivery -> prepare remaining payment
+-> complete workflow -> prepare showcase
+```
+
+| Area | APIs available to SALES | Contract detail |
+| --- | --- | --- |
+| Dashboard | Sales queue/KPIs and phase deadline risks | [Role dashboards](#20c-role-dashboards-queues--kpis) |
+| Staff lookup | Available Designers and Production staff | [Accounts](#4-accounts), [Production](#21-production) |
+| Projects | List/detail; assignments; information; basic info/target; status/reject/complete/reopen; workflow | [Projects](#9-projects) |
+| Project start fee | Create fee and read eligibility/status | [Payments](#202-project-start-fee--apiprojects) |
+| Proposals | Create/read/update/publish proposals/scenes and permitted items | [Proposals](#10-proposals--scenes) |
+| Quotations | Draft, item financials, send, revise, cancel and read customer decision | [Quotations](#12-quotations) |
+| Orders/delivery | Read; payment creation; production request; final payment; completion/delivery actions where listed | [Orders](#13-orders) |
+| Production/delay | Read/assign Production requests and record operational delays | [Production](#21-production), [Delay reports](#13a-operational-delay-reports) |
+| Schedules/areas/files | Manage allowed schedules, areas, project files and galleries | [Areas](#15-project-areas), [Schedules](#16-project-schedules), [Files](#17-project-files--shared-files) |
+| Chat/payments | Assigned coordination chats and allowed payment reads/provider helpers | [Chat](#18-chat), [Payments](#20-payments) |
+| Showcase | Create/edit/submit draft and manage media | [Showcases](#23-portfolio--public-showcases) |
+
+**Cases to handle**
+
+- Assignment checks can reject an unassigned Sales account.
+- Project transitions must follow `ProjectStatusTransitionEvaluator`.
+- Quotation item/header totals and VAT are server-calculated.
+- Production request creation requires an eligible workflow and configured production deadline.
+- Delivery start requires completed production, confirmed schedule and ready items.
+
+### 0.3 DESIGNER
+
+**Flow**
+
+```text
+Open assigned project -> measurement schedule/images/areas
+-> browse eligible project catalog -> build proposal scenes
+-> save room planner -> sync commercial furniture
+-> publish/revise proposal -> design customization versions
+-> coordinate with assigned Sales
+```
+
+| Area | APIs available to DESIGNER | Contract detail |
+| --- | --- | --- |
+| Dashboard/projects | Designer queue/KPIs; assigned project list/detail and permitted status | [Dashboards](#20c-role-dashboards-queues--kpis), [Projects](#9-projects) |
+| Project catalog | Eligible project products and versions | [Designer catalog](#8b-catalog--designer-project-catalog) |
+| Product versions/assets | Create/upload allowed version assets; active layout asset catalog | [Product versions](#8-catalog--product-versions), [Layout assets](#8c-catalog--layout-assets) |
+| Proposals/planner | Create/read/update/publish; scene/item sync; planner read/resolve/save | [Proposals](#10-proposals--scenes), [Room planner](#11-room-planner) |
+| Customization | Create/edit/submit/withdraw design versions | [Customization](#14-customization-requests) |
+| Areas/measurement | Create/update areas; upload/link measurement images | [Areas](#15-project-areas), [Schedules](#16-project-schedules) |
+| Commercial read | Read Quotations/Orders where the action lists Designer | [Quotations](#12-quotations), [Orders](#13-orders) |
+| Collaboration | Scoped files, Designer–Sales chat, notifications and payment reads | [Files](#17-project-files--shared-files), [Chat](#18-chat), [Payments](#20-payments) |
+
+**Cases to handle**
+
+- Most writes require `assignedDesignerId == currentUserId`.
+- Project catalog excludes inactive and unrelated project-specific versions.
+- Room planner schema v3 validates floor/area IDs, object families and active assets.
+- Draft customization versions are hidden from other project viewers.
+- Designer status transitions are more restricted than Sales/Admin transitions.
+
+### 0.4 PRODUCTION
+
+**Flow**
+
+```text
+Review customization feasibility -> receive assigned request
+-> start request -> update item statuses -> report delay if needed
+-> complete request -> coordinate delivery batches/schedules
+-> expose completion for customer confirmation/final payment
+```
+
+| Area | APIs available to PRODUCTION | Contract detail |
+| --- | --- | --- |
+| Dashboard | Production queue/KPIs and production deadline risks | [Role dashboards](#20c-role-dashboards-queues--kpis) |
+| Customization | Global queue/detail and feasibility review | [Customization](#14-customization-requests) |
+| Production | Request list/detail/start/complete, item status updates and unavailable-item queue | [Production](#21-production) |
+| Orders/delivery | Read eligible orders; listed delivery batch actions | [Orders](#13-orders) |
+| Schedules | Create/update/read allowed production/delivery schedules | [Schedules](#16-project-schedules) |
+| Delay/issues | Production/delivery delay evidence and product issue reads | [Delay reports](#13a-operational-delay-reports), [Orders](#13-orders) |
+| Collaboration | Assigned Production chat, scoped files and own notifications | [Chat](#18-chat), [Files](#17-project-files--shared-files) |
+
+**Cases to handle**
+
+- `start` only accepts a pending request; server owns actual start time.
+- Complete requires every item to be `COMPLETED` or `CANCELLED`.
+- Cancelled Production items map Order items to `UNAVAILABLE`; this is not a financial adjustment.
+- Customization feasibility is separate from Production request lifecycle.
+- Delivery quantity cannot exceed remaining quantity; only one active batch is allowed per Order.
+
+### 0.5 ADMIN
+
+**Flow**
+
+```text
+Administer accounts/catalog -> oversee assignments/workload
+-> monitor reports/financial exceptions -> use explicitly allowed overrides
+-> review/publish/archive showcases
+```
+
+| Area | APIs available to ADMIN | Contract detail |
+| --- | --- | --- |
+| Accounts/workload | Account search/detail and Designer/Sales/Production workload | [Accounts](#4-accounts), [Admin reports](#appendix-d--admin-reports-scrum-428--scrum-436) |
+| Catalog | Business types, categories, products, versions, preview files and layout assets | [Catalog](#5-catalog--business-types) |
+| Project workflow | Project/proposal/planner/quotation/order/area/schedule/file/chat actions explicitly listing `ADMIN` | [Projects](#9-projects) onward |
+| Finance | Summary, receivables, statements, breakdown/trend/projects/payments/exceptions/discounts | [Admin finance](#20a-admin-financial-dashboard) |
+| Reports | Project workflow/attention, business/commercial/production/delivery/catalog reports and CSV export | [Project attention](#appendix-c--admin-project-attention-reports), [Admin reports](#appendix-d--admin-reports-scrum-428--scrum-436) |
+| Dashboards | Sales/Designer/Production queues and phase risks where listed | [Role dashboards](#20c-role-dashboards-queues--kpis) |
+| Payments/showcases | PayOS confirmation/test helper; showcase moderation | [Payments](#204-webhooks--admin--test), [Showcases](#23-portfolio--public-showcases) |
+
+**Cases to handle**
+
+- `ADMIN` is broad, not a universal bypass. Customer-only actions remain unavailable unless explicitly listed.
+- CSV report success is raw `text/csv`; failures still use the JSON envelope.
+- Financial dashboard APIs are read-only unless a separate mutation is documented.
+- `/api/test/payments` must not be exposed in production clients.
+
+### 0.6 Public / no-role / auth gaps
+
+“No role” is split into intentional public access and accidental unprotected access. Clients must not treat an authorization gap as a stable public contract.
+
+#### Anonymous/public APIs
+
+Two source patterns intentionally serve unauthenticated clients:
+
+- **Explicit `[AllowAnonymous]`:** public showcase controller, provider webhooks, selected Auth actions, and `GET /files/by-reference`.
+- **No authorization attribute, intended catalog read:** the read-only catalog routes listed below. These are unauthenticated in the current controller source but do not carry `[AllowAnonymous]`; preserve that distinction when a global fallback authorization policy is introduced.
+
+| Area | APIs | Request / response / flow / important cases |
+| --- | --- | --- |
+| Auth | Register, verify/resend OTP, login, refresh, forgot/reset password | Explicit `[AllowAnonymous]`; JSON DTOs; success sets HttpOnly cookies; 10/min/IP; resend/forgot are enumeration-safe. See [Auth](#3-auth--auth). |
+| Business types | `GET /business-types`, `GET /business-types/{businessTypeId}` | No auth attribute; filtered/paged list or integer-ID detail. |
+| Categories | `GET /categories` | No auth attribute; paged catalog list. |
+| Products | Suggest/search/list/detail/similar/by-category and preview reads | No auth attribute; filters differ by action; see [Products](#7-catalog--products). |
+| Product versions | Public version detail as currently coded | No auth attribute; see [Product versions](#8-catalog--product-versions). |
+| Public showcases | Published list and slug detail | Explicit controller-level `[AllowAnonymous]`; search/business type/sort/paging; curated public media only. |
+| Shared files | `GET /files/by-reference` | Explicit action-level `[AllowAnonymous]`, but service still applies reference/visibility rules. |
+| Provider webhooks | PayOS and SePay webhook POSTs | Explicit `[AllowAnonymous]`; provider-to-server only; signature/timestamp validation; not a client API. |
+| Infrastructure | Root, Swagger/OpenAPI and optional Redis health | Operational/debug endpoints; see Appendix A. |
+
+#### Known authorization gap — do not rely on it
+
+These `AccountsController` CRUD actions currently have no `[Authorize]` or role attribute:
+
+- `GET /api/Accounts`
+- `GET /api/Accounts/{accountId}`
+- `POST /api/Accounts`
+- `PUT /api/Accounts/{accountId}`
+- `DELETE /api/Accounts/{accountId}`
+
+They are reachable without a role **as currently implemented**, but this is a security gap, not intended public behavior. Treat them as Admin management contracts pending backend hardening.
+
+### 0.7 JWT without a specific role
+
+| Area | APIs | Service-level scope |
+| --- | --- | --- |
+| Current identity | `/auth/me`, password, logout and `PATCH /accounts/me` | Current account only |
+| Project files | Upload/list/search under `/projects/{projectId}/files` | Stakeholder + visibility rules |
+| Shared files | Detail/archive/delete under `/files/{fileId}` | Visibility, uploader/project access and lifecycle |
+| Notifications | Own list/count/read/read-all | Current receiver only |
+| SignalR | Notifications/chat connect and group joins | Valid JWT plus project/chat membership |
 
 ---
 
@@ -59,7 +273,7 @@ There is **no single global `/api` prefix**. Routes are defined per controller:
 
 ### 1.2 Response envelope
 
-Every controller action returns `ServiceResult` / `ServiceResult<T>` via `BaseApiController.ToActionResult`. HTTP status code equals `status`.
+Normal controller success and handled business failures return `ServiceResult` / `ServiceResult<T>` via `BaseApiController.ToActionResult`. HTTP status code equals `status`.
 
 ```json
 {
@@ -96,6 +310,12 @@ Every controller action returns `ServiceResult` / `ServiceResult<T>` via `BaseAp
 
 Some modules use `pageSize` / `totalItems` / `totalPages` / `hasPreviousPage` / `hasNextPage` (`PagedResult<T>`). Field names follow the DTO for that endpoint.
 
+**Envelope exceptions**
+
+- Unhandled exceptions are converted by `ExceptionHandlingMiddleware` to RFC-style `ProblemDetails` with HTTP `500` and a `correlationId`; they do not use `ServiceResult`.
+- PayOS/SePay webhook actions return provider-specific acknowledgement bodies.
+- Admin report export returns raw `text/csv` on success; its handled errors still use `ServiceResult`.
+
 ### 1.3 JSON conventions
 
 | Topic | Rule |
@@ -114,11 +334,64 @@ Some modules use `pageSize` / `totalItems` / `totalPages` / `hasPreviousPage` / 
 | `SALES` | Project intake, quotations, orders, assignments, schedules |
 | `DESIGNER` | Proposals, scenes, room planner, limited project status |
 | `PRODUCTION` | Production requests/items, delivery ops, customization queue |
-| `ADMIN` | Full admin + catalog + accounts |
+| `ADMIN` | Admin/reporting/catalog routes plus business actions that explicitly list `ADMIN`; no universal bypass |
 
 Authorization: `[Authorize]` / `[Authorize(Roles = "...")]`. Multiple roles in one attribute are OR.
 
-### 1.5 Common error examples
+### 1.5 Standard contract for every API
+
+Read each API contract in this order. If an item is not repeated under an endpoint, the common rule in this section applies.
+
+| Contract part | Required documentation | Client implementation rule |
+| --- | --- | --- |
+| Access | Public, JWT, or exact roles; ownership/assignment scope | Handle `401` separately from `403` |
+| Request | Path, query, headers, body/multipart and required fields | Do not send server-owned/calculated fields |
+| Validation | Type/range/length/state/cross-field rules | Show field errors from `errors`; do not duplicate business rules as client truth |
+| Filters | Supported filters, sort, paging and defaults | Unknown/invalid filters may return `400`; paging names vary by DTO |
+| Enum | Exact SCREAMING_SNAKE_CASE values | Send strings exactly as documented |
+| Response | HTTP status, envelope and `data` DTO | Use HTTP/envelope `status`, not message text, for control flow |
+| Flow | State transition and side effects | Refresh affected project/order/payment resources after mutations |
+| Cases | Success, idempotent replay, invalid state, missing resource, forbidden scope, conflict | Treat retryability per status/code |
+| Error code | Stable machine-readable `errorCode` when service provides one | Branch on `errorCode`, never localized/human message |
+| Message | Human-readable context | Display/log safely; do not use as a programmatic key |
+
+**Source precedence:** controller route/auth → request DTO/model binding → Application service validation/flow → Domain enum/state → Infrastructure persistence/provider behavior → this document.
+
+**Common response/status behavior**
+
+| HTTP | Typical message/category | Meaning / client action |
+| --- | --- | --- |
+| `200` | Success / endpoint-specific success message | Read `data`; mutation may also have side effects |
+| `201` | Created | Resource was created; read returned ID |
+| `400` | Validation failed / invalid request or state | Fix request; inspect `errors` and `errorCode` |
+| `401` | Unauthorized | Refresh/login; do not retry unchanged credentials indefinitely |
+| `403` | Forbidden | Role, ownership, assignment or visibility failed |
+| `404` | Not found | Resource absent or intentionally hidden by access policy |
+| `409` | Conflict | State transition, duplicate or concurrent business conflict |
+| `413` | Payload too large | Reduce file/request size |
+| `415` | Unsupported media type | Correct `Content-Type` or file type |
+| `429` | Too many requests | Respect rate limit/backoff |
+| `500` | Internal server error | Log correlation ID and retry only when operation is safe/idempotent |
+
+**Error code vs message**
+
+- `errorCode` is optional because some legacy paths return only `message`.
+- `errors` contains model/field validation details and may be absent for business validation.
+- Messages shown in endpoint sections are current backend wording, not a localization contract.
+- Provider errors must not expose secrets, signatures, raw webhook bodies or credentials.
+
+**Common API cases**
+
+1. Valid request and allowed current state.
+2. Model-binding/validation failure before service execution.
+3. Authenticated user with wrong role.
+4. Correct role but wrong owner/assignee/project stakeholder.
+5. Resource not found, archived/deleted, or hidden by visibility.
+6. Invalid lifecycle transition or duplicate active resource.
+7. Idempotent retry, when explicitly documented.
+8. External provider/storage/search/cache failure; PostgreSQL remains source of truth unless the flow says otherwise.
+
+### 1.6 Common error examples
 
 **Validation (400)**
 
@@ -133,7 +406,7 @@ Authorization: `[Authorize]` / `[Authorize(Roles = "...")]`. Multiple roles in o
 
 **Unauthorized (401)** / **Forbidden (403)** / **Not found (404)** / **Conflict (409)** / **Too many requests (429)** follow the same envelope with `data` usually null.
 
-### 1.6 Auth header / cookies
+### 1.7 Auth header / cookies
 
 ```http
 Authorization: Bearer {access_token}
@@ -191,6 +464,23 @@ Controller: `AuthController` · route `auth`
 | PATCH | `/auth/me` | JWT | — | Update profile |
 | PATCH | `/auth/me/password` | JWT | — | Change password |
 | POST | `/auth/logout` | JWT | — | Revoke refresh + blacklist access `jti` |
+
+### Auth validation, messages and cases
+
+| Endpoint | Main validation / case | HTTP / current message |
+| --- | --- | --- |
+| register | Email/password/full name required; password policy; duplicate email; registration throttling | `400` field errors; `409 Email already exists.`; `429 Too many registration attempts...` |
+| verify-email | Email + OTP required; OTP invalid/expired; already verified; attempt throttling | `400`, `409 Email is already verified.`, `429` |
+| resend OTP | Email required; request throttling; response remains account-enumeration safe | `400 Email is required.` or neutral success; `429` |
+| login | Email/password required; invalid credentials/account state; attempt throttling | `400`, `401`, or `429 Too many login attempts...` |
+| refresh | Body `refreshToken` or cookie required; token invalid/revoked/expired | `400 Refresh token is required.` or auth failure |
+| forgot password | Email required; response is neutral whether account exists; throttling | `400`, neutral `200`, or `429` |
+| reset password | Email/token required; new password policy; token invalid/expired; throttling | `400` or `429` |
+| update me | Full name required/max 100; phone max 20; account must exist | `400` or `404 Account not found.` |
+| change password | Current password required; new password policy; current password mismatch | `400`; account missing can return `404` |
+| logout | Valid JWT required; optional body token falls back to cookie; clears cookies | `200 Logged out successfully` |
+
+Raw tokens are intentionally excluded from JSON `data`; Web/Mobile implementations that cannot use cross-site HttpOnly cookies need a separately approved token-delivery contract. Do not attempt to read HttpOnly cookies from JavaScript.
 
 ### `POST /auth/register`
 
@@ -914,19 +1204,25 @@ Route: `projects`
 | PATCH | `/projects/{projectId}/sales-assignment` | SALES, ADMIN | Claim / assign sales |
 | POST | `/projects/{projectId}/information-requests` | SALES, ADMIN | Ask customer for info |
 | PATCH | `/projects/{projectId}/basic-information` | CUSTOMER, SALES, ADMIN | Update basic info |
+| PATCH | `/projects/{projectId}/target-completion-date` | CUSTOMER, SALES, ADMIN | Set or clear target date while editable |
 | PATCH | `/projects/{projectId}/status` | SALES, DESIGNER, ADMIN | Status transition |
 | PATCH | `/projects/{projectId}/rejection` | SALES, ADMIN | Reject project |
+| PATCH | `/projects/{projectId}/complete` | SALES, ADMIN | Finalize a delivered, financially settled project |
 | POST | `/projects/{projectId}/reopen-proposal` | CUSTOMER, SALES, ADMIN | Roll back to proposal consulting before deposit paid |
 | PATCH | `/projects/{projectId}/designer-assignment` | SALES, ADMIN | Assign designer |
 | GET | `/projects/{projectId}/phase-deadlines` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN | Read proposal/production phase timeline |
 | PUT | `/projects/{projectId}/phase-deadlines` | SALES, ADMIN | Create/update proposal and production due dates |
+| PUT | `/projects/{projectId}/phase-deadlines/production` | SALES, ADMIN | Update Production deadline for an eligible accepted Order |
+| GET | `/projects/{projectId}/review` | CUSTOMER | Read own project review |
+| POST | `/projects/{projectId}/review` | CUSTOMER | Create one review after project completion |
 | GET | `/projects/{projectId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Project measurement photo gallery |
 | POST | `/projects/{projectId}/showcase` | SALES, ADMIN | Create DRAFT portfolio showcase |
-| GET | `/projects/{projectId}/showcase` | SALES, DESIGNER, ADMIN | Get project showcase |
+| GET | `/projects/{projectId}/showcase` | SALES, ADMIN | Get project showcase |
 | GET | `/projects/{projectId}/catalog/products` | DESIGNER, ADMIN | Project-eligible catalog list — see [§8b](#8b-catalog--designer-project-catalog) |
 | GET | `/projects/{projectId}/catalog/products/{productId}` | DESIGNER, ADMIN | Eligible product detail |
 | GET | `/projects/{projectId}/catalog/product-versions/{productVersionId}` | DESIGNER, ADMIN | Eligible version detail |
 | GET | `/projects/{projectId}/chat-messages/search` | SALES, ADMIN, CUSTOMER, DESIGNER | Search chat messages |
+| GET | `/admin/projects/{projectId}/workflow` | ADMIN | Cross-stage workflow snapshot |
 
 ### Create / basic-information body
 
@@ -956,6 +1252,16 @@ Route: `projects`
 | `numberOfFloors` | int? | |
 | `budgetMin` / `budgetMax` | decimal? | |
 | `targetCompletionDate` | date? | `YYYY-MM-DD` |
+
+### Target completion date
+
+`PATCH /projects/{projectId}/target-completion-date`
+
+```json
+{ "targetCompletionDate": "2026-12-31" }
+```
+
+The field is nullable (send `null` to clear it). It cannot be in the past, cannot precede committed Production/schedule dates, and cannot conflict with an active project-start-fee deadline. Customer access is owner-scoped; Sales access is assignment-scoped; Admin is explicitly allowed. Success returns `projectId`, `targetCompletionDate`, `updatedAt`. Important errors: `INVALID_TARGET_COMPLETION_DATE`, `TARGET_COMPLETION_DATE_NOT_EDITABLE`, `TARGET_DATE_CONFLICTS_WITH_OPERATIONAL_DATES`, `TARGET_DATE_CONFLICTS_WITH_ACTIVE_START_FEE`.
 
 ### List query
 
@@ -1046,6 +1352,16 @@ Create or update an internal execution plan for the project.
 
 Common error codes: `INVALID_PROJECT_STATUS`, `INVALID_PHASE_DEADLINE_RANGE`, `PHASE_DEADLINE_EXCEEDS_TARGET`.
 
+**Production-only deadline update**
+
+`PUT /projects/{projectId}/phase-deadlines/production`
+
+```json
+{ "productionDeadline": "2026-09-25" }
+```
+
+`productionDeadline` is required (`YYYY-MM-DD`). Response contains `projectId`, `orderId`, `phase: PRODUCTION`, `dueDate`, `startedAt`, `completedAt`, and derived `status`. This action exists for the post-quotation/order workflow where only the Production deadline is being configured; it does not replace the two-phase planning request above.
+
 ### Sales assignment
 
 ```json
@@ -1076,6 +1392,10 @@ Customers cannot use this endpoint. Designer target statuses are restricted (`Pr
 ```json
 { "rejectionReason": "Out of service area" }
 ```
+
+### Complete project
+
+`PATCH /projects/{projectId}/complete` has no body. Assigned Sales or Admin may call it only after project status is `DELIVERED` and the related Order satisfies completion/payment readiness. It is idempotent when already `COMPLETED`; success returns the completion snapshot and sets `completedAt`. Typical conflicts include `PROJECT_NOT_DELIVERED` and Order/payment readiness errors.
 
 ### Reopen proposal
 
@@ -1119,6 +1439,26 @@ In one transaction the backend:
 ### Chat message search
 
 **Query:** `q`, `page`, `limit`
+
+### Customer project review
+
+`POST /projects/{projectId}/review` body:
+
+```json
+{
+  "rating": 5,
+  "designQualityRating": 5,
+  "serviceQualityRating": 4,
+  "deliveryRating": 5,
+  "comment": "Delivered as agreed."
+}
+```
+
+All four ratings are required integers from 1 through 5. Only the owning Customer may read/create the review, the project must be `COMPLETED`, and only one review is allowed. New reviews default `allowPublicDisplay=false`; public consent is a separate endpoint in §23. Errors: `PROJECT_REVIEW_NOT_FOUND`, `PROJECT_REVIEW_ALREADY_EXISTS`, `PROJECT_NOT_COMPLETED`, `PROJECT_REVIEW_FORBIDDEN`, `PROJECT_REVIEW_RATING_INVALID`.
+
+### Admin workflow snapshot
+
+`GET /admin/projects/{projectId}/workflow` is ADMIN-only and read-only. It returns project identity/current status/stage, terminal rejection flag, owners, and ordered `stages[]`; each stage contains `key`, `label`, `state`, `statusInStage`, summary/blocker count, metrics, links, and facts. Empty GUID is rejected; an unknown project returns `404`; success message is `Project workflow retrieved successfully.`
 
 ### Response — `ProjectDto`
 
@@ -1176,6 +1516,7 @@ Controller uses `[Route("")]` — absolute paths.
 | GET | `/proposals/{proposalId}` | same |
 | PATCH | `/proposals/{proposalId}` | DESIGNER, SALES, ADMIN |
 | PATCH | `/proposals/{proposalId}/publish` | DESIGNER, SALES, ADMIN |
+| POST | `/proposals/{proposalId}/reopen-for-editing` | DESIGNER, SALES, ADMIN |
 | PATCH | `/proposals/{proposalId}/select-final` | CUSTOMER |
 | PATCH | `/proposals/{proposalId}/request-revision` | CUSTOMER |
 
@@ -1234,6 +1575,12 @@ Controller uses `[Route("")]` — absolute paths.
 On first successful select-final, the backend **auto-creates a draft quotation** from the selected proposal in the same transaction and returns its `quotationId`. Idempotent re-call when the proposal is already `SELECTED` returns `200` without creating another quotation (`quotationId` may be omitted).
 
 Sales normally continue from this draft (`PATCH` quotation → `PATCH` send). `POST /projects/{projectId}/quotations` remains as a manual fallback for SALES/ADMIN.
+
+### Reopen a published proposal for editing
+
+`POST /proposals/{proposalId}/reopen-for-editing` has no body. It changes a `PUBLISHED` proposal back to `DRAFT`, clears `publishedAt`, and returns `proposalId`, `projectId`, `proposalStatus`, `projectStatus`, `updatedAt`. The project must still be `PROPOSAL_CONSULTING`; selected proposals and proposals that already have a quotation cannot be reopened. Assignment/resource scope still applies to Designer/Sales; Admin is explicitly allowed.
+
+Errors: `PROPOSAL_REOPEN_NOT_ALLOWED`, `PROPOSAL_HAS_QUOTATION` (`409`), `PROPOSAL_ALREADY_SELECTED`, proposal not found, or `403`.
 
 ### Create scene
 
@@ -1448,7 +1795,7 @@ Planner catalog for placing assets: [§8c](#8c-catalog--layout-assets) · `GET /
 
 **PUT response** (`RoomPlannerSceneSaveResponseDto`): `sceneId`, `mongoSceneId`, `lastSavedAt`
 
-See `docs/mongodb-room-planner-guide.md` for nested document details.
+Nested planner document details in this section are derived from the current DTOs, validators and Mongo repository.
 
 ---
 
@@ -1610,31 +1957,36 @@ Absolute routes on `OrdersController`.
 | --- | --- | --- |
 | GET | `/projects/{projectId}/orders` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | GET | `/orders/{orderId}` | same |
+| GET | `/orders/me` | CUSTOMER · paginated own Orders |
 | PATCH | `/orders/{orderId}/delivery-details` | CUSTOMER, ADMIN |
 | POST | `/orders/{orderId}/payments/deposit` | CUSTOMER, SALES, ADMIN |
 | POST | `/orders/{orderId}/payments/remaining` | SALES, ADMIN |
-| PATCH | `/orders/{orderId}/prepare-final-payment` | SALES, ADMIN |
+| GET | `/orders/{orderId}/payments` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
+| PATCH | `/orders/{orderId}/prepare-final-payment` | ADMIN · **obsolete** |
 | PATCH | `/orders/{orderId}/complete` | SALES, ADMIN |
 | POST | `/orders/{orderId}/production-request` | SALES, ADMIN |
-| PATCH | `/orders/{orderId}/start-delivery` | SALES, PRODUCTION, ADMIN |
-| PATCH | `/orders/{orderId}/complete-delivery` | SALES, PRODUCTION, ADMIN · legacy full-batch shortcut |
+| PATCH | `/orders/{orderId}/start-delivery` | ADMIN · **obsolete** |
+| PATCH | `/orders/{orderId}/complete-delivery` | ADMIN · **obsolete legacy shortcut** |
 | PATCH | `/orders/{orderId}/confirm-delivery` | CUSTOMER |
 | GET | `/orders/{orderId}/deliveries` | CUSTOMER, SALES, PRODUCTION, ADMIN |
 | GET | `/orders/{orderId}/deliveries/{deliveryId}` | same |
-| POST | `/orders/{orderId}/deliveries` | SALES, PRODUCTION, ADMIN · create delivery batch |
-| PATCH | `/orders/{orderId}/deliveries/{deliveryId}/complete` | SALES, PRODUCTION, ADMIN · complete batch |
-| GET | `/orders/me` | CUSTOMER · paginated my orders |
+| POST | `/orders/{orderId}/deliveries` | PRODUCTION, ADMIN · create delivery batch |
+| PATCH | `/orders/{orderId}/deliveries/{deliveryId}/complete` | PRODUCTION, ADMIN · complete batch |
+| GET | `/orders/{orderId}/delivery-tracking` | CUSTOMER, SALES, PRODUCTION, ADMIN |
 | POST | `/orders/{orderId}/product-issues` | CUSTOMER · multipart evidence |
 | GET | `/orders/{orderId}/product-issues` | CUSTOMER, SALES, PRODUCTION, ADMIN |
+| GET | `/projects/{projectId}/product-issues` | CUSTOMER, SALES, PRODUCTION, ADMIN |
 | GET | `/product-issues/{issueId}` | same |
 
-**Delivery flow (multi-batch + legacy shortcut):**
+> Source correction: current controllers restrict batch creation/completion to `PRODUCTION,ADMIN`. The three obsolete delivery/final-payment shortcuts are `ADMIN` only. New clients must use confirmed schedules plus delivery batches.
+
+**Delivery flow (current multi-batch flow + obsolete Admin shortcuts):**
 
 1. Related production request must be **`COMPLETED`** before any delivery action; otherwise `409 PRODUCTION_NOT_COMPLETED`.
-2. `start-delivery` requires order `READY_FOR_DELIVERY`, at least one **confirmed** delivery schedule, and all deliverable items `READY`. Moves order/project to `DELIVERING`.
-3. **Partial delivery:** `POST /orders/{orderId}/deliveries` creates an `IN_PROGRESS` batch with per-item quantities. `PATCH .../complete` increments `order_items.delivered_quantity`, may set item status `PARTIALLY_DELIVERED` or `DELIVERED`, and marks the batch `COMPLETED`.
+2. A confirmed delivery schedule is required by the current batch flow. `POST /orders/{orderId}/deliveries` validates readiness and creates an `IN_PROGRESS` batch.
+3. `PATCH .../complete` increments `order_items.delivered_quantity`, may set item status `PARTIALLY_DELIVERED` or `DELIVERED`, and marks the batch `COMPLETED`.
 4. Multiple active delivery schedules per project are allowed (multi-round delivery).
-5. `complete-delivery` (legacy) auto-creates one batch with all remaining deliverable quantities and completes it in one call.
+5. `start-delivery`, `complete-delivery` and `prepare-final-payment` remain Admin-only obsolete compatibility actions. Do not build new FE/Mobile flows on them.
 6. Customer `confirm-delivery` when **all** deliverable quantities are delivered — sets `customerConfirmedDeliveryAt`, project `DELIVERED`, triggers remaining payment flow.
 
 Quantity rules:
@@ -1743,9 +2095,27 @@ No body. Marks batch `COMPLETED`, updates item delivered quantities/statuses. Re
 
 `DeliveryDetailDto` adds `items[]` with per-line `quantity`, `productNameSnapshot`, `note`.
 
+### Order payment history
+
+`GET /orders/{orderId}/payments`
+
+- **Roles:** CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN; project/order scope still applies.
+- **Filters:** `status?` (`PaymentStatus`), `paymentType?` (`PaymentType`).
+- **Response:** Order totals (`totalAmount`, `depositAmount`, `paidAmount`, `remainingAmount`) plus `payments[]`; each payment embeds transaction attempts with provider/method/status/time/failure reason.
+- **Flow/detail:** Read-only reconciliation endpoint. Do not derive Order paid/remaining totals by summing client-visible transactions; use returned Order totals.
+
+### Delivery tracking
+
+`GET /orders/{orderId}/delivery-tracking`
+
+- **Roles:** CUSTOMER, SALES, PRODUCTION, ADMIN.
+- **Request:** `orderId` path only; no body/filter.
+- **Response:** Ordered/delivered/remaining quantities, progress percent, completed/in-progress/upcoming counts, next delivery time and batch timeline.
+- **Flow/detail:** Read-only projection over Order items, delivery batches and delivery schedules. Useful for Web/Mobile tracking without N+1 schedule calls.
+
 ### Complete delivery (legacy shortcut)
 
-No request body. Creates and completes one batch with all remaining deliverable quantities.
+No request body. Admin-only obsolete compatibility path; creates and completes one batch with all remaining deliverable quantities. New clients must not use it.
 
 ### Confirm delivery (customer)
 
@@ -1802,6 +2172,23 @@ Order item formula:
 `OrderStatus`: `CREATED`, `DEPOSIT_PENDING`, `DEPOSIT_PAID`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `DELIVERED`, `FINAL_PAYMENT_PENDING`, `COMPLETED`, `CANCELLED`
 
 `OrderItemStatus`: `PENDING`, `IN_PRODUCTION`, `READY`, `UNAVAILABLE`, `PARTIALLY_DELIVERED`, `DELIVERED`, `CANCELLED`
+
+### Order error codes and validation cases
+
+| Error code | Case |
+| --- | --- |
+| `ORDER_NOT_FOUND`, `ORDER_ITEM_NOT_FOUND`, `DELIVERY_NOT_FOUND` | Path/line resource does not exist or is not visible |
+| `INVALID_ORDER_STATUS`, `ORDER_NOT_DELIVERING`, `ORDER_NOT_AWAITING_CUSTOMER_CONFIRMATION` | Current lifecycle state does not allow action |
+| `ORDER_DELIVERY_DETAILS_INVALID`, `ORDER_DELIVERY_DETAILS_REQUIRED`, `ORDER_DELIVERY_DETAILS_LOCKED` | Missing/blank delivery fields, deposit precondition, or post-deposit lock |
+| `DEPOSIT_ALREADY_PAID`, `REMAINING_PAYMENT_ALREADY_PAID`, `ORDER_PAYMENT_ALREADY_STARTED` | Duplicate or conflicting payment flow |
+| `PRODUCTION_NOT_COMPLETED`, `DELIVERABLE_ITEMS_NOT_READY`, `DELIVERABLE_ITEMS_NOT_DELIVERED` | Production/delivery readiness failed |
+| `PROJECT_SCHEDULE_ID_REQUIRED`, `DELIVERY_SCHEDULE_INVALID`, `DELIVERY_SCHEDULE_NOT_CONFIRMED`, `DELIVERY_SCHEDULE_ALREADY_USED`, `DELIVERY_SCHEDULE_NOT_STARTED` | Delivery schedule precondition failed |
+| `DELIVERY_BATCH_EMPTY`, `DUPLICATE_ORDER_ITEM_IN_BATCH`, `INVALID_DELIVERY_QUANTITY`, `DELIVERY_BATCH_IN_PROGRESS` | Invalid delivery batch body or concurrency rule |
+| `ORDER_ITEM_NOT_DELIVERABLE`, `NO_REMAINING_DELIVERY_QUANTITY` | Item cancelled/unavailable/already fully delivered |
+| `REMAINING_PAYMENT_NOT_REQUIRED`, `REMAINING_PAYMENT_NOT_PAID`, `ORDER_NOT_READY_TO_COMPLETE` | Final settlement/completion condition failed |
+| `ORDER_LIST_PAGINATION_INVALID` | `/orders/me` page/pageSize invalid |
+
+Business validation generally returns `400` or `409` depending on whether the request is malformed or conflicts with current state. Authorization/ownership returns `401/403`; clients must branch on HTTP status and `errorCode`, not message text.
 
 ### Product issue reports (record-only)
 
@@ -2004,6 +2391,9 @@ Includes: `versionNo`, `versionTitle`, `status`, `feasibilityStatus`, production
 | GET | `/project-areas/{projectAreaId}` | same |
 | PATCH | `/project-areas/{id}` | SALES, DESIGNER, ADMIN |
 | PATCH | `/project-areas/{id}/cancel` | SALES, DESIGNER, ADMIN |
+| POST | `/project-areas/{projectAreaId}/files` | SALES, DESIGNER, ADMIN · multipart |
+| GET | `/project-areas/{projectAreaId}/files` | CUSTOMER, SALES, DESIGNER, ADMIN |
+| PATCH | `/project-areas/{projectAreaId}/files/{fileId}/primary` | SALES, DESIGNER, ADMIN |
 | GET | `/project-areas/{projectAreaId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Area measurement gallery |
 | POST | `/project-areas/{projectAreaId}/measurement-images/{fileId}/link` | SALES, DESIGNER, ADMIN | Link captured photo to area |
 | DELETE | `/project-areas/{projectAreaId}/measurement-images/{fileId}/link` | SALES, DESIGNER, ADMIN | Unlink photo from area |
@@ -2029,6 +2419,10 @@ Includes: `versionNo`, `versionTitle`, `status`, `feasibilityStatus`, production
 
 `areaType`: `STORE`, `FLOOR`, `ROOM`, `ZONE`, `OUTDOOR_AREA`, `OTHER`  
 `status`: `DRAFT`, `NEED_MEASUREMENT`, `MEASURED`, `VERIFIED`, `CANCELLED`
+
+### Project-area files
+
+Upload uses `multipart/form-data` with the same `file`, `fileType`, `visibility?`, `note?` contract and 100 MiB request limit as project files. List filters are `fileType?`, `visibility?`, `page` (default 1), `limit` (default 20). Customer visibility is service-filtered; merely having the route role does not expose staff/private files. Setting primary has no body and requires the file to be linked to that area.
 
 ### Measurement images (area assignment)
 
@@ -2286,7 +2680,7 @@ Project-wide gallery: `GET /projects/{projectId}/measurement-images` with option
 | --- | --- | --- |
 | POST | `/projects/{projectId}/chats` | ADMIN |
 | GET | `/projects/{projectId}/chats` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
-| PATCH | `/project-chats/{chatId}/status` | SALES, DESIGNER, PRODUCTION, ADMIN |
+| PATCH | `/project-chats/{chatId}/status` | SALES, DESIGNER, ADMIN |
 | POST | `/project-chats/{chatId}/messages` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | POST | `/project-chats/{chatId}/messages/files` | same · multipart |
 | GET | `/project-chats/{chatId}/messages` | same |
@@ -2408,7 +2802,7 @@ Realtime push: `/hubs/notifications` (§22).
 
 ## 20. Payments
 
-Primary guide for provider flows: `docs/payment-service-guide.md`.
+Provider behavior below is derived from the current payment controllers, services and provider adapters.
 
 Webhooks are the **source of truth** for payment confirmation. Return URLs are UI-only.
 
@@ -2680,6 +3074,16 @@ Period fields:
 | 400 | `FINANCIAL_CURRENCY_INVALID` | Unsupported currency |
 | 401/403 | auth result | Non-admin or unauthenticated request |
 
+### `GET /admin/financial/summary/{metric}/drilldown`
+
+**Roles:** ADMIN. Read-only drill-down for a summary card.
+
+- `metric`: `COLLECTED`, `OUTSTANDING`, `CONTRACTED_RECEIVABLE`, `ORDER_VALUE`, `FAILED_TRANSACTIONS`, or `ACTIVE_PAYMENTS`.
+- Query: required custom range `from`, `to`; optional `currency` (currently `VND`), `projectId`, `paymentType`, `status`, `provider`, `groupBy`, `page`, `pageSize`, `sortBy`, `sortDirection`.
+- `groupBy=PROJECT` is currently supported only for `COLLECTED`; its rows include customer/order totals and collection split fields. Otherwise rows identify the backing project/order/payment/transaction.
+- Response: `metric`, `totalAmount`, `totalCount`, `currency`, resolved period, `breakdowns[]`, paged `items[]`.
+- Errors: `FINANCIAL_METRIC_INVALID`, `FINANCIAL_GROUP_BY_INVALID`, period/currency errors, and invalid paging/filter errors.
+
 ### `GET /admin/financial/receivables`
 
 **Roles:** ADMIN
@@ -2692,14 +3096,17 @@ Returns current outstanding Payment obligations and active Order receivables sep
 
 | Param | Type | Default | Notes |
 | --- | --- | --- | --- |
+| `keyword` | string? | null | Project/order/customer search |
+| `collectionState` | string? | null | Current collection-state filter |
+| `minAgeDays` / `maxAgeDays` | int? | null | Receivable age bounds |
 | `projectId` | guid? | null | Filter one project |
 | `customerId` | guid? | null | Filter by order customer |
 | `salesId` | guid? | null | Matches `orders.sales_id` or `projects.assigned_sales_id` |
 | `paymentType` | `PaymentType?` | null | When supplied, returns only orders with a matching active collectible payment |
 | `paymentStatus` | `PaymentStatus?` | null | Usually `PENDING` or `PROCESSING`; only active collectible payments are considered |
 | `orderStatus` | `OrderStatus?` | null | Filter active receivable orders |
-| `from` | DateTimeOffset? | null | Optional range start for `orders.confirmed_at` |
-| `to` | DateTimeOffset? | null | Optional range end for `orders.confirmed_at`; midnight means full local day |
+| `confirmedFrom` / `confirmedTo` | DateTimeOffset? | null | Range on `orders.confirmed_at`; midnight `to` means full local day |
+| `from` / `to` | DateTimeOffset? | null | Backward-compatible aliases of `confirmedFrom` / `confirmedTo` |
 | `page` | int | `1` | Must be `> 0` |
 | `pageSize` | int | `20` | `1..100` |
 | `sortBy` | string? | `confirmedAt` | `confirmedAt`, `projectCode`, `projectName`, `orderCode`, `orderStatus`, `finalTotalAmount`, `remainingAmount` |
@@ -2760,6 +3167,10 @@ Do not add `outstandingPaymentAmount` and `contractedReceivableAmount` together 
 | --- | --- | --- |
 | 400 | `FINANCIAL_RECEIVABLE_FILTER_INVALID` | Invalid paging, sort, or date range |
 | 401/403 | auth result | Non-admin or unauthenticated request |
+
+### `GET /admin/financial/receivables/orders/{orderId}`
+
+**Roles:** ADMIN. No body/query. Returns one receivable with order/project/customer identity, payment-progress and aging summary, all payment rounds (provider, attempts, failures), current active payment when present, and `suggestedAction`. Unknown/non-receivable order returns `404 FINANCIAL_ORDER_NOT_FOUND` with `Financial receivable order was not found.` Success message: `Financial receivable detail retrieved successfully.`
 
 ### `GET /admin/financial/payment-breakdown`
 
@@ -2971,6 +3382,14 @@ Returns the same financial overview shape for one project. Nullable order/paymen
 | 404 | `PROJECT_NOT_FOUND` | Project detail does not exist |
 | 401/403 | auth result | Non-admin or unauthenticated request |
 
+### `GET /admin/financial/projects/{projectId}/statement`
+
+**Roles:** ADMIN. Read-only ledger-style project statement.
+
+- Query: `from`, `to`, `entryType?` (`COLLECTION`, `REFUND`, `ADJUSTMENT`), `paymentType?`, `status?`, `provider?`, `page` (default 1), `pageSize` (default 10, max 100), `sortDirection?`.
+- Response: project identity; summary (`openingBalance`, `totalCollected`, `totalRefunded`, `netCollected`, `closingBalance`); paged entries with `direction` (`CREDIT`/`DEBIT`), type, references, provider/status, amount and running balance.
+- Errors: `FINANCIAL_DATE_RANGE_INVALID`, `FINANCIAL_FILTER_INVALID` for entry type/paging, and `FINANCIAL_PROJECT_NOT_FOUND`. Success message: `Project financial statement retrieved successfully.`
+
 ### `GET /admin/financial/payments`
 
 **Roles:** ADMIN
@@ -3135,7 +3554,37 @@ The added indexes target implemented query paths only:
 
 ---
 
-## 20b. Role Dashboards (queues + KPIs)
+## 20b. Admin Financial Discount Analytics
+
+All endpoints are **ADMIN-only**, read-only projections. They do not mutate Order/Quotation discounts.
+
+| Method | Path | Filters / request | Response purpose |
+| --- | --- | --- | --- |
+| GET | `/admin/financial/discounts/summary` | `from?`, `to?`, `currency?`, `projectStatus?`, `salesId?`, `customerId?` | Gross value, item/total discount, pre-VAT net, VAT, final value, average rate and counts |
+| GET | `/admin/financial/discounts/projects` | Date/project/customer/sales, `hasDiscount?`, `minDiscountRate?`, paging/sort | Paged project/order discount rows |
+| GET | `/admin/financial/discounts/orders/{orderId}` | `orderId` path | Order header discount metrics and line-item breakdown |
+| GET | `/admin/financial/discounts/trend` | `from?`, `to?`, `granularity?`, `currency?`, `salesId?` | Time buckets for gross, discount, rate and counts |
+| GET | `/admin/financial/discounts/exceptions` | Date, `thresholdRate?`, `thresholdAmount?`, `salesId?`, paging | High-rate/high-amount exception rows |
+
+**Semantics**
+
+- `grossOrderValue` is value before item discounts and VAT.
+- `itemDiscountAmount`/`totalDiscountAmount` come from snapshotted Order items; this is not a recalculation from the current catalog.
+- `netOrderValueBeforeVat`, `vatAmount` and `finalOrderValue` remain separate so clients do not apply VAT twice.
+- Reporting timezone is `Asia/Ho_Chi_Minh`; supported currency follows Admin financial rules (currently `VND`).
+- Exception types: `HIGH_DISCOUNT_RATE`, `HIGH_DISCOUNT_AMOUNT`.
+
+| HTTP | Error code | Case |
+| --- | --- | --- |
+| 400 | `FINANCIAL_DISCOUNT_DATE_RANGE_INVALID` | Missing/invalid range or `from > to` |
+| 400 | `FINANCIAL_DISCOUNT_FILTER_INVALID` | Paging/sort/filter/threshold invalid |
+| 400 | `FINANCIAL_DISCOUNT_GRANULARITY_INVALID` | Unsupported trend granularity |
+| 400 | `FINANCIAL_CURRENCY_INVALID` | Unsupported currency |
+| 404 | `FINANCIAL_DISCOUNT_ORDER_NOT_FOUND` | Order detail does not exist |
+
+---
+
+## 20c. Role Dashboards (queues + KPIs)
 
 Server-side work queues so FE can render without N+1 account lookups or client-side next-action rules. No dedicated queue tables — projections over Project / Order / ProductionRequest.
 
@@ -3161,7 +3610,7 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 | `search` | Project code/name or customer name |
 | `page`, `limit` | Default `1` / `20`, max `100` |
 | `workType` | Production queue only: `CUSTOMIZATION_REVIEW` \| `PRODUCTION_REQUEST` \| `DELIVERY` |
-| `status` | Production queue: status theo `workType` (xem `docs/api-spec-production-dashboard.md`) |
+| `status` | Production queue status interpreted according to `workType` |
 | `dueBucket` | Production queue: `OVERDUE` \| `TODAY` \| `THIS_WEEK` \| `LATER` |
 
 ### Queue response
@@ -3205,7 +3654,7 @@ Sales next-action uses project status plus latest non-cancelled order (deposit /
 
 **Designer:** `measurementDue`, `proposalsInProgress`, `revisionRequested`, `overdueTasks`
 
-**Production:** `pendingCustomizationReview`, `pendingStart`, `pendingReview` (alias of `pendingStart`), `inProduction`, `readyToComplete`, `overdueTasks`, `readyForDelivery`, `awaitingDeliverySchedule`, `completedInRange`. Default `scope=mine`. Customization KPI chỉ khi `scope=all`. Không có `unavailableItems` đợt này. Chi tiết: `docs/api-spec-production-dashboard.md`.
+**Production:** `pendingCustomizationReview`, `pendingStart`, `pendingReview` (alias of `pendingStart`), `inProduction`, `readyToComplete`, `overdueTasks`, `readyForDelivery`, `awaitingDeliverySchedule`, `completedInRange`. Default `scope=mine`. Customization KPI chỉ khi `scope=all`. `unavailableItems` is not a KPI field; use `GET /production-items/unavailable` for that queue.
 
 KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local).
 
@@ -3275,6 +3724,7 @@ Read-only dashboard endpoint for Sales/Admin/Designer/Production to see proposal
 | PATCH | `/production-requests/{id}/start` | PRODUCTION, ADMIN |
 | PATCH | `/production-requests/{id}/complete` | PRODUCTION, ADMIN |
 | PATCH | `/production-items/{id}/status` | PRODUCTION, ADMIN |
+| GET | `/production-items/unavailable` | PRODUCTION, ADMIN |
 | GET | `/production-staff/available` | SALES, ADMIN |
 
 Create production request: `POST /orders/{orderId}/production-request` (§13).
@@ -3323,6 +3773,14 @@ When completing production, each item must be `COMPLETED` or `CANCELLED`. Cancel
 
 **Response item:** `accountId`, `fullName`, `email`, `avatarUrl?`, `accountStatus`, request counts, `isAvailable`
 
+### Unavailable production items
+
+`GET /production-items/unavailable` is a read-only PRODUCTION/ADMIN queue of cancelled production items mapped to unavailable Order items.
+
+- Query: `keyword?`, `assignedTo?`, `page` (default 1), `pageSize` (default 20, max 100).
+- Item: `productionItemId`, `productionRequestId/code`, project/order IDs and codes, assignee, `orderItemId`, product/version snapshots, quantity, status, `cancellationReason`, `completedAt`.
+- Invalid paging returns `400` with `PRODUCTION_INVALID_QUERY` and message `Production unavailable items pagination is invalid.` Success message: `Unavailable production items retrieved successfully.`
+
 ### Completion response
 
 `ProductionCompletionDto`: `productionRequestId`, `productionStatus`, `orderStatus`, `projectStatus`, `actualStartDate?`, `actualCompletionDate?`, `readyOrderItemCount`, `unavailableOrderItemCount`, `finalTotalAmount`, `paidAmount?`, `remainingAmount?`
@@ -3351,7 +3809,7 @@ Negotiate example:
 GET /hubs/notifications/negotiate?negotiateVersion=1
 ```
 
-Details: `docs/signalr-notification-guide.md`.
+Hub behavior here is derived from the current hub classes, authorization setup and realtime dispatch services.
 
 ### Chat notification event
 
@@ -3382,7 +3840,7 @@ Route: `projects/{projectId}/showcase`
 | Method | Path | Roles | Description |
 | --- | --- | --- | --- |
 | POST | `/projects/{projectId}/showcase` | SALES, ADMIN | Create DRAFT showcase (one per project) |
-| GET | `/projects/{projectId}/showcase` | SALES, DESIGNER, ADMIN | Get showcase with media |
+| GET | `/projects/{projectId}/showcase` | SALES, ADMIN | Get showcase with media |
 
 **Create body** (all optional — defaults title from project name):
 
@@ -3430,11 +3888,12 @@ Route: `project-showcases/{showcaseId}/media`
 
 | Method | Path | Roles | Description |
 | --- | --- | --- | --- |
-| POST | `/project-showcases/{showcaseId}/media/upload` | SALES, DESIGNER, ADMIN | Multipart upload + attach new showcase image atomically |
-| POST | `/project-showcases/{showcaseId}/media` | SALES, DESIGNER, ADMIN | Add media from existing project file |
-| PATCH | `/project-showcases/{showcaseId}/media/reorder` | SALES, DESIGNER, ADMIN | Reorder gallery |
-| PATCH | `/project-showcases/{showcaseId}/media/{mediaId}/cover` | SALES, DESIGNER, ADMIN | Set single cover image |
-| DELETE | `/project-showcases/{showcaseId}/media/{mediaId}` | SALES, DESIGNER, ADMIN | Remove media row; if deleted item was cover and other media remain, the next item by `displayOrder` becomes cover |
+| POST | `/project-showcases/{showcaseId}/media` | SALES, ADMIN | Multipart upload + attach new showcase image atomically |
+| POST | `/project-showcases/{showcaseId}/media/upload` | SALES, ADMIN | Backward-compatible multipart upload alias |
+| POST | `/project-showcases/{showcaseId}/media/from-file` | SALES, ADMIN | Add media from existing project file |
+| PATCH | `/project-showcases/{showcaseId}/media/reorder` | SALES, ADMIN | Reorder gallery |
+| PATCH | `/project-showcases/{showcaseId}/media/{mediaId}/cover` | SALES, ADMIN | Set single cover image |
+| DELETE | `/project-showcases/{showcaseId}/media/{mediaId}` | SALES, ADMIN | Remove media row; if deleted item was cover and other media remain, the next item by `displayOrder` becomes cover |
 
 **Multipart upload** (`POST .../media/upload`, `Content-Type: multipart/form-data`)
 
@@ -3448,7 +3907,7 @@ Route: `project-showcases/{showcaseId}/media`
 
 Creates `StoredFile` + project `FileLink(PORTFOLIO_IMAGE)` + `ProjectShowcaseMedia` in one request. If DB persistence fails after Firebase upload, the uploaded object is deleted.
 
-**Add media body (existing project file)**
+**Add media body (existing project file, `POST .../media/from-file`)**
 
 ```json
 {
@@ -3684,7 +4143,30 @@ CLI (not HTTP): `dotnet run --project src/FurniSpace.API -- reindex {accounts|pr
 
 ---
 
-## 4b. Admin Reports (SCRUM-428 → SCRUM-436)
+## Appendix C — Admin Project Attention Reports
+
+Controller: `AdminProjectReportsController` · **ADMIN only** · read-only.
+
+| Method | Path | Request | Response |
+| --- | --- | --- | --- |
+| GET | `/admin/project-reports` | Query filters/paging/sort below | Paged attention rows |
+| GET | `/admin/project-reports/{projectId}` | `projectId` path | Stage health, flow progress, commercial and terminal snapshots |
+
+**List filters:** `keyword?`, `stage?`, `projectStatus?`, `attentionReason?`, `severity?`, `ownerRole?`, `salesId?`, `designerId?`, `attentionOnly` (default `true`), `minAgeDays?`, `from?`, `to?`, `page` (default 1), `pageSize` (default 20), `sortBy` (default `severityDesc`), `sortDirection` (default `desc`).
+
+**List row:** project/customer/assignee identity, `stage`, `ageDays`, `ageInStatusDays`, `attentionReason`, `suggestedAction`, `ownerRole`, `severity`, `submittedAt`.
+
+**Detail flow:** read-only projection; it does not update Project or create tasks/notifications. `currentStageHealth` contains state, blockers, next action and deep links; `flowProgress` returns stage states; `commercialSnapshot` returns fee/order/payment totals; terminal projects can include completion/rejection summary.
+
+| HTTP | Error code | Message/case |
+| --- | --- | --- |
+| 400 | `PROJECT_REPORT_FILTER_INVALID` | Invalid date, paging, stage, severity, owner, attention or sort filter |
+| 404 | `PROJECT_NOT_FOUND` | Detail project does not exist |
+| 401/403 | auth result | Missing JWT or non-Admin |
+
+---
+
+## Appendix D — Admin Reports (SCRUM-428 → SCRUM-436)
 
 Controllers: `AdminReportsController`, `AdminProductionWorkloadController`  
 **Auth:** ADMIN only on all endpoints  
@@ -3766,10 +4248,21 @@ Soft cap `maxActiveRequests = 5`. `capacityState`: `AVAILABLE` \| `FULL` \| `OVE
 
 ---
 
-## Appendix C — Maintenance notes
+## Appendix E — Coverage and maintenance notes
+
+### Controller/action coverage evidence
+
+Source inventory performed against every `.cs` file under `src/FurniSpace.API/Controllers`:
+
+- **56 controller files**
+- **292 controller actions**
+- **296 HTTP attribute route variants**
+- The four additional variants are aliases on project-area create, project-schedule create, showcase media upload, and project phase-deadline dashboard.
+
+The domain route tables above cover all 292 actions. Both aliases are shown where one action has two route attributes. The audit also checked action-level authorization before class-level authorization, so `ADMIN` is listed only where the source attribute includes it. Route constraints such as `:guid`/`:int` are server matching constraints; client-facing tables retain the same parameter name and type in the surrounding contract.
 
 - Prefer this doc + live `/swagger/v1/swagger.json` when fields drift; DTO source of truth is `src/FurniSpace.Application/DTOs` (report models also in `src/FurniSpace.Shared/DTOs/Reports`).
   2190|- Routing is intentionally inconsistent in a few places (`/api/Accounts` vs `/accounts/...`, `/api/ProductVersions` vs `/ProductVersions`); paths above match controllers as coded.
 - `AccountsController` CRUD currently lacks `[Authorize]` — treat as a security gap until locked down.
 - Auth tokens are cookie-first; JSON body does not include raw access/refresh tokens.
-- Deeper payment / SignalR / room-planner / Firebase behavior: see related guides listed at the top of `docs/backend-api-dev-guide.md`.
+- For deeper behavior, follow the current payment/realtime/planner/storage source; `docs/backend-api-dev-guide.md` is secondary context only.

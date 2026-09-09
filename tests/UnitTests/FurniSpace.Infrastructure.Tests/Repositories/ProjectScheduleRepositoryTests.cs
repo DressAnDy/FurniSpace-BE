@@ -53,6 +53,7 @@ public sealed class ProjectScheduleRepositoryTests
         Assert.Equal(1, total);
         Assert.Single(items);
         Assert.Equal(data.DeliveryScheduleId, items[0].ScheduleId);
+        Assert.Equal("Please deliver after 15:00.", items[0].CustomerNote);
     }
 
     [Fact]
@@ -69,6 +70,7 @@ public sealed class ProjectScheduleRepositoryTests
         Assert.Equal(1, total);
         Assert.Single(items);
         Assert.Equal(data.ProductionId, items[0].AssignedStaffId);
+        Assert.Equal("Please deliver after 15:00.", items[0].CustomerNote);
     }
 
     [Fact]
@@ -830,6 +832,7 @@ public sealed class ProjectScheduleRepositoryTests
                 ScheduledStart = DateTime.UtcNow.AddDays(2),
                 ScheduledEnd = DateTime.UtcNow.AddDays(2).AddHours(2),
                 Status = ProjectScheduleStatus.CONFIRMED,
+                CustomerNote = "Please deliver after 15:00.",
                 CreatedAt = DateTime.UtcNow
             },
             new ProjectSchedule

@@ -51,7 +51,8 @@ public sealed class OrderDetailDeliveryComposerTests
                         ProjectScheduleId = scheduleId,
                         ScheduledStart = scheduledStart,
                         ScheduledEnd = scheduledStart.AddHours(2),
-                        Location = "Site A"
+                        Location = "Site A",
+                        CustomerNote = "Call before arrival"
                     }
                 }
             ],
@@ -70,6 +71,7 @@ public sealed class OrderDetailDeliveryComposerTests
         Assert.Equal(DeliveryStatus.COMPLETED, batch.Status);
         Assert.Equal(scheduleId, batch.ProjectScheduleId);
         Assert.Equal("Site A", batch.Location);
+        Assert.Equal("Call before arrival", batch.CustomerNote);
         var item = Assert.Single(batch.Items);
         Assert.Equal(orderItemId, item.OrderItemId);
         Assert.Equal(4, item.Quantity);

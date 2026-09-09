@@ -29,6 +29,7 @@ public sealed class OrderDetailDeliveryBatchDto
     public DateTime? ScheduledStart { get; init; }
     public DateTime? ScheduledEnd { get; init; }
     public string? Location { get; init; }
+    public string? CustomerNote { get; init; }
     public DateTime? CreatedAt { get; init; }
     public DateTime? CompletedAt { get; init; }
     public IReadOnlyList<OrderDetailDeliveryBatchItemDto> Items { get; init; } = [];

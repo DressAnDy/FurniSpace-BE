@@ -18,6 +18,7 @@ public sealed class ProjectScheduleListItemReadModel
     public DateTime? ScheduledEnd { get; set; }
     public string? Location { get; set; }
     public ProjectScheduleStatus? Status { get; set; }
+    public string? CustomerNote { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
 }

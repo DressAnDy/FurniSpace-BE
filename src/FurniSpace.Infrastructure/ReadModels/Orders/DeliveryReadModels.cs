@@ -11,6 +11,7 @@ public sealed class DeliveryScheduleSummaryReadModel
     public ProjectScheduleStatus? Status { get; init; }
     public Guid? AssignedStaffId { get; init; }
     public string? Location { get; init; }
+    public string? CustomerNote { get; init; }
 }
 
 public sealed class DeliveryListItemReadModel

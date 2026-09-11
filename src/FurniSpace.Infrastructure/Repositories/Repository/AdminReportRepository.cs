@@ -40,10 +40,8 @@ public sealed class AdminReportRepository : IAdminReportRepository
 
     private static readonly ProductionRequestStatus[] OpenProductionStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
-        ProductionRequestStatus.IN_PRODUCTION,
-        ProductionRequestStatus.BLOCKED
+        ProductionRequestStatus.PENDING,
+        ProductionRequestStatus.IN_PRODUCTION
     ];
 
     private readonly AppDbContext _db;
@@ -250,14 +248,15 @@ public sealed class AdminReportRepository : IAdminReportRepository
         var requests = await _db.ProductionRequestSet.AsNoTracking().ToListAsync(cancellationToken);
         var items = await _db.ProductionItemSet.AsNoTracking().ToListAsync(cancellationToken);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var productionDeadlines = await GetProductionDeadlinesByProjectAsync(requests, cancellationToken);
 
         var open = requests.Where(request =>
             request.Status.HasValue &&
             OpenProductionStatuses.Contains(request.Status.Value)).ToList();
 
         bool IsOverdue(Domain.Entities.ProductionRequest request) =>
-            request.EstimatedCompletionDate.HasValue &&
-            request.EstimatedCompletionDate.Value < today &&
+            productionDeadlines.TryGetValue(request.ProjectId, out var dueDate) &&
+            dueDate < today &&
             request.Status != ProductionRequestStatus.COMPLETED &&
             request.Status != ProductionRequestStatus.CANCELLED;
 
@@ -302,8 +301,8 @@ public sealed class AdminReportRepository : IAdminReportRepository
                 .OrderBy(item => item.Key)
                 .ToList(),
             OpenRequestCount = open.Count,
-            BlockedCount = requests.Count(item => item.Status == ProductionRequestStatus.BLOCKED),
-            PendingReviewCount = requests.Count(item => item.Status == ProductionRequestStatus.PENDING_REVIEW),
+            BlockedCount = 0,
+            PendingReviewCount = requests.Count(item => item.Status == ProductionRequestStatus.PENDING),
             UnassignedCount = open.Count(item => item.AssignedTo == null),
             OverdueCount = requests.Count(IsOverdue),
             CreatedInRange = requests.Count(item => InRange(item.CreatedAt, from, to)),
@@ -351,13 +350,12 @@ public sealed class AdminReportRepository : IAdminReportRepository
                     .Select(group => new ReportFacetCountDto { Key = group.Key, Count = group.Count() })
                     .OrderBy(item => item.Key)
                     .ToList(),
-                CustomerConfirmedInRange = orderItems.Count(item => InRange(item.CustomerConfirmedAt, from, to))
+                CustomerConfirmedInRange = deliveryOrders.Count(order =>
+                    InRange(order.CustomerConfirmedDeliveryAt, from, to))
             },
             OrderItems = new DeliveryOrderItemsDto
             {
-                PartialDeliveryCount = orderItems.Count(item =>
-                    (item.DeliveredQuantity ?? 0) > 0 &&
-                    (item.Quantity ?? 0) > (item.DeliveredQuantity ?? 0))
+                PartialDeliveryCount = 0
             },
             Schedules = new DeliverySchedulesDto
             {
@@ -839,13 +837,14 @@ public sealed class AdminReportRepository : IAdminReportRepository
             .ToListAsync(cancellationToken);
 
         var requests = await _db.ProductionRequestSet.AsNoTracking().ToListAsync(cancellationToken);
+        var productionDeadlines = await GetProductionDeadlinesByProjectAsync(requests, cancellationToken);
 
         bool IsOpen(Domain.Entities.ProductionRequest request) =>
             request.Status.HasValue && OpenProductionStatuses.Contains(request.Status.Value);
 
         bool IsOverdue(Domain.Entities.ProductionRequest request) =>
-            request.EstimatedCompletionDate.HasValue &&
-            request.EstimatedCompletionDate.Value < today &&
+            productionDeadlines.TryGetValue(request.ProjectId, out var dueDate) &&
+            dueDate < today &&
             request.Status != ProductionRequestStatus.COMPLETED &&
             request.Status != ProductionRequestStatus.CANCELLED;
 
@@ -853,7 +852,6 @@ public sealed class AdminReportRepository : IAdminReportRepository
         {
             var assigned = requests.Where(request => request.AssignedTo == account.AccountId).ToList();
             var openCount = assigned.Count(IsOpen);
-            var blockedCount = assigned.Count(request => request.Status == ProductionRequestStatus.BLOCKED);
             var overdueCount = assigned.Count(IsOverdue);
             var availableSlot = maxActiveRequests - openCount;
             var state = ResolveCapacityState(openCount, maxActiveRequests);
@@ -864,7 +862,7 @@ public sealed class AdminReportRepository : IAdminReportRepository
                 FullName = account.FullName,
                 Email = account.Email,
                 OpenRequestCount = openCount,
-                BlockedCount = blockedCount,
+                BlockedCount = 0,
                 OverdueCount = overdueCount,
                 MaxActiveRequests = maxActiveRequests,
                 AvailableSlot = availableSlot,
@@ -922,6 +920,31 @@ public sealed class AdminReportRepository : IAdminReportRepository
         }
 
         return CapacityOver;
+    }
+
+    private async Task<Dictionary<Guid, DateOnly>> GetProductionDeadlinesByProjectAsync(
+        IEnumerable<Domain.Entities.ProductionRequest> requests,
+        CancellationToken cancellationToken)
+    {
+        var projectIds = requests
+            .Select(request => request.ProjectId)
+            .Distinct()
+            .ToList();
+
+        if (projectIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await _db.ProjectPhaseTimelineSet
+            .AsNoTracking()
+            .Where(timeline =>
+                projectIds.Contains(timeline.ProjectId) &&
+                timeline.Phase == ProjectPhaseType.PRODUCTION)
+            .ToDictionaryAsync(
+                timeline => timeline.ProjectId,
+                timeline => timeline.DueDate,
+                cancellationToken);
     }
 
     private static bool InRange(DateTime? value, DateTime? from, DateTime? to)

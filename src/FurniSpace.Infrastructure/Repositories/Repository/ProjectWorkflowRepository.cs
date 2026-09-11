@@ -108,7 +108,8 @@ public sealed class ProjectWorkflowRepository : IProjectWorkflowRepository
                 {
                     OrderId = i.OrderId,
                     Quantity = i.Quantity,
-                    DeliveredQuantity = i.DeliveredQuantity
+                    Status = i.Status,
+                    DeliveredAt = i.DeliveredAt
                 })
                 .ToListAsync(cancellationToken);
 
@@ -120,11 +121,17 @@ public sealed class ProjectWorkflowRepository : IProjectWorkflowRepository
                 ProductionRequestId = r.ProductionRequestId,
                 ProductionCode = r.ProductionCode,
                 Status = r.Status,
-                EstimatedCompletionDate = r.EstimatedCompletionDate,
                 AssignedTo = r.AssignedTo,
                 CreatedAt = r.CreatedAt
             })
             .ToListAsync(cancellationToken);
+        var productionDeadline = await _db.ProjectPhaseTimelineSet
+            .AsNoTracking()
+            .Where(timeline =>
+                timeline.ProjectId == projectId &&
+                timeline.Phase == ProjectPhaseType.PRODUCTION)
+            .Select(timeline => (DateOnly?)timeline.DueDate)
+            .FirstOrDefaultAsync(cancellationToken);
 
         foreach (var assignedTo in productionRequests
                      .Where(r => r.AssignedTo.HasValue)
@@ -142,8 +149,7 @@ public sealed class ProjectWorkflowRepository : IProjectWorkflowRepository
                 .Select(i => new ProjectWorkflowProductionItemReadModel
                 {
                     ProductionRequestId = i.ProductionRequestId,
-                    Status = i.Status,
-                    EstimatedCompletionDate = i.EstimatedCompletionDate
+                    Status = i.Status
                 })
                 .ToListAsync(cancellationToken);
 
@@ -189,7 +195,7 @@ public sealed class ProjectWorkflowRepository : IProjectWorkflowRepository
                 ProductionRequestId = r.ProductionRequestId,
                 ProductionCode = r.ProductionCode,
                 Status = r.Status,
-                EstimatedCompletionDate = r.EstimatedCompletionDate,
+                ProductionDeadline = productionDeadline,
                 AssignedTo = r.AssignedTo,
                 AssignedToName = NameOf(r.AssignedTo),
                 CreatedAt = r.CreatedAt

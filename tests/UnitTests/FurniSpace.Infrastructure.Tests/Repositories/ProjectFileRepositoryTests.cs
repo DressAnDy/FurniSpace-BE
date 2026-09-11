@@ -27,6 +27,8 @@ public sealed class ProjectFileRepositoryTests
         var proposalAccess = await repository.GetReferenceProjectAccessAsync("PROPOSAL", data.ProposalId);
         var quotationAccess = await repository.GetReferenceProjectAccessAsync("QUOTATION", data.QuotationId);
         var orderAccess = await repository.GetReferenceProjectAccessAsync("ORDER", data.OrderId);
+        var productVersionAccess = await repository.GetReferenceProjectAccessAsync("PRODUCT_VERSION", data.ProductVersionId);
+        var projectAreaAccess = await repository.GetReferenceProjectAccessAsync("PROJECT_AREA", data.ProjectAreaId);
         var unknownAccess = await repository.GetReferenceProjectAccessAsync("UNKNOWN", Guid.NewGuid());
         var role = await repository.GetAccountRoleNameAsync(data.CustomerId);
 
@@ -35,6 +37,8 @@ public sealed class ProjectFileRepositoryTests
         Assert.Equal(data.ProjectId, proposalAccess?.ProjectId);
         Assert.Equal(data.ProjectId, quotationAccess?.ProjectId);
         Assert.Equal(data.ProjectId, orderAccess?.ProjectId);
+        Assert.Equal(data.ProjectId, productVersionAccess?.ProjectId);
+        Assert.Equal(data.ProjectId, projectAreaAccess?.ProjectId);
         Assert.Null(unknownAccess);
         Assert.Equal("CUSTOMER", role);
     }
@@ -76,6 +80,17 @@ public sealed class ProjectFileRepositoryTests
             Limit = 5
         });
         var catalogFiles = await repository.GetCatalogFilesByReferencesAsync(" project ", [data.ProjectId], customerVisibleOnly: true);
+        var areaReferencePage = await repository.GetFilesByReferenceAsync(new FileReferenceQueryReadModel
+        {
+            ReferenceType = "PROJECT_AREA",
+            ReferenceId = data.ProjectAreaId,
+            CustomerVisibleOnly = false,
+            Page = 1,
+            Limit = 5
+        });
+        var areaCatalogFiles = await repository.GetCatalogFilesByReferencesAsync("PROJECT_AREA", [data.ProjectAreaId], customerVisibleOnly: false);
+        var areaFileLink = await repository.GetFileLinkEntityAsync("PROJECT_AREA", data.ProjectAreaId, data.ProjectAreaFileId);
+        var areaFileLinks = await repository.GetFileLinkEntitiesByReferenceAsync("PROJECT_AREA", data.ProjectAreaId);
         var noCatalogFiles = await repository.GetCatalogFilesByReferencesAsync("PROJECT", [], customerVisibleOnly: false);
         var previewCount = await repository.CountProductPreviewFilesAsync(data.ProductId);
         var previews = await repository.GetProductPreviewFilesAsync(data.ProductId);
@@ -90,6 +105,11 @@ public sealed class ProjectFileRepositoryTests
         Assert.Equal(2, referencePage.Total);
         Assert.Equal(2, referencePage.Items.Count);
         Assert.Single(catalogFiles);
+        Assert.Single(areaReferencePage.Items);
+        Assert.Single(areaCatalogFiles);
+        Assert.NotNull(areaFileLink);
+        Assert.Single(areaFileLinks);
+        Assert.True(areaFileLink.IsPrimary);
         Assert.Empty(noCatalogFiles);
         Assert.Equal(1, previewCount);
         Assert.Single(previews);
@@ -100,7 +120,97 @@ public sealed class ProjectFileRepositoryTests
         Assert.NotNull(searchItem);
         Assert.Equal(data.ProjectId, searchItem.ProjectId);
         Assert.Contains(searchPage, item => item.FileId == data.FileId);
+        Assert.Contains(searchPage, item => item.FileId == data.ProjectAreaFileId);
         Assert.True(hasMeasurements);
+    }
+
+    [Fact]
+    public async Task GetMeasurementImageGalleryAsync_ReturnsScheduleLinkedImages()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var measurementFileId = Guid.NewGuid();
+        context.ProjectScheduleSet.Single(schedule => schedule.ScheduleId == data.ScheduleId).ScheduleType =
+            ProjectScheduleType.MEASUREMENT;
+        context.StoredFileSet.Add(CreateFile(
+            measurementFileId,
+            data.CustomerId,
+            "measurement.jpg",
+            FileStatus.ACTIVE,
+            DateTime.UtcNow));
+        context.FileLinkSet.Add(new FileLink
+        {
+            FileLinkId = Guid.NewGuid(),
+            FileId = measurementFileId,
+            ReferenceType = "PROJECT_SCHEDULE",
+            ReferenceId = data.ScheduleId,
+            FileType = FileType.SPACE_IMAGE,
+            Visibility = FileVisibility.STAFF_ONLY,
+            CreatedBy = data.CustomerId,
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var repository = new ProjectFileRepository(context);
+        var page = await repository.GetMeasurementImageGalleryAsync(new MeasurementImageGalleryQueryReadModel
+        {
+            ProjectId = data.ProjectId,
+            Page = 1,
+            Limit = 10
+        });
+
+        Assert.Equal(1, page.Total);
+        Assert.Single(page.Items);
+        Assert.Equal(measurementFileId, page.Items[0].FileId);
+        Assert.Equal(data.ScheduleId, page.Items[0].ScheduleId);
+    }
+
+    [Fact]
+    public async Task GetFileMetadataAsync_ReturnsLinkedProjectFileMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectFileRepository(context);
+
+        var metadata = await repository.GetFileMetadataAsync(data.FileId);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(data.FileId, metadata!.FileId);
+        Assert.Equal(data.FileLinkId, metadata.FileLinkId);
+        Assert.Equal("PROJECT", metadata.ReferenceType);
+        Assert.Equal(data.ProjectId, metadata.ReferenceId);
+        Assert.Equal(data.ProjectId, metadata.ProjectAccess?.ProjectId);
+    }
+
+    [Fact]
+    public async Task GetFileMetadataAsync_ReturnsProductVersionLinkedFileMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectFileRepository(context);
+
+        var metadata = await repository.GetFileMetadataAsync(data.VersionPreviewFileId);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(data.VersionPreviewFileId, metadata!.FileId);
+        Assert.Equal("PRODUCT_VERSION", metadata.ReferenceType);
+        Assert.Equal(data.ProductVersionId, metadata.ReferenceId);
+        Assert.Equal(data.ProjectId, metadata.ProjectAccess?.ProjectId);
+    }
+
+    [Fact]
+    public async Task GetFileMetadataAsync_ReturnsUnlinkedFileMetadata()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new ProjectFileRepository(context);
+
+        var metadata = await repository.GetFileMetadataAsync(data.UnlinkedFileId);
+
+        Assert.NotNull(metadata);
+        Assert.Equal(data.UnlinkedFileId, metadata!.FileId);
+        Assert.Null(metadata.FileLinkId);
+        Assert.True(string.IsNullOrEmpty(metadata.ReferenceType));
     }
 
     [Fact]
@@ -147,6 +257,8 @@ public sealed class ProjectFileRepositoryTests
         var unlinkedFileId = Guid.NewGuid();
         var productId = Guid.NewGuid();
         var productVersionId = Guid.NewGuid();
+        var projectAreaId = Guid.NewGuid();
+        var projectAreaFileId = Guid.NewGuid();
         var productPreviewFileId = Guid.NewGuid();
         var versionPreviewFileId = Guid.NewGuid();
         var fileLinkId = Guid.NewGuid();
@@ -167,6 +279,14 @@ public sealed class ProjectFileRepositoryTests
             CustomerId = customerId,
             ProjectName = "Kitchen",
             Status = ProjectStatus.SUBMITTED
+        });
+        context.ProjectAreaSet.Add(new ProjectArea
+        {
+            ProjectAreaId = projectAreaId,
+            ProjectId = projectId,
+            AreaName = "Ground Floor",
+            AreaType = ProjectAreaType.ROOM,
+            Status = ProjectAreaStatus.VERIFIED
         });
         context.ProjectScheduleSet.Add(new ProjectSchedule
         {
@@ -192,6 +312,7 @@ public sealed class ProjectFileRepositoryTests
             VatRate = 0.08m,
             VatAmount = 8m,
             TotalAmount = 108m,
+            DepositAmount = 32m,
             Currency = "VND"
         });
         context.OrderSet.Add(new Order
@@ -201,13 +322,31 @@ public sealed class ProjectFileRepositoryTests
             QuotationId = quotationId,
             OrderCode = "O-001",
             CustomerId = customerId,
-            OriginalTotalAmount = 100,
             FinalTotalAmount = 100
+        });
+        context.ProductSet.Add(new Product
+        {
+            ProductId = productId,
+            ProductCode = "P-001",
+            ProductName = "Chair",
+            Status = ProductStatus.ACTIVE
+        });
+        context.ProductVersionSet.Add(new ProductVersion
+        {
+            ProductVersionId = productVersionId,
+            ProductId = productId,
+            ProjectId = projectId,
+            VersionCode = "PV-001",
+            VersionName = "Project Custom",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            IsProjectSpecific = true,
+            Status = ProductStatus.ACTIVE
         });
         context.StoredFileSet.AddRange(
             CreateFile(fileId, customerId, "floor-plan.pdf", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-5)),
             CreateFile(privateFileId, customerId, "private-note.pdf", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-4)),
             CreateFile(unlinkedFileId, customerId, "loose.pdf", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-3)),
+            CreateFile(projectAreaFileId, customerId, "area-blueprint.pdf", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-2)),
             CreateFile(productPreviewFileId, customerId, "preview.jpg", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-2)),
             CreateFile(versionPreviewFileId, customerId, "version-preview.jpg", FileStatus.ACTIVE, DateTime.UtcNow.AddMinutes(-1)));
         context.FileLinkSet.AddRange(
@@ -219,6 +358,19 @@ public sealed class ProjectFileRepositoryTests
                 ReferenceId = projectId,
                 FileType = FileType.FLOOR_PLAN,
                 Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                CreatedBy = customerId,
+                CreatedAt = DateTime.UtcNow
+            },
+            new FileLink
+            {
+                FileLinkId = Guid.NewGuid(),
+                FileId = projectAreaFileId,
+                ReferenceType = "PROJECT_AREA",
+                ReferenceId = projectAreaId,
+                FileType = FileType.FLOOR_PLAN,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                IsPrimary = true,
+                DisplayOrder = 1,
                 CreatedBy = customerId,
                 CreatedAt = DateTime.UtcNow
             },
@@ -269,6 +421,8 @@ public sealed class ProjectFileRepositoryTests
             unlinkedFileId,
             productId,
             productVersionId,
+            projectAreaId,
+            projectAreaFileId,
             productPreviewFileId,
             versionPreviewFileId,
             fileLinkId);
@@ -308,6 +462,8 @@ public sealed class ProjectFileRepositoryTests
         Guid UnlinkedFileId,
         Guid ProductId,
         Guid ProductVersionId,
+        Guid ProjectAreaId,
+        Guid ProjectAreaFileId,
         Guid ProductPreviewFileId,
         Guid VersionPreviewFileId,
         Guid FileLinkId);

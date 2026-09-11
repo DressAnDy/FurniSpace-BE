@@ -94,6 +94,7 @@ public sealed class PostgresIntegrationDatabase : IAsyncDisposable
         builder.MapEnum<ProjectStatus>("project_status", translator);
         builder.MapEnum<ProjectAreaType>("project_area_type", translator);
         builder.MapEnum<ProjectAreaStatus>("project_area_status", translator);
+        builder.MapEnum<ProjectPhaseType>("project_phase_type", translator);
         builder.MapEnum<ProjectScheduleType>("project_schedule_type", translator);
         builder.MapEnum<ProjectScheduleStatus>("project_schedule_status", translator);
         builder.MapEnum<ProposalStatus>("proposal_status", translator);
@@ -107,8 +108,7 @@ public sealed class PostgresIntegrationDatabase : IAsyncDisposable
         builder.MapEnum<QuotationItemType>("quotation_item_type", translator);
         builder.MapEnum<OrderStatus>("order_status", translator);
         builder.MapEnum<OrderItemStatus>("order_item_status", translator);
-        builder.MapEnum<OrderAdjustmentStatus>("order_adjustment_status", translator);
-        builder.MapEnum<OrderAdjustmentItemType>("order_adjustment_item_type", translator);
+        builder.MapEnum<DeliveryStatus>("delivery_status", translator);
         builder.MapEnum<PaymentStatus>("payment_status", translator);
         builder.MapEnum<PaymentType>("payment_type", translator);
         builder.MapEnum<PaymentProvider>("payment_provider", translator);
@@ -125,5 +125,9 @@ public sealed class PostgresIntegrationDatabase : IAsyncDisposable
         builder.MapEnum<FileType>("file_type", translator);
         builder.MapEnum<ProductStatus>("product_status", translator);
         builder.MapEnum<ProductVersionType>("product_version_type", translator);
+        builder.MapEnum<LayoutAssetType>("layout_asset_type", translator);
+        builder.MapEnum<LayoutAssetStatus>("layout_asset_status", translator);
+        builder.MapEnum<ProjectShowcaseStatus>("project_showcase_status", translator);
+        builder.MapEnum<ProjectShowcaseMediaType>("project_showcase_media_type", translator);
     }
 }

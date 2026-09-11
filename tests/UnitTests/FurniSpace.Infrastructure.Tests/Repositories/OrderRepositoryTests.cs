@@ -49,8 +49,8 @@ public sealed class OrderRepositoryTests
         Assert.Single(detail.Items);
         Assert.Equal("Counter", detail.Items[0].ItemName);
         Assert.Equal(OrderItemStatus.READY, detail.Items[0].Status);
-        Assert.Equal(1, detail.Items[0].DeliveredQuantity);
-        Assert.Null(detail.Items[0].CustomerConfirmedAt);
+        Assert.NotNull(detail.Items[0].DeliveredAt);
+        Assert.Equal(data.SalesId, detail.Items[0].DeliveredBy);
     }
 
     [Fact]
@@ -79,91 +79,270 @@ public sealed class OrderRepositoryTests
     }
 
     [Fact]
-    public async Task TryIncrementDeliveredQuantityAsync_WhenValidInMemory_UpdatesTrackedItem()
+    public async Task AllDeliverableItemsReadyAsync_WhenAllReady_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new OrderRepository(context);
+
+        var ready = await repository.AllDeliverableItemsReadyAsync(data.OrderId);
+
+        Assert.True(ready);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsReadyAsync_WhenItemNotReady_ReturnsFalse()
     {
         await using var context = CreateContext();
         var data = await SeedAsync(context);
         var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
-        item.Quantity = 3;
-        item.DeliveredQuantity = 1;
-        item.Status = OrderItemStatus.READY;
+        item.Status = OrderItemStatus.PENDING;
         await context.SaveChangesAsync();
         var repository = new OrderRepository(context);
-        var deliveredBy = Guid.NewGuid();
-        var deliveredAt = DateTime.UtcNow;
 
-        var updated = await repository.TryIncrementDeliveredQuantityAsync(
-            item.OrderItemId,
-            2,
-            "Loaded at front desk",
-            deliveredBy,
-            deliveredAt);
+        var ready = await repository.AllDeliverableItemsReadyAsync(data.OrderId);
 
-        Assert.NotNull(updated);
-        Assert.Equal(3, updated!.DeliveredQuantity);
-        Assert.Equal("Loaded at front desk", updated.DeliveryNote);
-        Assert.Equal(deliveredBy, updated.LastDeliveredBy);
-        Assert.Equal(deliveredAt, updated.LastDeliveredAt);
+        Assert.False(ready);
     }
 
-    [Theory]
-    [InlineData(OrderItemStatus.PENDING, 3, 1, 1)]
-    [InlineData(OrderItemStatus.READY, 0, 0, 1)]
-    [InlineData(OrderItemStatus.READY, 2, 2, 1)]
-    public async Task TryIncrementDeliveredQuantityAsync_WhenInvalidInMemory_ReturnsNull(
-        OrderItemStatus status,
-        int quantity,
-        int deliveredQuantity,
-        int increment)
+    [Fact]
+    public async Task AllDeliverableItemsReadyAsync_WhenUnavailableItemExists_IgnoresUnavailableItem()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        context.OrderItemSet.Add(new OrderItem
+        {
+            OrderItemId = Guid.NewGuid(),
+            OrderId = data.OrderId,
+            ProductVersionId = Guid.NewGuid(),
+            ProductNameSnapshot = "Unavailable Table",
+            Quantity = 1,
+            Status = OrderItemStatus.UNAVAILABLE,
+            UnitPrice = 100m,
+            DiscountAmount = 0m,
+            SubtotalAmount = 100m
+        });
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var ready = await repository.AllDeliverableItemsReadyAsync(data.OrderId);
+
+        Assert.True(ready);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_WhenAllDelivered_ReturnsTrue()
     {
         await using var context = CreateContext();
         var data = await SeedAsync(context);
         var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
-        item.Status = status;
-        item.Quantity = quantity;
-        item.DeliveredQuantity = deliveredQuantity;
+        item.Status = OrderItemStatus.DELIVERED;
         await context.SaveChangesAsync();
         var repository = new OrderRepository(context);
 
-        var updated = await repository.TryIncrementDeliveredQuantityAsync(
-            item.OrderItemId,
-            increment,
-            deliveryNote: null,
-            deliveredBy: Guid.NewGuid(),
-            deliveredAt: DateTime.UtcNow);
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(data.OrderId);
 
-        Assert.Null(updated);
+        Assert.True(delivered);
     }
 
     [Fact]
-    public async Task TryIncrementDeliveredQuantityAsync_WhenItemMissingInMemory_ReturnsNull()
+    public async Task HasCompletedDeliveryFlowAsync_WhenOrderDelivered_ReturnsTrue()
     {
         await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var order = await context.OrderSet.SingleAsync(order => order.OrderId == data.OrderId);
+        order.Status = OrderStatus.DELIVERED;
+        await context.SaveChangesAsync();
         var repository = new OrderRepository(context);
 
-        var updated = await repository.TryIncrementDeliveredQuantityAsync(
-            Guid.NewGuid(),
-            1,
-            deliveryNote: null,
-            deliveredBy: Guid.NewGuid(),
-            deliveredAt: DateTime.UtcNow);
+        var completed = await repository.HasCompletedDeliveryFlowAsync(data.ProjectId);
 
-        Assert.Null(updated);
+        Assert.True(completed);
     }
 
     [Fact]
-    public async Task TryIncrementDeliveredQuantityAsync_DefaultInterfaceImplementation_ReturnsNull()
+    public async Task HasCompletedDeliveryFlowAsync_DefaultInterfaceImplementation_ReturnsFalse()
     {
         IOrderRepository repository = new MinimalOrderRepository();
 
-        var updated = await repository.TryIncrementDeliveredQuantityAsync(
-            Guid.NewGuid(),
-            1,
-            deliveryNote: null,
-            deliveredBy: Guid.NewGuid(),
-            deliveredAt: DateTime.UtcNow);
+        var completed = await repository.HasCompletedDeliveryFlowAsync(Guid.NewGuid());
 
-        Assert.Null(updated);
+        Assert.False(completed);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_WhenItemStillReady_ReturnsFalse()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new OrderRepository(context);
+
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(data.OrderId);
+
+        Assert.False(delivered);
+    }
+
+    [Fact]
+    public async Task HasCompletedDeliveryFlowAsync_WhenCustomerConfirmed_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var order = await context.OrderSet.SingleAsync(order => order.OrderId == data.OrderId);
+        order.CustomerConfirmedDeliveryAt = DateTime.UtcNow;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var completed = await repository.HasCompletedDeliveryFlowAsync(data.ProjectId);
+
+        Assert.True(completed);
+    }
+
+    [Fact]
+    public async Task HasCompletedDeliveryFlowAsync_WhenDeliverableItemDelivered_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        item.Status = OrderItemStatus.DELIVERED;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var completed = await repository.HasCompletedDeliveryFlowAsync(data.ProjectId);
+
+        Assert.True(completed);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsReadyAsync_DefaultInterfaceImplementation_ReturnsFalse()
+    {
+        IOrderRepository repository = new MinimalOrderRepository();
+
+        var ready = await repository.AllDeliverableItemsReadyAsync(Guid.NewGuid());
+
+        Assert.False(ready);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_DefaultInterfaceImplementation_ReturnsFalse()
+    {
+        IOrderRepository repository = new MinimalOrderRepository();
+
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(Guid.NewGuid());
+
+        Assert.False(delivered);
+    }
+
+    [Fact]
+    public async Task GetTotalRemainingDeliverableQuantityAsync_ReturnsRemainingQuantities()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        item.Quantity = 5;
+        item.DeliveredQuantity = 2;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var remaining = await repository.GetTotalRemainingDeliverableQuantityAsync(data.OrderId);
+
+        Assert.Equal(3, remaining);
+    }
+
+    [Fact]
+    public async Task HasProjectOrderInStatusesAsync_ReturnsTrueWhenStatusMatches()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var repository = new OrderRepository(context);
+
+        var hasOrder = await repository.HasProjectOrderInStatusesAsync(
+            data.ProjectId,
+            [OrderStatus.DEPOSIT_PENDING]);
+
+        Assert.True(hasOrder);
+    }
+
+    [Fact]
+    public async Task GetLatestByProjectInStatusesAsync_ReturnsMostRecentOrder()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var newerOrderId = Guid.NewGuid();
+        context.OrderSet.Add(new Order
+        {
+            OrderId = newerOrderId,
+            ProjectId = data.ProjectId,
+            QuotationId = Guid.NewGuid(),
+            OrderCode = "ORD-002",
+            CustomerId = data.CustomerId,
+            SalesId = data.SalesId,
+            Status = OrderStatus.READY_FOR_DELIVERY,
+            CreatedAt = DateTime.UtcNow.AddHours(1)
+        });
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var latest = await repository.GetLatestByProjectInStatusesAsync(
+            data.ProjectId,
+            [OrderStatus.DEPOSIT_PENDING, OrderStatus.READY_FOR_DELIVERY]);
+
+        Assert.NotNull(latest);
+        Assert.Equal(newerOrderId, latest!.OrderId);
+    }
+
+    [Fact]
+    public async Task GetItemsByIdsForUpdateAsync_WhenEmpty_ReturnsEmptyList()
+    {
+        await using var context = CreateContext();
+        var repository = new OrderRepository(context);
+
+        var items = await repository.GetItemsByIdsForUpdateAsync([]);
+
+        Assert.Empty(items);
+    }
+
+    [Fact]
+    public async Task GetItemByIdAsync_ReturnsMatchingItem()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var orderItem = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        var repository = new OrderRepository(context);
+
+        var item = await repository.GetItemByIdAsync(orderItem.OrderItemId);
+
+        Assert.NotNull(item);
+        Assert.Equal(orderItem.OrderItemId, item!.OrderItemId);
+    }
+
+    [Fact]
+    public async Task AllDeliverableItemsDeliveredAsync_WhenQuantityFullyDelivered_ReturnsTrue()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var item = await context.OrderItemSet.SingleAsync(item => item.OrderId == data.OrderId);
+        item.Quantity = 4;
+        item.DeliveredQuantity = 4;
+        item.Status = OrderItemStatus.PARTIALLY_DELIVERED;
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+
+        var delivered = await repository.AllDeliverableItemsDeliveredAsync(data.OrderId);
+
+        Assert.True(delivered);
+    }
+
+    [Fact]
+    public async Task OrderRepositoryInterfaceDefaults_ReturnConfiguredFallbacks()
+    {
+        IOrderRepository repository = new MinimalOrderRepository();
+
+        Assert.False(await repository.HasProjectOrderInStatusesAsync(Guid.NewGuid(), [OrderStatus.DELIVERING]));
+        Assert.Null(await repository.GetLatestByProjectInStatusesAsync(Guid.NewGuid(), [OrderStatus.DELIVERING]));
+        Assert.Equal(0, await repository.GetTotalRemainingDeliverableQuantityAsync(Guid.NewGuid()));
+        Assert.Empty(await repository.GetItemsByIdsForUpdateAsync([Guid.NewGuid()]));
+        Assert.Null(await repository.GetItemByIdAsync(Guid.NewGuid()));
+        Assert.Empty(await repository.GetItemsByOrderAsync(Guid.NewGuid()));
     }
 
     private static AppDbContext CreateContext()
@@ -213,6 +392,7 @@ public sealed class OrderRepositoryTests
             VatRate = 0.08m,
             VatAmount = 8m,
             TotalAmount = 100m,
+            DepositAmount = 30m,
             Currency = "VND",
             Status = QuotationStatus.ACCEPTED,
             CreatedAt = DateTime.UtcNow
@@ -236,7 +416,6 @@ public sealed class OrderRepositoryTests
             OrderCode = "ORD-001",
             CustomerId = customerId,
             SalesId = salesId,
-            OriginalTotalAmount = 100m,
             FinalTotalAmount = 100m,
             DepositAmount = 30m,
             PaidAmount = 0m,
@@ -244,6 +423,7 @@ public sealed class OrderRepositoryTests
             Status = OrderStatus.DEPOSIT_PENDING,
             CreatedAt = DateTime.UtcNow
         });
+        var deliveredAt = DateTime.UtcNow;
         context.OrderItemSet.Add(new OrderItem
         {
             OrderItemId = orderItemId,
@@ -253,7 +433,8 @@ public sealed class OrderRepositoryTests
             ProductNameSnapshot = "Counter",
             Quantity = 1,
             Status = OrderItemStatus.READY,
-            DeliveredQuantity = 1,
+            DeliveredAt = deliveredAt,
+            DeliveredBy = salesId,
             UnitPrice = 100m,
             DiscountAmount = 0m,
             SubtotalAmount = 100m
@@ -261,6 +442,129 @@ public sealed class OrderRepositoryTests
 
         await context.SaveChangesAsync();
         return new SeededData(projectId, orderId, quotationId, customerId, salesId);
+    }
+
+    [Fact]
+    public async Task GetByCustomerPagedAsync_ReturnsOnlyMatchingCustomerOrders()
+    {
+        await using var context = CreateContext();
+        var customerA = Guid.NewGuid();
+        var customerB = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var olderOrderId = Guid.NewGuid();
+        var newerOrderId = Guid.NewGuid();
+        var olderCreatedAt = DateTime.UtcNow.AddDays(-2);
+        var newerCreatedAt = DateTime.UtcNow.AddDays(-1);
+
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerA,
+            ProjectCode = "PRJ-ME",
+            ProjectName = "My Project",
+            Status = ProjectStatus.ORDER_CONFIRMED,
+            CreatedAt = DateTime.UtcNow
+        });
+        context.OrderSet.AddRange(
+            new Order
+            {
+                OrderId = olderOrderId,
+                ProjectId = projectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = "ORD-OLD",
+                CustomerId = customerA,
+                FinalTotalAmount = 100m,
+                Status = OrderStatus.CREATED,
+                CreatedAt = olderCreatedAt
+            },
+            new Order
+            {
+                OrderId = newerOrderId,
+                ProjectId = projectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = "ORD-NEW",
+                CustomerId = customerA,
+                FinalTotalAmount = 200m,
+                DepositAmount = 60m,
+                PaidAmount = 60m,
+                RemainingAmount = 140m,
+                Status = OrderStatus.FINAL_PAYMENT_PENDING,
+                CreatedAt = newerCreatedAt,
+                UpdatedAt = newerCreatedAt.AddHours(1)
+            },
+            new Order
+            {
+                OrderId = Guid.NewGuid(),
+                ProjectId = projectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = "ORD-OTHER",
+                CustomerId = customerB,
+                FinalTotalAmount = 999m,
+                Status = OrderStatus.CREATED,
+                CreatedAt = DateTime.UtcNow
+            });
+        await context.SaveChangesAsync();
+
+        var repository = new OrderRepository(context);
+        var query = new CustomerMyOrdersQueryReadModel { Page = 1, PageSize = 10 };
+
+        var total = await repository.CountByCustomerAsync(customerA, query);
+        var items = await repository.GetByCustomerPagedAsync(customerA, query);
+
+        Assert.Equal(2, total);
+        Assert.Equal(2, items.Count);
+        Assert.Equal(newerOrderId, items[0].OrderId);
+        Assert.Equal("ORD-NEW", items[0].OrderCode);
+        Assert.Equal(200m, items[0].TotalAmount);
+        Assert.Equal(olderOrderId, items[1].OrderId);
+    }
+
+    [Fact]
+    public async Task GetByCustomerPagedAsync_AppliesStatusSearchAndPagination()
+    {
+        await using var context = CreateContext();
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = customerId,
+            ProjectCode = "PRJ-ME",
+            ProjectName = "My Project",
+            Status = ProjectStatus.ORDER_CONFIRMED,
+            CreatedAt = DateTime.UtcNow
+        });
+        for (var index = 0; index < 3; index++)
+        {
+            context.OrderSet.Add(new Order
+            {
+                OrderId = Guid.NewGuid(),
+                ProjectId = projectId,
+                QuotationId = Guid.NewGuid(),
+                OrderCode = $"ORD-2026-{index + 1}",
+                CustomerId = customerId,
+                FinalTotalAmount = 100m + index,
+                Status = index == 2 ? OrderStatus.DELIVERED : OrderStatus.CREATED,
+                CreatedAt = DateTime.UtcNow.AddDays(-index)
+            });
+        }
+
+        await context.SaveChangesAsync();
+        var repository = new OrderRepository(context);
+        var query = new CustomerMyOrdersQueryReadModel
+        {
+            Page = 1,
+            PageSize = 1,
+            Status = OrderStatus.CREATED,
+            Search = "ORD-2026"
+        };
+
+        var total = await repository.CountByCustomerAsync(customerId, query);
+        var page = await repository.GetByCustomerPagedAsync(customerId, query);
+
+        Assert.Equal(2, total);
+        var item = Assert.Single(page);
+        Assert.Equal("ORD-2026-1", item.OrderCode);
     }
 
     private static Account CreateAccount(Guid accountId, Guid roleId, string email)

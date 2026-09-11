@@ -18,8 +18,26 @@ public sealed class PaymentHub : Hub
         _payments = payments;
     }
 
+    public override async Task OnConnectedAsync()
+    {
+        if (TryGetCurrentUserId(out var currentUserId))
+        {
+            await Groups.AddToGroupAsync(
+                Context.ConnectionId,
+                RealtimeGroupNames.User(currentUserId),
+                Context.ConnectionAborted);
+        }
+
+        await base.OnConnectedAsync();
+    }
+
     public async Task JoinPayment(Guid paymentId)
     {
+        if (paymentId == Guid.Empty)
+        {
+            throw new HubException("Payment id is required.");
+        }
+
         var currentUserId = GetCurrentUserId();
         if (!await _payments.CanAccessPaymentAsync(paymentId, currentUserId, Context.ConnectionAborted))
         {

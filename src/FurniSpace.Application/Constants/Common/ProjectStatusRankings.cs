@@ -18,7 +18,6 @@ internal static class ProjectStatusRankings
         [ProjectStatus.QUOTATION_REVISION_REQUESTED] = 120,
         [ProjectStatus.ORDER_CONFIRMED] = 130,
         [ProjectStatus.IN_PRODUCTION] = 140,
-        [ProjectStatus.PRODUCTION_BLOCKED] = 150,
         [ProjectStatus.READY_FOR_DELIVERY] = 160,
         [ProjectStatus.DELIVERING] = 170,
         [ProjectStatus.DELIVERED] = 180,

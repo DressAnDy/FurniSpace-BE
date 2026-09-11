@@ -187,8 +187,9 @@ public sealed class SePayWebhookHandlerTests
             unitOfWork,
             options,
             new SePayWebhookSignatureVerifier(options),
-            paymentRealtime,
-            new NoOpPaymentBusinessEffectService());
+            new PaymentWebhookRuntime(
+                paymentRealtime,
+                new NoOpPaymentBusinessEffectService()));
     }
 
     private sealed class NoOpPaymentBusinessEffectService : IPaymentBusinessEffectService
@@ -426,6 +427,7 @@ public sealed class SePayWebhookHandlerTests
 
         public Task SendPaymentUpdatedAsync(
             PaymentUpdatedRealtimeDto payload,
+            IReadOnlyCollection<Guid>? stakeholderUserIds = null,
             CancellationToken cancellationToken = default)
         {
             LastPayload = payload;

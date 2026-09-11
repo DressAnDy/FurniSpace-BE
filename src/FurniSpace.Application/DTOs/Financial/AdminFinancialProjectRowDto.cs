@@ -1,8 +1,9 @@
+using FurniSpace.Domain.Common;
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Application.DTOs.Financial;
 
-public sealed class AdminFinancialProjectRowDto
+public sealed class AdminFinancialProjectRowDto : AdminFinancialProjectPeriodCollectionShape
 {
     public Guid ProjectId { get; set; }
     public string? ProjectCode { get; set; }
@@ -18,9 +19,6 @@ public sealed class AdminFinancialProjectRowDto
     public Guid? OrderId { get; set; }
     public string? OrderCode { get; set; }
     public OrderStatus? OrderStatus { get; set; }
-    public decimal? OrderOriginalTotal { get; set; }
-    public decimal? OrderAdjustmentAmount { get; set; }
-    public decimal? OrderAdditionalDiscount { get; set; }
     public decimal? OrderFinalTotal { get; set; }
     public decimal? OrderPaidAmount { get; set; }
     public decimal? OrderRemainingAmount { get; set; }

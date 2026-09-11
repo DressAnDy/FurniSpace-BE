@@ -130,7 +130,7 @@ public sealed class WorkloadAccountServiceTests
         Assert.NotNull(result.Data);
         Assert.Equal(1, result.Data.TotalActiveDesigners);
         Assert.Equal(1, result.Data.FullCount);
-        Assert.Equal(2, result.Data.MaxActiveProjects);
+        Assert.Equal(3, result.Data.MaxActiveProjects);
     }
 
     [Fact]

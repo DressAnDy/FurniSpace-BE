@@ -212,6 +212,15 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
             projectId,
             fileTypes,
             cancellationToken);
+
+    public Task<ProjectLinkedFileReadModel?> GetProjectLinkedActiveFileAsync(
+        Guid projectId,
+        Guid fileId,
+        CancellationToken cancellationToken = default) =>
+        ProjectFileRepositoryStubResponses.NullProjectLinkedActiveFile(
+            projectId,
+            fileId,
+            cancellationToken);
 }
 
 [SuppressMessage(
@@ -277,4 +286,10 @@ internal static class ProjectFileRepositoryStubResponses
         IReadOnlyCollection<FileType> __,
         CancellationToken ___) =>
         Task.FromResult(false);
+
+    public static Task<ProjectLinkedFileReadModel?> NullProjectLinkedActiveFile(
+        Guid _,
+        Guid __,
+        CancellationToken ___) =>
+        Task.FromResult<ProjectLinkedFileReadModel?>(null);
 }

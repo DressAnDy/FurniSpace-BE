@@ -81,21 +81,4 @@ public sealed class OrderAccessEvaluatorTests
 
         Assert.Equal(expected, result);
     }
-
-    [Theory]
-    [InlineData("ADMIN", true)]
-    [InlineData("SALES", true)]
-    [InlineData("CUSTOMER", false)]
-    [InlineData("DESIGNER", false)]
-    public void CanManageFinancialAdjustment_ReturnsExpectedAccess(string role, bool expected)
-    {
-        var currentUserId = role == "SALES" ? _salesId : _otherId;
-
-        var result = OrderAccessEvaluator.CanManageFinancialAdjustment(
-            role,
-            _salesId,
-            currentUserId);
-
-        Assert.Equal(expected, result);
-    }
 }

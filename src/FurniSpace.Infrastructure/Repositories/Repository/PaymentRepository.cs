@@ -143,8 +143,20 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
         Guid paymentId,
         CancellationToken cancellationToken = default)
     {
+        return await GetTransactionsByPaymentIdsAsync([paymentId], cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdsAsync(
+        IReadOnlyCollection<Guid> paymentIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (paymentIds.Count == 0)
+        {
+            return [];
+        }
+
         return await DbContext.PaymentTransactionSet
-            .Where(transaction => transaction.PaymentId == paymentId)
+            .Where(transaction => paymentIds.Contains(transaction.PaymentId))
             .OrderByDescending(transaction => transaction.CreatedAt)
             .ThenByDescending(transaction => transaction.PaymentTransactionId)
             .Select(transaction => MapTransactionReadModel(transaction))
@@ -287,6 +299,29 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Payment>> GetAllByOrderAndTypeAsync(
+        Guid orderId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.PaymentSet
+            .Where(payment => payment.OrderId == orderId && payment.PaymentType == paymentType)
+            .OrderByDescending(payment => payment.CreatedAt)
+            .ThenByDescending(payment => payment.PaymentId)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<PaymentTransaction>> GetTransactionEntitiesByPaymentIdAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.PaymentTransactionSet
+            .Where(transaction => transaction.PaymentId == paymentId)
+            .OrderByDescending(transaction => transaction.CreatedAt)
+            .ThenByDescending(transaction => transaction.PaymentTransactionId)
+            .ToListAsync(cancellationToken);
+    }
+
     public Task<Payment?> GetByProjectAndTypeAsync(
         Guid projectId,
         PaymentType paymentType,
@@ -397,8 +432,50 @@ public sealed class PaymentRepository : GenericRepository<Payment>, IPaymentRepo
                     Status = joined.payment.Status,
                     ExpiredAt = joined.payment.ExpiredAt,
                     PaidAt = joined.payment.PaidAt,
+                    CancelledAt = joined.payment.CancelledAt,
                     CreatedAt = joined.payment.CreatedAt
                 });
+    }
+
+    public async Task<IReadOnlyList<PaymentListItemReadModel>> GetListByOrderIdAsync(
+        Guid orderId,
+        PaymentStatus? status = null,
+        PaymentType? paymentType = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = DbContext.PaymentSet.AsNoTracking()
+            .Where(payment => payment.OrderId == orderId);
+
+        if (status.HasValue)
+        {
+            query = query.Where(payment => payment.Status == status.Value);
+        }
+
+        if (paymentType.HasValue)
+        {
+            query = query.Where(payment => payment.PaymentType == paymentType.Value);
+        }
+
+        return await query
+            .OrderByDescending(payment => payment.CreatedAt)
+            .ThenByDescending(payment => payment.PaymentId)
+            .Select(payment => new PaymentListItemReadModel
+            {
+                PaymentId = payment.PaymentId,
+                ProjectId = payment.ProjectId,
+                OrderId = payment.OrderId,
+                PaidBy = payment.PaidBy,
+                PaymentCode = payment.PaymentCode,
+                PaymentType = payment.PaymentType,
+                Amount = payment.Amount,
+                Currency = payment.Currency,
+                Status = payment.Status,
+                ExpiredAt = payment.ExpiredAt,
+                PaidAt = payment.PaidAt,
+                CancelledAt = payment.CancelledAt,
+                CreatedAt = payment.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
     }
 
     private IQueryable<Payment> BuildScopedPaymentQuery(PaymentQueryReadModel filter)

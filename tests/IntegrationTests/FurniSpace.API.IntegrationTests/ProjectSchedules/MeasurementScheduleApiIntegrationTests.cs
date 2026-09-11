@@ -36,7 +36,7 @@ public sealed class MeasurementScheduleApiIntegrationTests : IAsyncLifetime
             scenario = await MeasurementScenarioSeeder.SeedMeasurementRequiredAsync(context);
         }
 
-        var start = DateTime.UtcNow.AddDays(1);
+        var start = ScheduleTestClock.VietnamLocalAsUtc(dayOffset: 1, hour: 8);
         using var createRequest = IntegrationHttp.AuthenticatedJson(
             HttpMethod.Post,
             $"/projects/{scenario.ProjectId}/schedules",
@@ -48,7 +48,7 @@ public sealed class MeasurementScheduleApiIntegrationTests : IAsyncLifetime
                 Title = "Site measurement",
                 AssignedStaffId = scenario.DesignerAccountId,
                 ScheduledStart = start,
-                ScheduledEnd = start.AddHours(2),
+                ScheduledEnd = ScheduleTestClock.VietnamLocalAsUtc(dayOffset: 1, hour: 10),
                 Location = "12 Nguyen Hue"
             });
         var createResponse = await _fixture.Client.SendAsync(createRequest);
@@ -70,6 +70,15 @@ public sealed class MeasurementScheduleApiIntegrationTests : IAsyncLifetime
             });
         var confirmResponse = await _fixture.Client.SendAsync(confirmRequest);
         Assert.Equal(HttpStatusCode.OK, confirmResponse.StatusCode);
+
+        await using (var advanceContext = _fixture.Database.CreateDbContext())
+        {
+            var scheduleToAdvance = await advanceContext.ProjectScheduleSet
+                .SingleAsync(schedule => schedule.ScheduleId == created.Data.ScheduleId);
+            scheduleToAdvance.ScheduledStart = DateTime.UtcNow.AddHours(-2);
+            scheduleToAdvance.ScheduledEnd = DateTime.UtcNow.AddHours(-1);
+            await advanceContext.SaveChangesAsync();
+        }
 
         using var completeRequest = IntegrationHttp.AuthenticatedJson(
             HttpMethod.Patch,
@@ -161,7 +170,8 @@ public sealed class MeasurementScheduleApiIntegrationTests : IAsyncLifetime
                 ScheduleType = ProjectScheduleType.MEASUREMENT,
                 Title = "Invalid",
                 AssignedStaffId = designer.AccountId,
-                ScheduledStart = DateTime.UtcNow.AddDays(1)
+                ScheduledStart = ScheduleTestClock.VietnamLocalAsUtc(dayOffset: 1, hour: 8),
+                ScheduledEnd = ScheduleTestClock.VietnamLocalAsUtc(dayOffset: 1, hour: 10)
             });
 
         var response = await _fixture.Client.SendAsync(request);

@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.Quotations;
 using FurniSpace.Infrastructure.Repositories.Base;
 
@@ -6,6 +7,12 @@ namespace FurniSpace.Infrastructure.Repositories.IRepository;
 
 public interface IQuotationRepository : IGenericRepository<Quotation>
 {
+    Task<Quotation?> GetLatestByProjectAndProposalInStatusesAsync(
+        Guid projectId,
+        Guid proposalId,
+        IReadOnlyCollection<QuotationStatus> statuses,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<QuotationReadModel>> GetByProjectAsync(
         QuotationQueryReadModel query,
         CancellationToken cancellationToken = default);

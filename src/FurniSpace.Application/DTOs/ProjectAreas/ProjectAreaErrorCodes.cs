@@ -4,6 +4,8 @@ public static class ProjectAreaErrorCodes
 {
     public const string InvalidParentArea = "INVALID_PARENT_AREA";
     public const string InvalidAreaDimension = "INVALID_AREA_DIMENSION";
+    public const string InvalidFloorNumber = "INVALID_FLOOR_NUMBER";
+    public const string DuplicateFloorNumber = "DUPLICATE_FLOOR_NUMBER";
     public const string ProjectAreaInUse = "PROJECT_AREA_IN_USE";
     public const string ProjectAreaInUseByScene = "PROJECT_AREA_IN_USE_BY_SCENE";
     public const string ProjectAreaInUseByProposalItem = "PROJECT_AREA_IN_USE_BY_PROPOSAL_ITEM";

@@ -24,6 +24,10 @@ public sealed class OrderItemStatusTransitionServiceTests
         OrderItemStatus.DELIVERED,
         OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation)]
     [InlineData(
+        OrderItemStatus.PHYSICALLY_DELIVERED,
+        OrderItemStatus.DELIVERED,
+        OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation)]
+    [InlineData(
         OrderItemStatus.PENDING,
         OrderItemStatus.CANCELLED,
         OrderItemStatusTransitionOwner.OrderCancellation)]

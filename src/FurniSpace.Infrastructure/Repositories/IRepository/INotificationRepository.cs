@@ -21,6 +21,13 @@ public interface INotificationRepository : IGenericRepository<Notification>
         Guid receiverId,
         CancellationToken cancellationToken = default);
 
+    Task<bool> ExistsActiveDuplicateAsync(
+        Guid receiverId,
+        string notificationType,
+        string? referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken = default);
+
     Task MarkAllAsReadAsync(
         Guid receiverId,
         DateTime readAt,

@@ -21,16 +21,25 @@ public sealed class AdminFinancialService : IAdminFinancialService
     private const string ExceptionDeliveredWithReceivable = "DELIVERED_WITH_RECEIVABLE";
     private const string ExceptionPaymentPendingTooLong = "PAYMENT_PENDING_TOO_LONG";
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
-    private static readonly HashSet<string> ReceivableSortFields =
-    [
+    private static readonly HashSet<string> ReceivableSortFields = new(StringComparer.OrdinalIgnoreCase)
+    {
         "confirmedAt",
         "projectCode",
         "projectName",
         "orderCode",
         "orderStatus",
         "finalTotalAmount",
-        "remainingAmount"
-    ];
+        "remainingAmount",
+        "receivableAgeDays"
+    };
+    private static readonly HashSet<string> ReceivableCollectionStates = new(StringComparer.Ordinal)
+    {
+        AdminFinancialCollectionStates.NotCreated,
+        AdminFinancialCollectionStates.Pending,
+        AdminFinancialCollectionStates.Processing,
+        AdminFinancialCollectionStates.Expired,
+        AdminFinancialCollectionStates.Failed
+    };
     private static readonly HashSet<string> ProjectSortFields =
     [
         CreatedAtSortField,
@@ -40,7 +49,8 @@ public sealed class AdminFinancialService : IAdminFinancialService
         "orderFinalTotal",
         "orderRemainingAmount",
         "totalProjectCashCollected",
-        "lastPaidAt"
+        "lastPaidAt",
+        "collectedInPeriod"
     ];
     private static readonly HashSet<string> PaymentSortFields =
     [
@@ -59,6 +69,15 @@ public sealed class AdminFinancialService : IAdminFinancialService
         ExceptionDeliveredWithReceivable,
         ExceptionPaymentPendingTooLong
     ];
+    private static readonly HashSet<string> SupportedSummaryMetrics = new(StringComparer.Ordinal)
+    {
+        AdminFinancialSummaryMetrics.Collected,
+        AdminFinancialSummaryMetrics.Outstanding,
+        AdminFinancialSummaryMetrics.ContractedReceivable,
+        AdminFinancialSummaryMetrics.OrderValue,
+        AdminFinancialSummaryMetrics.FailedTransactions,
+        AdminFinancialSummaryMetrics.ActivePayments
+    };
 
     private readonly IFinancialReadRepository _financial;
 
@@ -78,7 +97,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
             return ServiceResult<AdminFinancialSummaryDto>.Failure(
                 Error.BadRequest(
                     AdminFinancialErrorCodes.CurrencyInvalid,
-                    "Financial currency is invalid."));
+                    FinancialReportingConstants.CurrencyInvalidMessage));
         }
 
         if (!FinancialReportingPeriodResolver.TryResolve(
@@ -144,6 +163,10 @@ public sealed class AdminFinancialService : IAdminFinancialService
                 OutstandingPaymentCount = summary.OutstandingPaymentCount,
                 ContractedReceivableAmount = summary.ContractedReceivableAmount,
                 OrdersWithReceivableCount = summary.OrdersWithReceivableCount,
+                WithoutPaymentCount = summary.WithoutPaymentCount,
+                ActiveCollectionCount = summary.ActiveCollectionCount,
+                ExpiredPaymentCount = summary.ExpiredPaymentCount,
+                FailedPaymentCount = summary.FailedPaymentCount,
                 Items = items.Select(ToReceivableItemDto).ToList(),
                 Page = readQuery.Page,
                 PageSize = readQuery.PageSize,
@@ -151,6 +174,24 @@ public sealed class AdminFinancialService : IAdminFinancialService
                 TotalPages = CalculateTotalPages(totalItems, readQuery.PageSize)
             },
             "Financial receivables retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<AdminFinancialReceivableDetailDto>> GetReceivableOrderDetailAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var detail = await _financial.GetReceivableOrderDetailAsync(orderId, DateTime.UtcNow, cancellationToken);
+        if (detail is null)
+        {
+            return ServiceResult<AdminFinancialReceivableDetailDto>.Failure(
+                Error.NotFound(
+                    AdminFinancialErrorCodes.OrderNotFound,
+                    "Financial receivable order was not found."));
+        }
+
+        return ServiceResult<AdminFinancialReceivableDetailDto>.Success(
+            ToReceivableDetailDto(detail),
+            "Financial receivable detail retrieved successfully.");
     }
 
     public async Task<ServiceResult<AdminFinancialPaymentBreakdownDto>> GetPaymentBreakdownAsync(
@@ -168,7 +209,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
         if (!IsSupportedCurrency(currency))
         {
             return ServiceResult<AdminFinancialPaymentBreakdownDto>.Failure(
-                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, "Financial currency is invalid."));
+                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, FinancialReportingConstants.CurrencyInvalidMessage));
         }
 
         var rows = await _financial.GetPaymentBreakdownAsync(
@@ -210,7 +251,7 @@ public sealed class AdminFinancialService : IAdminFinancialService
         if (!IsSupportedCurrency(currency))
         {
             return ServiceResult<AdminFinancialCollectionTrendDto>.Failure(
-                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, "Financial currency is invalid."));
+                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, FinancialReportingConstants.CurrencyInvalidMessage));
         }
 
         var series = await BuildMonthlyTrendSeriesAsync(
@@ -274,10 +315,107 @@ public sealed class AdminFinancialService : IAdminFinancialService
             cancellationToken);
         return row is null
             ? ServiceResult<AdminFinancialProjectRowDto>.Failure(
-                Error.NotFound(AdminFinancialErrorCodes.ProjectNotFound, "Project not found."))
+                Error.NotFound(AdminFinancialErrorCodes.FinancialProjectNotFound, "Project not found."))
             : ServiceResult<AdminFinancialProjectRowDto>.Success(
                 ToProjectRowDto(row),
                 "Project financial detail retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<AdminFinancialProjectStatementDto>> GetProjectStatementAsync(
+        Guid projectId,
+        AdminFinancialProjectStatementQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        query ??= new AdminFinancialProjectStatementQueryDto();
+        if (!TryResolveFinancialRange(query.From, query.To, out var fromUtc, out var toUtcExclusive))
+        {
+            return ServiceResult<AdminFinancialProjectStatementDto>.Failure(
+                Error.BadRequest(AdminFinancialErrorCodes.DateRangeInvalid, "Financial date range is invalid."));
+        }
+
+        if (!IsValidPage(query.Page, query.PageSize <= 0 ? 10 : query.PageSize))
+        {
+            return ServiceResult<AdminFinancialProjectStatementDto>.Failure(
+                Error.BadRequest(AdminFinancialErrorCodes.FilterInvalid, "Statement pagination is invalid."));
+        }
+
+        var entryType = NormalizeOptionalUpper(query.EntryType);
+        if (entryType is not null
+            && entryType is not (
+                AdminFinancialStatementEntryTypes.Collection
+                or AdminFinancialStatementEntryTypes.Refund
+                or AdminFinancialStatementEntryTypes.Adjustment))
+        {
+            return ServiceResult<AdminFinancialProjectStatementDto>.Failure(
+                Error.BadRequest(AdminFinancialErrorCodes.FilterInvalid, "Statement entry type is invalid."));
+        }
+
+        var page = query.Page <= 0 ? 1 : query.Page;
+        var pageSize = query.PageSize <= 0 ? 10 : query.PageSize;
+        var sortDirection = NormalizeSortDirection(query.SortDirection);
+        var statement = await _financial.GetProjectStatementAsync(
+            new AdminFinancialProjectStatementQueryReadModel
+            {
+                ProjectId = projectId,
+                FromUtc = fromUtc!.Value,
+                ToUtcExclusive = toUtcExclusive!.Value,
+                EntryType = entryType,
+                PaymentType = query.PaymentType,
+                Status = NormalizeOptionalUpper(query.Status),
+                Provider = query.Provider,
+                Page = page,
+                PageSize = pageSize,
+                SortDirection = sortDirection
+            },
+            cancellationToken);
+
+        if (statement is null)
+        {
+            return ServiceResult<AdminFinancialProjectStatementDto>.Failure(
+                Error.NotFound(AdminFinancialErrorCodes.FinancialProjectNotFound, "Project not found."));
+        }
+
+        return ServiceResult<AdminFinancialProjectStatementDto>.Success(
+            new AdminFinancialProjectStatementDto
+            {
+                Project = new AdminFinancialProjectStatementProjectDto
+                {
+                    ProjectId = statement.ProjectId,
+                    ProjectCode = statement.ProjectCode,
+                    ProjectName = statement.ProjectName,
+                    CustomerName = statement.CustomerName
+                },
+                Summary = new AdminFinancialProjectStatementSummaryDto
+                {
+                    OpeningBalance = statement.OpeningBalance,
+                    TotalCollected = statement.TotalCollected,
+                    TotalRefunded = statement.TotalRefunded,
+                    NetCollected = statement.NetCollected,
+                    ClosingBalance = statement.ClosingBalance
+                },
+                Items = statement.Items.Select(item => new AdminFinancialProjectStatementItemDto
+                {
+                    EntryId = item.EntryId,
+                    OccurredAt = ToOffset(item.OccurredAt),
+                    Direction = item.Direction,
+                    EntryType = item.EntryType,
+                    PaymentType = item.PaymentType,
+                    Description = item.Description,
+                    ReferenceCode = item.ReferenceCode,
+                    OrderId = item.OrderId,
+                    OrderCode = item.OrderCode,
+                    PaymentId = item.PaymentId,
+                    Provider = item.Provider,
+                    Status = item.Status,
+                    Amount = item.Amount,
+                    RunningBalance = item.RunningBalance
+                }).ToList(),
+                Page = page,
+                PageSize = pageSize,
+                TotalItems = statement.TotalItems,
+                TotalPages = CalculateTotalPages(statement.TotalItems, pageSize)
+            },
+            "Project financial statement retrieved successfully.");
     }
 
     public async Task<ServiceResult<AdminFinancialPaymentsDto>> GetPaymentsAsync(
@@ -331,6 +469,204 @@ public sealed class AdminFinancialService : IAdminFinancialService
             "Financial exceptions retrieved successfully.");
     }
 
+    public async Task<ServiceResult<AdminFinancialSummaryDrilldownDto>> GetSummaryDrilldownAsync(
+        string metric,
+        AdminFinancialSummaryDrilldownQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        query ??= new AdminFinancialSummaryDrilldownQueryDto();
+        var normalizedMetric = NormalizeOptionalUpper(metric);
+        if (string.IsNullOrWhiteSpace(normalizedMetric) || !SupportedSummaryMetrics.Contains(normalizedMetric))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(
+                    AdminFinancialErrorCodes.MetricInvalid,
+                    "Financial summary metric is invalid."));
+        }
+
+        var groupBy = NormalizeOptionalUpper(query.GroupBy);
+        if (!IsSupportedDrilldownGroupBy(normalizedMetric, groupBy))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(
+                    AdminFinancialErrorCodes.GroupByInvalid,
+                    "Financial summary drilldown groupBy is invalid."));
+        }
+
+        var currency = FinancialReportingPeriodResolver.NormalizeCurrency(query.Currency);
+        if (!IsSupportedCurrency(currency))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(AdminFinancialErrorCodes.CurrencyInvalid, FinancialReportingConstants.CurrencyInvalidMessage));
+        }
+
+        if (!FinancialReportingPeriodResolver.TryResolve(
+                new AdminFinancialSummaryQueryDto
+                {
+                    Period = FinancialReportingConstants.PeriodCustom,
+                    From = query.From,
+                    To = query.To,
+                    Currency = currency
+                },
+                DateTimeOffset.UtcNow,
+                out var period,
+                out var errorCode,
+                out var errorMessage))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(errorCode, errorMessage));
+        }
+
+        if (!IsValidPage(query.Page, query.PageSize <= 0 ? 10 : query.PageSize))
+        {
+            return ServiceResult<AdminFinancialSummaryDrilldownDto>.Failure(
+                Error.BadRequest(
+                    AdminFinancialErrorCodes.PaymentFilterInvalid,
+                    "Page must be greater than zero and page size must be between 1 and 100."));
+        }
+
+        var page = query.Page <= 0 ? 1 : query.Page;
+        var pageSize = query.PageSize <= 0 ? 10 : query.PageSize;
+        var defaultSortBy = groupBy == AdminFinancialDrilldownGroupBy.Project
+            ? "totalCollectedAmount"
+            : "occurredAt";
+        var sortBy = string.IsNullOrWhiteSpace(query.SortBy)
+            ? defaultSortBy
+            : query.SortBy.Trim();
+        var sortDirection = NormalizeSortDirection(query.SortDirection);
+
+        var readQuery = new AdminFinancialSummaryDrilldownQueryReadModel
+        {
+            Metric = normalizedMetric,
+            ProjectId = query.ProjectId,
+            PaymentType = query.PaymentType,
+            Status = NormalizeOptionalUpper(query.Status),
+            Provider = query.Provider,
+            GroupBy = groupBy,
+            Page = page,
+            PageSize = pageSize,
+            SortBy = sortBy,
+            SortDirection = sortDirection
+        };
+
+        var drilldown = await _financial.GetSummaryDrilldownAsync(
+            readQuery,
+            period.FromUtc,
+            period.ToUtcExclusive,
+            DateTime.UtcNow,
+            currency,
+            FinancialReportingConstants.CanonicalCollectedPaymentTypes,
+            cancellationToken);
+
+        return ServiceResult<AdminFinancialSummaryDrilldownDto>.Success(
+            MapDrilldownDto(drilldown, currency, period, page, pageSize),
+            "Financial summary drilldown retrieved successfully.");
+    }
+
+    private static AdminFinancialSummaryDrilldownDto MapDrilldownDto(
+        AdminFinancialSummaryDrilldownReadModel drilldown,
+        string currency,
+        FinancialReportingPeriod period,
+        int page,
+        int pageSize)
+    {
+        var totalAmount = drilldown.TotalAmount;
+        return new AdminFinancialSummaryDrilldownDto
+        {
+            Metric = drilldown.Metric,
+            TotalAmount = totalAmount,
+            TotalCount = drilldown.TotalCount,
+            Currency = currency,
+            Period = new AdminFinancialPeriodDto
+            {
+                Type = period.Type,
+                From = period.From,
+                To = period.To,
+                Timezone = period.Timezone
+            },
+            Breakdowns = drilldown.Breakdowns.Select(breakdown => new AdminFinancialDrilldownBreakdownDto
+            {
+                Dimension = breakdown.Dimension,
+                Items = breakdown.Items.Select(item => new AdminFinancialDrilldownBreakdownItemDto
+                {
+                    Key = item.Key,
+                    Label = item.Label,
+                    Amount = item.Amount,
+                    Count = item.Count,
+                    Percentage = totalAmount <= 0m
+                        ? 0m
+                        : Math.Round(item.Amount * 100m / totalAmount, 2, MidpointRounding.AwayFromZero)
+                }).ToList()
+            }).ToList(),
+            Items = drilldown.Items.Select(ToDrilldownItemDto).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalItems = drilldown.TotalItems,
+            TotalPages = CalculateTotalPages(drilldown.TotalItems, pageSize)
+        };
+    }
+
+    private static AdminFinancialDrilldownItemDto ToDrilldownItemDto(AdminFinancialDrilldownItemReadModel item)
+    {
+        return new AdminFinancialDrilldownItemDto
+        {
+            ResourceType = item.ResourceType,
+            ProjectId = item.ProjectId,
+            ProjectCode = item.ProjectCode,
+            ProjectName = item.ProjectName,
+            CustomerId = item.CustomerId,
+            CustomerName = item.CustomerName,
+            OrderId = item.OrderId,
+            OrderCode = item.OrderCode,
+            OrderStatus = item.OrderStatus,
+            OrderFinalTotal = item.OrderFinalTotal,
+            OrderPaidAmount = item.OrderPaidAmount,
+            OrderRemainingAmount = item.OrderRemainingAmount,
+            PaymentId = item.PaymentId,
+            PaymentCode = item.PaymentCode,
+            TransactionId = item.TransactionId,
+            PaymentType = item.PaymentType,
+            Status = item.Status,
+            Provider = item.Provider,
+            Amount = item.Amount,
+            PaidAmount = item.PaidAmount,
+            RemainingAmount = item.RemainingAmount,
+            OccurredAt = ToOffset(item.OccurredAt),
+            ExpiredAt = ToOffset(item.ExpiredAt),
+            FailureReason = item.FailureReason,
+            AgeDays = item.AgeDays,
+            ProjectStartFeeAmount = item.ProjectStartFeeAmount,
+            DepositAmount = item.DepositAmount,
+            RemainingPaymentAmount = item.RemainingPaymentAmount,
+            FullPaymentAmount = item.FullPaymentAmount,
+            TotalCollectedAmount = item.TotalCollectedAmount,
+            PaymentCount = item.PaymentCount,
+            LastPaidAt = ToOffset(item.LastPaidAt)
+        };
+    }
+
+    private static bool IsSupportedDrilldownGroupBy(string metric, string? groupBy)
+    {
+        if (string.IsNullOrWhiteSpace(groupBy))
+        {
+            return true;
+        }
+
+        return metric == AdminFinancialSummaryMetrics.Collected
+            && string.Equals(groupBy, AdminFinancialDrilldownGroupBy.Project, StringComparison.Ordinal);
+    }
+
+    private static DateTimeOffset? ToOffset(DateTime? value)
+    {
+        if (!value.HasValue)
+        {
+            return null;
+        }
+
+        var utc = DateTime.SpecifyKind(value.Value, DateTimeKind.Utc);
+        return new DateTimeOffset(utc).ToOffset(VietnamOffset);
+    }
+
     private async Task<List<AdminFinancialCollectionTrendBucketDto>> BuildMonthlyTrendSeriesAsync(
         DateTimeOffset fromLocal,
         DateTimeOffset toLocal,
@@ -367,19 +703,105 @@ public sealed class AdminFinancialService : IAdminFinancialService
             ProjectId = item.ProjectId,
             ProjectCode = item.ProjectCode,
             ProjectName = item.ProjectName,
+            CustomerId = item.CustomerId,
+            CustomerName = item.CustomerName,
             OrderId = item.OrderId,
             OrderCode = item.OrderCode,
             OrderStatus = item.OrderStatus,
+            ConfirmedAt = ToOffset(item.ConfirmedAt),
             FinalTotalAmount = item.FinalTotalAmount,
             PaidAmount = item.PaidAmount,
             RemainingAmount = item.RemainingAmount,
+            PaymentProgressPercentage = item.PaymentProgressPercentage,
+            CollectionState = item.CollectionState,
+            ReceivableAgeDays = item.ReceivableAgeDays,
+            LastPaidAt = ToOffset(item.LastPaidAt),
             ActivePaymentId = item.ActivePaymentId,
             ActivePaymentType = item.ActivePaymentType,
             ActivePaymentAmount = item.ActivePaymentAmount,
             ActivePaymentStatus = item.ActivePaymentStatus,
+            ActivePaymentExpiredAt = ToOffset(item.ActivePaymentExpiredAt),
+            LastPaymentFailureReason = item.LastPaymentFailureReason,
             IsPaymentCreated = item.ActivePaymentId.HasValue
+                || !string.Equals(
+                    item.CollectionState,
+                    AdminFinancialCollectionStates.NotCreated,
+                    StringComparison.Ordinal)
         };
     }
+
+    private static AdminFinancialReceivableDetailDto ToReceivableDetailDto(
+        AdminFinancialReceivableDetailReadModel detail)
+    {
+        return new AdminFinancialReceivableDetailDto
+        {
+            Order = new AdminFinancialReceivableOrderInfoDto
+            {
+                OrderId = detail.OrderId,
+                OrderCode = detail.OrderCode,
+                OrderStatus = detail.OrderStatus,
+                ConfirmedAt = ToOffset(detail.ConfirmedAt),
+                FinalTotalAmount = detail.FinalTotalAmount
+            },
+            Project = new AdminFinancialReceivableProjectInfoDto
+            {
+                ProjectId = detail.ProjectId,
+                ProjectCode = detail.ProjectCode,
+                ProjectName = detail.ProjectName
+            },
+            Customer = new AdminFinancialReceivableCustomerInfoDto
+            {
+                CustomerId = detail.CustomerId,
+                CustomerName = detail.CustomerName
+            },
+            Summary = new AdminFinancialReceivableDetailSummaryDto
+            {
+                FinalTotalAmount = detail.FinalTotalAmount,
+                PaidAmount = detail.PaidAmount,
+                RemainingAmount = detail.RemainingAmount,
+                PaymentProgressPercentage = detail.PaymentProgressPercentage,
+                ReceivableAgeDays = detail.ReceivableAgeDays,
+                CollectionState = detail.CollectionState,
+                LastPaidAt = ToOffset(detail.LastPaidAt)
+            },
+            PaymentRounds = detail.PaymentRounds.Select(round => new AdminFinancialReceivablePaymentRoundDto
+            {
+                PaymentId = round.PaymentId,
+                PaymentCode = round.PaymentCode,
+                PaymentType = round.PaymentType,
+                Amount = round.Amount,
+                Status = round.Status,
+                Provider = round.Provider,
+                CreatedAt = ToOffset(round.CreatedAt),
+                PaidAt = ToOffset(round.PaidAt),
+                ExpiredAt = ToOffset(round.ExpiredAt),
+                AttemptCount = round.AttemptCount,
+                FailedAttemptCount = round.FailedAttemptCount,
+                LastFailureReason = round.LastFailureReason
+            }).ToList(),
+            ActivePayment = detail.ActivePaymentId is null
+                ? null
+                : new AdminFinancialReceivableActivePaymentDto
+                {
+                    PaymentId = detail.ActivePaymentId.Value,
+                    PaymentCode = detail.ActivePaymentCode,
+                    PaymentType = detail.ActivePaymentType,
+                    Amount = detail.ActivePaymentAmount ?? 0m,
+                    Status = detail.ActivePaymentStatus,
+                    ExpiredAt = ToOffset(detail.ActivePaymentExpiredAt)
+                },
+            SuggestedAction = ResolveReceivableSuggestedAction(detail.CollectionState)
+        };
+    }
+
+    private static string ResolveReceivableSuggestedAction(string collectionState) => collectionState switch
+    {
+        AdminFinancialCollectionStates.Pending => "Follow up pending payment with customer",
+        AdminFinancialCollectionStates.Processing => "Wait for provider confirmation",
+        AdminFinancialCollectionStates.Expired => "Recreate expired payment request",
+        AdminFinancialCollectionStates.Failed => "Retry failed payment collection",
+        _ => "Create remaining payment request"
+    };
 
     private static AdminFinancialProjectRowDto ToProjectRowDto(AdminFinancialProjectRowReadModel item)
     {
@@ -399,9 +821,6 @@ public sealed class AdminFinancialService : IAdminFinancialService
             OrderId = item.OrderId,
             OrderCode = item.OrderCode,
             OrderStatus = item.OrderStatus,
-            OrderOriginalTotal = item.OrderOriginalTotal,
-            OrderAdjustmentAmount = item.OrderAdjustmentAmount,
-            OrderAdditionalDiscount = item.OrderAdditionalDiscount,
             OrderFinalTotal = item.OrderFinalTotal,
             OrderPaidAmount = item.OrderPaidAmount,
             OrderRemainingAmount = item.OrderRemainingAmount,
@@ -410,7 +829,9 @@ public sealed class AdminFinancialService : IAdminFinancialService
             ActivePaymentAmount = item.ActivePaymentAmount,
             ActivePaymentStatus = item.ActivePaymentStatus,
             TotalProjectCashCollected = item.TotalProjectCashCollected,
-            LastPaidAt = item.LastPaidAt
+            LastPaidAt = item.LastPaidAt,
+            CollectedInPeriod = item.CollectedInPeriod,
+            LastPaidInPeriod = item.LastPaidInPeriod
         };
     }
 
@@ -505,6 +926,27 @@ public sealed class AdminFinancialService : IAdminFinancialService
             return false;
         }
 
+        if (query.MinAgeDays is < 0 || query.MaxAgeDays is < 0)
+        {
+            errorMessage = "Receivable age filter is invalid.";
+            return false;
+        }
+
+        if (query.MinAgeDays.HasValue
+            && query.MaxAgeDays.HasValue
+            && query.MinAgeDays.Value > query.MaxAgeDays.Value)
+        {
+            errorMessage = "Receivable age filter is invalid.";
+            return false;
+        }
+
+        var collectionState = NormalizeOptionalUpper(query.CollectionState);
+        if (collectionState is not null && !ReceivableCollectionStates.Contains(collectionState))
+        {
+            errorMessage = "Receivable collection state is invalid.";
+            return false;
+        }
+
         var sortBy = NormalizeSortBy(query.SortBy);
         if (!ReceivableSortFields.Contains(sortBy))
         {
@@ -519,7 +961,9 @@ public sealed class AdminFinancialService : IAdminFinancialService
             return false;
         }
 
-        if (!TryResolveOptionalDateRange(query.From, query.To, out var fromUtc, out var toUtcExclusive))
+        var confirmedFrom = query.ConfirmedFrom ?? query.From;
+        var confirmedTo = query.ConfirmedTo ?? query.To;
+        if (!TryResolveOptionalDateRange(confirmedFrom, confirmedTo, out var fromUtc, out var toUtcExclusive))
         {
             errorMessage = "Receivable date range is invalid.";
             return false;
@@ -527,6 +971,10 @@ public sealed class AdminFinancialService : IAdminFinancialService
 
         readQuery = new AdminFinancialReceivablesQueryReadModel
         {
+            Keyword = string.IsNullOrWhiteSpace(query.Keyword) ? null : query.Keyword.Trim(),
+            CollectionState = collectionState,
+            MinAgeDays = query.MinAgeDays,
+            MaxAgeDays = query.MaxAgeDays,
             ProjectId = query.ProjectId,
             CustomerId = query.CustomerId,
             SalesId = query.SalesId,

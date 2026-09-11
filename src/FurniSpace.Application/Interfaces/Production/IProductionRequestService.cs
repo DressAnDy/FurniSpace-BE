@@ -34,12 +34,6 @@ public interface IProductionRequestService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<ProductionRequestStatusDto>> MarkFeasibleAsync(
-        Guid productionRequestId,
-        Guid currentUserId,
-        MarkProductionRequestFeasibleDto request,
-        CancellationToken cancellationToken = default);
-
     Task<ServiceResult<ProductionRequestStatusDto>> StartAsync(
         Guid productionRequestId,
         Guid currentUserId,
@@ -58,5 +52,13 @@ public interface IProductionRequestService
         CancellationToken cancellationToken = default)
     {
         return Task.FromResult(ServiceResult<ProductionCompletionDto>.Unauthorized());
+    }
+
+    Task<ServiceResult<ProductionUnavailableItemsResponseDto>> GetUnavailableItemsAsync(
+        Guid currentUserId,
+        ProductionUnavailableItemsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceResult<ProductionUnavailableItemsResponseDto>.Unauthorized());
     }
 }

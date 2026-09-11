@@ -8,4 +8,5 @@ public sealed class ProjectDesignerAssignmentDto
     public AssignedDesignerDto AssignedDesigner { get; set; } = new();
     public ProjectStatus? Status { get; set; }
     public DateTime? DesignerAssignedAt { get; set; }
+    public DateOnly? ProposalDeadline { get; set; }
 }

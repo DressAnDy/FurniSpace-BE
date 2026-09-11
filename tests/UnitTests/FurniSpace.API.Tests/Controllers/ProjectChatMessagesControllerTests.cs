@@ -37,7 +37,7 @@ public sealed class ProjectChatMessagesControllerTests
             .Single();
 
         Assert.Equal("project-chats/{chatId:guid}/messages", route.Template);
-        Assert.Equal("CUSTOMER,SALES,DESIGNER,ADMIN", authorize.Roles);
+        Assert.Equal("CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN", authorize.Roles);
         Assert.Null(httpGet.Template);
     }
 

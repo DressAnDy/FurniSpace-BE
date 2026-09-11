@@ -72,6 +72,39 @@ public sealed class ProjectAreaRepositoryTests
     }
 
     [Fact]
+    public async Task ActiveFloorNumberExistsAsync_ReturnsTrueForMatchingActiveFloor()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        var floorId = Guid.NewGuid();
+        context.ProjectAreaSet.Add(CreateFloor(data.ProjectId, floorId, 1, ProjectAreaStatus.DRAFT));
+        await context.SaveChangesAsync();
+        var repository = new ProjectAreaRepository(context);
+
+        var exists = await repository.ActiveFloorNumberExistsAsync(data.ProjectId, 1);
+        var excluded = await repository.ActiveFloorNumberExistsAsync(data.ProjectId, 1, floorId);
+        var otherFloor = await repository.ActiveFloorNumberExistsAsync(data.ProjectId, 2);
+
+        Assert.True(exists);
+        Assert.False(excluded);
+        Assert.False(otherFloor);
+    }
+
+    [Fact]
+    public async Task ActiveFloorNumberExistsAsync_IgnoresCancelledFloors()
+    {
+        await using var context = CreateContext();
+        var data = await SeedAsync(context);
+        context.ProjectAreaSet.Add(CreateFloor(data.ProjectId, Guid.NewGuid(), 1, ProjectAreaStatus.CANCELLED));
+        await context.SaveChangesAsync();
+        var repository = new ProjectAreaRepository(context);
+
+        var exists = await repository.ActiveFloorNumberExistsAsync(data.ProjectId, 1);
+
+        Assert.False(exists);
+    }
+
+    [Fact]
     public async Task HasActiveSceneUsageAsync_ReturnsTrueWhenActiveProposalSceneMappingExists()
     {
         await using var context = CreateContext();
@@ -127,6 +160,24 @@ public sealed class ProjectAreaRepositoryTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
         return new AppDbContext(options);
+    }
+
+    private static ProjectArea CreateFloor(
+        Guid projectId,
+        Guid projectAreaId,
+        int floorNumber,
+        ProjectAreaStatus status)
+    {
+        return new ProjectArea
+        {
+            ProjectAreaId = projectAreaId,
+            ProjectId = projectId,
+            AreaName = $"Floor {floorNumber}",
+            AreaType = ProjectAreaType.FLOOR,
+            FloorNumber = floorNumber,
+            Status = status,
+            CreatedAt = DateTime.UtcNow
+        };
     }
 
     private static async Task<SeededData> SeedAsync(AppDbContext context)

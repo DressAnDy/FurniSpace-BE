@@ -584,5 +584,11 @@ public sealed class ProductUploadFileServiceTests
             IReadOnlyCollection<FileType> fileTypes,
             CancellationToken cancellationToken = default)
             => Task.FromResult(false);
+
+        public Task<ProjectLinkedFileReadModel?> GetProjectLinkedActiveFileAsync(
+            Guid projectId,
+            Guid fileId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<ProjectLinkedFileReadModel?>(null);
     }
 }

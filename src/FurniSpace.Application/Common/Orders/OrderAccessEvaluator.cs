@@ -12,6 +12,7 @@ internal static class OrderAccessEvaluator
         OrderStatus.IN_PRODUCTION,
         OrderStatus.READY_FOR_DELIVERY,
         OrderStatus.DELIVERING,
+        OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
         OrderStatus.DELIVERED,
         OrderStatus.FINAL_PAYMENT_PENDING,
         OrderStatus.COMPLETED
@@ -51,16 +52,5 @@ internal static class OrderAccessEvaluator
             ProjectAssignmentAccessEvaluator.SalesRole => assignedSalesId == currentUserId,
             _ => false
         };
-    }
-
-    public static bool CanManageFinancialAdjustment(
-        string? role,
-        Guid? assignedSalesId,
-        Guid currentUserId)
-    {
-        return ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
-            role,
-            assignedSalesId,
-            currentUserId);
     }
 }

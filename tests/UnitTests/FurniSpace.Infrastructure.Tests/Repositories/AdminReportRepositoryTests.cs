@@ -76,7 +76,7 @@ public sealed class AdminReportRepositoryTests
         var report = await repository.GetProductionReportAsync(seed.From, seed.To);
 
         Assert.True(report.OpenRequestCount >= 1);
-        Assert.True(report.BlockedCount >= 1);
+        Assert.Equal(0, report.BlockedCount);
         Assert.True(report.OverdueCount >= 1);
         Assert.True(report.TopAssignees.Count >= 1);
         Assert.True(report.ItemsByStatus.Count >= 1);
@@ -93,7 +93,7 @@ public sealed class AdminReportRepositoryTests
 
         Assert.True(report.Projects.ReadyForDelivery >= 1);
         Assert.True(report.Projects.Delivering >= 1);
-        Assert.True(report.OrderItems.PartialDeliveryCount >= 1);
+        Assert.Equal(0, report.OrderItems.PartialDeliveryCount);
         Assert.True(report.Schedules.UpcomingDeliveryOrHandover + report.Schedules.OverdueDeliveryOrHandover >= 1);
     }
 
@@ -291,6 +291,7 @@ public sealed class AdminReportRepositoryTests
                 VatRate = 0.08m,
                 VatAmount = 80m,
                 TotalAmount = 1000m,
+                DepositAmount = 300m,
                 SentAt = now.AddDays(-3),
                 AcceptedAt = now.AddDays(-2)
             },
@@ -306,7 +307,8 @@ public sealed class AdminReportRepositoryTests
                 PreVatAmount = 0m,
                 VatRate = 0.08m,
                 VatAmount = 0m,
-                TotalAmount = 0m
+                TotalAmount = 0m,
+                DepositAmount = 0m
             },
             new Quotation
             {
@@ -320,7 +322,8 @@ public sealed class AdminReportRepositoryTests
                 PreVatAmount = 0m,
                 VatRate = 0.08m,
                 VatAmount = 0m,
-                TotalAmount = 0m
+                TotalAmount = 0m,
+                DepositAmount = 0m
             });
 
         var orderId = Guid.NewGuid();
@@ -334,7 +337,6 @@ public sealed class AdminReportRepositoryTests
                 OrderCode = "ORD-1",
                 CustomerId = customerId,
                 SalesId = salesId,
-                OriginalTotalAmount = 1000m,
                 FinalTotalAmount = 1000m,
                 PaidAmount = 400m,
                 RemainingAmount = 600m,
@@ -348,7 +350,6 @@ public sealed class AdminReportRepositoryTests
                 QuotationId = quotationId,
                 OrderCode = "ORD-2",
                 CustomerId = customerId,
-                OriginalTotalAmount = 500m,
                 FinalTotalAmount = 500m,
                 Status = OrderStatus.DELIVERING,
                 CreatedAt = now.AddDays(-1)
@@ -416,11 +417,12 @@ public sealed class AdminReportRepositoryTests
             ProductNameSnapshot = "Chair X",
             ProductVersionCodeSnapshot = "CHAIR-X-01",
             Quantity = 5,
-            DeliveredQuantity = 2,
+            Status = OrderItemStatus.DELIVERED,
+            DeliveredAt = now.AddDays(-1),
+            DeliveredBy = salesId,
             UnitPrice = 200m,
             DiscountAmount = 0m,
-            SubtotalAmount = 1000m,
-            CustomerConfirmedAt = now.AddDays(-1)
+            SubtotalAmount = 1000m
         });
 
         context.PaymentSet.AddRange(
@@ -462,7 +464,6 @@ public sealed class AdminReportRepositoryTests
                 OrderId = orderId,
                 AssignedTo = prodStaffId,
                 Status = ProductionRequestStatus.IN_PRODUCTION,
-                EstimatedCompletionDate = DateOnly.FromDateTime(now.AddDays(-1)),
                 CreatedAt = now.AddDays(-3),
                 UpdatedAt = now.AddDays(-1)
             },
@@ -472,7 +473,7 @@ public sealed class AdminReportRepositoryTests
                 ProjectId = commercialProjectId,
                 OrderId = orderId,
                 AssignedTo = prodStaffId,
-                Status = ProductionRequestStatus.BLOCKED,
+                Status = ProductionRequestStatus.PENDING,
                 CreatedAt = now.AddDays(-2)
             },
             new ProductionRequest
@@ -481,7 +482,7 @@ public sealed class AdminReportRepositoryTests
                 ProjectId = commercialProjectId,
                 OrderId = orderId,
                 AssignedTo = null,
-                Status = ProductionRequestStatus.PENDING_REVIEW,
+                Status = ProductionRequestStatus.PENDING,
                 CreatedAt = now.AddDays(-1)
             },
             new ProductionRequest
@@ -490,7 +491,7 @@ public sealed class AdminReportRepositoryTests
                 ProjectId = commercialProjectId,
                 OrderId = orderId,
                 AssignedTo = prodFullId,
-                Status = ProductionRequestStatus.FEASIBLE,
+                Status = ProductionRequestStatus.PENDING,
                 CreatedAt = now.AddDays(-1)
             },
             new ProductionRequest
@@ -539,6 +540,16 @@ public sealed class AdminReportRepositoryTests
                 CreatedAt = now.AddDays(-5),
                 UpdatedAt = now.AddDays(-1)
             });
+        context.ProjectPhaseTimelineSet.Add(new ProjectPhaseTimeline
+        {
+            ProjectPhaseTimelineId = Guid.NewGuid(),
+            ProjectId = commercialProjectId,
+            Phase = ProjectPhaseType.PRODUCTION,
+            DueDate = DateOnly.FromDateTime(now.AddDays(-1)),
+            CreatedBy = salesId,
+            CreatedAt = now.AddDays(-4),
+            UpdatedAt = now.AddDays(-1)
+        });
 
         context.ProductionItemSet.Add(new ProductionItem
         {

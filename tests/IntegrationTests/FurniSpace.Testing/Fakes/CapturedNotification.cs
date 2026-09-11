@@ -8,4 +8,5 @@ public sealed record CapturedNotification(
     IReadOnlyList<Guid> ReceiverIds,
     Guid? ProjectId,
     string? ReferenceType,
-    Guid? ReferenceId);
+    Guid? ReferenceId,
+    IReadOnlyDictionary<string, object?>? Metadata = null);

@@ -20,6 +20,8 @@ namespace FurniSpace.API.IntegrationTests.Projects;
 [Trait("Category", "Core")]
 public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
 {
+    private static readonly DateOnly IntegrationProposalDeadline = new(2026, 9, 15);
+
     private readonly ApiIntegrationFixture _fixture;
 
     public ProjectIntakeApiIntegrationTests(ApiIntegrationFixture fixture)
@@ -170,7 +172,8 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
             {
                 DesignerId = designer.AccountId,
                 SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
-                Note = "Space verified from photos"
+                Note = "Space verified from photos",
+                ProposalDeadline = IntegrationProposalDeadline
             });
         var assignDesignerResponse = await _fixture.Client.SendAsync(assignDesigner);
         var assignedDesigner = await assignDesignerResponse.Content
@@ -188,7 +191,14 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
         Assert.Equal("Shelving, counters, and seating", project.FurnitureRequirement);
         Assert.Equal("12 Nguyen Hue", project.ProjectAddress);
 
-        Assert.Equal(2, await verification.ProjectChatSet.CountAsync(c => c.ProjectId == projectId));
+        Assert.Equal(3, await verification.ProjectChatSet.CountAsync(c => c.ProjectId == projectId));
+        var projectChatTypes = await verification.ProjectChatSet
+            .Where(c => c.ProjectId == projectId)
+            .Select(c => c.ChatType)
+            .ToListAsync();
+        Assert.Contains(ProjectChatType.SALES, projectChatTypes);
+        Assert.Contains(ProjectChatType.DESIGNER, projectChatTypes);
+        Assert.Contains(ProjectChatType.DESIGNER_SALES, projectChatTypes);
         Assert.Equal(
             1,
             await verification.PaymentSet.CountAsync(p =>
@@ -370,7 +380,8 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
             new AssignProjectDesignerRequestDto
             {
                 DesignerId = scenario.DesignerAccountId,
-                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+                ProposalDeadline = IntegrationProposalDeadline
             });
 
         var response = await _fixture.Client.SendAsync(request);
@@ -399,7 +410,8 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
             new AssignProjectDesignerRequestDto
             {
                 DesignerId = scenario.DesignerAccountId,
-                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT
+                SpaceDataStatus = ProjectSpaceDataStatus.SUFFICIENT,
+                ProposalDeadline = IntegrationProposalDeadline
             });
 
         var response = await _fixture.Client.SendAsync(request);
@@ -416,9 +428,13 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
         Assert.Equal(scenario.DesignerAccountId, project.AssignedDesignerId);
         Assert.NotNull(project.DesignerAssignedAt);
 
-        var chat = await verification.ProjectChatSet.SingleAsync();
-        Assert.Equal(ProjectChatType.DESIGNER, chat.ChatType);
-        Assert.Equal(scenario.DesignerAccountId, chat.StaffId);
+        var chat = await verification.ProjectChatSet
+            .OrderBy(item => item.ChatType)
+            .ToListAsync();
+        Assert.Equal(2, chat.Count);
+        Assert.Equal(ProjectChatType.DESIGNER, chat[0].ChatType);
+        Assert.Equal(ProjectChatType.DESIGNER_SALES, chat[1].ChatType);
+        Assert.All(chat, item => Assert.Equal(scenario.DesignerAccountId, item.StaffId));
     }
 
     [Fact]
@@ -438,7 +454,8 @@ public sealed class ProjectIntakeApiIntegrationTests : IAsyncLifetime
             new AssignProjectDesignerRequestDto
             {
                 DesignerId = scenario.DesignerAccountId,
-                SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT
+                SpaceDataStatus = ProjectSpaceDataStatus.INSUFFICIENT,
+                ProposalDeadline = IntegrationProposalDeadline
             });
 
         var response = await _fixture.Client.SendAsync(request);

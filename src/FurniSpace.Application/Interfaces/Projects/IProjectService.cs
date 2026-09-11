@@ -33,6 +33,12 @@ public interface IProjectService
         UpdateProjectBasicInformationRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<ProjectTargetCompletionDateDto>> UpdateTargetCompletionDateAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpdateProjectTargetCompletionDateRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectStatusUpdateDto>> UpdateStatusAsync(
         Guid projectId,
         Guid currentUserId,
@@ -43,6 +49,11 @@ public interface IProjectService
         Guid projectId,
         Guid currentUserId,
         RejectProjectRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectCompletionDto>> CompleteAsync(
+        Guid projectId,
+        Guid currentUserId,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<ProjectDesignerAssignmentDto>> AssignDesignerAsync(
@@ -60,5 +71,10 @@ public interface IProjectService
         Guid userId,
         Guid currentUserId,
         GetProjectsByUserQueryDto query,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ReopenProposalResponseDto>> ReopenProposalAsync(
+        Guid projectId,
+        Guid currentUserId,
         CancellationToken cancellationToken = default);
 }

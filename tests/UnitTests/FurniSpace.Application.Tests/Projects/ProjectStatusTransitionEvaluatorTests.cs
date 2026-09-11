@@ -466,6 +466,32 @@ public sealed class ProjectStatusTransitionEvaluatorTests
     }
 
     [Fact]
+    public async Task EvaluateAsync_MeasurementRequiredToProposalConsulting_WithoutCompletedMeasurement_ReturnsMeasurementNotCompleted()
+    {
+        var designerId = Guid.NewGuid();
+        var fakes = new ProjectServiceTransitionFakes
+        {
+            Schedules = { HasCompletedMeasurement = false }
+        };
+        var evaluator = CreateEvaluator(fakes);
+        var project = CreateProject(
+            status: ProjectStatus.MEASUREMENT_REQUIRED,
+            assignedDesignerId: designerId);
+
+        var error = await evaluator.EvaluateAsync(
+            project,
+            ProjectStatus.PROPOSAL_CONSULTING,
+            note: null,
+            designerId,
+            "DESIGNER",
+            CancellationToken.None);
+
+        Assert.NotNull(error);
+        Assert.Equal(ProjectStatusErrorCodes.MeasurementNotCompleted, error.Code);
+        Assert.Contains("Measurement must be completed", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task EvaluateAsync_MeasurementRequiredToSpaceVerified_WithUnauthorizedUser_ReturnsForbidden()
     {
         var evaluator = CreateEvaluator();

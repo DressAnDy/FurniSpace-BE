@@ -12,6 +12,20 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         Guid orderId,
         CancellationToken cancellationToken = default);
 
+    Task<bool> ExistsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
+    Task<bool> IsOrderProductionCompletedAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
     Task<int> CountCreatedOnAsync(
         DateOnly date,
         CancellationToken cancellationToken = default);
@@ -45,6 +59,28 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
         Guid productionAccountId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<Guid>>([]);
+    }
+
+    Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<Guid>>([]);
+    }
+
+    Task<bool> HasAssignedCompletedProductionForProjectAsync(
+        Guid projectId,
+        Guid productionAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
     Task<ProductionRequestDetailReadModel?> GetDetailAsync(
         Guid productionRequestId,
         CancellationToken cancellationToken = default);
@@ -63,6 +99,27 @@ public interface IProductionRequestRepository : IGenericRepository<ProductionReq
     Task<ProductionRequestDetailReadModel?> GetDetailByItemIdAsync(
         Guid productionItemId,
         CancellationToken cancellationToken = default);
+
+    Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<DateOnly?>(null);
+    }
+
+    Task<IReadOnlyList<ProductionUnavailableItemReadModel>> GetUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<ProductionUnavailableItemReadModel>>([]);
+    }
+
+    Task<int> CountUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(0);
+    }
 
     void UpdateItem(ProductionItem item);
 }

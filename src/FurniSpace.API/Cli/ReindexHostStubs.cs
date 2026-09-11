@@ -1,3 +1,5 @@
+#nullable enable
+
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -64,9 +66,11 @@ internal sealed class NoOpPaymentRealtimeService : IPaymentRealtimeService
 {
     public Task SendPaymentUpdatedAsync(
         PaymentUpdatedRealtimeDto payload,
+        IReadOnlyCollection<Guid>? stakeholderUserIds = null,
         CancellationToken cancellationToken = default)
     {
         _ = payload;
+        _ = stakeholderUserIds;
         return Task.CompletedTask;
     }
 }

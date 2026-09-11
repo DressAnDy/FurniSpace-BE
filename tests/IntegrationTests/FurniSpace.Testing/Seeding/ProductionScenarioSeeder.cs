@@ -100,9 +100,6 @@ public static class ProductionScenarioSeeder
             SalesId = sales.AccountId,
             VatRate = VatRate,
             VatAmount = VatAmount,
-            OriginalTotalAmount = TotalAmount,
-            ItemAdjustmentAmount = 0m,
-            AdditionalDiscountAmount = 0m,
             FinalTotalAmount = TotalAmount,
             DepositAmount = 3_000_000m,
             PaidAmount = 3_000_000m,
@@ -140,6 +137,10 @@ public static class ProductionScenarioSeeder
             CreatedAt = CoreAccountSeeder.FixedTimestamp,
             UpdatedAt = CoreAccountSeeder.FixedTimestamp
         });
+        ProjectPhaseTimelineSeeder.AddProductionDeadline(
+            context,
+            project.ProjectId,
+            sales.AccountId);
         await context.SaveChangesAsync(cancellationToken);
 
         return new ProductionOrderScenario(
@@ -167,7 +168,6 @@ public static class ProductionScenarioSeeder
             ProductVersionNameSnapshot = $"{productName} Version",
             ProductVersionCodeSnapshot = "PV-PROD-001",
             Quantity = 2,
-            DeliveredQuantity = 0,
             Status = OrderItemStatus.PENDING,
             UnitPrice = 5_000_000m,
             DiscountAmount = 0m,

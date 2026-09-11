@@ -23,6 +23,7 @@ public static class DeliveryScenarioSeeder
 
     public static async Task<DeliveryOrderScenario> SeedReadyForDeliveryOrderAsync(
         AppDbContext context,
+        bool seedCompletedProduction = true,
         CancellationToken cancellationToken = default)
     {
         var roles = await CoreAccountSeeder.EnsureRolesAsync(
@@ -81,7 +82,20 @@ public static class DeliveryScenarioSeeder
         var (category, product, productVersion) = ProposalScenarioSeeder.CreateCatalog(suffix);
         var firstProductItem = CreateProductOrderItem(order.OrderId, productVersion.ProductVersionId, "Counter", quantity: 2);
         var secondProductItem = CreateProductOrderItem(order.OrderId, productVersion.ProductVersionId, "Shelf", quantity: 1);
-        var pendingProductItem = CreatePendingProductOrderItem(order.OrderId, productVersion.ProductVersionId);
+        var pendingServiceItem = CreatePendingServiceOrderItem(order.OrderId);
+        var productionRequest = CreateCompletedProductionRequest(
+            project.ProjectId,
+            order.OrderId,
+            production.AccountId,
+            suffix);
+        var firstProductionItem = CreateCompletedProductionItem(
+            productionRequest.ProductionRequestId,
+            firstProductItem,
+            productVersion.ProductVersionId);
+        var secondProductionItem = CreateCompletedProductionItem(
+            productionRequest.ProductionRequestId,
+            secondProductItem,
+            productVersion.ProductVersionId);
 
         context.AccountSet.AddRange(customer, sales, production);
         context.ProjectSet.Add(project);
@@ -91,7 +105,12 @@ public static class DeliveryScenarioSeeder
         context.CategorySet.Add(category);
         context.ProductSet.Add(product);
         context.ProductVersionSet.Add(productVersion);
-        context.OrderItemSet.AddRange(firstProductItem, secondProductItem, pendingProductItem);
+        context.OrderItemSet.AddRange(firstProductItem, secondProductItem, pendingServiceItem);
+        if (seedCompletedProduction)
+        {
+            context.ProductionRequestSet.Add(productionRequest);
+            context.ProductionItemSet.AddRange(firstProductionItem, secondProductionItem);
+        }
         await context.SaveChangesAsync(cancellationToken);
 
         return new DeliveryOrderScenario(
@@ -102,7 +121,7 @@ public static class DeliveryScenarioSeeder
             order.OrderId,
             firstProductItem.OrderItemId,
             secondProductItem.OrderItemId,
-            pendingProductItem.OrderItemId);
+            pendingServiceItem.OrderItemId);
     }
 
     private static Order CreateReadyOrder(
@@ -124,7 +143,6 @@ public static class DeliveryScenarioSeeder
             SalesId = salesId,
             VatRate = VatRate,
             VatAmount = VatAmount,
-            OriginalTotalAmount = TotalAmount,
             FinalTotalAmount = TotalAmount,
             DepositAmount = 3_600_000m,
             PaidAmount = 3_600_000m,
@@ -151,7 +169,6 @@ public static class DeliveryScenarioSeeder
             ProductVersionNameSnapshot = $"{productName} Version",
             ProductVersionCodeSnapshot = $"PV-{productName.ToUpperInvariant()}",
             Quantity = quantity,
-            DeliveredQuantity = 0,
             Status = OrderItemStatus.READY,
             UnitPrice = 4_000_000m,
             DiscountAmount = 0m,
@@ -159,22 +176,63 @@ public static class DeliveryScenarioSeeder
         };
     }
 
-    private static OrderItem CreatePendingProductOrderItem(Guid orderId, Guid productVersionId)
+    private static OrderItem CreatePendingServiceOrderItem(Guid orderId)
     {
         return new OrderItem
         {
             OrderItemId = Guid.NewGuid(),
             OrderId = orderId,
-            ProductVersionId = productVersionId,
             ProductNameSnapshot = "Delivery fee product",
             ProductVersionNameSnapshot = "Delivery fee version",
             ProductVersionCodeSnapshot = "PV-DELIVERY-FEE",
             Quantity = 1,
-            DeliveredQuantity = 0,
             Status = OrderItemStatus.PENDING,
             UnitPrice = 500_000m,
             DiscountAmount = 0m,
             SubtotalAmount = 500_000m
+        };
+    }
+
+    private static ProductionRequest CreateCompletedProductionRequest(
+        Guid projectId,
+        Guid orderId,
+        Guid assignedTo,
+        string suffix)
+    {
+        var completedDate = DateOnly.FromDateTime(CoreAccountSeeder.FixedTimestamp);
+        return new ProductionRequest
+        {
+            ProductionRequestId = Guid.NewGuid(),
+            ProductionCode = $"PRD-DEL-{suffix}",
+            ProjectId = projectId,
+            OrderId = orderId,
+            AssignedTo = assignedTo,
+            Status = ProductionRequestStatus.COMPLETED,
+            Priority = "NORMAL",
+            ActualStartDate = completedDate.AddDays(-3),
+            ActualCompletionDate = completedDate,
+            CreatedAt = CoreAccountSeeder.FixedTimestamp,
+            UpdatedAt = CoreAccountSeeder.FixedTimestamp
+        };
+    }
+
+    private static ProductionItem CreateCompletedProductionItem(
+        Guid productionRequestId,
+        OrderItem orderItem,
+        Guid productVersionId)
+    {
+        return new ProductionItem
+        {
+            ProductionItemId = Guid.NewGuid(),
+            ProductionRequestId = productionRequestId,
+            OrderItemId = orderItem.OrderItemId,
+            ProductVersionId = productVersionId,
+            ProductNameSnapshot = orderItem.ProductNameSnapshot,
+            ProductVersionNameSnapshot = orderItem.ProductVersionNameSnapshot,
+            Quantity = orderItem.Quantity,
+            Status = ProductionItemStatus.COMPLETED,
+            StartedAt = CoreAccountSeeder.FixedTimestamp.AddDays(-3),
+            CompletedAt = CoreAccountSeeder.FixedTimestamp
         };
     }
 }

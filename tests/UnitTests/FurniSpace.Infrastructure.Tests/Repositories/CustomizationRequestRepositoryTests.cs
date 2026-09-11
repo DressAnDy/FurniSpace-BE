@@ -257,6 +257,7 @@ public sealed class CustomizationRequestRepositoryTests
             VatRate = 0.08m,
             VatAmount = 8m,
             TotalAmount = 100m,
+            DepositAmount = 30m,
             Currency = "VND",
             Status = QuotationStatus.DRAFT
         });

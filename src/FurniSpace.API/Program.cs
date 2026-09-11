@@ -356,7 +356,8 @@ static Task ReadJwtBearerTokenAsync(MessageReceivedContext context)
 
 static bool IsRealtimeHubPath(PathString path) =>
     path.StartsWithSegments(RealtimeGroupNames.HubPath) ||
-    path.StartsWithSegments(ProjectChatRealtimeConstants.HubPath);
+    path.StartsWithSegments(ProjectChatRealtimeConstants.HubPath) ||
+    path.StartsWithSegments(PaymentRealtimeConstants.HubPath);
 
 static void AddJwtAuthentication(IServiceCollection services, JwtSettings jwtSettings, IWebHostEnvironment environment)
 {

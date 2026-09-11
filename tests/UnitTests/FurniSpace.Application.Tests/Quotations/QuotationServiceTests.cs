@@ -288,8 +288,112 @@ public sealed class QuotationServiceTests
         Assert.Equal(FinancialConstants.DefaultVatRate, quotations.AddedQuotations[0].VatRate);
         Assert.Equal(16m, quotations.AddedQuotations[0].VatAmount);
         Assert.Equal(216m, quotations.AddedQuotations[0].TotalAmount);
+        Assert.Equal(64m, quotations.AddedQuotations[0].DepositAmount);
+        Assert.Equal(64m, result.Data!.DepositAmount);
         Assert.Equal(200m, quotations.AddedItems[0].GrossAmount);
         Assert.Equal(200m, quotations.AddedItems[0].TotalAmount);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenProposalItemHasDiscount_UsesNetPreVatForDeposit()
+    {
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = Guid.NewGuid(),
+            ItemName = "Coffee Counter",
+            Quantity = 1,
+            UnitPriceSnapshot = 2_500_000m,
+            TotalPriceSnapshot = 2_000_000m,
+            IsCustomized = false
+        });
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        var quotation = quotations.AddedQuotations[0];
+        var item = quotations.AddedItems[0];
+        Assert.Equal(2_500_000m, quotation.SubtotalAmount);
+        Assert.Equal(500_000m, quotation.TotalDiscountAmount);
+        Assert.Equal(2_000_000m, quotation.PreVatAmount);
+        Assert.Equal(160_000m, quotation.VatAmount);
+        Assert.Equal(2_160_000m, quotation.TotalAmount);
+        Assert.Equal(648_000m, quotation.DepositAmount);
+        Assert.Equal(500_000m, item.DiscountAmount);
+        Assert.Equal(2_000_000m, item.TotalAmount);
+        Assert.Equal(648_000m, result.Data!.DepositAmount);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenEquivalentProposalItems_AggregatesIntoOneCommercialLine()
+    {
+        var productVersionId = Guid.NewGuid();
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 100m
+        });
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 100m
+        });
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        Assert.Single(quotations.AddedItems);
+        Assert.Equal(2, quotations.AddedItems[0].Quantity);
+        Assert.Null(quotations.AddedItems[0].ProposalItemId);
+        Assert.Equal(200m, quotations.AddedItems[0].GrossAmount);
+    }
+
+    [Fact]
+    public async Task CreateDraftAsync_WhenSameProductHasDifferentUnitPrice_KeepsSeparateLines()
+    {
+        var productVersionId = Guid.NewGuid();
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 100m
+        });
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = productVersionId,
+            ItemName = "Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 120m,
+            TotalPriceSnapshot = 120m
+        });
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(2, quotations.AddedItems.Count);
     }
 
     [Fact]
@@ -443,6 +547,7 @@ public sealed class QuotationServiceTests
         Assert.Equal(40m, item.DiscountAmount);
         Assert.Equal(160m, item.TotalAmount);
         Assert.Equal(172.8m, quotation.TotalAmount);
+        Assert.Equal(51m, quotation.DepositAmount);
     }
 
     [Fact]
@@ -662,7 +767,7 @@ public sealed class QuotationServiceTests
     public async Task SendAsync_WhenReady_SendsQuotationAndNotifiesCustomer()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
-        quotation.TotalAmount = 250m;
+        SeedDepositForTotal(quotation, 250m);
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
         var detail = MakeDetail(QuotationStatus.DRAFT);
         detail.QuotationId = quotation.QuotationId;
@@ -690,6 +795,7 @@ public sealed class QuotationServiceTests
     {
         var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
         quotation.TotalAmount = 1m;
+        quotation.DepositAmount = 51m;
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
         var item = MakeQuotationItem(quotation.QuotationId, subtotal: 1m);
         item.Quantity = 2;
@@ -761,10 +867,39 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task SendAsync_WhenAggregatedLineHasNullProposalItemId_Succeeds()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        SeedDepositForTotal(quotation, 160m);
+        quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(7));
+        var item = MakeQuotationItem(quotation.QuotationId, subtotal: 160m);
+        item.ProposalItemId = null;
+        item.Quantity = 2;
+        item.UnitPrice = 100m;
+        item.DiscountAmount = 40m;
+        var detail = MakeDetail(QuotationStatus.DRAFT);
+        detail.QuotationId = quotation.QuotationId;
+        detail.QuotationCode = quotation.QuotationCode;
+        detail.TotalAmount = quotation.TotalAmount;
+        detail.ValidUntil = quotation.ValidUntil;
+        detail.Items = [new QuotationItemReadModel { QuotationItemId = item.QuotationItemId, QuotationId = quotation.QuotationId }];
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(item);
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
+
+        var result = await service.SendAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.SENT, quotation.Status);
+    }
+
+    [Fact]
     public async Task AcceptAsync_WhenValid_CreatesOrderItemsAndNotifiesSales()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.SENT);
         quotation.TotalAmount = 250m;
+        quotation.DepositAmount = 66m;
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3));
         var detail = MakeAcceptReadyDetail(quotation);
         var quotations = new FakeQuotationRepository { Detail = detail };
@@ -780,14 +915,11 @@ public sealed class QuotationServiceTests
         Assert.Equal(QuotationStatus.ACCEPTED, quotation.Status);
         Assert.Equal(ProjectStatus.ORDER_CONFIRMED, ProjectEntity!.Status);
         var order = Assert.Single(orders.AddedOrders);
-        Assert.Equal(OrderStatus.DEPOSIT_PENDING, order.Status);
-        Assert.Equal(221.4m, order.OriginalTotalAmount);
+        Assert.Equal(OrderStatus.CREATED, order.Status);
         Assert.Equal(221.4m, order.FinalTotalAmount);
         Assert.Equal(66m, order.DepositAmount);
         Assert.Equal(FinancialConstants.DefaultVatRate, order.VatRate);
         Assert.Equal(16.4m, order.VatAmount);
-        Assert.Equal(0m, order.ItemAdjustmentAmount);
-        Assert.Equal(0m, order.AdditionalDiscountAmount);
         Assert.Equal(0m, order.PaidAmount);
         Assert.Equal(221.4m, order.RemainingAmount);
         Assert.Equal(_customerId, order.ConfirmedBy);
@@ -1028,6 +1160,45 @@ public sealed class QuotationServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal(3, quotation.VersionNo);
+        Assert.Equal(QuotationStatus.REVISED, quotation.Status);
+    }
+
+    [Fact]
+    public async Task ReviseAsync_WhenRevisionRequested_NotifiesCustomer()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        var detail = MakeDetail(QuotationStatus.REVISION_REQUESTED);
+        detail.QuotationId = quotation.QuotationId;
+        detail.QuotationCode = quotation.QuotationCode;
+        var quotations = new FakeQuotationRepository { Detail = detail };
+        quotations.AddedQuotations.Add(quotation);
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(new() { Quotations = quotations, Role = "SALES", Notifications = dispatcher });
+
+        var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(NotificationType.QuotationRevised, dispatcher.LastType);
+        Assert.Contains(_customerId, dispatcher.LastReceiverIds);
+    }
+
+    [Fact]
+    public async Task ReviseAsync_WhenNotificationFails_StillMarksRevised()
+    {
+        var quotation = MakeEntityQuotation(QuotationStatus.REVISION_REQUESTED);
+        var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISION_REQUESTED) };
+        quotations.Detail!.QuotationId = quotation.QuotationId;
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(new()
+        {
+            Quotations = quotations,
+            Role = "SALES",
+            Notifications = new ThrowingNotificationDispatcher()
+        });
+
+        var result = await service.ReviseAsync(quotation.QuotationId, _salesId);
+
+        Assert.Equal(200, result.Status);
         Assert.Equal(QuotationStatus.REVISED, quotation.Status);
     }
 
@@ -1296,6 +1467,17 @@ public sealed class QuotationServiceTests
         };
     }
 
+    private static void SeedDepositForTotal(Quotation quotation, decimal totalAmount)
+    {
+        quotation.TotalAmount = totalAmount;
+        quotation.DepositAmount = decimal.Truncate(totalAmount * 0.30m);
+    }
+
+    private static void SeedAcceptDeposit(Quotation quotation)
+    {
+        quotation.DepositAmount = 66m;
+    }
+
     private Quotation MakeEntityQuotation(QuotationStatus status)
     {
         return new Quotation
@@ -1307,7 +1489,8 @@ public sealed class QuotationServiceTests
             Status = status,
             TotalDiscountAmount = 0m,
             VatRate = FinancialConstants.DefaultVatRate,
-            VatAmount = 0m
+            VatAmount = 0m,
+            DepositAmount = status is QuotationStatus.SENT or QuotationStatus.REVISED ? 66m : 0m
         };
     }
 
@@ -1411,6 +1594,12 @@ public sealed class QuotationServiceTests
         public void Update(Quotation entity) { }
         public void Remove(Quotation entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<Quotation?> GetLatestByProjectAndProposalInStatusesAsync(
+            Guid projectId,
+            Guid proposalId,
+            IReadOnlyCollection<QuotationStatus> statuses,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult<Quotation?>(null);
         public Task<IReadOnlyList<QuotationReadModel>> GetByProjectAsync(QuotationQueryReadModel query, CancellationToken cancellationToken = default)
         {
             var items = ProjectQuotations
@@ -1436,6 +1625,7 @@ public sealed class QuotationServiceTests
                     VatRate = item.VatRate,
                     VatAmount = item.VatAmount,
                     TotalAmount = item.TotalAmount,
+                    DepositAmount = item.DepositAmount,
                     Currency = item.Currency,
                     Status = item.Status,
                     Items = AddedItems.Select(added => new QuotationItemReadModel
@@ -1599,15 +1789,26 @@ public sealed class QuotationServiceTests
             NotificationType type,
             IReadOnlyDictionary<string, string> parameters,
             IEnumerable<Guid> receiverIds,
-            Guid? projectId = null,
-            string? referenceType = null,
-            Guid? referenceId = null,
+            NotificationDispatchRequest? request = null,
             CancellationToken cancellationToken = default)
         {
             LastType = type;
             LastReceiverIds.Clear();
             LastReceiverIds.AddRange(receiverIds);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingNotificationDispatcher : INotificationDispatcher
+    {
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Notification failed.");
         }
     }
 }

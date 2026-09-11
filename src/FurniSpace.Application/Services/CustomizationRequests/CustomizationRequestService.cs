@@ -421,7 +421,6 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         _customizationRequestVersions.Update(version);
         entity.UpdatedAt = DateTime.UtcNow;
         _customizationRequests.Update(entity);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         if (request.ModelFileId.HasValue || request.PreviewFileIds is not null)
         {
@@ -431,6 +430,15 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 request.ModelFileId,
                 request.PreviewFileIds ?? [],
                 cancellationToken);
+        }
+
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (DatabaseExceptionMapper.IsUniqueConstraintViolation(ex))
+        {
+            return VersionDtoFailure(MapCreateVersionUniqueConstraintFailure(ex));
         }
 
         return ServiceResult<CustomizationRequestVersionDto>.Success(
@@ -682,6 +690,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             finalPrice,
             now);
         CustomizationAcceptedProductVersionFactory.MarkRequestAccepted(entity, version, now);
+
         await WithdrawOtherVersionsAsync(entity.CustomizationRequestId, version.CustomizationRequestVersionId, now, cancellationToken);
 
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
@@ -1692,9 +1701,10 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 ["ProposalName"] = context.ProposalName
             },
             receivers,
-            context.ProjectId,
-            CustomizationReferenceType,
-            request.CustomizationRequestId,
+            new NotificationDispatchRequest(
+                context.ProjectId,
+                CustomizationReferenceType,
+                request.CustomizationRequestId),
             cancellationToken);
     }
 
@@ -1719,9 +1729,10 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                 ["ProjectName"] = context.ProjectName
             },
             receivers,
-            context.ProjectId,
-            CustomizationReferenceType,
-            request.CustomizationRequestId,
+            new NotificationDispatchRequest(
+                context.ProjectId,
+                CustomizationReferenceType,
+                request.CustomizationRequestId),
             cancellationToken);
     }
 

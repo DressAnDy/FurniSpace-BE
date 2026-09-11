@@ -142,15 +142,6 @@ public sealed class ProductionStaffControllerTests
             return Task.FromResult(ServiceResult<ProductionRequestDetailDto>.Unauthorized());
         }
 
-        public Task<ServiceResult<ProductionRequestStatusDto>> MarkFeasibleAsync(
-            Guid productionRequestId,
-            Guid currentUserId,
-            MarkProductionRequestFeasibleDto request,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(ServiceResult<ProductionRequestStatusDto>.Unauthorized());
-        }
-
         public Task<ServiceResult<ProductionRequestStatusDto>> StartAsync(
             Guid productionRequestId,
             Guid currentUserId,

@@ -117,7 +117,7 @@ public sealed class ProductVersionsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Roles = "DESIGNER,ADMIN")]
     [HttpPost("product-versions/{productVersionId:guid}/files")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(MultipartRequestLimitBytes)]

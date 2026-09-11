@@ -14,6 +14,24 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
     {
     }
 
+    public Task<Quotation?> GetLatestByProjectAndProposalInStatusesAsync(
+        Guid projectId,
+        Guid proposalId,
+        IReadOnlyCollection<QuotationStatus> statuses,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.QuotationSet
+            .Where(quotation =>
+                quotation.ProjectId == projectId &&
+                quotation.ProposalId == proposalId &&
+                quotation.Status.HasValue &&
+                statuses.Contains(quotation.Status.Value))
+            .OrderByDescending(quotation => quotation.VersionNo)
+            .ThenByDescending(quotation => quotation.CreatedAt)
+            .ThenByDescending(quotation => quotation.QuotationId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<QuotationReadModel>> GetByProjectAsync(
         QuotationQueryReadModel query,
         CancellationToken cancellationToken = default)
@@ -44,6 +62,7 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
                 VatRate = item.VatRate,
                 VatAmount = item.VatAmount,
                 TotalAmount = item.TotalAmount,
+                DepositAmount = item.DepositAmount,
                 Currency = item.Currency,
                 Status = item.Status,
                 ValidUntil = item.ValidUntil,
@@ -182,6 +201,7 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
                     VatRate = quotation.VatRate,
                     VatAmount = quotation.VatAmount,
                     TotalAmount = quotation.TotalAmount,
+                    DepositAmount = quotation.DepositAmount,
                     Currency = quotation.Currency,
                     Status = quotation.Status,
                     ValidUntil = quotation.ValidUntil,

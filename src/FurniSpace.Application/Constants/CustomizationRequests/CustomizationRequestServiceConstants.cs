@@ -34,7 +34,6 @@ internal static class CustomizationRequestServiceConstants
         ProjectStatus.QUOTATION_REVISION_REQUESTED,
         ProjectStatus.ORDER_CONFIRMED,
         ProjectStatus.IN_PRODUCTION,
-        ProjectStatus.PRODUCTION_BLOCKED,
         ProjectStatus.READY_FOR_DELIVERY,
         ProjectStatus.DELIVERING,
         ProjectStatus.DELIVERED,

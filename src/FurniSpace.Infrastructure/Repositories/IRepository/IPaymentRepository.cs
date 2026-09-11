@@ -14,6 +14,22 @@ public interface IPaymentRepository
     Task<int> CountAsync(PaymentQueryReadModel query, CancellationToken cancellationToken = default);
     Task<PaymentSummaryReadModel> GetSummaryAsync(PaymentQueryReadModel query, DateTime utcNow, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<Payment>> GetExpiredPaymentsForSyncAsync(PaymentQueryReadModel query, DateTime utcNow, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PaymentListItemReadModel>> GetListByOrderIdAsync(
+        Guid orderId,
+        PaymentStatus? status = null,
+        PaymentType? paymentType = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<PaymentListItemReadModel>>([]);
+    }
+
+    Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdsAsync(
+        IReadOnlyCollection<Guid> paymentIds,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<PaymentTransactionReadModel>>([]);
+    }
+
     Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdAsync(Guid paymentId, CancellationToken cancellationToken = default);
     Task<PaymentTransaction?> GetTransactionByIdAsync(Guid paymentTransactionId, CancellationToken cancellationToken = default);
     Task<PaymentTransactionReadModel?> GetLatestPendingTransactionAsync(
@@ -39,6 +55,21 @@ public interface IPaymentRepository
         Guid orderId,
         PaymentType paymentType,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Payment>> GetAllByOrderAndTypeAsync(
+        Guid orderId,
+        PaymentType paymentType,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<Payment>>([]);
+    }
+
+    Task<IReadOnlyList<PaymentTransaction>> GetTransactionEntitiesByPaymentIdAsync(
+        Guid paymentId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<PaymentTransaction>>([]);
+    }
     Task<Payment?> GetByProjectAndTypeAsync(
         Guid projectId,
         PaymentType paymentType,

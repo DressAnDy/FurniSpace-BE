@@ -8,6 +8,9 @@ namespace FurniSpace.Application.Common.Projects;
 
 internal static class ProjectWorkflowComposer
 {
+    private const string MetricUnitCount = "count";
+    private const string MetricUnitMoney = "money";
+
     public static ProjectWorkflowDto Compose(ProjectWorkflowSnapshotReadModel snapshot)
     {
         var isRejected = snapshot.Status == ProjectStatus.REJECTED;
@@ -139,7 +142,7 @@ internal static class ProjectWorkflowComposer
             ProjectWorkflowStageCatalog.StageDelivery =>
                 snapshot.Schedules.Any(s =>
                     s.ScheduleType is ProjectScheduleType.DELIVERY or ProjectScheduleType.HANDOVER) ||
-                snapshot.OrderItems.Any(i => (i.DeliveredQuantity ?? 0) > 0),
+                snapshot.OrderItems.Any(IsOrderItemDelivered),
             _ => false
         };
     }
@@ -157,9 +160,7 @@ internal static class ProjectWorkflowComposer
             ProjectWorkflowStageCatalog.StageQuotationOrder =>
                 snapshot.Status == ProjectStatus.QUOTATION_REVISION_REQUESTED,
             ProjectWorkflowStageCatalog.StageProduction =>
-                snapshot.Status == ProjectStatus.PRODUCTION_BLOCKED ||
-                snapshot.ProductionRequests.Any(r => r.Status == ProductionRequestStatus.BLOCKED) ||
-                snapshot.ProductionItems.Any(i => i.Status == ProductionItemStatus.BLOCKED),
+                snapshot.ProductionItems.Any(i => i.Status == ProductionItemStatus.CANCELLED),
             ProjectWorkflowStageCatalog.StageDelivery =>
                 HasOverdueDeliverySchedule(snapshot),
             _ => false
@@ -255,16 +256,16 @@ internal static class ProjectWorkflowComposer
         {
             ProjectWorkflowStageCatalog.StageDesignerAssignment =>
             [
-                Metric("measurementSchedules", "Measurement schedules", CountMeasurementSchedules(snapshot), "count")
+                Metric("measurementSchedules", "Measurement schedules", CountMeasurementSchedules(snapshot), MetricUnitCount)
             ],
             ProjectWorkflowStageCatalog.StageDesignReview =>
             [
-                Metric("proposalCount", "Proposals", snapshot.Proposals.Count, "count"),
+                Metric("proposalCount", "Proposals", snapshot.Proposals.Count, MetricUnitCount),
                 Metric(
                     "revisionRequestedCount",
                     "Revision requested",
                     snapshot.Proposals.Count(p => p.Status == ProposalStatus.REVISION_REQUESTED),
-                    "count")
+                    MetricUnitCount)
             ],
             ProjectWorkflowStageCatalog.StageQuotationOrder =>
             [
@@ -275,12 +276,12 @@ internal static class ProjectWorkflowComposer
                         q.SentAt.HasValue ||
                         q.Status is QuotationStatus.SENT or QuotationStatus.REVISED or QuotationStatus.ACCEPTED
                             or QuotationStatus.REVISION_REQUESTED),
-                    "count"),
+                    MetricUnitCount),
                 Metric(
                     "outstandingAmount",
                     "Outstanding amount",
                     ResolvePrimaryOrder(snapshot)?.RemainingAmount,
-                    "money")
+                    MetricUnitMoney)
             ],
             ProjectWorkflowStageCatalog.StageProduction => BuildProductionMetrics(snapshot),
             ProjectWorkflowStageCatalog.StageDelivery => BuildDeliveryMetrics(snapshot),
@@ -294,25 +295,24 @@ internal static class ProjectWorkflowComposer
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var openStatuses = new HashSet<ProductionRequestStatus>
         {
-            ProductionRequestStatus.PENDING_REVIEW,
-            ProductionRequestStatus.FEASIBLE,
-            ProductionRequestStatus.IN_PRODUCTION,
-            ProductionRequestStatus.BLOCKED
+            ProductionRequestStatus.PENDING,
+            ProductionRequestStatus.IN_PRODUCTION
         };
 
         var openRequests = snapshot.ProductionRequests.Count(r =>
             r.Status.HasValue && openStatuses.Contains(r.Status.Value));
-        var blockedCount = snapshot.ProductionItems.Count(i => i.Status == ProductionItemStatus.BLOCKED);
-        var overdueCount = snapshot.ProductionItems.Count(i =>
-            i.Status is not (ProductionItemStatus.COMPLETED or ProductionItemStatus.CANCELLED) &&
-            i.EstimatedCompletionDate.HasValue &&
-            i.EstimatedCompletionDate.Value < today);
+        var blockedCount = snapshot.ProductionItems.Count(i => i.Status == ProductionItemStatus.CANCELLED);
+        var overdueCount = snapshot.ProductionRequests.Count(r =>
+            r.Status.HasValue &&
+            openStatuses.Contains(r.Status.Value) &&
+            r.ProductionDeadline.HasValue &&
+            r.ProductionDeadline.Value < today);
 
         return
         [
-            Metric("openRequests", "Open requests", openRequests, "count"),
-            Metric("blockedCount", "Blocked items", blockedCount, "count"),
-            Metric("overdueCount", "Overdue items", overdueCount, "count")
+            Metric("openRequests", "Open requests", openRequests, MetricUnitCount),
+            Metric("blockedCount", "Blocked items", blockedCount, MetricUnitCount),
+            Metric("overdueCount", "Overdue items", overdueCount, MetricUnitCount)
         ];
     }
 
@@ -324,21 +324,19 @@ internal static class ProjectWorkflowComposer
             s.ScheduleType is ProjectScheduleType.DELIVERY or ProjectScheduleType.HANDOVER &&
             s.Status is not (ProjectScheduleStatus.COMPLETED or ProjectScheduleStatus.CANCELLED) &&
             s.ScheduledStart >= now);
-        var partial = snapshot.OrderItems.Count(i =>
-        {
-            var delivered = i.DeliveredQuantity ?? 0;
-            var quantity = i.Quantity ?? 0;
-            return delivered > 0 && quantity > 0 && delivered < quantity;
-        });
+        var pendingDeliveryItems = snapshot.OrderItems.Count(i =>
+            !IsOrderItemDelivered(i) &&
+            i.Status is not (OrderItemStatus.CANCELLED or OrderItemStatus.UNAVAILABLE) &&
+            (i.Quantity ?? 0) > 0);
 
         return
         [
-            Metric("upcomingSchedules", "Upcoming schedules", upcoming, "count"),
-            Metric("partialDeliveryItems", "Partial delivery items", partial, "count")
+            Metric("upcomingSchedules", "Upcoming schedules", upcoming, MetricUnitCount),
+            Metric("partialDeliveryItems", "Pending delivery items", pendingDeliveryItems, MetricUnitCount)
         ];
     }
 
-    private static IReadOnlyList<ProjectWorkflowLinkDto> BuildLinks(
+    private static List<ProjectWorkflowLinkDto> BuildLinks(
         string stageKey,
         string state,
         ProjectWorkflowSnapshotReadModel snapshot)
@@ -349,97 +347,131 @@ internal static class ProjectWorkflowComposer
         }
 
         var links = new List<ProjectWorkflowLinkDto>();
-
         switch (stageKey)
         {
             case ProjectWorkflowStageCatalog.StageIntake:
-                AddAccountLink(links, "SALES", snapshot.AssignedSalesId, snapshot.SalesName);
+                AddIntakeLinks(links, snapshot);
                 break;
             case ProjectWorkflowStageCatalog.StageDesignerAssignment:
-                AddAccountLink(links, "DESIGNER", snapshot.AssignedDesignerId, snapshot.DesignerName);
-                var measurement = snapshot.Schedules
-                    .Where(s =>
-                        s.ScheduleType == ProjectScheduleType.MEASUREMENT &&
-                        s.Status != ProjectScheduleStatus.CANCELLED)
-                    .OrderByDescending(s => s.ScheduledStart)
-                    .FirstOrDefault();
-                if (measurement is not null)
-                {
-                    links.Add(Link("SCHEDULE", measurement.ScheduleId, measurement.Title ?? "Measurement"));
-                }
-
+                AddDesignerAssignmentLinks(links, snapshot);
                 break;
             case ProjectWorkflowStageCatalog.StageDesignReview:
-                var proposal = ResolveLatestProposal(snapshot);
-                if (proposal is not null)
-                {
-                    links.Add(Link("PROPOSAL", proposal.ProposalId, proposal.ProposalName));
-                }
-
+                AddDesignReviewLinks(links, snapshot);
                 break;
             case ProjectWorkflowStageCatalog.StageQuotationOrder:
-                var quotation = ResolveLatestQuotation(snapshot);
-                if (quotation is not null)
-                {
-                    links.Add(Link("QUOTATION", quotation.QuotationId, quotation.QuotationCode));
-                }
-
-                var order = ResolvePrimaryOrder(snapshot);
-                if (order is not null)
-                {
-                    links.Add(Link("ORDER", order.OrderId, order.OrderCode));
-                }
-
-                var payment = ResolveLatestPayment(snapshot);
-                if (payment is not null)
-                {
-                    links.Add(Link("PAYMENT", payment.PaymentId, payment.PaymentCode));
-                }
-
+                AddQuotationOrderLinks(links, snapshot);
                 break;
             case ProjectWorkflowStageCatalog.StageProduction:
-                var production = ResolveLatestProductionRequest(snapshot);
-                if (production is not null)
-                {
-                    links.Add(Link(
-                        "PRODUCTION_REQUEST",
-                        production.ProductionRequestId,
-                        production.ProductionCode ?? "Production request"));
-                }
-
-                var productionOrder = ResolvePrimaryOrder(snapshot);
-                if (productionOrder is not null)
-                {
-                    links.Add(Link("ORDER", productionOrder.OrderId, productionOrder.OrderCode));
-                }
-
+                AddProductionLinks(links, snapshot);
                 break;
             case ProjectWorkflowStageCatalog.StageDelivery:
-                var deliverySchedule = snapshot.Schedules
-                    .Where(s => s.ScheduleType is ProjectScheduleType.DELIVERY or ProjectScheduleType.HANDOVER)
-                    .OrderByDescending(s => s.ScheduledStart)
-                    .FirstOrDefault();
-                if (deliverySchedule is not null)
-                {
-                    links.Add(Link("SCHEDULE", deliverySchedule.ScheduleId, deliverySchedule.Title ?? "Delivery"));
-                }
-
-                var deliveryOrder = ResolvePrimaryOrder(snapshot);
-                if (deliveryOrder is not null)
-                {
-                    links.Add(Link("ORDER", deliveryOrder.OrderId, deliveryOrder.OrderCode));
-                }
-
-                var remainingPayment = ResolveLatestPayment(snapshot);
-                if (remainingPayment is not null)
-                {
-                    links.Add(Link("PAYMENT", remainingPayment.PaymentId, remainingPayment.PaymentCode));
-                }
-
+                AddDeliveryLinks(links, snapshot);
                 break;
         }
 
         return links;
+    }
+
+    private static void AddIntakeLinks(
+        List<ProjectWorkflowLinkDto> links,
+        ProjectWorkflowSnapshotReadModel snapshot) =>
+        AddAccountLink(links, "SALES", snapshot.AssignedSalesId, snapshot.SalesName);
+
+    private static void AddDesignerAssignmentLinks(
+        List<ProjectWorkflowLinkDto> links,
+        ProjectWorkflowSnapshotReadModel snapshot)
+    {
+        AddAccountLink(links, "DESIGNER", snapshot.AssignedDesignerId, snapshot.DesignerName);
+        var measurement = snapshot.Schedules
+            .Where(s =>
+                s.ScheduleType == ProjectScheduleType.MEASUREMENT &&
+                s.Status != ProjectScheduleStatus.CANCELLED)
+            .OrderByDescending(s => s.ScheduledStart)
+            .FirstOrDefault();
+        if (measurement is not null)
+        {
+            links.Add(Link("SCHEDULE", measurement.ScheduleId, measurement.Title ?? "Measurement"));
+        }
+    }
+
+    private static void AddDesignReviewLinks(
+        List<ProjectWorkflowLinkDto> links,
+        ProjectWorkflowSnapshotReadModel snapshot)
+    {
+        var proposal = ResolveLatestProposal(snapshot);
+        if (proposal is not null)
+        {
+            links.Add(Link("PROPOSAL", proposal.ProposalId, proposal.ProposalName));
+        }
+    }
+
+    private static void AddQuotationOrderLinks(
+        List<ProjectWorkflowLinkDto> links,
+        ProjectWorkflowSnapshotReadModel snapshot)
+    {
+        var quotation = ResolveLatestQuotation(snapshot);
+        if (quotation is not null)
+        {
+            links.Add(Link("QUOTATION", quotation.QuotationId, quotation.QuotationCode));
+        }
+
+        var order = ResolvePrimaryOrder(snapshot);
+        if (order is not null)
+        {
+            links.Add(Link("ORDER", order.OrderId, order.OrderCode));
+        }
+
+        var payment = ResolveLatestPayment(snapshot);
+        if (payment is not null)
+        {
+            links.Add(Link("PAYMENT", payment.PaymentId, payment.PaymentCode));
+        }
+    }
+
+    private static void AddProductionLinks(
+        List<ProjectWorkflowLinkDto> links,
+        ProjectWorkflowSnapshotReadModel snapshot)
+    {
+        var production = ResolveLatestProductionRequest(snapshot);
+        if (production is not null)
+        {
+            links.Add(Link(
+                "PRODUCTION_REQUEST",
+                production.ProductionRequestId,
+                production.ProductionCode ?? "Production request"));
+        }
+
+        var productionOrder = ResolvePrimaryOrder(snapshot);
+        if (productionOrder is not null)
+        {
+            links.Add(Link("ORDER", productionOrder.OrderId, productionOrder.OrderCode));
+        }
+    }
+
+    private static void AddDeliveryLinks(
+        List<ProjectWorkflowLinkDto> links,
+        ProjectWorkflowSnapshotReadModel snapshot)
+    {
+        var deliverySchedule = snapshot.Schedules
+            .Where(s => s.ScheduleType is ProjectScheduleType.DELIVERY or ProjectScheduleType.HANDOVER)
+            .OrderByDescending(s => s.ScheduledStart)
+            .FirstOrDefault();
+        if (deliverySchedule is not null)
+        {
+            links.Add(Link("SCHEDULE", deliverySchedule.ScheduleId, deliverySchedule.Title ?? "Delivery"));
+        }
+
+        var deliveryOrder = ResolvePrimaryOrder(snapshot);
+        if (deliveryOrder is not null)
+        {
+            links.Add(Link("ORDER", deliveryOrder.OrderId, deliveryOrder.OrderCode));
+        }
+
+        var remainingPayment = ResolveLatestPayment(snapshot);
+        if (remainingPayment is not null)
+        {
+            links.Add(Link("PAYMENT", remainingPayment.PaymentId, remainingPayment.PaymentCode));
+        }
     }
 
     private static IReadOnlyDictionary<string, object?> BuildFacts(
@@ -493,7 +525,7 @@ internal static class ProjectWorkflowComposer
         };
     }
 
-    private static IReadOnlyDictionary<string, object?> BuildDesignReviewFacts(
+    private static Dictionary<string, object?> BuildDesignReviewFacts(
         ProjectWorkflowSnapshotReadModel snapshot)
     {
         var latest = ResolveLatestProposal(snapshot);
@@ -507,7 +539,7 @@ internal static class ProjectWorkflowComposer
             ("selectedProposalId", selected?.ProposalId));
     }
 
-    private static IReadOnlyDictionary<string, object?> BuildQuotationOrderFacts(
+    private static Dictionary<string, object?> BuildQuotationOrderFacts(
         ProjectWorkflowSnapshotReadModel snapshot)
     {
         var latest = ResolveLatestQuotation(snapshot);
@@ -519,19 +551,18 @@ internal static class ProjectWorkflowComposer
             ("orderStatus", order?.Status?.ToString()));
     }
 
-    private static IReadOnlyDictionary<string, object?> BuildProductionFacts(
+    private static Dictionary<string, object?> BuildProductionFacts(
         ProjectWorkflowSnapshotReadModel snapshot)
     {
         var latest = ResolveLatestProductionRequest(snapshot);
         var openItemStatuses = new HashSet<ProductionItemStatus>
         {
             ProductionItemStatus.PENDING,
-            ProductionItemStatus.IN_PRODUCTION,
-            ProductionItemStatus.BLOCKED
+            ProductionItemStatus.IN_PRODUCTION
         };
         var openItemCount = snapshot.ProductionItems.Count(i =>
             i.Status.HasValue && openItemStatuses.Contains(i.Status.Value));
-        var blockedItemCount = snapshot.ProductionItems.Count(i => i.Status == ProductionItemStatus.BLOCKED);
+        var blockedItemCount = snapshot.ProductionItems.Count(i => i.Status == ProductionItemStatus.CANCELLED);
 
         return FactMap(
             ("productionRequestStatus", latest?.Status?.ToString()),
@@ -539,7 +570,7 @@ internal static class ProjectWorkflowComposer
             ("blockedItemCount", blockedItemCount));
     }
 
-    private static IReadOnlyDictionary<string, object?> BuildDeliveryFacts(
+    private static Dictionary<string, object?> BuildDeliveryFacts(
         ProjectWorkflowSnapshotReadModel snapshot)
     {
         var schedule = snapshot.Schedules
@@ -548,15 +579,25 @@ internal static class ProjectWorkflowComposer
             .FirstOrDefault();
         var order = ResolvePrimaryOrder(snapshot);
 
-        var totalQty = snapshot.OrderItems.Sum(i => i.Quantity ?? 0);
-        var deliveredQty = snapshot.OrderItems.Sum(i => i.DeliveredQuantity ?? 0);
-        int? progress = totalQty <= 0 ? null : (int)Math.Clamp(Math.Round(deliveredQty * 100d / totalQty), 0, 100);
+        var countableItems = snapshot.OrderItems
+            .Where(i => i.Status is not (OrderItemStatus.CANCELLED or OrderItemStatus.UNAVAILABLE))
+            .ToList();
+        var totalQty = countableItems.Sum(i => i.Quantity ?? 0);
+        var deliveredQty = countableItems
+            .Where(IsOrderItemDelivered)
+            .Sum(i => i.Quantity ?? 0);
+        int? progress = totalQty <= 0
+            ? null
+            : (int)Math.Clamp(Math.Round(deliveredQty * 100d / totalQty), 0, 100);
 
         return FactMap(
             ("deliveryScheduleStatus", schedule?.Status?.ToString()),
             ("deliveredItemProgressPercent", progress),
             ("remainingAmount", order?.RemainingAmount));
     }
+
+    private static bool IsOrderItemDelivered(ProjectWorkflowOrderItemReadModel item) =>
+        item.Status == OrderItemStatus.DELIVERED || item.DeliveredAt.HasValue;
 
     private static int CountMeasurementSchedules(ProjectWorkflowSnapshotReadModel snapshot) =>
         snapshot.Schedules.Count(s =>

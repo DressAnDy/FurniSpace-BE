@@ -16,18 +16,14 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
 
     private static readonly ProductionRequestStatus[] ActiveRequestStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
-        ProductionRequestStatus.IN_PRODUCTION,
-        ProductionRequestStatus.BLOCKED
+        ProductionRequestStatus.PENDING,
+        ProductionRequestStatus.IN_PRODUCTION
     ];
 
     private static readonly ProductionRequestStatus[] ScheduleReadRequestStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
+        ProductionRequestStatus.PENDING,
         ProductionRequestStatus.IN_PRODUCTION,
-        ProductionRequestStatus.BLOCKED,
         ProductionRequestStatus.COMPLETED
     ];
 
@@ -46,6 +42,48 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                 request.Status.HasValue &&
                 ActiveRequestStatuses.Contains(request.Status.Value),
             cancellationToken);
+    }
+
+    public Task<bool> ExistsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProductionRequestSet.AnyAsync(
+            request => request.OrderId == orderId,
+            cancellationToken);
+    }
+
+    public async Task<bool> IsOrderProductionCompletedAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        var requestIds = await DbContext.ProductionRequestSet
+            .Where(request => request.OrderId == orderId)
+            .Select(request => new
+            {
+                request.ProductionRequestId,
+                request.Status
+            })
+            .ToListAsync(cancellationToken);
+
+        if (requestIds.Count == 0 ||
+            requestIds.Any(request => request.Status != ProductionRequestStatus.COMPLETED))
+        {
+            return false;
+        }
+
+        var productionRequestIds = requestIds
+            .Select(request => request.ProductionRequestId)
+            .ToList();
+        var hasUnfinishedItems = await DbContext.ProductionItemSet.AnyAsync(
+            item =>
+                productionRequestIds.Contains(item.ProductionRequestId) &&
+                item.Status.HasValue &&
+                item.Status.Value != ProductionItemStatus.COMPLETED &&
+                item.Status.Value != ProductionItemStatus.CANCELLED,
+            cancellationToken);
+
+        return !hasUnfinishedItems;
     }
 
     public Task<int> CountCreatedOnAsync(
@@ -119,13 +157,10 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                 ActiveRequestStatuses.Contains(request.Status.Value))
             let pendingReviewCount = DbContext.ProductionRequestSet.Count(request =>
                 request.AssignedTo == account.AccountId &&
-                request.Status == ProductionRequestStatus.PENDING_REVIEW)
+                request.Status == ProductionRequestStatus.PENDING)
             let inProductionCount = DbContext.ProductionRequestSet.Count(request =>
                 request.AssignedTo == account.AccountId &&
                 request.Status == ProductionRequestStatus.IN_PRODUCTION)
-            let blockedCount = DbContext.ProductionRequestSet.Count(request =>
-                request.AssignedTo == account.AccountId &&
-                request.Status == ProductionRequestStatus.BLOCKED)
             select new AvailableProductionStaffReadModel
             {
                 AccountId = account.AccountId,
@@ -136,7 +171,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                 ActiveRequestCount = activeCount,
                 PendingReviewRequestCount = pendingReviewCount,
                 InProductionRequestCount = inProductionCount,
-                BlockedRequestCount = blockedCount,
+                BlockedRequestCount = 0,
                 IsAvailable = true
             };
 
@@ -202,6 +237,49 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.ProductionRequestSet
+            .Where(request =>
+                request.ProjectId == projectId &&
+                request.AssignedTo.HasValue &&
+                request.Status.HasValue &&
+                ScheduleReadRequestStatuses.Contains(request.Status.Value))
+            .Select(request => request.AssignedTo!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.ProductionRequestSet
+            .Where(request =>
+                request.OrderId == orderId &&
+                request.AssignedTo.HasValue &&
+                request.Status.HasValue &&
+                ScheduleReadRequestStatuses.Contains(request.Status.Value))
+            .Select(request => request.AssignedTo!.Value)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<bool> HasAssignedCompletedProductionForProjectAsync(
+        Guid projectId,
+        Guid productionAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        return DbContext.ProductionRequestSet.AnyAsync(
+            request =>
+                request.ProjectId == projectId &&
+                request.AssignedTo == productionAccountId &&
+                request.Status == ProductionRequestStatus.COMPLETED,
+            cancellationToken);
+    }
+
     public async Task<ProductionRequestDetailReadModel?> GetDetailAsync(
         Guid productionRequestId,
         CancellationToken cancellationToken = default)
@@ -234,7 +312,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                     Status = pair.item.Status,
                     MaterialNote = pair.item.MaterialNote,
                     ProductionNote = pair.item.ProductionNote,
-                    EstimatedCompletionDate = pair.item.EstimatedCompletionDate,
+                    CancellationReason = pair.item.CancellationReason,
                     StartedAt = pair.item.StartedAt,
                     CompletedAt = pair.item.CompletedAt,
                     OrderItemStatus = orderItem == null ? null : orderItem.Status
@@ -286,32 +364,7 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
 
     private IQueryable<ProductionRequestListItemReadModel> BuildQueueQuery()
     {
-        return from request in DbContext.ProductionRequestSet
-               join project in DbContext.ProjectSet on request.ProjectId equals project.ProjectId
-               join order in DbContext.OrderSet on request.OrderId equals order.OrderId
-               join assignee in DbContext.AccountSet on request.AssignedTo equals assignee.AccountId into assignees
-               from assignee in assignees.DefaultIfEmpty()
-               select new ProductionRequestListItemReadModel
-               {
-                   ProductionRequestId = request.ProductionRequestId,
-                   ProductionCode = request.ProductionCode,
-                   ProjectId = request.ProjectId,
-                   ProjectCode = project.ProjectCode,
-                   ProjectName = project.ProjectName,
-                   AssignedSalesId = project.AssignedSalesId,
-                   OrderId = request.OrderId,
-                   OrderCode = order.OrderCode,
-                   AssignedTo = request.AssignedTo,
-                   AssignedToName = assignee == null ? null : assignee.FullName,
-                   Status = request.Status,
-                   Priority = request.Priority,
-                   EstimatedStartDate = request.EstimatedStartDate,
-                   EstimatedCompletionDate = request.EstimatedCompletionDate,
-                   ProductionItemCount = DbContext.ProductionItemSet.Count(item =>
-                       item.ProductionRequestId == request.ProductionRequestId),
-                   CreatedAt = request.CreatedAt,
-                   UpdatedAt = request.UpdatedAt
-               };
+        return BuildDetailQuery();
     }
 
     private IQueryable<ProductionRequestDetailReadModel> BuildDetailQuery()
@@ -335,8 +388,14 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
                    AssignedToName = assignee == null ? null : assignee.FullName,
                    Status = request.Status,
                    Priority = request.Priority,
-                   EstimatedStartDate = request.EstimatedStartDate,
-                   EstimatedCompletionDate = request.EstimatedCompletionDate,
+                   ProductionDeadline = DbContext.ProjectPhaseTimelineSet
+                       .Where(timeline =>
+                           timeline.ProjectId == request.ProjectId &&
+                           timeline.Phase == ProjectPhaseType.PRODUCTION)
+                       .Select(timeline => (DateOnly?)timeline.DueDate)
+                       .FirstOrDefault(),
+                   ProductionItemCount = DbContext.ProductionItemSet.Count(item =>
+                       item.ProductionRequestId == request.ProductionRequestId),
                    ActualStartDate = request.ActualStartDate,
                    ActualCompletionDate = request.ActualCompletionDate,
                    CancellationReason = request.CancellationReason,
@@ -367,6 +426,11 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
             query = query.Where(request => request.AssignedTo == filter.AssignedTo.Value);
         }
 
+        if (filter.ProjectId.HasValue)
+        {
+            query = query.Where(request => request.ProjectId == filter.ProjectId.Value);
+        }
+
         if (!string.IsNullOrWhiteSpace(filter.Priority))
         {
             var priority = filter.Priority.Trim().ToUpperInvariant();
@@ -381,5 +445,119 @@ public sealed class ProductionRequestRepository : GenericRepository<ProductionRe
         return assignee?.RoleName == ProductionRoleName &&
             assignee.Status == AccountStatus.ACTIVE &&
             assignee.DeletedAt is null;
+    }
+
+    public async Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        var requests = await DbContext.ProductionRequestSet
+            .AsNoTracking()
+            .Where(request => request.ProjectId == projectId)
+            .Select(request => new
+            {
+                request.ActualStartDate,
+                request.ActualCompletionDate
+            })
+            .ToListAsync(cancellationToken);
+
+        DateOnly? maxDate = null;
+        foreach (var request in requests)
+        {
+            maxDate = MaxDateOnly(maxDate, request.ActualStartDate);
+            maxDate = MaxDateOnly(maxDate, request.ActualCompletionDate);
+        }
+
+        return maxDate;
+    }
+
+    private static DateOnly? MaxDateOnly(DateOnly? current, DateOnly? candidate)
+    {
+        if (!candidate.HasValue)
+        {
+            return current;
+        }
+
+        return !current.HasValue || candidate.Value > current.Value
+            ? candidate
+            : current;
+    }
+
+    public Task<IReadOnlyList<ProductionUnavailableItemReadModel>> GetUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildUnavailableItemsQuery(query)
+            .OrderByDescending(item => item.CompletedAt)
+            .ThenByDescending(item => item.ProductionItemId)
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToListAsync(cancellationToken)
+            .ContinueWith<IReadOnlyList<ProductionUnavailableItemReadModel>>(
+                task => task.Result,
+                cancellationToken);
+    }
+
+    public Task<int> CountUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return BuildUnavailableItemsQuery(query).CountAsync(cancellationToken);
+    }
+
+    private IQueryable<ProductionUnavailableItemReadModel> BuildUnavailableItemsQuery(
+        ProductionUnavailableItemsQueryReadModel query)
+    {
+        var rows = from item in DbContext.ProductionItemSet.AsNoTracking()
+                   where item.Status == ProductionItemStatus.CANCELLED
+                   join request in DbContext.ProductionRequestSet.AsNoTracking()
+                       on item.ProductionRequestId equals request.ProductionRequestId
+                   join project in DbContext.ProjectSet.AsNoTracking()
+                       on request.ProjectId equals project.ProjectId
+                   join order in DbContext.OrderSet.AsNoTracking()
+                       on request.OrderId equals order.OrderId
+                   join assignee in DbContext.AccountSet.AsNoTracking()
+                       on request.AssignedTo equals assignee.AccountId into assignees
+                   from assignee in assignees.DefaultIfEmpty()
+                   select new ProductionUnavailableItemReadModel
+                   {
+                       ProductionItemId = item.ProductionItemId,
+                       ProductionRequestId = request.ProductionRequestId,
+                       ProductionCode = request.ProductionCode,
+                       ProjectId = project.ProjectId,
+                       ProjectCode = project.ProjectCode,
+                       ProjectName = project.ProjectName,
+                       OrderId = order.OrderId,
+                       OrderCode = order.OrderCode,
+                       AssignedTo = request.AssignedTo,
+                       AssignedToName = assignee != null ? assignee.FullName : null,
+                       OrderItemId = item.OrderItemId,
+                       ProductNameSnapshot = item.ProductNameSnapshot,
+                       ProductVersionNameSnapshot = item.ProductVersionNameSnapshot,
+                       Quantity = item.Quantity,
+                       Status = item.Status.ToString() ?? ProductionItemStatus.CANCELLED.ToString(),
+                       CancellationReason = item.CancellationReason,
+                       CompletedAt = item.CompletedAt
+                   };
+
+        if (query.AssignedTo.HasValue)
+        {
+            rows = rows.Where(item => item.AssignedTo == query.AssignedTo.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Keyword))
+        {
+            var keyword = query.Keyword.Trim();
+            rows = rows.Where(item =>
+                (item.ProductionCode != null && item.ProductionCode.Contains(keyword)) ||
+                (item.ProjectCode != null && item.ProjectCode.Contains(keyword)) ||
+                item.ProjectName.Contains(keyword) ||
+                (item.OrderCode != null && item.OrderCode.Contains(keyword)) ||
+                (item.ProductNameSnapshot != null && item.ProductNameSnapshot.Contains(keyword)) ||
+                (item.ProductVersionNameSnapshot != null && item.ProductVersionNameSnapshot.Contains(keyword)) ||
+                (item.CancellationReason != null && item.CancellationReason.Contains(keyword)));
+        }
+
+        return rows;
     }
 }

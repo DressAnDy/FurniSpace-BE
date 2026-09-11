@@ -1,38 +1,53 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Common.Projects;
 using static FurniSpace.Application.Constants.Orders.OrderServiceConstants;
+using FurniSpace.Application.Constants.Payments;
 using FurniSpace.Application.DTOs.Orders;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Orders;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.Orders;
+using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
+using Microsoft.Extensions.Logging;
 
 namespace FurniSpace.Application.Services.Orders;
 
-public sealed class OrderService : IOrderService
+public sealed partial class OrderService : IOrderService
 {
     private readonly IOrderRepository _orders;
     private readonly IProjectRepository _projects;
     private readonly IPaymentRepository _payments;
+    private readonly IProductionRequestRepository _productionRequests;
     private readonly IProjectScheduleRepository _schedules;
+    private readonly IDeliveryRepository _deliveries;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly SePayOptions _sePayOptions;
+    private readonly INotificationDispatcher? _notifications;
+    private readonly ILogger? _logger;
+    private const int RemainingPaymentExpiryDays = 7;
 
     public OrderService(
         IOrderRepository orders,
         IProjectRepository projects,
         IPaymentRepository payments,
-        IProjectScheduleRepository schedules,
-        IUnitOfWork unitOfWork)
+        OrderServiceDependencies dependencies)
     {
         _orders = orders;
         _projects = projects;
         _payments = payments;
-        _schedules = schedules;
-        _unitOfWork = unitOfWork;
+        _productionRequests = dependencies.ProductionRequests;
+        _schedules = dependencies.Schedules;
+        _deliveries = dependencies.Deliveries;
+        _unitOfWork = dependencies.UnitOfWork;
+        _sePayOptions = dependencies.SePayOptions;
+        _notifications = dependencies.Notifications;
+        _logger = dependencies.Logger;
     }
 
     public async Task<ServiceResult<OrderListResponseDto>> GetByProjectAsync(
@@ -63,6 +78,67 @@ public sealed class OrderService : IOrderService
             "Orders retrieved successfully.");
     }
 
+    public async Task<ServiceResult<CustomerMyOrdersResponseDto>> GetMyOrdersAsync(
+        Guid currentUserId,
+        CustomerMyOrdersQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CustomerMyOrdersResponseDto>.Unauthorized();
+        }
+
+        var paginationError = OrderListPaginationSupport.ValidatePagination(query.Page, query.PageSize);
+        if (paginationError is not null)
+        {
+            return ServiceResult<CustomerMyOrdersResponseDto>.Failure(
+                Error.BadRequest(OrderErrorCodes.OrderListPaginationInvalid, paginationError));
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!string.Equals(role, "CUSTOMER", StringComparison.Ordinal))
+        {
+            return ServiceResult<CustomerMyOrdersResponseDto>.Forbidden(
+                "Only customers can access their order history.");
+        }
+
+        var readQuery = new CustomerMyOrdersQueryReadModel
+        {
+            Page = query.Page,
+            PageSize = query.PageSize,
+            Status = query.Status,
+            Search = query.Search
+        };
+
+        var totalCount = await _orders.CountByCustomerAsync(currentUserId, readQuery, cancellationToken);
+        var items = await _orders.GetByCustomerPagedAsync(currentUserId, readQuery, cancellationToken);
+
+        return ServiceResult<CustomerMyOrdersResponseDto>.Success(
+            new CustomerMyOrdersResponseDto
+            {
+                Items = items.Select(MapCustomerMyOrderItem).ToList(),
+                Page = query.Page,
+                PageSize = query.PageSize,
+                TotalCount = totalCount
+            },
+            "Customer orders retrieved successfully.");
+    }
+
+    private static CustomerMyOrderItemDto MapCustomerMyOrderItem(CustomerMyOrderListItemReadModel item) =>
+        new()
+        {
+            OrderId = item.OrderId,
+            OrderCode = item.OrderCode,
+            ProjectId = item.ProjectId,
+            Status = item.Status,
+            TotalAmount = item.TotalAmount,
+            DepositAmount = item.DepositAmount,
+            PaidAmount = item.PaidAmount,
+            RemainingAmount = item.RemainingAmount,
+            CreatedAt = item.CreatedAt,
+            UpdatedAt = item.UpdatedAt
+        };
+
     public async Task<ServiceResult<OrderDetailDto>> GetDetailAsync(
         Guid orderId,
         Guid currentUserId,
@@ -92,320 +168,122 @@ public sealed class OrderService : IOrderService
         }
 
         return ServiceResult<OrderDetailDto>.Success(
-            order.Adapt<OrderDetailDto>(),
+            await BuildOrderDetailDtoAsync(order, cancellationToken),
             "Order detail retrieved successfully.");
     }
 
-    public async Task<ServiceResult<OrderDetailDto>> UpdateFinancialAdjustmentAsync(
+    private Task<OrderDetailDto> BuildOrderDetailDtoAsync(
+        OrderDetailReadModel order,
+        CancellationToken cancellationToken)
+    {
+        return BuildOrderDetailDtoInternalAsync(order, cancellationToken);
+    }
+
+    private async Task<OrderDetailDto> BuildOrderDetailDtoInternalAsync(
+        OrderDetailReadModel order,
+        CancellationToken cancellationToken)
+    {
+        var financialSummary = OrderFinancialSummary.FromItems(order.Items);
+        var tracking = await _deliveries.GetTrackingByOrderAsync(order.OrderId, order.ProjectId, cancellationToken);
+        var deliveries = await _deliveries.GetByOrderAsync(order.OrderId, cancellationToken);
+        var deliveryItems = deliveries.Count == 0
+            ? (IReadOnlyList<DeliveryItemReadModel>)[]
+            : await _deliveries.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+
+        return new OrderDetailDto
+        {
+            OrderId = order.OrderId,
+            ProjectId = order.ProjectId,
+            ProposalId = order.ProposalId,
+            QuotationId = order.QuotationId,
+            OrderCode = order.OrderCode,
+            CustomerId = order.CustomerId,
+            SalesId = order.SalesId,
+            VatRate = order.VatRate,
+            VatAmount = order.VatAmount,
+            ItemsGrossAmount = financialSummary.ItemsGrossAmount,
+            TotalItemDiscountAmount = financialSummary.TotalItemDiscountAmount,
+            PreVatAmount = financialSummary.PreVatAmount,
+            TotalAmount = order.TotalAmount,
+            DepositAmount = order.DepositAmount,
+            PaidAmount = order.PaidAmount,
+            RemainingAmount = order.RemainingAmount,
+            Status = order.Status,
+            CreatedAt = order.CreatedAt,
+            UpdatedAt = order.UpdatedAt,
+            CustomerConfirmedDeliveryAt = order.CustomerConfirmedDeliveryAt,
+            AwaitingCustomerConfirmation = OrderDetailDeliveryComposer.IsAwaitingCustomerConfirmation(order.Status),
+            DeliveryDetails = OrderDetailDeliveryComposer.BuildDeliveryDetails(order),
+            DeliverySummary = OrderDetailDeliveryComposer.BuildSummary(tracking),
+            Deliveries = OrderDetailDeliveryComposer.BuildDeliveries(deliveries, deliveryItems),
+            Items = order.Items.Select(item => item.Adapt<OrderItemDto>()).ToList()
+        };
+    }
+
+    public async Task<ServiceResult<OrderDeliveryDetailsDto>> UpdateDeliveryDetailsAsync(
         Guid orderId,
         Guid currentUserId,
-        UpdateOrderFinancialAdjustmentRequestDto request,
+        UpdateOrderDeliveryDetailsRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<OrderDetailDto>.Unauthorized();
-        }
-
-        var detail = await _orders.GetDetailAsync(orderId, cancellationToken);
-        if (detail is null)
-        {
-            return NotFoundDetail(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!OrderAccessEvaluator.CanManageFinancialAdjustment(role, detail.AssignedSalesId, currentUserId))
-        {
-            return ServiceResult<OrderDetailDto>.Forbidden(ForbiddenMessage);
-        }
-
-        if (detail.Status != OrderStatus.DEPOSIT_PENDING)
-        {
-            return BadRequestDetail(OrderErrorCodes.InvalidOrderStatus, InvalidOrderStatusMessage);
+            return ServiceResult<OrderDeliveryDetailsDto>.Unauthorized();
         }
 
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
         if (order is null)
         {
-            return NotFoundDetail(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
-        }
-
-        var depositPayment = await _payments.GetByOrderAndTypeAsync(
-            orderId,
-            PaymentType.DEPOSIT,
-            cancellationToken);
-        if (IsDepositPaymentStarted(depositPayment))
-        {
-            return BadRequestDetail(
-                OrderErrorCodes.OrderPaymentAlreadyStarted,
-                PaymentAlreadyStartedMessage);
-        }
-
-        var validation = ValidateFinancialAdjustment(order, request);
-        if (validation is not null)
-        {
-            return validation;
-        }
-
-        var depositAmount = request.DepositAmount!.Value;
-        var baseBeforeDiscount = OrderFinancialAdjustmentCalculator.CalculateBaseBeforeAdditionalDiscount(
-            order.OriginalTotalAmount,
-            order.ItemAdjustmentAmount ?? 0m);
-        var additionalDiscountAmount = order.AdditionalDiscountAmount ?? 0m;
-        var finalTotalAmount = OrderFinancialAdjustmentCalculator.CalculateFinalTotalAmount(
-            baseBeforeDiscount,
-            additionalDiscountAmount);
-
-        order.DepositAmount = depositAmount;
-        order.FinalTotalAmount = finalTotalAmount;
-
-        var summedPaidAmount = await _payments.SumOrderScopedPaidAmountAsync(orderId, cancellationToken);
-        var (paidAmount, remainingAmount) = OrderPaidAmountRecalculator.Calculate(
-            finalTotalAmount,
-            summedPaidAmount);
-        order.PaidAmount = paidAmount;
-        order.RemainingAmount = remainingAmount;
-        order.UpdatedAt = DateTime.UtcNow;
-
-        if (depositPayment is not null && CanSyncPendingDepositPayment(depositPayment))
-        {
-            SyncPendingDepositPayment(depositPayment, depositAmount, request.AdjustmentNote);
-            _payments.UpdatePayment(depositPayment);
-        }
-
-        _orders.Update(order);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        var updatedDetail = await _orders.GetDetailAsync(orderId, cancellationToken);
-        return ServiceResult<OrderDetailDto>.Success(
-            updatedDetail!.Adapt<OrderDetailDto>(),
-            FinancialAdjustmentUpdatedMessage);
-    }
-
-    public async Task<ServiceResult<OrderAdjustmentDto>> CreateAdjustmentAsync(
-        Guid orderId,
-        Guid currentUserId,
-        CreateOrderAdjustmentDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var orderAccess = await ValidateOrderAdjustmentAccessAsync<OrderAdjustmentDto>(
-            orderId,
-            currentUserId,
-            cancellationToken);
-        if (orderAccess.Error is not null)
-        {
-            return orderAccess.Error;
-        }
-
-        if (orderAccess.Order!.Status != OrderStatus.IN_PRODUCTION)
-        {
-            return BadRequest<OrderAdjustmentDto>(
-                OrderErrorCodes.OrderNotInProduction,
-                OrderNotInProductionMessage);
-        }
-
-        var reason = request.Reason?.Trim();
-        if (string.IsNullOrWhiteSpace(reason))
-        {
-            return BadRequest<OrderAdjustmentDto>(
-                OrderErrorCodes.InvalidAdjustment,
-                "Adjustment reason is required.");
-        }
-
-        var now = DateTime.UtcNow;
-        var adjustment = new OrderAdjustment
-        {
-            OrderAdjustmentId = Guid.NewGuid(),
-            OrderId = orderId,
-            Status = OrderAdjustmentStatus.DRAFT,
-            Reason = reason,
-            InternalNote = request.InternalNote?.Trim(),
-            CreatedBy = currentUserId,
-            CreatedAt = now
-        };
-
-        await _orders.AddAdjustmentAsync(adjustment, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<OrderAdjustmentDto>.Created(
-            ToAdjustmentDto(adjustment),
-            OrderAdjustmentCreatedMessage);
-    }
-
-    public async Task<ServiceResult<OrderAdjustmentItemDto>> AddAdjustmentItemAsync(
-        Guid orderAdjustmentId,
-        Guid currentUserId,
-        UpsertOrderAdjustmentItemDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var context = await ValidateAdjustmentContextAsync<OrderAdjustmentItemDto>(
-            orderAdjustmentId,
-            currentUserId,
-            cancellationToken);
-        if (context.Error is not null)
-        {
-            return context.Error;
-        }
-
-        var itemResult = await BuildAdjustmentItemAsync(
-            context.Adjustment!,
-            currentUserId,
-            request,
-            cancellationToken);
-        if (itemResult.Error is not null)
-        {
-            return itemResult.Error;
-        }
-
-        await _orders.AddAdjustmentItemAsync(itemResult.Item!, cancellationToken);
-        await RecalculateAdjustmentTotalsAsync(context.Adjustment!, cancellationToken, includedItem: itemResult.Item);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<OrderAdjustmentItemDto>.Created(
-            ToAdjustmentItemDto(itemResult.Item!),
-            "Order adjustment item created successfully.");
-    }
-
-    public async Task<ServiceResult<OrderAdjustmentItemDto>> UpdateAdjustmentItemAsync(
-        Guid orderAdjustmentItemId,
-        Guid currentUserId,
-        UpsertOrderAdjustmentItemDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var existingItem = await _orders.GetAdjustmentItemByIdAsync(orderAdjustmentItemId, cancellationToken);
-        if (existingItem is null)
-        {
-            return NotFound<OrderAdjustmentItemDto>(
-                OrderErrorCodes.OrderAdjustmentNotFound,
-                OrderAdjustmentNotFoundMessage);
-        }
-
-        var context = await ValidateAdjustmentContextAsync<OrderAdjustmentItemDto>(
-            existingItem.OrderAdjustmentId,
-            currentUserId,
-            cancellationToken);
-        if (context.Error is not null)
-        {
-            return context.Error;
-        }
-
-        var itemResult = await BuildAdjustmentItemAsync(
-            context.Adjustment!,
-            currentUserId,
-            request,
-            cancellationToken);
-        if (itemResult.Error is not null)
-        {
-            return itemResult.Error;
-        }
-
-        ApplyAdjustmentItem(existingItem, itemResult.Item!, currentUserId);
-        _orders.UpdateAdjustmentItem(existingItem);
-        await RecalculateAdjustmentTotalsAsync(context.Adjustment!, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<OrderAdjustmentItemDto>.Success(
-            ToAdjustmentItemDto(existingItem),
-            OrderAdjustmentItemUpdatedMessage);
-    }
-
-    public async Task<ServiceResult<OrderAdjustmentDto>> DeleteAdjustmentItemAsync(
-        Guid orderAdjustmentItemId,
-        Guid currentUserId,
-        CancellationToken cancellationToken = default)
-    {
-        var item = await _orders.GetAdjustmentItemByIdAsync(orderAdjustmentItemId, cancellationToken);
-        if (item is null)
-        {
-            return NotFound<OrderAdjustmentDto>(
-                OrderErrorCodes.OrderAdjustmentNotFound,
-                OrderAdjustmentNotFoundMessage);
-        }
-
-        var context = await ValidateAdjustmentContextAsync<OrderAdjustmentDto>(
-            item.OrderAdjustmentId,
-            currentUserId,
-            cancellationToken);
-        if (context.Error is not null)
-        {
-            return context.Error;
-        }
-
-        _orders.RemoveAdjustmentItem(item);
-        await RecalculateAdjustmentTotalsAsync(context.Adjustment!, cancellationToken, excludedItem: item);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<OrderAdjustmentDto>.Success(
-            ToAdjustmentDto(context.Adjustment!),
-            OrderAdjustmentItemDeletedMessage);
-    }
-
-    public async Task<ServiceResult<OrderAdjustmentConfirmationDto>> ConfirmAdjustmentAsync(
-        Guid orderAdjustmentId,
-        Guid currentUserId,
-        CancellationToken cancellationToken = default)
-    {
-        if (currentUserId == Guid.Empty)
-        {
-            return ServiceResult<OrderAdjustmentConfirmationDto>.Unauthorized();
-        }
-
-        var adjustment = await _orders.GetAdjustmentByIdAsync(orderAdjustmentId, cancellationToken);
-        if (adjustment is null)
-        {
-            return NotFound<OrderAdjustmentConfirmationDto>(
-                OrderErrorCodes.OrderAdjustmentNotFound,
-                OrderAdjustmentNotFoundMessage);
-        }
-
-        var order = await _orders.GetDetailAsync(adjustment.OrderId, cancellationToken);
-        if (order is null)
-        {
-            return NotFound<OrderAdjustmentConfirmationDto>(
-                OrderErrorCodes.OrderAdjustmentNotFound,
-                OrderAdjustmentNotFoundMessage);
+            return ServiceResult<OrderDeliveryDetailsDto>.Failure(
+                Error.NotFound(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage));
         }
 
         var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (role != "CUSTOMER" || order.CustomerId != currentUserId)
+        if (!CanUpdateDeliveryDetails(role, order.CustomerId, currentUserId))
         {
-            return ServiceResult<OrderAdjustmentConfirmationDto>.Forbidden(ForbiddenMessage);
+            return ServiceResult<OrderDeliveryDetailsDto>.Forbidden(ForbiddenMessage);
         }
 
-        if (adjustment.Status == OrderAdjustmentStatus.CONFIRMED)
+        if (IsDeliveryDetailsLocked(order.Status))
         {
-            return ServiceResult<OrderAdjustmentConfirmationDto>.Success(
-                ToConfirmationDto(adjustment),
-                "Order adjustment confirmed successfully.");
+            return ServiceResult<OrderDeliveryDetailsDto>.Failure(
+                Error.BadRequest(
+                    OrderErrorCodes.OrderDeliveryDetailsLocked,
+                    "Delivery details cannot be updated after the deposit is paid."));
         }
 
-        if (adjustment.Status != OrderAdjustmentStatus.DRAFT)
+        var deliveryAddress = NormalizeRequiredDeliveryField(request.DeliveryAddress);
+        var receiverName = NormalizeRequiredDeliveryField(request.ReceiverName);
+        var receiverPhone = NormalizeRequiredDeliveryField(request.ReceiverPhone);
+        if (deliveryAddress is null || receiverName is null || receiverPhone is null)
         {
-            return BadRequest<OrderAdjustmentConfirmationDto>(
-                OrderErrorCodes.InvalidAdjustmentStatus,
-                "Order adjustment status is invalid for confirmation.");
+            return ServiceResult<OrderDeliveryDetailsDto>.Failure(
+                Error.BadRequest(
+                    OrderErrorCodes.OrderDeliveryDetailsInvalid,
+                    "Delivery address, receiver name, and receiver phone are required."));
         }
 
-        var items = await _orders.GetAdjustmentItemsAsync(orderAdjustmentId, cancellationToken);
-        if (items.Count == 0)
-        {
-            return BadRequest<OrderAdjustmentConfirmationDto>(
-                OrderErrorCodes.AdjustmentItemRequired,
-                "Order adjustment must contain at least one item.");
-        }
+        order.DeliveryAddress = deliveryAddress;
+        order.ReceiverName = receiverName;
+        order.ReceiverPhone = receiverPhone;
+        order.DeliveryNote = string.IsNullOrWhiteSpace(request.DeliveryNote)
+            ? null
+            : request.DeliveryNote.Trim();
+        order.UpdatedAt = DateTime.UtcNow;
 
-        var now = DateTime.UtcNow;
-        adjustment.Status = OrderAdjustmentStatus.CONFIRMED;
-        adjustment.ConfirmedBy = currentUserId;
-        adjustment.ConfirmedAt = now;
-        adjustment.UpdatedBy = currentUserId;
-        adjustment.UpdatedAt = now;
-        _orders.UpdateAdjustment(adjustment);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        _orders.Update(order);
+        await _orders.SaveChangesAsync(cancellationToken);
 
-        return ServiceResult<OrderAdjustmentConfirmationDto>.Success(
-            ToConfirmationDto(adjustment),
-            "Order adjustment confirmed successfully.");
+        return ServiceResult<OrderDeliveryDetailsDto>.Success(
+            new OrderDeliveryDetailsDto
+            {
+                OrderId = order.OrderId,
+                DeliveryAddress = order.DeliveryAddress,
+                ReceiverName = order.ReceiverName,
+                ReceiverPhone = order.ReceiverPhone,
+                DeliveryNote = order.DeliveryNote
+            },
+            "Order delivery details updated successfully.");
     }
 
     public async Task<ServiceResult<OrderDeliveryStartDto>> StartDeliveryAsync(
@@ -416,6 +294,13 @@ public sealed class OrderService : IOrderService
         if (currentUserId == Guid.Empty)
         {
             return ServiceResult<OrderDeliveryStartDto>.Unauthorized();
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.AdminRole)
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Forbidden(
+                "Legacy start-delivery is restricted to Admin recovery.");
         }
 
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
@@ -430,17 +315,21 @@ public sealed class OrderService : IOrderService
             return NotFound<OrderDeliveryStartDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!CanStartDelivery(role, project.AssignedSalesId, currentUserId))
-        {
-            return ServiceResult<OrderDeliveryStartDto>.Forbidden(ForbiddenMessage);
-        }
-
         if (order.Status == OrderStatus.DELIVERING)
         {
             return ServiceResult<OrderDeliveryStartDto>.Success(
                 ToDeliveryStartDto(order, project),
                 "Delivery started successfully.");
+        }
+
+        if (order.Status == OrderStatus.DELIVERED ||
+            order.Status == OrderStatus.FINAL_PAYMENT_PENDING ||
+            order.Status == OrderStatus.COMPLETED)
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.OrderAlreadyDelivered,
+                    "Delivered orders cannot start delivery again."));
         }
 
         if (order.Status != OrderStatus.READY_FOR_DELIVERY)
@@ -450,11 +339,27 @@ public sealed class OrderService : IOrderService
                 "Order must be READY_FOR_DELIVERY before delivery can start.");
         }
 
+        var productionError = await ValidateProductionCompletedForDeliveryAsync<OrderDeliveryStartDto>(
+            order.OrderId,
+            cancellationToken);
+        if (productionError is not null)
+        {
+            return productionError;
+        }
+
         if (!await _schedules.HasConfirmedDeliveryScheduleAsync(order.ProjectId, cancellationToken))
         {
             return BadRequest<OrderDeliveryStartDto>(
                 OrderErrorCodes.DeliveryScheduleNotConfirmed,
                 "At least one delivery schedule must be confirmed before delivery can start.");
+        }
+
+        if (!await _orders.AllDeliverableItemsReadyAsync(order.OrderId, cancellationToken))
+        {
+            return ServiceResult<OrderDeliveryStartDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliverableItemsNotReady,
+                    "All deliverable order items must be READY before delivery can start."));
         }
 
         var now = DateTime.UtcNow;
@@ -467,156 +372,269 @@ public sealed class OrderService : IOrderService
         _projects.Update(project);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        await OrderNotificationSupport.TryDispatchUpdatedAsync(
+            _notifications,
+            _logger,
+            order,
+            project,
+            cancellationToken);
+        await OrderNotificationSupport.TryDispatchProjectStatusChangedAsync(
+            _notifications,
+            _logger,
+            project,
+            OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
+            cancellationToken);
+
         return ServiceResult<OrderDeliveryStartDto>.Success(
             ToDeliveryStartDto(order, project),
             "Delivery started successfully.");
     }
 
-    public async Task<ServiceResult<OrderItemDeliveredQuantityDto>> UpdateDeliveredQuantityAsync(
-        Guid orderItemId,
+    public async Task<ServiceResult<OrderDeliveryCompletionDto>> CompleteDeliveryAsync(
+        Guid orderId,
         Guid currentUserId,
-        UpdateDeliveredQuantityRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<OrderItemDeliveredQuantityDto>.Unauthorized();
+            return ServiceResult<OrderDeliveryCompletionDto>.Unauthorized();
         }
 
-        var increment = request.DeliveredQuantityIncrement ?? 0;
-        if (increment <= 0)
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.AdminRole)
         {
-            return BadRequest<OrderItemDeliveredQuantityDto>(
-                OrderErrorCodes.InvalidDeliveredQuantity,
-                "Delivered quantity increment must be greater than zero.");
+            return ServiceResult<OrderDeliveryCompletionDto>.Forbidden(
+                "Legacy complete-delivery is restricted to Admin recovery.");
         }
 
-        var context = await ValidateOrderItemDeliveryContextAsync<OrderItemDeliveredQuantityDto>(
-            orderItemId,
-            currentUserId,
-            requireCustomerOwner: false,
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound<OrderDeliveryCompletionDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound<OrderDeliveryCompletionDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
+        }
+
+        if (order.Status != OrderStatus.DELIVERING)
+        {
+            return BadRequest<OrderDeliveryCompletionDto>(
+                OrderErrorCodes.OrderNotDelivering,
+                "Order must be DELIVERING before delivery can be completed.");
+        }
+
+        var productionError = await ValidateProductionCompletedForDeliveryAsync<OrderDeliveryCompletionDto>(
+            order.OrderId,
             cancellationToken);
-        if (context.Error is not null)
+        if (productionError is not null)
         {
-            return context.Error;
+            return productionError;
         }
 
-        var readyError = ValidateReadyOrderItem<OrderItemDeliveredQuantityDto>(context.Item!);
-        if (readyError is not null)
+        if (await _orders.AllDeliverableItemsDeliveredAsync(order.OrderId, cancellationToken))
         {
-            return readyError;
+            return ServiceResult<OrderDeliveryCompletionDto>.Success(
+                ToDeliveryCompletionDto(order, project, 0),
+                "Delivery already completed for all deliverable items.");
         }
 
-        var quantity = context.Item!.Quantity ?? 0;
-        var deliveredQuantity = context.Item.DeliveredQuantity ?? 0;
-        if (quantity <= 0)
+        var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+        var batchItems = orderItems
+            .Where(IsBatchEligibleOrderItem)
+            .Select(item => new CreateDeliveryBatchItemRequestDto
+            {
+                OrderItemId = item.OrderItemId,
+                Quantity = GetRemainingDeliverableQuantity(item)
+            })
+            .Where(item => item.Quantity > 0)
+            .ToList();
+
+        if (batchItems.Count == 0)
         {
-            return BadRequest<OrderItemDeliveredQuantityDto>(
-                OrderErrorCodes.InvalidDeliveredQuantity,
-                "Order item quantity must be greater than zero.");
+            return ServiceResult<OrderDeliveryCompletionDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliverableItemsNotReady,
+                    "All deliverable order items must be READY before delivery can be completed."));
         }
 
-        if (deliveredQuantity + increment > quantity)
-        {
-            return BadRequest<OrderItemDeliveredQuantityDto>(
-                OrderErrorCodes.DeliveredQuantityExceeded,
-                "Delivered quantity cannot exceed ordered quantity.");
-        }
-
-        var now = DateTime.UtcNow;
-        var updatedItem = await _orders.TryIncrementDeliveredQuantityAsync(
-            context.Item.OrderItemId,
-            increment,
-            request.DeliveryNote?.Trim(),
+        var createResult = await CreateDeliveryBatchAsync(
+            orderId,
             currentUserId,
-            now,
+            new CreateDeliveryBatchRequestDto { Items = batchItems },
             cancellationToken);
-        if (updatedItem is null)
+        if (createResult.Status is not (200 or 201) || createResult.Data is null)
         {
-            return BadRequest<OrderItemDeliveredQuantityDto>(
-                OrderErrorCodes.DeliveredQuantityExceeded,
-                "Delivered quantity cannot exceed ordered quantity.");
+            return ServiceResult<OrderDeliveryCompletionDto>.Failure(
+                Error.BadRequest(
+                    createResult.ErrorCode ?? OrderErrorCodes.InvalidOrderStatus,
+                    createResult.Message ?? "Unable to create delivery batch for legacy completion."));
         }
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        var completeResult = await CompleteDeliveryBatchAsync(
+            orderId,
+            createResult.Data.DeliveryId,
+            currentUserId,
+            cancellationToken);
+        if (completeResult.Status != 200 || completeResult.Data is null)
+        {
+            return ServiceResult<OrderDeliveryCompletionDto>.Failure(
+                Error.BadRequest(
+                    completeResult.ErrorCode ?? OrderErrorCodes.DeliveryNotCompleted,
+                    completeResult.Message ?? "Unable to complete delivery batch for legacy completion."));
+        }
 
-        return ServiceResult<OrderItemDeliveredQuantityDto>.Success(
-            ToDeliveredQuantityDto(updatedItem),
-            "Delivered quantity updated successfully.");
+        return ServiceResult<OrderDeliveryCompletionDto>.Success(
+            ToDeliveryCompletionDto(order, project, completeResult.Data.UpdatedItemCount),
+            "Delivery completed successfully.");
     }
 
-    public async Task<ServiceResult<OrderItemDeliveryConfirmationDto>> ConfirmItemDeliveryAsync(
-        Guid orderItemId,
+    public async Task<ServiceResult<OrderDeliveryConfirmationDto>> ConfirmDeliveryAsync(
+        Guid orderId,
         Guid currentUserId,
         CancellationToken cancellationToken = default)
     {
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<OrderItemDeliveryConfirmationDto>.Unauthorized();
+            return ServiceResult<OrderDeliveryConfirmationDto>.Unauthorized();
         }
 
-        var context = await ValidateOrderItemDeliveryContextAsync<OrderItemDeliveryConfirmationDto>(
-            orderItemId,
-            currentUserId,
-            requireCustomerOwner: true,
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null)
+        {
+            return NotFound<OrderDeliveryConfirmationDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound<OrderDeliveryConfirmationDto>(OrderErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
+        }
+
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        var accessError = ValidateCustomerDeliveryAccess<OrderDeliveryConfirmationDto>(
+            role,
+            project.CustomerId,
+            currentUserId);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        var productionError = await ValidateProductionCompletedForDeliveryAsync<OrderDeliveryConfirmationDto>(
+            order.OrderId,
             cancellationToken);
-        if (context.Error is not null)
+        if (productionError is not null)
         {
-            return context.Error;
+            return productionError;
         }
 
-        if (context.Item!.Status == OrderItemStatus.DELIVERED)
+        if (IsDeliveryAlreadyConfirmed(order))
         {
-            return ServiceResult<OrderItemDeliveryConfirmationDto>.Success(
-                ToDeliveryConfirmationDto(context.Item, context.Order!),
-                "Order item delivery confirmed successfully.");
+            return ServiceResult<OrderDeliveryConfirmationDto>.Success(
+                ToOrderDeliveryConfirmationDto(order, project),
+                "Order delivery confirmed successfully.");
         }
 
-        var readyError = ValidateReadyOrderItem<OrderItemDeliveryConfirmationDto>(context.Item);
-        if (readyError is not null)
+        if (order.Status != OrderStatus.AWAITING_CUSTOMER_CONFIRMATION)
         {
-            return readyError;
+            return BadRequest<OrderDeliveryConfirmationDto>(
+                OrderErrorCodes.OrderNotAwaitingCustomerConfirmation,
+                "Order must be AWAITING_CUSTOMER_CONFIRMATION before delivery can be confirmed.");
         }
 
-        if (!IsFullyDelivered(context.Item))
+        if (await _deliveries.HasInProgressDeliveryAsync(order.OrderId, cancellationToken))
         {
-            return BadRequest<OrderItemDeliveryConfirmationDto>(
-                OrderErrorCodes.ItemNotFullyDelivered,
-                "Order item must be fully delivered before confirmation.");
+            return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliveryBatchInProgress,
+                    "Delivery confirmation is blocked while a delivery batch is in progress."));
         }
 
-        var transitionError = OrderItemStatusTransitionService.Validate(
-            context.Item.Status,
-            OrderItemStatus.DELIVERED,
-            OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation);
-        if (transitionError is not null)
+        if (await _schedules.HasUnresolvedConfirmedDeliveryScheduleAsync(order.ProjectId, cancellationToken))
         {
-            return BadRequest<OrderItemDeliveryConfirmationDto>(
-                transitionError.ErrorCode,
-                transitionError.Message);
+            return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.UnresolvedDeliverySchedule,
+                    "Delivery confirmation is blocked while confirmed delivery schedules remain unresolved."));
         }
 
+        if (!await _orders.AllDeliverableItemsPhysicallyDeliveredAsync(order.OrderId, cancellationToken))
+        {
+            return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.DeliverableItemsNotPhysicallyDelivered,
+                    "All deliverable order items must be physically delivered before confirmation."));
+        }
+
+        var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
         var now = DateTime.UtcNow;
-        context.Item.Status = OrderItemStatus.DELIVERED;
-        context.Item.CustomerConfirmedAt = now;
-        _orders.UpdateItem(context.Item);
+        var remainingPaymentNotifications = new List<Payment>();
+        await UnitOfWorkTransactions.ExecuteAsync(
+            _unitOfWork,
+            async transactionCancellationToken =>
+            {
+                foreach (var item in orderItems.Where(item => item.Status == OrderItemStatus.PHYSICALLY_DELIVERED))
+                {
+                    var transitionError = OrderItemStatusTransitionService.Validate(
+                        item.Status,
+                        OrderItemStatus.DELIVERED,
+                        OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation);
+                    if (transitionError is not null)
+                    {
+                        throw new InvalidOperationException(transitionError.ErrorCode);
+                    }
 
-        if (await AllDeliverableItemsConfirmedAsync(context.Item, cancellationToken))
+                    item.Status = OrderItemStatus.DELIVERED;
+                    _orders.UpdateItem(item);
+                }
+
+                order.CustomerConfirmedDeliveryAt = now;
+                order.UpdatedAt = now;
+                project.Status = ProjectStatus.DELIVERED;
+                project.UpdatedAt = now;
+
+                var remainingPayment = await ApplyPostDeliveryFinancialStateAsync(
+                    order,
+                    now,
+                    transactionCancellationToken);
+                if (remainingPayment is not null)
+                {
+                    remainingPaymentNotifications.Add(remainingPayment);
+                }
+
+                _orders.Update(order);
+                _projects.Update(project);
+                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+            },
+            cancellationToken);
+
+        await OrderNotificationSupport.TryDispatchDeliveredAsync(
+            _notifications,
+            _logger,
+            order,
+            project,
+            cancellationToken);
+        await OrderNotificationSupport.TryDispatchProjectStatusChangedAsync(
+            _notifications,
+            _logger,
+            project,
+            OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
+            cancellationToken);
+        foreach (var payment in remainingPaymentNotifications)
         {
-            context.Order!.Status = OrderStatus.DELIVERED;
-            context.Order.CustomerConfirmedDeliveryAt = now;
-            context.Order.UpdatedAt = now;
-            context.Project!.Status = ProjectStatus.DELIVERED;
-            context.Project.UpdatedAt = now;
-            _orders.Update(context.Order);
-            _projects.Update(context.Project);
+            await PaymentNotificationSupport.TryDispatchCreatedAsync(
+                _notifications,
+                _logger,
+                payment,
+                cancellationToken);
         }
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<OrderItemDeliveryConfirmationDto>.Success(
-            ToDeliveryConfirmationDto(context.Item, context.Order!),
-            "Order item delivery confirmed successfully.");
+        return ServiceResult<OrderDeliveryConfirmationDto>.Success(
+            ToOrderDeliveryConfirmationDto(order, project),
+            "Order delivery confirmed successfully.");
     }
 
     public async Task<ServiceResult<OrderFinalPaymentPreparationDto>> PrepareFinalPaymentAsync(
@@ -629,19 +647,17 @@ public sealed class OrderService : IOrderService
             return ServiceResult<OrderFinalPaymentPreparationDto>.Unauthorized();
         }
 
+        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (role != ProjectAssignmentAccessEvaluator.AdminRole)
+        {
+            return ServiceResult<OrderFinalPaymentPreparationDto>.Forbidden(
+                "Legacy prepare-final-payment is restricted to Admin recovery.");
+        }
+
         var detail = await _orders.GetDetailAsync(orderId, cancellationToken);
         if (detail is null)
         {
             return NotFound<OrderFinalPaymentPreparationDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage);
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
-                role,
-                detail.AssignedSalesId,
-                currentUserId))
-        {
-            return ServiceResult<OrderFinalPaymentPreparationDto>.Forbidden(ForbiddenMessage);
         }
 
         var order = await _orders.GetByIdAsync(orderId, cancellationToken);
@@ -664,18 +680,6 @@ public sealed class OrderService : IOrderService
                 "Customer delivery confirmation is required before final payment preparation.");
         }
 
-        var adjustments = await _orders.GetAdjustmentsByOrderAsync(orderId, cancellationToken);
-        if (adjustments.Any(adjustment => adjustment.Status is not (OrderAdjustmentStatus.APPLIED or OrderAdjustmentStatus.CANCELLED)))
-        {
-            return BadRequest<OrderFinalPaymentPreparationDto>(
-                OrderErrorCodes.AdjustmentNotApplied,
-                "All order adjustments must be applied or cancelled before final payment preparation.");
-        }
-
-        ApplyFinalPaymentFinancialSummary(
-            order,
-            adjustments.Where(adjustment => adjustment.Status == OrderAdjustmentStatus.APPLIED));
-
         var paidAmount = await _payments.SumOrderScopedPaidAmountAsync(orderId, cancellationToken);
         var remainingAmount = order.FinalTotalAmount - Math.Max(0m, paidAmount);
         if (remainingAmount < 0m)
@@ -693,6 +697,17 @@ public sealed class OrderService : IOrderService
         order.UpdatedAt = DateTime.UtcNow;
         _orders.Update(order);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is not null)
+        {
+            await OrderNotificationSupport.TryDispatchUpdatedAsync(
+                _notifications,
+                _logger,
+                order,
+                project,
+                cancellationToken);
+        }
 
         var requiresRemainingPayment = remainingAmount > 0m;
         var message = requiresRemainingPayment
@@ -744,7 +759,7 @@ public sealed class OrderService : IOrderService
         {
             return ServiceResult<OrderCompletionDto>.Success(
                 ToCompletionDto(order, project, order.UpdatedAt ?? DateTime.UtcNow),
-                "Order and project completed successfully.");
+                "Order completed successfully.");
         }
 
         var validationError = await ValidateCompletionReadinessAsync<OrderCompletionDto>(
@@ -758,320 +773,19 @@ public sealed class OrderService : IOrderService
         var now = DateTime.UtcNow;
         order.Status = OrderStatus.COMPLETED;
         order.UpdatedAt = now;
-        project.Status = ProjectStatus.COMPLETED;
-        project.UpdatedAt = now;
         _orders.Update(order);
-        _projects.Update(project);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await OrderNotificationSupport.TryDispatchCompletedAsync(
+            _notifications,
+            _logger,
+            order,
+            project,
+            cancellationToken);
 
         return ServiceResult<OrderCompletionDto>.Success(
             ToCompletionDto(order, project, now),
-            "Order and project completed successfully.");
-    }
-
-    private async Task<OrderAdjustmentAccess<T>> ValidateOrderAdjustmentAccessAsync<T>(
-        Guid orderId,
-        Guid currentUserId,
-        CancellationToken cancellationToken)
-    {
-        if (currentUserId == Guid.Empty)
-        {
-            return new OrderAdjustmentAccess<T>(null, ServiceResult<T>.Unauthorized());
-        }
-
-        var detail = await _orders.GetDetailAsync(orderId, cancellationToken);
-        if (detail is null)
-        {
-            return new OrderAdjustmentAccess<T>(
-                null,
-                NotFound<T>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage));
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (!OrderAccessEvaluator.CanManageFinancialAdjustment(role, detail.AssignedSalesId, currentUserId))
-        {
-            return new OrderAdjustmentAccess<T>(null, ServiceResult<T>.Forbidden(ForbiddenMessage));
-        }
-
-        return new OrderAdjustmentAccess<T>(detail, null);
-    }
-
-    private async Task<OrderAdjustmentContext<T>> ValidateAdjustmentContextAsync<T>(
-        Guid orderAdjustmentId,
-        Guid currentUserId,
-        CancellationToken cancellationToken)
-    {
-        var adjustment = await _orders.GetAdjustmentByIdAsync(orderAdjustmentId, cancellationToken);
-        if (adjustment is null)
-        {
-            return new OrderAdjustmentContext<T>(
-                null,
-                NotFound<T>(OrderErrorCodes.OrderAdjustmentNotFound, OrderAdjustmentNotFoundMessage));
-        }
-
-        var access = await ValidateOrderAdjustmentAccessAsync<T>(
-            adjustment.OrderId,
-            currentUserId,
-            cancellationToken);
-        if (access.Error is not null)
-        {
-            return new OrderAdjustmentContext<T>(null, access.Error);
-        }
-
-        if (adjustment.Status != OrderAdjustmentStatus.DRAFT)
-        {
-            return new OrderAdjustmentContext<T>(
-                null,
-                BadRequest<T>(
-                    OrderErrorCodes.AdjustmentAlreadyConfirmed,
-                    "Order adjustment is already confirmed."));
-        }
-
-        return new OrderAdjustmentContext<T>(adjustment, null);
-    }
-
-    private async Task<OrderAdjustmentItemBuildResult> BuildAdjustmentItemAsync(
-        OrderAdjustment adjustment,
-        Guid currentUserId,
-        UpsertOrderAdjustmentItemDto request,
-        CancellationToken cancellationToken)
-    {
-        var commonValidation = ValidateAdjustmentItemRequest(request);
-        if (commonValidation is not null)
-        {
-            return new OrderAdjustmentItemBuildResult(null, commonValidation);
-        }
-
-        return request.AdjustmentType!.Value switch
-        {
-            OrderAdjustmentItemType.UNAVAILABLE_ITEM => await BuildUnavailableItemAsync(
-                adjustment,
-                currentUserId,
-                request,
-                cancellationToken),
-            OrderAdjustmentItemType.ADDITIONAL_DISCOUNT => BuildAdditionalDiscountItem(
-                adjustment.OrderAdjustmentId,
-                currentUserId,
-                request),
-            _ => new OrderAdjustmentItemBuildResult(null, InvalidAdjustmentItemResult())
-        };
-    }
-
-    private async Task<OrderAdjustmentItemBuildResult> BuildUnavailableItemAsync(
-        OrderAdjustment adjustment,
-        Guid currentUserId,
-        UpsertOrderAdjustmentItemDto request,
-        CancellationToken cancellationToken)
-    {
-        if (!request.OrderItemId.HasValue)
-        {
-            return new OrderAdjustmentItemBuildResult(null, InvalidAdjustmentItemResult());
-        }
-
-        var orderItem = await _orders.GetItemByIdAsync(request.OrderItemId.Value, cancellationToken);
-        if (orderItem is null || orderItem.OrderId != adjustment.OrderId)
-        {
-            return new OrderAdjustmentItemBuildResult(
-                null,
-                NotFound<OrderAdjustmentItemDto>(OrderErrorCodes.OrderItemNotFound, OrderItemNotFoundMessage));
-        }
-
-        var order = await _orders.GetByIdAsync(adjustment.OrderId, cancellationToken);
-        if (order is null)
-        {
-            return new OrderAdjustmentItemBuildResult(
-                null,
-                NotFound<OrderAdjustmentItemDto>(OrderErrorCodes.OrderNotFound, OrderNotFoundMessage));
-        }
-
-        var itemTotalAmount = OrderFinancialAdjustmentCalculator.CalculateVatInclusiveUnavailableAdjustment(
-            orderItem.SubtotalAmount ?? 0m,
-            order.VatRate);
-        if (request.AdjustmentAmount.HasValue && request.AdjustmentAmount.Value != itemTotalAmount)
-        {
-            return new OrderAdjustmentItemBuildResult(
-                null,
-                BadRequest<OrderAdjustmentItemDto>(
-                    OrderErrorCodes.InvalidUnavailableItemAmount,
-                    "Unavailable item adjustment amount must equal order item total amount."));
-        }
-
-        if (!await _orders.HasCancelledProductionItemAsync(orderItem.OrderItemId, cancellationToken))
-        {
-            return new OrderAdjustmentItemBuildResult(
-                null,
-                BadRequest<OrderAdjustmentItemDto>(
-                    OrderErrorCodes.ProductionItemNotCancelled,
-                    "Related production item must be cancelled."));
-        }
-
-        return new OrderAdjustmentItemBuildResult(
-            CreateAdjustmentItem(
-                adjustment.OrderAdjustmentId,
-                currentUserId,
-                OrderAdjustmentItemType.UNAVAILABLE_ITEM,
-                orderItem.OrderItemId,
-                itemTotalAmount,
-                itemTotalAmount,
-                request.Reason!),
-            null);
-    }
-
-    private static OrderAdjustmentItemBuildResult BuildAdditionalDiscountItem(
-        Guid orderAdjustmentId,
-        Guid currentUserId,
-        UpsertOrderAdjustmentItemDto request)
-    {
-        if (request.AdjustmentAmount is null or <= 0m)
-        {
-            return new OrderAdjustmentItemBuildResult(null, InvalidAdjustmentItemResult());
-        }
-
-        return new OrderAdjustmentItemBuildResult(
-            CreateAdjustmentItem(
-                orderAdjustmentId,
-                currentUserId,
-                OrderAdjustmentItemType.ADDITIONAL_DISCOUNT,
-                null,
-                0m,
-                request.AdjustmentAmount.Value,
-                request.Reason!),
-            null);
-    }
-
-    private async Task RecalculateAdjustmentTotalsAsync(
-        OrderAdjustment adjustment,
-        CancellationToken cancellationToken,
-        OrderAdjustmentItem? excludedItem = null,
-        OrderAdjustmentItem? includedItem = null)
-    {
-        var items = (await _orders.GetAdjustmentItemsAsync(
-                adjustment.OrderAdjustmentId,
-                cancellationToken))
-            .Where(item => excludedItem is null ||
-                item.OrderAdjustmentItemId != excludedItem.OrderAdjustmentItemId)
-            .ToList();
-
-        if (includedItem is not null &&
-            items.All(item => item.OrderAdjustmentItemId != includedItem.OrderAdjustmentItemId))
-        {
-            items.Add(includedItem);
-        }
-
-        adjustment.ItemAdjustmentAmount = SumAdjustmentItems(items, OrderAdjustmentItemType.UNAVAILABLE_ITEM);
-        adjustment.AdditionalDiscountAmount = SumAdjustmentItems(items, OrderAdjustmentItemType.ADDITIONAL_DISCOUNT);
-        adjustment.TotalAdjustmentAmount = adjustment.ItemAdjustmentAmount + adjustment.AdditionalDiscountAmount;
-        adjustment.UpdatedAt = DateTime.UtcNow;
-        _orders.UpdateAdjustment(adjustment);
-    }
-
-    private static ServiceResult<OrderAdjustmentItemDto>? ValidateAdjustmentItemRequest(
-        UpsertOrderAdjustmentItemDto request)
-    {
-        if (!request.AdjustmentType.HasValue || string.IsNullOrWhiteSpace(request.Reason))
-        {
-            return InvalidAdjustmentItemResult();
-        }
-
-        return null;
-    }
-
-    private static void ApplyAdjustmentItem(
-        OrderAdjustmentItem existingItem,
-        OrderAdjustmentItem source,
-        Guid currentUserId)
-    {
-        existingItem.OrderItemId = source.OrderItemId;
-        existingItem.AdjustmentType = source.AdjustmentType;
-        existingItem.PreviousItemAmount = source.PreviousItemAmount;
-        existingItem.AdjustmentAmount = source.AdjustmentAmount;
-        existingItem.Reason = source.Reason;
-        existingItem.UpdatedBy = currentUserId;
-        existingItem.UpdatedAt = DateTime.UtcNow;
-    }
-
-    private static OrderAdjustmentItem CreateAdjustmentItem(
-        Guid orderAdjustmentId,
-        Guid currentUserId,
-        OrderAdjustmentItemType adjustmentType,
-        Guid? orderItemId,
-        decimal previousItemAmount,
-        decimal adjustmentAmount,
-        string reason)
-    {
-        return new OrderAdjustmentItem
-        {
-            OrderAdjustmentItemId = Guid.NewGuid(),
-            OrderAdjustmentId = orderAdjustmentId,
-            OrderItemId = orderItemId,
-            AdjustmentType = adjustmentType,
-            PreviousItemAmount = previousItemAmount,
-            AdjustmentAmount = adjustmentAmount,
-            Reason = reason.Trim(),
-            CreatedBy = currentUserId,
-            CreatedAt = DateTime.UtcNow
-        };
-    }
-
-    private static decimal SumAdjustmentItems(
-        IEnumerable<OrderAdjustmentItem> items,
-        OrderAdjustmentItemType adjustmentType)
-    {
-        return items
-            .Where(item => item.AdjustmentType == adjustmentType)
-            .Sum(item => item.AdjustmentAmount);
-    }
-
-    private static bool IsDepositPaymentStarted(Payment? depositPayment)
-    {
-        if (depositPayment is null)
-        {
-            return false;
-        }
-
-        if (depositPayment.Status is PaymentStatus.PROCESSING or PaymentStatus.PAID)
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool CanSyncPendingDepositPayment(Payment depositPayment)
-    {
-        return depositPayment.Status == PaymentStatus.PENDING;
-    }
-
-    private static void SyncPendingDepositPayment(
-        Payment depositPayment,
-        decimal depositAmount,
-        string? adjustmentNote)
-    {
-        depositPayment.Amount = depositAmount;
-        if (!string.IsNullOrWhiteSpace(adjustmentNote))
-        {
-            depositPayment.Note = adjustmentNote.Trim();
-        }
-
-        depositPayment.UpdatedAt = DateTime.UtcNow;
-    }
-
-    private static void ApplyFinalPaymentFinancialSummary(
-        Order order,
-        IEnumerable<OrderAdjustment> appliedAdjustments)
-    {
-        var applied = appliedAdjustments.ToList();
-        var itemAdjustmentAmount = applied.Sum(adjustment => adjustment.ItemAdjustmentAmount);
-        var additionalDiscountAmount = applied.Sum(adjustment => adjustment.AdditionalDiscountAmount);
-        var baseBeforeDiscount = OrderFinancialAdjustmentCalculator.CalculateBaseBeforeAdditionalDiscount(
-            order.OriginalTotalAmount,
-            itemAdjustmentAmount);
-
-        order.ItemAdjustmentAmount = itemAdjustmentAmount;
-        order.AdditionalDiscountAmount = additionalDiscountAmount;
-        order.FinalTotalAmount = OrderFinancialAdjustmentCalculator.CalculateFinalTotalAmount(
-            baseBeforeDiscount,
-            additionalDiscountAmount);
+            "Order completed successfully.");
     }
 
     private async Task<ServiceResult<T>?> ValidateCompletionReadinessAsync<T>(
@@ -1093,19 +807,11 @@ public sealed class OrderService : IOrderService
         }
 
         var items = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
-        if (items.Where(IsActiveDeliveryItem).Any(item => item.Status != OrderItemStatus.DELIVERED))
+        if (!OrderFinancialCompletionEvaluator.AreDeliverableItemsDelivered(items))
         {
             return BadRequest<T>(
                 OrderErrorCodes.DeliveryNotCompleted,
                 "Delivery must be fully confirmed before order completion.");
-        }
-
-        var adjustments = await _orders.GetAdjustmentsByOrderAsync(order.OrderId, cancellationToken);
-        if (adjustments.Any(adjustment => adjustment.Status is not (OrderAdjustmentStatus.APPLIED or OrderAdjustmentStatus.CANCELLED)))
-        {
-            return BadRequest<T>(
-                OrderErrorCodes.AdjustmentNotApplied,
-                "All order adjustments must be applied or cancelled before order completion.");
         }
 
         var paidAmount = await _payments.SumOrderScopedPaidAmountAsync(order.OrderId, cancellationToken);
@@ -1124,46 +830,97 @@ public sealed class OrderService : IOrderService
         return null;
     }
 
-    private static ServiceResult<OrderDetailDto>? ValidateFinancialAdjustment(
+    private async Task<Payment?> ApplyPostDeliveryFinancialStateAsync(
         Order order,
-        UpdateOrderFinancialAdjustmentRequestDto request)
+        DateTime utcNow,
+        CancellationToken cancellationToken)
     {
-        if (request.AdditionalDiscountAmount.HasValue)
+        var paidAmount = await _payments.SumOrderScopedPaidAmountAsync(order.OrderId, cancellationToken);
+        var (recalculatedPaidAmount, remainingAmount) = OrderPaidAmountRecalculator.Calculate(
+            order.FinalTotalAmount,
+            paidAmount);
+
+        order.PaidAmount = recalculatedPaidAmount;
+        order.RemainingAmount = remainingAmount;
+
+        if (remainingAmount <= 0m)
         {
-            return BadRequestDetail(
-                OrderErrorCodes.InvalidFinancialAdjustment,
-                "Additional discount amount must be updated through order adjustment flow.");
+            order.Status = OrderStatus.COMPLETED;
+            return null;
         }
 
-        if (!request.DepositAmount.HasValue)
+        var payment = await GetOrCreateRemainingPaymentAsync(order, remainingAmount, utcNow, cancellationToken);
+        order.Status = OrderStatus.FINAL_PAYMENT_PENDING;
+        return payment;
+    }
+
+    private async Task<Payment> GetOrCreateRemainingPaymentAsync(
+        Order order,
+        decimal remainingAmount,
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        var existing = await _payments.GetByOrderAndTypeAsync(
+            order.OrderId,
+            PaymentType.REMAINING_PAYMENT,
+            cancellationToken);
+        var reusable = await PaymentServiceActivePaymentSupport.ResolveReusableActivePaymentAsync(
+            _payments,
+            _unitOfWork,
+            existing,
+            cancellationToken);
+        if (reusable is not null && ActivePaymentResolver.IsActive(reusable, utcNow))
         {
-            return BadRequestDetail(
-                OrderErrorCodes.InvalidFinancialAdjustment,
-                "Deposit amount is required.");
+            return reusable;
         }
 
-        var depositAmount = request.DepositAmount.Value;
-        var baseBeforeDiscount = OrderFinancialAdjustmentCalculator.CalculateBaseBeforeAdditionalDiscount(
-            order.OriginalTotalAmount,
-            order.ItemAdjustmentAmount ?? 0m);
-        var finalTotalAmount = OrderFinancialAdjustmentCalculator.CalculateFinalTotalAmount(
-            baseBeforeDiscount,
-            order.AdditionalDiscountAmount ?? 0m);
-        if (depositAmount <= 0m)
+        var payment = new Payment
         {
-            return BadRequestDetail(
-                OrderErrorCodes.InvalidFinancialAdjustment,
-                "Deposit amount must be greater than zero.");
+            PaymentId = Guid.NewGuid(),
+            ProjectId = order.ProjectId,
+            OrderId = order.OrderId,
+            QuotationId = order.QuotationId,
+            PaymentCode = await GenerateUniquePaymentCodeAsync(cancellationToken),
+            PaidBy = order.CustomerId,
+            PaymentType = PaymentType.REMAINING_PAYMENT,
+            Amount = remainingAmount,
+            Currency = _sePayOptions.Currency,
+            Status = PaymentStatus.PENDING,
+            ExpiredAt = utcNow.AddDays(RemainingPaymentExpiryDays),
+            CreatedAt = utcNow,
+            UpdatedAt = utcNow
+        };
+
+        await _payments.AddPaymentAsync(payment, cancellationToken);
+        return payment;
+    }
+
+    private async Task<string> GenerateUniquePaymentCodeAsync(CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; attempt < PaymentServiceConstants.MaxPaymentCodeAttempts; attempt++)
+        {
+            var code = PaymentCodeGenerator.Generate(
+                _sePayOptions.PaymentCodePrefix,
+                _sePayOptions.PaymentCodeRandomDigits);
+            if (!await _payments.PaymentCodeExistsAsync(code, cancellationToken))
+            {
+                return code;
+            }
         }
 
-        if (depositAmount > finalTotalAmount)
-        {
-            return BadRequestDetail(
-                OrderErrorCodes.InvalidFinancialAdjustment,
-                "Deposit amount must not exceed the final total amount.");
-        }
+        throw new InvalidOperationException("Unable to generate a unique payment code.");
+    }
 
-        return null;
+    private async Task<ServiceResult<T>?> ValidateProductionCompletedForDeliveryAsync<T>(
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        return await _productionRequests.IsOrderProductionCompletedAsync(orderId, cancellationToken)
+            ? null
+            : ServiceResult<T>.Failure(
+                Error.Conflict(
+                    OrderErrorCodes.ProductionNotCompleted,
+                    "Production must be completed before delivery can proceed."));
     }
 
     private static List<OrderListItemReadModel> FilterByAccess(
@@ -1182,71 +939,6 @@ public sealed class OrderService : IOrderService
             .ToList();
     }
 
-    private async Task<OrderItemDeliveryContext<T>> ValidateOrderItemDeliveryContextAsync<T>(
-        Guid orderItemId,
-        Guid currentUserId,
-        bool requireCustomerOwner,
-        CancellationToken cancellationToken)
-    {
-        var item = await _orders.GetItemByIdAsync(orderItemId, cancellationToken);
-        if (item is null)
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                NotFound<T>(OrderErrorCodes.OrderItemNotFound, "Order item not found."));
-        }
-
-        var order = await _orders.GetByIdAsync(item.OrderId, cancellationToken);
-        if (order is null)
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                NotFound<T>(OrderErrorCodes.OrderItemNotFound, "Order item not found."));
-        }
-
-        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
-        if (project is null)
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                NotFound<T>(OrderErrorCodes.OrderItemNotFound, "Order item not found."));
-        }
-
-        var role = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        var accessError = requireCustomerOwner
-            ? ValidateCustomerDeliveryAccess<T>(role, project.CustomerId, currentUserId)
-            : ValidateStaffDeliveryAccess<T>(role, project.AssignedSalesId, currentUserId);
-        if (accessError is not null)
-        {
-            return OrderItemDeliveryContext<T>.WithError(accessError);
-        }
-
-        if (order.Status != OrderStatus.DELIVERING)
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                BadRequest<T>(
-                    OrderErrorCodes.OrderNotDelivering,
-                    "Order must be DELIVERING before item delivery can be updated."));
-        }
-
-        if (!IsProductLineItem(item))
-        {
-            return OrderItemDeliveryContext<T>.WithError(
-                BadRequest<T>(
-                    OrderErrorCodes.ItemNotDeliverable,
-                    "Order item is not deliverable."));
-        }
-
-        return new OrderItemDeliveryContext<T>(item, order, project, null);
-    }
-
-    private static ServiceResult<T>? ValidateStaffDeliveryAccess<T>(
-        string? role,
-        Guid? assignedSalesId,
-        Guid currentUserId)
-    {
-        return CanStartDelivery(role, assignedSalesId, currentUserId)
-            ? null
-            : ServiceResult<T>.Forbidden(ForbiddenMessage);
-    }
-
     private static ServiceResult<T>? ValidateCustomerDeliveryAccess<T>(
         string? role,
         Guid customerId,
@@ -1257,6 +949,29 @@ public sealed class OrderService : IOrderService
             : ServiceResult<T>.Forbidden(ForbiddenMessage);
     }
 
+    private static bool CanUpdateDeliveryDetails(string? role, Guid customerId, Guid currentUserId)
+    {
+        return role == ProjectAssignmentAccessEvaluator.AdminRole ||
+            role == ProjectAssignmentAccessEvaluator.CustomerRole && customerId == currentUserId;
+    }
+
+    private static bool IsDeliveryDetailsLocked(OrderStatus? status)
+    {
+        return status is OrderStatus.DEPOSIT_PAID
+            or OrderStatus.IN_PRODUCTION
+            or OrderStatus.READY_FOR_DELIVERY
+            or OrderStatus.DELIVERING
+            or OrderStatus.AWAITING_CUSTOMER_CONFIRMATION
+            or OrderStatus.DELIVERED
+            or OrderStatus.FINAL_PAYMENT_PENDING
+            or OrderStatus.COMPLETED;
+    }
+
+    private static string? NormalizeRequiredDeliveryField(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
     private static bool IsProductLineItem(OrderItem item)
     {
         return item.ProductVersionId.HasValue &&
@@ -1264,36 +979,10 @@ public sealed class OrderService : IOrderService
             item.Status is not (OrderItemStatus.UNAVAILABLE or OrderItemStatus.CANCELLED);
     }
 
-    private static bool IsActiveDeliveryItem(OrderItem item)
+    private static bool IsDeliveryAlreadyConfirmed(Order order)
     {
-        return IsProductLineItem(item) &&
-            item.Status is OrderItemStatus.READY or OrderItemStatus.DELIVERED;
-    }
-
-    private static ServiceResult<T>? ValidateReadyOrderItem<T>(OrderItem item)
-    {
-        return item.Status == OrderItemStatus.READY
-            ? null
-            : BadRequest<T>(
-                OrderErrorCodes.OrderItemNotReady,
-                "Order item must be READY before delivery can be updated.");
-    }
-
-    private static bool IsFullyDelivered(OrderItem item)
-    {
-        return (item.DeliveredQuantity ?? 0) >= (item.Quantity ?? 0) && (item.Quantity ?? 0) > 0;
-    }
-
-    private async Task<bool> AllDeliverableItemsConfirmedAsync(
-        OrderItem currentItem,
-        CancellationToken cancellationToken)
-    {
-        var items = await _orders.GetItemsByOrderAsync(currentItem.OrderId, cancellationToken);
-        return items
-            .Where(IsActiveDeliveryItem)
-            .All(item =>
-                item.OrderItemId == currentItem.OrderItemId ||
-                item.Status == OrderItemStatus.DELIVERED);
+        return order.CustomerConfirmedDeliveryAt.HasValue &&
+            order.Status is OrderStatus.DELIVERED or OrderStatus.FINAL_PAYMENT_PENDING or OrderStatus.COMPLETED;
     }
 
     private static ServiceResult<OrderListResponseDto> NotFoundList(string errorCode, string message)
@@ -1304,52 +993,6 @@ public sealed class OrderService : IOrderService
     private static ServiceResult<OrderDetailDto> NotFoundDetail(string errorCode, string message)
     {
         return ServiceResult<OrderDetailDto>.Failure(Error.NotFound(errorCode, message));
-    }
-
-    private static ServiceResult<OrderDetailDto> BadRequestDetail(string errorCode, string message)
-    {
-        return ServiceResult<OrderDetailDto>.Failure(Error.BadRequest(errorCode, message));
-    }
-
-    private static OrderAdjustmentDto ToAdjustmentDto(OrderAdjustment adjustment)
-    {
-        return new OrderAdjustmentDto
-        {
-            OrderAdjustmentId = adjustment.OrderAdjustmentId,
-            OrderId = adjustment.OrderId,
-            Status = adjustment.Status.ToString(),
-            ItemAdjustmentAmount = adjustment.ItemAdjustmentAmount,
-            AdditionalDiscountAmount = adjustment.AdditionalDiscountAmount,
-            TotalAdjustmentAmount = adjustment.TotalAdjustmentAmount
-        };
-    }
-
-    private static OrderAdjustmentItemDto ToAdjustmentItemDto(OrderAdjustmentItem item)
-    {
-        return new OrderAdjustmentItemDto
-        {
-            OrderAdjustmentItemId = item.OrderAdjustmentItemId,
-            OrderAdjustmentId = item.OrderAdjustmentId,
-            OrderItemId = item.OrderItemId,
-            AdjustmentType = item.AdjustmentType.ToString(),
-            PreviousItemAmount = item.PreviousItemAmount,
-            AdjustmentAmount = item.AdjustmentAmount,
-            ItemTotalAmount = item.AdjustmentType == OrderAdjustmentItemType.UNAVAILABLE_ITEM
-                ? item.PreviousItemAmount
-                : null,
-            Reason = item.Reason
-        };
-    }
-
-    private static OrderAdjustmentConfirmationDto ToConfirmationDto(OrderAdjustment adjustment)
-    {
-        return new OrderAdjustmentConfirmationDto
-        {
-            OrderAdjustmentId = adjustment.OrderAdjustmentId,
-            Status = adjustment.Status.ToString(),
-            ConfirmedBy = adjustment.ConfirmedBy,
-            ConfirmedAt = adjustment.ConfirmedAt
-        };
     }
 
     private static OrderDeliveryStartDto ToDeliveryStartDto(Order order, Project project)
@@ -1364,26 +1007,30 @@ public sealed class OrderService : IOrderService
         };
     }
 
-    private static OrderItemDeliveredQuantityDto ToDeliveredQuantityDto(OrderItem item)
+    private static OrderDeliveryCompletionDto ToDeliveryCompletionDto(
+        Order order,
+        Project project,
+        int deliveredItemCount)
     {
-        return new OrderItemDeliveredQuantityDto
+        return new OrderDeliveryCompletionDto
         {
-            OrderItemId = item.OrderItemId,
-            Quantity = item.Quantity ?? 0,
-            DeliveredQuantity = item.DeliveredQuantity ?? 0,
-            LastDeliveredAt = item.LastDeliveredAt,
-            LastDeliveredBy = item.LastDeliveredBy
+            OrderId = order.OrderId,
+            ProjectId = project.ProjectId,
+            OrderStatus = order.Status.ToString() ?? string.Empty,
+            DeliveredItemCount = deliveredItemCount,
+            UpdatedAt = order.UpdatedAt
         };
     }
 
-    private static OrderItemDeliveryConfirmationDto ToDeliveryConfirmationDto(OrderItem item, Order order)
+    private static OrderDeliveryConfirmationDto ToOrderDeliveryConfirmationDto(Order order, Project project)
     {
-        return new OrderItemDeliveryConfirmationDto
+        return new OrderDeliveryConfirmationDto
         {
-            OrderItemId = item.OrderItemId,
-            Status = item.Status.ToString() ?? string.Empty,
-            CustomerConfirmedAt = item.CustomerConfirmedAt,
-            OrderStatus = order.Status.ToString() ?? string.Empty
+            OrderId = order.OrderId,
+            ProjectId = project.ProjectId,
+            OrderStatus = order.Status.ToString() ?? string.Empty,
+            ProjectStatus = project.Status.ToString() ?? string.Empty,
+            CustomerConfirmedDeliveryAt = order.CustomerConfirmedDeliveryAt
         };
     }
 
@@ -1417,15 +1064,6 @@ public sealed class OrderService : IOrderService
         };
     }
 
-    private static bool CanStartDelivery(
-        string? role,
-        Guid? assignedSalesId,
-        Guid currentUserId)
-    {
-        return role is ProjectAssignmentAccessEvaluator.AdminRole or OrderAccessEvaluator.ProductionRole ||
-            role == ProjectAssignmentAccessEvaluator.SalesRole && assignedSalesId == currentUserId;
-    }
-
     private static ServiceResult<T> BadRequest<T>(string errorCode, string message)
     {
         return ServiceResult<T>.Failure(Error.BadRequest(errorCode, message));
@@ -1434,36 +1072,5 @@ public sealed class OrderService : IOrderService
     private static ServiceResult<T> NotFound<T>(string errorCode, string message)
     {
         return ServiceResult<T>.Failure(Error.NotFound(errorCode, message));
-    }
-
-    private static ServiceResult<OrderAdjustmentItemDto> InvalidAdjustmentItemResult()
-    {
-        return BadRequest<OrderAdjustmentItemDto>(
-            OrderErrorCodes.InvalidAdjustmentItem,
-            "Order adjustment item is invalid.");
-    }
-
-    private sealed record OrderAdjustmentAccess<T>(
-        OrderDetailReadModel? Order,
-        ServiceResult<T>? Error);
-
-    private sealed record OrderAdjustmentContext<T>(
-        OrderAdjustment? Adjustment,
-        ServiceResult<T>? Error);
-
-    private sealed record OrderAdjustmentItemBuildResult(
-        OrderAdjustmentItem? Item,
-        ServiceResult<OrderAdjustmentItemDto>? Error);
-
-    private sealed record OrderItemDeliveryContext<T>(
-        OrderItem? Item,
-        Order? Order,
-        Project? Project,
-        ServiceResult<T>? Error)
-    {
-        public static OrderItemDeliveryContext<T> WithError(ServiceResult<T> error)
-        {
-            return new OrderItemDeliveryContext<T>(null, null, null, error);
-        }
     }
 }

@@ -41,6 +41,17 @@ public interface IProjectFileRepository : IGenericRepository<StoredFile>
         Guid fileId,
         CancellationToken cancellationToken = default);
 
+    Task<FileLink?> GetFileLinkEntityAsync(
+        string referenceType,
+        Guid referenceId,
+        Guid fileId,
+        CancellationToken cancellationToken = default) => Task.FromResult<FileLink?>(null);
+
+    Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByReferenceAsync(
+        string referenceType,
+        Guid referenceId,
+        CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<FileLink>>([]);
+
     void RemoveFileLinks(IEnumerable<FileLink> fileLinks);
 
     Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(
@@ -103,4 +114,26 @@ public interface IProjectFileRepository : IGenericRepository<StoredFile>
         Guid projectId,
         IReadOnlyCollection<FileType> fileTypes,
         CancellationToken cancellationToken = default);
+
+    Task<ProjectLinkedFileReadModel?> GetProjectLinkedActiveFileAsync(
+        Guid projectId,
+        Guid fileId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<ProjectLinkedFileReadModel?>(null);
+
+    Task<bool> ExistsByStoragePathAsync(
+        string storagePath,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
+
+    Task<MeasurementImageGalleryPageReadModel> GetMeasurementImageGalleryAsync(
+        MeasurementImageGalleryQueryReadModel query,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new MeasurementImageGalleryPageReadModel());
+
+    Task<bool> HasMeasurementScheduleLinkInProjectAsync(
+        Guid fileId,
+        Guid projectId,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(false);
 }

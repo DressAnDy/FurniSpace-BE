@@ -91,6 +91,11 @@ public sealed class RoomPlannerProposalSceneRepository : IRoomPlannerProposalSce
                     AreaName = projectArea.AreaName,
                     AreaType = projectArea.AreaType,
                     FloorNumber = projectArea.FloorNumber,
+                    IsSpecialLayout = projectArea.IsSpecialLayout,
+                    AreaSqm = projectArea.AreaSqm,
+                    Width = projectArea.Width,
+                    Length = projectArea.Length,
+                    Height = projectArea.Height,
                     Status = projectArea.Status,
                     SortOrder = area.SortOrder
                 })

@@ -1,4 +1,5 @@
 using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using FurniSpace.Infrastructure.Repositories.Base;
@@ -29,11 +30,23 @@ public sealed class ProjectChatMessageRepository
                 {
                     ChatId = chat.ChatId,
                     ProjectId = project.ProjectId,
+                    ProjectName = project.ProjectName,
                     ChatType = chat.ChatType,
+                    ChatTitle = chat.Title,
+                    ChatStaffId = chat.StaffId,
                     ChatStatus = chat.Status,
                     CustomerId = project.CustomerId,
                     AssignedSalesId = project.AssignedSalesId,
                     AssignedDesignerId = project.AssignedDesignerId,
+                    ProductionRequestId = chat.ChatType == ProjectChatType.PRODUCTION
+                        ? DbContext.ProductionRequestSet
+                            .Where(request =>
+                                request.ProjectId == project.ProjectId &&
+                                request.AssignedTo == chat.StaffId)
+                            .OrderByDescending(request => request.CreatedAt)
+                            .Select(request => (Guid?)request.ProductionRequestId)
+                            .FirstOrDefault()
+                        : null,
                     CurrentUserName = DbContext.AccountSet
                         .Where(account =>
                             account.AccountId == currentUserId &&

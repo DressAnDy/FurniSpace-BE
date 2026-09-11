@@ -28,26 +28,6 @@ public sealed class OrderCalculatorTests
     }
 
     [Theory]
-    [InlineData(100_000_000, 0, 5_000_000, 95_000_000)]
-    [InlineData(100_000_000, 10_000_000, 5_000_000, 85_000_000)]
-    [InlineData(1_000, 200, 50, 750)]
-    public void OrderFinancialAdjustmentCalculator_CalculatesFinalTotal(
-        decimal originalTotal,
-        decimal itemAdjustment,
-        decimal additionalDiscount,
-        decimal expectedFinalTotal)
-    {
-        var baseBeforeDiscount = OrderFinancialAdjustmentCalculator.CalculateBaseBeforeAdditionalDiscount(
-            originalTotal,
-            itemAdjustment);
-        var finalTotal = OrderFinancialAdjustmentCalculator.CalculateFinalTotalAmount(
-            baseBeforeDiscount,
-            additionalDiscount);
-
-        Assert.Equal(expectedFinalTotal, finalTotal);
-    }
-
-    [Theory]
     [InlineData(1000, 300, 300, 700)]
     [InlineData(1000, 1200, 1200, 0)]
     [InlineData(500, -50, 0, 500)]

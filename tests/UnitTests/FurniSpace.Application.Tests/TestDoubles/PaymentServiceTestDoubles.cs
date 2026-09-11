@@ -191,29 +191,50 @@ internal sealed class PaymentServiceFakeRepository : IPaymentRepository
         Guid paymentId,
         CancellationToken cancellationToken = default)
     {
+        return GetTransactionsByPaymentIdsAsync([paymentId], cancellationToken);
+    }
+
+    public Task<IReadOnlyList<PaymentListItemReadModel>> GetListByOrderIdAsync(
+        Guid orderId,
+        PaymentStatus? status = null,
+        PaymentType? paymentType = null,
+        CancellationToken cancellationToken = default)
+    {
+        IEnumerable<PaymentListItemReadModel> items = _listItems.Where(item => item.OrderId == orderId);
+        if (status.HasValue)
+        {
+            items = items.Where(item => item.Status == status.Value);
+        }
+
+        if (paymentType.HasValue)
+        {
+            items = items.Where(item => item.PaymentType == paymentType.Value);
+        }
+
+        return Task.FromResult<IReadOnlyList<PaymentListItemReadModel>>(
+            items.OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.PaymentId).ToList());
+    }
+
+    public Task<IReadOnlyList<PaymentTransactionReadModel>> GetTransactionsByPaymentIdsAsync(
+        IReadOnlyCollection<Guid> paymentIds,
+        CancellationToken cancellationToken = default)
+    {
+        if (paymentIds.Count == 0)
+        {
+            return Task.FromResult<IReadOnlyList<PaymentTransactionReadModel>>([]);
+        }
+
         var items = _transactions
-            .Where(transaction => transaction.PaymentId == paymentId)
-            .Select(transaction => new PaymentTransactionReadModel
-            {
-                PaymentTransactionId = transaction.PaymentTransactionId,
-                PaymentId = transaction.PaymentId,
-                TransactionCode = transaction.TransactionCode,
-                TransactionType = transaction.TransactionType,
-                Amount = transaction.Amount,
-                Currency = transaction.Currency,
-                PaymentProvider = transaction.PaymentProvider,
-                PaymentMethod = transaction.PaymentMethod,
-                ProviderTransactionId = transaction.ProviderTransactionId,
-                ProviderReferenceCode = transaction.ProviderReferenceCode,
-                Status = transaction.Status,
-                PaymentUrl = transaction.PaymentUrl,
-                QrContent = transaction.QrContent,
-                FailureReason = transaction.FailureReason,
-                TransactionTime = transaction.TransactionTime,
-                CreatedAt = transaction.CreatedAt
-            })
+            .Where(transaction => paymentIds.Contains(transaction.PaymentId))
+            .Select(MapTransaction)
             .ToList();
+
         return Task.FromResult<IReadOnlyList<PaymentTransactionReadModel>>(items);
+    }
+
+    public void SeedTransaction(PaymentTransaction transaction)
+    {
+        _transactions.Add(transaction);
     }
 
     private static PaymentTransactionReadModel MapTransaction(PaymentTransaction transaction)

@@ -2,7 +2,10 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.API.DTOs.MeasurementImages;
+using FurniSpace.Application.DTOs.MeasurementImages;
 using FurniSpace.Application.DTOs.ProjectSchedules;
+using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.ProjectSchedules;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -14,11 +17,17 @@ namespace FurniSpace.API.Controllers.Projects;
 [Route("project-schedules")]
 public sealed class ProjectSchedulesController : BaseApiController
 {
-    private readonly IProjectScheduleService _schedules;
+    private const long MeasurementMultipartRequestLimitBytes = 100L * 1024L * 1024L;
 
-    public ProjectSchedulesController(IProjectScheduleService schedules)
+    private readonly IProjectScheduleService _schedules;
+    private readonly IMeasurementImageService _measurementImages;
+
+    public ProjectSchedulesController(
+        IProjectScheduleService schedules,
+        IMeasurementImageService measurementImages)
     {
         _schedules = schedules;
+        _measurementImages = measurementImages;
     }
 
     [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
@@ -150,6 +159,80 @@ public sealed class ProjectSchedulesController : BaseApiController
         }
 
         var result = await _schedules.DeleteAsync(scheduleId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,ADMIN")]
+    [HttpPost("{scheduleId:guid}/request-change")]
+    public async Task<IActionResult> RequestChange(
+        Guid scheduleId,
+        [FromBody] RequestProjectScheduleChangeDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _schedules.RequestChangeAsync(
+            scheduleId,
+            currentUserId,
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpPost("{scheduleId:guid}/measurement-images")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(MeasurementMultipartRequestLimitBytes)]
+    public async Task<IActionResult> UploadMeasurementImage(
+        Guid scheduleId,
+        [FromForm] UploadMeasurementImageFormRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _measurementImages.UploadMeasurementImageAsync(
+            scheduleId,
+            currentUserId,
+            request.ToRequestDto(),
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [HttpGet("{scheduleId:guid}/measurement-images")]
+    public async Task<IActionResult> GetMeasurementImages(
+        Guid scheduleId,
+        [FromQuery] Guid? projectAreaId = null,
+        [FromQuery] bool? assigned = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _measurementImages.GetScheduleMeasurementImagesAsync(
+            scheduleId,
+            currentUserId,
+            new MeasurementImageGalleryQueryDto
+            {
+                ProjectAreaId = projectAreaId,
+                Assigned = assigned,
+                Page = page,
+                Limit = limit
+            },
+            cancellationToken);
+
         return ToActionResult(result);
     }
 

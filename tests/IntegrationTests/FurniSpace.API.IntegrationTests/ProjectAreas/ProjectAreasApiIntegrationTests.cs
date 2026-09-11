@@ -44,7 +44,11 @@ public sealed class ProjectAreasApiIntegrationTests : IAsyncLifetime
             {
                 AreaName = "Ground Floor",
                 AreaType = ProjectAreaType.FLOOR,
-                FloorNumber = 1
+                FloorNumber = 1,
+                AreaSqm = 48m,
+                Width = 8m,
+                Length = 6m,
+                Height = 3.2m
             });
         var floorResponse = await _fixture.Client.SendAsync(floorRequest);
         var floor = await floorResponse.Content
@@ -62,7 +66,11 @@ public sealed class ProjectAreasApiIntegrationTests : IAsyncLifetime
             {
                 AreaName = "Reception Zone",
                 AreaType = ProjectAreaType.ZONE,
-                ParentAreaId = floor.Data.ProjectAreaId
+                ParentAreaId = floor.Data.ProjectAreaId,
+                AreaSqm = 12m,
+                Width = 4m,
+                Length = 3m,
+                Height = 3.2m
             });
         var zoneResponse = await _fixture.Client.SendAsync(zoneRequest);
         var zone = await zoneResponse.Content

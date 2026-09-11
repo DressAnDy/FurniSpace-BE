@@ -7,6 +7,7 @@ public static class FinancialReportingConstants
 {
     public const string DefaultCurrency = "VND";
     public const string ReportingTimezone = "Asia/Ho_Chi_Minh";
+    public const string CurrencyInvalidMessage = "Financial currency is invalid.";
     internal const string PeriodThisMonth = "THIS_MONTH";
     internal const string PeriodThisYear = "THIS_YEAR";
     internal const string PeriodCustom = "CUSTOM";

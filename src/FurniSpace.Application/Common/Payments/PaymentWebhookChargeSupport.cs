@@ -1,5 +1,6 @@
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Persistence;
@@ -47,6 +48,7 @@ internal static class PaymentWebhookChargeSupport
 
     internal static async Task PushPaymentUpdatedAsync(
         IPaymentRealtimeService paymentRealtime,
+        IProjectStakeholderResolver? stakeholders,
         ILogger? logger,
         Payment payment,
         PaymentTransaction transaction,
@@ -70,9 +72,17 @@ internal static class PaymentWebhookChargeSupport
             OccurredAt = occurredAt
         };
 
+        var stakeholderUserIds = await PaymentNotificationSupport.ResolvePaymentUpdatedReceiversAsync(
+            stakeholders,
+            payment,
+            cancellationToken);
+
         try
         {
-            await paymentRealtime.SendPaymentUpdatedAsync(payload, cancellationToken);
+            await paymentRealtime.SendPaymentUpdatedAsync(
+                payload,
+                stakeholderUserIds,
+                cancellationToken);
         }
         catch (Exception exception)
         {

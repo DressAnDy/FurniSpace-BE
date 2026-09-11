@@ -501,7 +501,7 @@ public sealed class AccountServiceTests
         Assert.Equal(1, repository.CountAvailableDesignersCallCount);
         Assert.Equal(1, repository.Page);
         Assert.Equal(10, repository.PageSize);
-        Assert.Equal(2, repository.MaxActiveProjects);
+        Assert.Equal(3, repository.MaxActiveProjects);
         Assert.Equal("Emily", repository.Search);
         Assert.DoesNotContain(
             typeof(AvailableDesignerDto).GetProperties(),

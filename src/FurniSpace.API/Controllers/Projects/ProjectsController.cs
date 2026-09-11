@@ -2,10 +2,14 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
+using FurniSpace.Application.DTOs.ProjectReviews;
 using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.DTOs.MeasurementImages;
+using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.ProjectReviews;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -19,15 +23,21 @@ public sealed class ProjectsController : BaseApiController
     private readonly IProjectService _projects;
     private readonly IProjectChatMessageService _chatMessages;
     private readonly IProposalService _proposals;
+    private readonly IMeasurementImageService _measurementImages;
+    private readonly IProjectReviewService _projectReviews;
 
     public ProjectsController(
         IProjectService projects,
         IProjectChatMessageService chatMessages,
-        IProposalService proposals)
+        IProposalService proposals,
+        IMeasurementImageService measurementImages,
+        IProjectReviewService projectReviews)
     {
         _projects = projects;
         _chatMessages = chatMessages;
         _proposals = proposals;
+        _measurementImages = measurementImages;
+        _projectReviews = projectReviews;
     }
 
     [Authorize(Roles = "CUSTOMER")]
@@ -185,6 +195,22 @@ public sealed class ProjectsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [HttpPatch("{projectId:guid}/target-completion-date")]
+    public async Task<IActionResult> UpdateTargetCompletionDate(
+        Guid projectId,
+        [FromBody] UpdateProjectTargetCompletionDateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.UpdateTargetCompletionDateAsync(projectId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
     [HttpPatch("{projectId:guid}/status")]
     public async Task<IActionResult> UpdateStatus(
@@ -214,6 +240,36 @@ public sealed class ProjectsController : BaseApiController
         }
 
         var result = await _projects.RejectAsync(projectId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPatch("{projectId:guid}/complete")]
+    public async Task<IActionResult> Complete(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.CompleteAsync(projectId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,ADMIN")]
+    [HttpPost("{projectId:guid}/reopen-proposal")]
+    public async Task<IActionResult> ReopenProposal(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projects.ReopenProposalAsync(projectId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 
@@ -255,6 +311,69 @@ public sealed class ProjectsController : BaseApiController
             limit,
             cancellationToken);
 
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+    [HttpGet("{projectId:guid}/measurement-images")]
+    public async Task<IActionResult> GetMeasurementImages(
+        Guid projectId,
+        [FromQuery] Guid? scheduleId = null,
+        [FromQuery] Guid? projectAreaId = null,
+        [FromQuery] bool? assigned = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _measurementImages.GetProjectMeasurementImagesAsync(
+            projectId,
+            currentUserId,
+            new MeasurementImageGalleryQueryDto
+            {
+                ScheduleId = scheduleId,
+                ProjectAreaId = projectAreaId,
+                Assigned = assigned,
+                Page = page,
+                Limit = limit
+            },
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpGet("{projectId:guid}/review")]
+    public async Task<IActionResult> GetReview(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projectReviews.GetByProjectAsync(projectId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPost("{projectId:guid}/review")]
+    public async Task<IActionResult> CreateReview(
+        Guid projectId,
+        [FromBody] CreateProjectReviewRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projectReviews.CreateAsync(projectId, currentUserId, request, cancellationToken);
         return ToActionResult(result);
     }
 

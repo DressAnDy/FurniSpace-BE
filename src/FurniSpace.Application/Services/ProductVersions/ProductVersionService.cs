@@ -1,8 +1,10 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.ProductVersions;
 using FurniSpace.Application.Common.Storage;
+using static FurniSpace.Application.Constants.Common.ApplicationRoles;
 using static FurniSpace.Application.Constants.ProductVersions.ProductVersionServiceConstants;
 using FurniSpace.Application.DTOs.Catalog;
+using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
@@ -15,11 +17,17 @@ using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
+using Microsoft.EntityFrameworkCore;
 
 namespace FurniSpace.Application.Services.ProductVersions;
 
 public sealed class ProductVersionService : IProductVersionService
 {
+    private const string ProductVersionUploadForbiddenMessage =
+        "You do not have permission to upload files to this product version.";
+    private const string ProjectSpecificUploadRequiredMessage =
+        "Designers can only upload files to project-specific product versions.";
+
     private readonly IProductVersionRepository _productVersions;
     private readonly ICatalogRepository _catalog;
     private readonly IProjectFileRepository _files;
@@ -239,6 +247,12 @@ public sealed class ProductVersionService : IProductVersionService
         if (currentUserId == Guid.Empty)
         {
             return ServiceResult<CatalogFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        var accessError = await ValidateFileUploadAccessAsync(productVersionId, currentUserId, cancellationToken);
+        if (accessError is not null)
+        {
+            return ServiceResult<CatalogFileUploadResponseDto>.Failure(accessError);
         }
 
         if (request.FileType == FileType.PRODUCT_PREVIEW)
@@ -613,11 +627,87 @@ public sealed class ProductVersionService : IProductVersionService
                 },
                 cancellationToken);
         }
+        catch (DbUpdateException exception) when (DatabaseExceptionMapper.IsFileLinkUniqueViolation(exception))
+        {
+            await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
+            return ServiceResult<CatalogFileUploadResponseDto>.Failure(
+                Error.Conflict(
+                    CustomizationRequestErrorCodes.ProductVersionFileLinkConflict,
+                    "Product version file link already exists."));
+        }
         catch
         {
             await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
             throw;
         }
+    }
+
+    private async Task<Error?> ValidateFileUploadAccessAsync(
+        Guid productVersionId,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        var roleName = await _files.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(roleName))
+        {
+            return Error.Forbidden(
+                CatalogErrorCodes.ProductVersionAccessDenied,
+                ProductVersionUploadForbiddenMessage);
+        }
+
+        if (string.Equals(roleName, Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (!string.Equals(roleName, Designer, StringComparison.OrdinalIgnoreCase))
+        {
+            return Error.Forbidden(
+                CatalogErrorCodes.ProductVersionAccessDenied,
+                ProductVersionUploadForbiddenMessage);
+        }
+
+        var productVersion = await _productVersions.GetByIdAsync(productVersionId, cancellationToken);
+        if (productVersion is null)
+        {
+            return Error.NotFound(
+                CatalogErrorCodes.ProductVersionNotFound,
+                ProductVersionNotFoundMessage);
+        }
+
+        if (productVersion.VersionType != ProductVersionType.PROJECT_SPECIFIC)
+        {
+            return Error.Forbidden(
+                CatalogErrorCodes.ProductVersionAccessDenied,
+                ProjectSpecificUploadRequiredMessage);
+        }
+
+        if (!productVersion.ProjectId.HasValue)
+        {
+            return Error.Forbidden(
+                CatalogErrorCodes.ProductVersionAccessDenied,
+                ProductVersionUploadForbiddenMessage);
+        }
+
+        var projectAccess = await _files.GetReferenceProjectAccessAsync(
+            CatalogFileReferenceTypes.ProductVersion,
+            productVersionId,
+            cancellationToken);
+        if (projectAccess is null)
+        {
+            return Error.NotFound(
+                CatalogErrorCodes.ProductVersionNotFound,
+                ProductVersionNotFoundMessage);
+        }
+
+        if (projectAccess.AssignedDesignerId != currentUserId)
+        {
+            return Error.Forbidden(
+                CatalogErrorCodes.ProductVersionAccessDenied,
+                ProductVersionUploadForbiddenMessage);
+        }
+
+        return null;
     }
 
     private async Task<ServiceResult<CatalogFileUploadResponseDto>> PersistUploadedFileAsync(
@@ -671,7 +761,18 @@ public sealed class ProductVersionService : IProductVersionService
 
         await _files.AddAsync(storedFile, cancellationToken);
         await _files.AddFileLinkAsync(fileLink, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException exception) when (DatabaseExceptionMapper.IsFileLinkUniqueViolation(exception))
+        {
+            await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
+            return ServiceResult<CatalogFileUploadResponseDto>.Failure(
+                Error.Conflict(
+                    CustomizationRequestErrorCodes.ProductVersionFileLinkConflict,
+                    "Product version file link already exists."));
+        }
 
         return ServiceResult<CatalogFileUploadResponseDto>.Created(
             CatalogFileUploadResponseMapper.FromUpload(new CatalogFileUploadResponseContext

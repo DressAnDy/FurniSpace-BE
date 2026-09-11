@@ -3,6 +3,7 @@ using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
+using FurniSpace.Application.Interfaces.Projects;
 using static FurniSpace.Application.Constants.Payments.PaymentBusinessEffectServiceConstants;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -17,6 +18,7 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
     private readonly IOrderRepository _orders;
     private readonly IProjectRepository _projects;
     private readonly INotificationDispatcher? _notifications;
+    private readonly IProjectStakeholderResolver? _stakeholders;
     private readonly ILogger<PaymentBusinessEffectService>? _logger;
 
     public PaymentBusinessEffectService(
@@ -24,12 +26,14 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
         IOrderRepository orders,
         IProjectRepository projects,
         INotificationDispatcher? notifications = null,
+        IProjectStakeholderResolver? stakeholders = null,
         ILogger<PaymentBusinessEffectService>? logger = null)
     {
         _payments = payments;
         _orders = orders;
         _projects = projects;
         _notifications = notifications;
+        _stakeholders = stakeholders;
         _logger = logger;
     }
 
@@ -45,7 +49,12 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
             return;
         }
 
-        await DispatchCustomerPaymentPaidNotificationAsync(payment, cancellationToken);
+        await PaymentNotificationSupport.TryDispatchUpdatedAsync(
+            _notifications,
+            _stakeholders,
+            _logger,
+            payment,
+            cancellationToken);
 
         switch (payment.PaymentType)
         {
@@ -127,7 +136,6 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
         order.Status = OrderStatus.DEPOSIT_PAID;
         order.UpdatedAt = DateTime.UtcNow;
         _orders.Update(order);
-        await DispatchOrderDepositPaidNotificationAsync(order, cancellationToken);
     }
 
     private async Task ApplyRemainingPaymentPaidAsync(Payment payment, CancellationToken cancellationToken)
@@ -137,15 +145,49 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
             return;
         }
 
-        var order = await _orders.GetByIdAsync(payment.OrderId.Value, cancellationToken);
-        if (order is null || order.Status != OrderStatus.FINAL_PAYMENT_PENDING)
+        var orderId = payment.OrderId.Value;
+        var order = await _orders.GetByIdAsync(orderId, cancellationToken);
+        if (order is null || order.Status == OrderStatus.COMPLETED)
         {
             return;
         }
 
-        // Remaining payment PAID only updates order financial summary via ApplyOrderCollectionEffectsAsync.
-        // Order/project completion is explicit in a later workflow step.
-        await Task.CompletedTask;
+        if (order.Status != OrderStatus.FINAL_PAYMENT_PENDING)
+        {
+            return;
+        }
+
+        var items = await _orders.GetItemsByOrderAsync(orderId, cancellationToken);
+        var summedPaidAmount = await _payments.SumOrderScopedPaidAmountAsync(orderId, cancellationToken);
+        var (paidAmount, remainingAmount) = OrderPaidAmountRecalculator.Calculate(
+            order.FinalTotalAmount,
+            summedPaidAmount);
+
+        if (!OrderFinancialCompletionEvaluator.CanAutoCompleteAfterRemainingPayment(
+                order,
+                items,
+                remainingAmount))
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        order.PaidAmount = paidAmount;
+        order.RemainingAmount = remainingAmount;
+        order.Status = OrderStatus.COMPLETED;
+        order.UpdatedAt = now;
+        _orders.Update(order);
+
+        var project = await _projects.GetByIdAsync(order.ProjectId, cancellationToken);
+        if (project is not null)
+        {
+            await OrderNotificationSupport.TryDispatchCompletedAsync(
+                _notifications,
+                _logger,
+                order,
+                project,
+                cancellationToken);
+        }
     }
 
     private async Task DispatchProjectStartFeePaidNotificationAsync(
@@ -153,7 +195,23 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
         Project project,
         CancellationToken cancellationToken)
     {
-        if (_notifications is null || project.AssignedSalesId is null)
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var receivers = new HashSet<Guid>();
+        if (project.CustomerId != Guid.Empty)
+        {
+            receivers.Add(project.CustomerId);
+        }
+
+        if (project.AssignedSalesId.HasValue)
+        {
+            receivers.Add(project.AssignedSalesId.Value);
+        }
+
+        if (receivers.Count == 0)
         {
             return;
         }
@@ -164,13 +222,20 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
                 NotificationType.ProjectStatusChanged,
                 new Dictionary<string, string>
                 {
-                    ["PaymentCode"] = payment.PaymentCode,
+                    ["ProjectName"] = project.ProjectName,
+                    ["Status"] = project.Status?.ToString() ?? string.Empty,
                     ["Message"] = "Project start fee has been paid. Designer assignment is now allowed."
                 },
-                [project.AssignedSalesId.Value],
-                projectId: project.ProjectId,
-                referenceType: "PROJECT",
-                referenceId: project.ProjectId,
+                receivers,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    "PROJECT",
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["paymentType"] = payment.PaymentType?.ToString(),
+                        ["newProjectStatus"] = project.Status?.ToString()
+                    }),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -180,50 +245,6 @@ public sealed class PaymentBusinessEffectService : IPaymentBusinessEffectService
                 "Failed to dispatch project start fee paid notification for payment {PaymentId}",
                 payment.PaymentId);
         }
-    }
-
-    private async Task DispatchOrderDepositPaidNotificationAsync(
-        Order order,
-        CancellationToken cancellationToken)
-    {
-        if (_notifications is null || order.SalesId is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await _notifications.DispatchAsync(
-                NotificationType.OrderDepositPaid,
-                new Dictionary<string, string>
-                {
-                    [OrderCodeParameter] = order.OrderCode
-                },
-                [order.SalesId.Value],
-                projectId: order.ProjectId,
-                referenceType: OrderReferenceType,
-                referenceId: order.OrderId,
-                cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger?.LogWarning(
-                exception,
-                "Failed to dispatch order deposit paid notification for order {OrderId}",
-                order.OrderId);
-        }
-    }
-
-    private Task DispatchCustomerPaymentPaidNotificationAsync(
-        Payment payment,
-        CancellationToken cancellationToken)
-    {
-        return PaymentCustomerNotificationSupport.TryDispatchAsync(
-            _notifications,
-            _logger,
-            NotificationType.PaymentPaid,
-            payment,
-            cancellationToken: cancellationToken);
     }
 
     private static bool IsOrderScopedPayment(PaymentType? paymentType)

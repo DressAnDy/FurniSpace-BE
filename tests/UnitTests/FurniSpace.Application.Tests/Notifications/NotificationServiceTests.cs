@@ -246,6 +246,16 @@ public sealed class NotificationServiceTests
                 _activeNotification?.NotificationId == notificationId ? _activeNotification : null);
         }
 
+        public Task<bool> ExistsActiveDuplicateAsync(
+            Guid receiverId,
+            string notificationType,
+            string? referenceType,
+            Guid referenceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(false);
+        }
+
         public Task MarkAllAsReadAsync(
             Guid receiverId, DateTime readAt, CancellationToken cancellationToken = default)
         {

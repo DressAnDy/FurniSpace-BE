@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Hubs;
@@ -33,9 +34,32 @@ public sealed class SignalRPaymentRealtimeServiceTests
 
         await service.SendPaymentUpdatedAsync(payload);
 
-        Assert.Equal(PaymentRealtimeConstants.Payment(paymentId), clients.GroupName);
+        Assert.Equal(PaymentRealtimeConstants.Payment(paymentId), clients.GroupNames[0]);
         Assert.Equal(PaymentRealtimeConstants.PaymentUpdatedEvent, clients.Proxy.Method);
         Assert.Same(payload, Assert.Single(clients.Proxy.Arguments!));
+    }
+
+    [Fact]
+    public async Task SendPaymentUpdatedAsync_SendsExpectedEventToStakeholderGroups()
+    {
+        var paymentId = Guid.NewGuid();
+        var stakeholderId = Guid.NewGuid();
+        var payload = new PaymentUpdatedRealtimeDto
+        {
+            PaymentId = paymentId,
+            ProjectId = Guid.NewGuid(),
+            PaymentCode = "FS12345678",
+            Status = PaymentStatus.PAID,
+            AppliedAmount = 10000m
+        };
+        var clients = new FakeHubClients();
+        var service = new SignalRPaymentRealtimeService(new FakeHubContext(clients));
+
+        await service.SendPaymentUpdatedAsync(payload, [stakeholderId]);
+
+        Assert.Equal(2, clients.GroupNames.Count);
+        Assert.Equal(PaymentRealtimeConstants.Payment(paymentId), clients.GroupNames[0]);
+        Assert.Equal(RealtimeGroupNames.User(stakeholderId), clients.GroupNames[1]);
     }
 
     private sealed class FakeHubContext : IHubContext<PaymentHub>
@@ -51,7 +75,7 @@ public sealed class SignalRPaymentRealtimeServiceTests
 
     private sealed class FakeHubClients : IHubClients
     {
-        public string? GroupName { get; private set; }
+        public List<string> GroupNames { get; } = [];
         public FakeClientProxy Proxy { get; } = new();
         public IClientProxy All => Proxy;
         public IClientProxy AllExcept(IReadOnlyList<string> excludedConnectionIds) => Proxy;
@@ -60,7 +84,7 @@ public sealed class SignalRPaymentRealtimeServiceTests
 
         public IClientProxy Group(string groupName)
         {
-            GroupName = groupName;
+            GroupNames.Add(groupName);
             return Proxy;
         }
 

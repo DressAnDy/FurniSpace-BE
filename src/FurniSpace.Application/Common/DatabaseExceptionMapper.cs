@@ -38,6 +38,13 @@ internal static class DatabaseExceptionMapper
                message.Contains("file_links", StringComparison.OrdinalIgnoreCase);
     }
 
+    internal static bool IsProjectShowcaseCoverUniqueViolation(DbUpdateException exception)
+    {
+        var message = GetInnermostMessage(exception);
+        return !string.IsNullOrWhiteSpace(message) &&
+               message.Contains("ux_project_showcase_media_one_cover", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string GetInnermostMessage(Exception exception)
     {
         var current = exception;

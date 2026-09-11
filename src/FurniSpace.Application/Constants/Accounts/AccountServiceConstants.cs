@@ -17,7 +17,7 @@ internal static class AccountServiceConstants
     internal const string SalesWorkloadSummaryRetrievedMessage = "Sales workload summary retrieved successfully.";
     internal const string SalesAssignedProjectsRetrievedMessage = "Sales assigned projects retrieved successfully.";
     internal const string UnassignedIntakeProjectsRetrievedMessage = "Unassigned intake projects retrieved successfully.";
-    internal const int MaxActiveDesignerProjects = 2;
+    internal const int MaxActiveDesignerProjects = 3;
     internal const int MaxActiveSalesProjects = 5;
     internal const string PageMustBeGreaterThanZero = "Page must be greater than zero.";
     internal const string PageSizeMustBeBetween1And100 = "Page size must be between 1 and 100.";

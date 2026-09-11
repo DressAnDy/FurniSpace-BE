@@ -66,7 +66,8 @@ public sealed record ProjectWorkflowOrderItemReadModel
 {
     public Guid OrderId { get; init; }
     public int? Quantity { get; init; }
-    public int? DeliveredQuantity { get; init; }
+    public OrderItemStatus? Status { get; init; }
+    public DateTime? DeliveredAt { get; init; }
 }
 
 public sealed record ProjectWorkflowProductionRequestReadModel
@@ -74,7 +75,7 @@ public sealed record ProjectWorkflowProductionRequestReadModel
     public Guid ProductionRequestId { get; init; }
     public string? ProductionCode { get; init; }
     public ProductionRequestStatus? Status { get; init; }
-    public DateOnly? EstimatedCompletionDate { get; init; }
+    public DateOnly? ProductionDeadline { get; init; }
     public Guid? AssignedTo { get; init; }
     public string? AssignedToName { get; init; }
     public DateTime? CreatedAt { get; init; }
@@ -84,7 +85,6 @@ public sealed record ProjectWorkflowProductionItemReadModel
 {
     public Guid ProductionRequestId { get; init; }
     public ProductionItemStatus? Status { get; init; }
-    public DateOnly? EstimatedCompletionDate { get; init; }
 }
 
 public sealed record ProjectWorkflowScheduleReadModel

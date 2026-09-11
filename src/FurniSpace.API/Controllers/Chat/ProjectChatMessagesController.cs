@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FurniSpace.API.Controllers.Chat;
 
-[Authorize(Roles = "CUSTOMER,SALES,DESIGNER,ADMIN")]
+[Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
 [Route("project-chats/{chatId:guid}/messages")]
 public sealed class ProjectChatMessagesController : BaseApiController
 {

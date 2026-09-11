@@ -72,7 +72,8 @@ public static class CatalogServiceTestHelper
         IFileStorageService? storage = null,
         ProductPreviewImageSettings? previewSettings = null,
         IProductSearchIndexer? productSearchIndexer = null,
-        ICatalogRepository? catalog = null)
+        ICatalogRepository? catalog = null,
+        IUnitOfWork? unitOfWork = null)
     {
         return new ProductVersionService(
             productVersions,
@@ -84,7 +85,7 @@ public static class CatalogServiceTestHelper
                 previewSettings ?? DefaultPreviewImageSettings(),
                 DefaultFirebaseSettings()),
             productSearchIndexer ?? new NoOpProductSearchIndexer(),
-            TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync));
+            unitOfWork ?? TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync));
     }
 
     public static FileUploadSettings DefaultUploadSettings()

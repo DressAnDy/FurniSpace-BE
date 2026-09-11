@@ -1,10 +1,14 @@
 #nullable enable
 
 using FurniSpace.Application.Common;
-using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.ProjectChats;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Production;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -13,6 +17,7 @@ using FurniSpace.Infrastructure.ReadModels.Production;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
 using Microsoft.Extensions.Logging;
+using static FurniSpace.Application.Constants.ProjectChats.ProjectChatServiceConstants;
 
 namespace FurniSpace.Application.Services.Production;
 
@@ -22,6 +27,8 @@ public sealed class ProductionRequestService : IProductionRequestService
     private const string ProductionRole = "PRODUCTION";
     private const string SalesRole = "SALES";
     private const string OrderReferenceType = "ORDER";
+    private const string ProductionRequestReferenceType = "PRODUCTION_REQUEST";
+    private const string ProductionCodeParameter = "ProductionCode";
     private const string ProductionStaffNotFoundMessage = "Production staff not found.";
     private const string OrderNotFoundMessage = "Order not found.";
     private const string ProjectNotFoundMessage = "Project not found.";
@@ -29,10 +36,8 @@ public sealed class ProductionRequestService : IProductionRequestService
     private const string ProductionItemNotFoundMessage = "Production item not found.";
     private static readonly ProductionRequestStatus[] AssignableStatuses =
     [
-        ProductionRequestStatus.PENDING_REVIEW,
-        ProductionRequestStatus.FEASIBLE,
-        ProductionRequestStatus.IN_PRODUCTION,
-        ProductionRequestStatus.BLOCKED
+        ProductionRequestStatus.PENDING,
+        ProductionRequestStatus.IN_PRODUCTION
     ];
 
     private readonly IProductionRequestRepository _productionRequests;
@@ -101,6 +106,14 @@ public sealed class ProductionRequestService : IProductionRequestService
                 "Deposit payment must be PAID.");
         }
 
+        if (_dependencies.PhaseDeadlines is null ||
+            !await _dependencies.PhaseDeadlines.HasProductionDeadlineAsync(order.ProjectId, cancellationToken))
+        {
+            return BadRequest<ProductionRequestCreatedDto>(
+                ProjectPhaseDeadlineErrorCodes.ProductionDeadlineRequired,
+                "Production deadline must be set before creating a production request.");
+        }
+
         var assigneeError = await ValidateProductionAssigneeAsync<ProductionRequestCreatedDto>(
             request.AssignedTo,
             cancellationToken);
@@ -143,7 +156,7 @@ public sealed class ProductionRequestService : IProductionRequestService
 
         var now = DateTime.UtcNow;
         var productionRequest = await BuildProductionRequestAsync(order, request, now, cancellationToken);
-        var productionItems = BuildProductionItems(productOrderItems, productionRequest.ProductionRequestId, request);
+        var productionItems = BuildProductionItems(productOrderItems, productionRequest.ProductionRequestId);
 
         try
         {
@@ -157,6 +170,15 @@ public sealed class ProductionRequestService : IProductionRequestService
             MoveOrderAndProjectToProduction(order, project, now);
             _orders.Update(order);
             _projects.Update(project);
+            if (_dependencies.ProjectChats is not null && request.AssignedTo != Guid.Empty)
+            {
+                await _dependencies.ProjectChats.UpsertProjectChatAsync(
+                    order.ProjectId,
+                    ProjectChatType.PRODUCTION,
+                    request.AssignedTo,
+                    ProductionChatTitle,
+                    cancellationToken);
+            }
             await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
             await _dependencies.UnitOfWork.CommitTransactionAsync(cancellationToken);
         }
@@ -166,6 +188,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             throw;
         }
 
+        await DispatchCreatedNotificationAsync(productionRequest, order, project, cancellationToken);
         await DispatchAssignedNotificationAsync(productionRequest, project, cancellationToken);
 
         var response = productionRequest.Adapt<ProductionRequestCreatedDto>();
@@ -287,9 +310,22 @@ public sealed class ProductionRequestService : IProductionRequestService
         productionRequest.Note = MergeAssignmentNote(productionRequest.Note, request.AssignmentNote);
         productionRequest.UpdatedAt = DateTime.UtcNow;
         _productionRequests.Update(productionRequest);
+        if (_dependencies.ProjectChats is not null && request.AssignedTo != Guid.Empty)
+        {
+            await _dependencies.ProjectChats.UpsertProjectChatAsync(
+                detail.ProjectId,
+                ProjectChatType.PRODUCTION,
+                request.AssignedTo,
+                ProductionChatTitle,
+                cancellationToken);
+        }
         await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
 
-        await DispatchAssignedNotificationAsync(productionRequest, detail.ProjectName, cancellationToken);
+        await DispatchAssignedNotificationAsync(
+            productionRequest,
+            detail.ProjectName,
+            detail.AssignedSalesId,
+            cancellationToken);
 
         return ServiceResult<ProductionRequestAssignmentDto>.Success(
             new ProductionRequestAssignmentDto
@@ -323,6 +359,7 @@ public sealed class ProductionRequestService : IProductionRequestService
         var items = await _productionRequests.GetQueueAsync(
             new ProductionRequestQueueReadModel
             {
+                ProjectId = query.ProjectId,
                 Status = query.Status,
                 AssignedTo = query.AssignedTo,
                 Priority = NormalizeOptionalPriority(query.Priority),
@@ -364,48 +401,17 @@ public sealed class ProductionRequestService : IProductionRequestService
                 "You do not have permission to view this production request.");
         }
 
+        DateOnly? productionDeadline = null;
+        if (_dependencies.PhaseDeadlines is not null)
+        {
+            productionDeadline = await _dependencies.PhaseDeadlines.GetProductionDeadlineAsync(
+                detail.ProjectId,
+                cancellationToken);
+        }
+
         return ServiceResult<ProductionRequestDetailDto>.Success(
-            ToDetailDto(detail),
+            ToDetailDto(detail, productionDeadline),
             "Production request detail retrieved successfully.");
-    }
-
-    public async Task<ServiceResult<ProductionRequestStatusDto>> MarkFeasibleAsync(
-        Guid productionRequestId,
-        Guid currentUserId,
-        MarkProductionRequestFeasibleDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var accessError = await ValidateProductionAdminAsync<ProductionRequestStatusDto>(
-            currentUserId,
-            cancellationToken);
-        if (accessError is not null)
-        {
-            return accessError;
-        }
-
-        var productionRequest = await _productionRequests.GetByIdAsync(productionRequestId, cancellationToken);
-        if (productionRequest is null)
-        {
-            return NotFound<ProductionRequestStatusDto>(
-                ProductionErrorCodes.ProductionRequestNotFound,
-                ProductionRequestNotFoundMessage);
-        }
-
-        if (productionRequest.Status != ProductionRequestStatus.PENDING_REVIEW)
-        {
-            return InvalidRequestTransition<ProductionRequestStatusDto>();
-        }
-
-        var now = DateTime.UtcNow;
-        productionRequest.Status = ProductionRequestStatus.FEASIBLE;
-        productionRequest.Note = MergeNote(productionRequest.Note, request.Note);
-        productionRequest.UpdatedAt = now;
-        _productionRequests.Update(productionRequest);
-        await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<ProductionRequestStatusDto>.Success(
-            ToStatusDto(productionRequest),
-            "Production request marked feasible successfully.");
     }
 
     public async Task<ServiceResult<ProductionRequestStatusDto>> StartAsync(
@@ -430,16 +436,35 @@ public sealed class ProductionRequestService : IProductionRequestService
                 ProductionRequestNotFoundMessage);
         }
 
-        if (productionRequest.Status is not (ProductionRequestStatus.FEASIBLE or ProductionRequestStatus.BLOCKED))
+        if (productionRequest.Status is not ProductionRequestStatus.PENDING)
         {
             return InvalidRequestTransition<ProductionRequestStatusDto>();
         }
 
+        var project = await _projects.GetByIdAsync(productionRequest.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound<ProductionRequestStatusDto>(
+                ProductionErrorCodes.ProjectNotFound,
+                ProjectNotFoundMessage);
+        }
+
         var now = DateTime.UtcNow;
+        var actualStartDate = DateOnly.FromDateTime(now);
+
         productionRequest.Status = ProductionRequestStatus.IN_PRODUCTION;
-        productionRequest.ActualStartDate = request.ActualStartDate ?? DateOnly.FromDateTime(now);
+        productionRequest.ActualStartDate = actualStartDate;
         productionRequest.UpdatedAt = now;
         _productionRequests.Update(productionRequest);
+        if (_dependencies.PhaseDeadlines is not null)
+        {
+            await _dependencies.PhaseDeadlines.MarkStartedOnceAsync(
+                productionRequest.ProjectId,
+                ProjectPhaseType.PRODUCTION,
+                now,
+                cancellationToken);
+        }
+
         await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
 
         return ServiceResult<ProductionRequestStatusDto>.Success(
@@ -503,6 +528,49 @@ public sealed class ProductionRequestService : IProductionRequestService
             "Production item status updated successfully.");
     }
 
+    public async Task<ServiceResult<ProductionUnavailableItemsResponseDto>> GetUnavailableItemsAsync(
+        Guid currentUserId,
+        ProductionUnavailableItemsQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        query ??= new ProductionUnavailableItemsQueryDto();
+        var accessError = await ValidateProductionAdminAsync<ProductionUnavailableItemsResponseDto>(
+            currentUserId,
+            cancellationToken);
+        if (accessError is not null)
+        {
+            return accessError;
+        }
+
+        if (query.Page <= 0 || query.PageSize <= 0 || query.PageSize > 100)
+        {
+            return BadRequest<ProductionUnavailableItemsResponseDto>(
+                ProductionErrorCodes.InvalidQuery,
+                "Production unavailable items pagination is invalid.");
+        }
+
+        var readQuery = new ProductionUnavailableItemsQueryReadModel
+        {
+            Keyword = string.IsNullOrWhiteSpace(query.Keyword) ? null : query.Keyword.Trim(),
+            AssignedTo = query.AssignedTo,
+            Page = query.Page,
+            PageSize = query.PageSize
+        };
+
+        var totalItems = await _productionRequests.CountUnavailableItemsAsync(readQuery, cancellationToken);
+        var rows = await _productionRequests.GetUnavailableItemsAsync(readQuery, cancellationToken);
+        return ServiceResult<ProductionUnavailableItemsResponseDto>.Success(
+            new ProductionUnavailableItemsResponseDto
+            {
+                Items = rows.Select(ToUnavailableItemDto).ToList(),
+                Page = readQuery.Page,
+                PageSize = readQuery.PageSize,
+                TotalItems = totalItems,
+                TotalPages = totalItems == 0 ? 0 : (int)Math.Ceiling(totalItems / (double)readQuery.PageSize)
+            },
+            "Unavailable production items retrieved successfully.");
+    }
+
     public async Task<ServiceResult<ProductionCompletionDto>> CompleteAsync(
         Guid productionRequestId,
         Guid currentUserId,
@@ -536,7 +604,6 @@ public sealed class ProductionRequestService : IProductionRequestService
             return NotFound<ProductionCompletionDto>(ProductionErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
         }
 
-        var adjustments = (await _orders.GetAdjustmentsByOrderAsync(order.OrderId, cancellationToken)).ToList();
         if (productionRequest.Status == ProductionRequestStatus.COMPLETED)
         {
             var completedCounts = await CountSynchronizedOrderItemsAsync(order.OrderId, cancellationToken);
@@ -545,9 +612,8 @@ public sealed class ProductionRequestService : IProductionRequestService
                     productionRequest,
                     order,
                     project,
-                    CountAppliedAdjustments(adjustments),
                     completedCounts),
-                "Production completed and confirmed adjustments applied successfully.");
+                "Production completed successfully.");
         }
 
         if (productionRequest.Status != ProductionRequestStatus.IN_PRODUCTION)
@@ -565,21 +631,6 @@ public sealed class ProductionRequestService : IProductionRequestService
                 "All production items must be completed or cancelled before completing production.");
         }
 
-        var adjustmentItems = (await _orders.GetAdjustmentItemsByOrderAsync(order.OrderId, cancellationToken)).ToList();
-        var adjustmentContext = BuildAdjustmentApplicationContext(adjustments, adjustmentItems);
-        var cancelledOrderItemIds = productionItems
-            .Where(item => item.Status == ProductionItemStatus.CANCELLED)
-            .Select(item => item.OrderItemId)
-            .Distinct()
-            .ToList();
-
-        if (!CancelledItemsHaveConfirmedAdjustments(cancelledOrderItemIds, adjustmentContext.UnavailableItemsByOrderItemId))
-        {
-            return BadRequest<ProductionCompletionDto>(
-                ProductionErrorCodes.AdjustmentConfirmationRequired,
-                "Cancelled production items must have confirmed order adjustments.");
-        }
-
         var orderItemSyncError = await ValidateResolvedOrderItemTransitionsAsync<ProductionCompletionDto>(
             productionItems,
             cancellationToken);
@@ -588,34 +639,25 @@ public sealed class ProductionRequestService : IProductionRequestService
             return orderItemSyncError;
         }
 
-        var finalTotalAmount = CalculateAdjustedFinalTotal(order, adjustmentContext.ApplicableAdjustments);
-        var paidAmount = order.PaidAmount ?? 0m;
-        if (finalTotalAmount < paidAmount)
-        {
-            return BadRequest<ProductionCompletionDto>(
-                ProductionErrorCodes.AdjustmentRequiresRefundFlow,
-                "Adjustment requires refund flow before production can be completed.");
-        }
-
         var now = DateTime.UtcNow;
+
         try
         {
             await _dependencies.UnitOfWork.BeginTransactionAsync(cancellationToken);
-            ApplyConfirmedAdjustments(adjustmentContext.ConfirmedAdjustments, currentUserId, now);
             await SyncResolvedOrderItemsAsync(
                 productionItems,
-                adjustmentContext.UnavailableItemsByOrderItemId,
                 currentUserId,
                 now,
                 cancellationToken);
-            CompleteWorkflow(
-                productionRequest,
-                order,
-                project,
-                adjustmentContext.ApplicableAdjustments,
-                finalTotalAmount,
-                paidAmount,
-                now);
+            CompleteWorkflow(productionRequest, order, project, now);
+            if (_dependencies.PhaseDeadlines is not null)
+            {
+                await _dependencies.PhaseDeadlines.MarkCompletedOnceAsync(
+                    project.ProjectId,
+                    ProjectPhaseType.PRODUCTION,
+                    now,
+                    cancellationToken);
+            }
             await _dependencies.UnitOfWork.SaveChangesAsync(cancellationToken);
             await _dependencies.UnitOfWork.CommitTransactionAsync(cancellationToken);
         }
@@ -626,14 +668,17 @@ public sealed class ProductionRequestService : IProductionRequestService
         }
 
         var synchronizedCounts = await CountSynchronizedOrderItemsAsync(order.OrderId, cancellationToken);
+
+        await DispatchCompletedNotificationAsync(productionRequest, order, project, cancellationToken);
+        await DispatchOrderUpdatedNotificationAsync(order, project, cancellationToken);
+
         return ServiceResult<ProductionCompletionDto>.Success(
             ToCompletionDto(
                 productionRequest,
                 order,
                 project,
-                adjustmentContext.ConfirmedAdjustments.Count,
                 synchronizedCounts),
-            "Production completed and confirmed adjustments applied successfully.");
+            "Production completed successfully.");
     }
 
     private async Task<ProductionRequest> BuildProductionRequestAsync(
@@ -650,10 +695,8 @@ public sealed class ProductionRequestService : IProductionRequestService
             ProjectId = order.ProjectId,
             OrderId = order.OrderId,
             AssignedTo = request.AssignedTo,
-            Status = ProductionRequestStatus.PENDING_REVIEW,
+            Status = ProductionRequestStatus.PENDING,
             Priority = NormalizePriority(request.Priority),
-            EstimatedStartDate = request.EstimatedStartDate,
-            EstimatedCompletionDate = request.EstimatedCompletionDate,
             Note = request.Note?.Trim(),
             CreatedAt = now,
             UpdatedAt = now
@@ -662,8 +705,7 @@ public sealed class ProductionRequestService : IProductionRequestService
 
     private static List<ProductionItem> BuildProductionItems(
         List<OrderItem> orderItems,
-        Guid productionRequestId,
-        CreateProductionRequestDto request)
+        Guid productionRequestId)
     {
         return orderItems
             .DistinctBy(item => item.OrderItemId)
@@ -677,7 +719,6 @@ public sealed class ProductionRequestService : IProductionRequestService
                 ProductVersionNameSnapshot = item.ProductVersionNameSnapshot,
                 Quantity = item.Quantity,
                 Status = ProductionItemStatus.PENDING,
-                EstimatedCompletionDate = request.EstimatedCompletionDate,
                 ProductionNote = item.ProductionNote,
                 StartedAt = null,
                 CompletedAt = null
@@ -733,78 +774,6 @@ public sealed class ProductionRequestService : IProductionRequestService
         return item.Status is ProductionItemStatus.COMPLETED or ProductionItemStatus.CANCELLED;
     }
 
-    private static ProductionAdjustmentApplicationContext BuildAdjustmentApplicationContext(
-        List<OrderAdjustment> adjustments,
-        List<OrderAdjustmentItem> adjustmentItems)
-    {
-        var applicableAdjustments = adjustments
-            .Where(IsApplicableAdjustment)
-            .ToList();
-        var applicableAdjustmentIds = applicableAdjustments
-            .Select(adjustment => adjustment.OrderAdjustmentId)
-            .ToHashSet();
-        var unavailableItemsByOrderItemId = adjustmentItems
-            .Where(item =>
-                item.AdjustmentType == OrderAdjustmentItemType.UNAVAILABLE_ITEM &&
-                item.OrderItemId.HasValue &&
-                applicableAdjustmentIds.Contains(item.OrderAdjustmentId))
-            .GroupBy(item => item.OrderItemId!.Value)
-            .ToDictionary(group => group.Key, group => group.First());
-
-        return new ProductionAdjustmentApplicationContext(
-            applicableAdjustments,
-            applicableAdjustments
-                .Where(adjustment => adjustment.Status == OrderAdjustmentStatus.CONFIRMED)
-                .ToList(),
-            unavailableItemsByOrderItemId);
-    }
-
-    private static bool IsApplicableAdjustment(OrderAdjustment adjustment)
-    {
-        return adjustment.Status is OrderAdjustmentStatus.CONFIRMED or OrderAdjustmentStatus.APPLIED;
-    }
-
-    private static bool CancelledItemsHaveConfirmedAdjustments(
-        List<Guid> cancelledOrderItemIds,
-        Dictionary<Guid, OrderAdjustmentItem> unavailableItemsByOrderItemId)
-    {
-        return cancelledOrderItemIds.All(unavailableItemsByOrderItemId.ContainsKey);
-    }
-
-    private static decimal CalculateAdjustedFinalTotal(
-        Order order,
-        List<OrderAdjustment> applicableAdjustments)
-    {
-        var itemAdjustmentAmount = applicableAdjustments.Sum(adjustment => adjustment.ItemAdjustmentAmount);
-        var additionalDiscountAmount = applicableAdjustments.Sum(adjustment => adjustment.AdditionalDiscountAmount);
-        var baseBeforeDiscount = OrderFinancialAdjustmentCalculator.CalculateBaseBeforeAdditionalDiscount(
-            order.OriginalTotalAmount,
-            itemAdjustmentAmount);
-        return OrderFinancialAdjustmentCalculator.CalculateFinalTotalAmount(
-            baseBeforeDiscount,
-            additionalDiscountAmount);
-    }
-
-    private static int CountAppliedAdjustments(List<OrderAdjustment> adjustments)
-    {
-        return adjustments.Count(adjustment => adjustment.Status == OrderAdjustmentStatus.APPLIED);
-    }
-
-    private static void ApplyConfirmedAdjustments(
-        List<OrderAdjustment> confirmedAdjustments,
-        Guid currentUserId,
-        DateTime now)
-    {
-        foreach (var adjustment in confirmedAdjustments)
-        {
-            adjustment.Status = OrderAdjustmentStatus.APPLIED;
-            adjustment.AppliedBy = currentUserId;
-            adjustment.AppliedAt = now;
-            adjustment.UpdatedBy = currentUserId;
-            adjustment.UpdatedAt = now;
-        }
-    }
-
     private async Task<ServiceResult<T>?> ValidateResolvedOrderItemTransitionsAsync<T>(
         List<ProductionItem> productionItems,
         CancellationToken cancellationToken)
@@ -840,7 +809,6 @@ public sealed class ProductionRequestService : IProductionRequestService
 
     private async Task SyncResolvedOrderItemsAsync(
         List<ProductionItem> productionItems,
-        Dictionary<Guid, OrderAdjustmentItem> unavailableItemsByOrderItemId,
         Guid currentUserId,
         DateTime now,
         CancellationToken cancellationToken)
@@ -873,7 +841,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             {
                 ApplyUnavailableItemConfirmation(
                     orderItem,
-                    unavailableItemsByOrderItemId[productionItem.OrderItemId],
+                    productionItem,
                     currentUserId,
                     now);
             }
@@ -891,12 +859,12 @@ public sealed class ProductionRequestService : IProductionRequestService
 
     private static void ApplyUnavailableItemConfirmation(
         OrderItem orderItem,
-        OrderAdjustmentItem adjustmentItem,
+        ProductionItem productionItem,
         Guid currentUserId,
         DateTime now)
     {
-        orderItem.AdjustmentAmount = adjustmentItem.AdjustmentAmount;
-        orderItem.UnavailableReason = adjustmentItem.Reason;
+        orderItem.AdjustmentAmount = orderItem.SubtotalAmount;
+        orderItem.UnavailableReason = productionItem.CancellationReason;
         orderItem.UnavailableConfirmedBy = currentUserId;
         orderItem.UnavailableConfirmedAt = now;
     }
@@ -927,16 +895,10 @@ public sealed class ProductionRequestService : IProductionRequestService
         ProductionRequest productionRequest,
         Order order,
         Project project,
-        List<OrderAdjustment> applicableAdjustments,
-        decimal finalTotalAmount,
-        decimal paidAmount,
         DateTime now)
     {
-        order.ItemAdjustmentAmount = applicableAdjustments.Sum(adjustment => adjustment.ItemAdjustmentAmount);
-        order.AdditionalDiscountAmount = applicableAdjustments.Sum(adjustment => adjustment.AdditionalDiscountAmount);
-        order.FinalTotalAmount = finalTotalAmount;
-        order.PaidAmount = paidAmount;
-        order.RemainingAmount = finalTotalAmount - paidAmount;
+        var paidAmount = order.PaidAmount ?? 0m;
+        order.RemainingAmount = order.FinalTotalAmount - paidAmount;
         order.Status = OrderStatus.READY_FOR_DELIVERY;
         order.UpdatedAt = now;
         productionRequest.Status = ProductionRequestStatus.COMPLETED;
@@ -1032,16 +994,135 @@ public sealed class ProductionRequestService : IProductionRequestService
                 "Assigned production staff is required.");
         }
 
-        if (request.EstimatedStartDate.HasValue &&
-            request.EstimatedCompletionDate.HasValue &&
-            request.EstimatedStartDate.Value > request.EstimatedCompletionDate.Value)
+        return null;
+    }
+
+    private async Task DispatchCreatedNotificationAsync(
+        ProductionRequest productionRequest,
+        Order order,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_dependencies.Notifications is null)
         {
-            return BadRequest<ProductionRequestCreatedDto>(
-                ProductionErrorCodes.InvalidProductionRequestDate,
-                "Estimated start date must be before or equal to estimated completion date.");
+            return;
         }
 
-        return null;
+        var receivers = new HashSet<Guid>();
+        if (order.SalesId.HasValue)
+        {
+            receivers.Add(order.SalesId.Value);
+        }
+
+        if (productionRequest.AssignedTo.HasValue)
+        {
+            receivers.Add(productionRequest.AssignedTo.Value);
+        }
+
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _dependencies.Notifications.DispatchAsync(
+                NotificationType.ProductionRequestCreated,
+                new Dictionary<string, string>
+                {
+                    [ProductionCodeParameter] = productionRequest.ProductionCode ?? string.Empty,
+                    ["ProjectName"] = project.ProjectName
+                },
+                receivers,
+                new NotificationDispatchRequest(
+                    productionRequest.ProjectId,
+                    ProductionRequestReferenceType,
+                    productionRequest.ProductionRequestId,
+                    new Dictionary<string, object?>
+                    {
+                        ["productionRequestId"] = productionRequest.ProductionRequestId,
+                        ["orderId"] = productionRequest.OrderId,
+                        ["assignedToAccountId"] = productionRequest.AssignedTo
+                    }),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _dependencies.Logger?.LogWarning(
+                exception,
+                "Failed to dispatch production request created notification for request {ProductionRequestId}",
+                productionRequest.ProductionRequestId);
+        }
+    }
+
+    private async Task DispatchCompletedNotificationAsync(
+        ProductionRequest productionRequest,
+        Order order,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_dependencies.Notifications is null)
+        {
+            return;
+        }
+
+        var receivers = new HashSet<Guid>();
+        if (order.SalesId.HasValue)
+        {
+            receivers.Add(order.SalesId.Value);
+        }
+
+        if (project.CustomerId != Guid.Empty)
+        {
+            receivers.Add(project.CustomerId);
+        }
+
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _dependencies.Notifications.DispatchAsync(
+                NotificationType.ProductionRequestCompleted,
+                new Dictionary<string, string>
+                {
+                    [ProductionCodeParameter] = productionRequest.ProductionCode ?? string.Empty,
+                    ["ProjectName"] = project.ProjectName
+                },
+                receivers,
+                new NotificationDispatchRequest(
+                    productionRequest.ProjectId,
+                    ProductionRequestReferenceType,
+                    productionRequest.ProductionRequestId,
+                    new Dictionary<string, object?>
+                    {
+                        ["productionRequestId"] = productionRequest.ProductionRequestId,
+                        ["orderId"] = productionRequest.OrderId
+                    }),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _dependencies.Logger?.LogWarning(
+                exception,
+                "Failed to dispatch production request completed notification for request {ProductionRequestId}",
+                productionRequest.ProductionRequestId);
+        }
+    }
+
+    private async Task DispatchOrderUpdatedNotificationAsync(
+        Order order,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        await OrderNotificationSupport.TryDispatchUpdatedAsync(
+            _dependencies.Notifications,
+            _dependencies.Logger,
+            order,
+            project,
+            cancellationToken);
     }
 
     private async Task DispatchAssignedNotificationAsync(
@@ -1049,17 +1130,24 @@ public sealed class ProductionRequestService : IProductionRequestService
         Project project,
         CancellationToken cancellationToken)
     {
-        await DispatchAssignedNotificationAsync(productionRequest, project.ProjectName, cancellationToken);
+        await DispatchAssignedNotificationAsync(productionRequest, project.ProjectName, project.AssignedSalesId, cancellationToken);
     }
 
     private async Task DispatchAssignedNotificationAsync(
         ProductionRequest productionRequest,
         string projectName,
+        Guid? assignedSalesId,
         CancellationToken cancellationToken)
     {
         if (_dependencies.Notifications is null || productionRequest.AssignedTo is null)
         {
             return;
+        }
+
+        var receivers = new HashSet<Guid> { productionRequest.AssignedTo.Value };
+        if (assignedSalesId.HasValue)
+        {
+            receivers.Add(assignedSalesId.Value);
         }
 
         try
@@ -1068,13 +1156,19 @@ public sealed class ProductionRequestService : IProductionRequestService
                 NotificationType.ProductionRequestAssigned,
                 new Dictionary<string, string>
                 {
-                    ["ProductionCode"] = productionRequest.ProductionCode ?? string.Empty,
+                    [ProductionCodeParameter] = productionRequest.ProductionCode ?? string.Empty,
                     ["ProjectName"] = projectName
                 },
-                [productionRequest.AssignedTo.Value],
-                productionRequest.ProjectId,
-                OrderReferenceType,
-                productionRequest.OrderId,
+                receivers,
+                new NotificationDispatchRequest(
+                    productionRequest.ProjectId,
+                    ProductionRequestReferenceType,
+                    productionRequest.ProductionRequestId,
+                    new Dictionary<string, object?>
+                    {
+                        ["productionRequestId"] = productionRequest.ProductionRequestId,
+                        ["assignedToAccountId"] = productionRequest.AssignedTo
+                    }),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -1103,12 +1197,13 @@ public sealed class ProductionRequestService : IProductionRequestService
                 new Dictionary<string, string>
                 {
                     ["ProductName"] = item.ProductNameSnapshot ?? string.Empty,
-                    ["ProductionCode"] = detail.ProductionCode ?? string.Empty
+                    [ProductionCodeParameter] = detail.ProductionCode ?? string.Empty
                 },
                 [detail.AssignedSalesId.Value],
-                detail.ProjectId,
-                OrderReferenceType,
-                detail.OrderId,
+                new NotificationDispatchRequest(
+                    detail.ProjectId,
+                    OrderReferenceType,
+                    detail.OrderId),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -1184,11 +1279,7 @@ public sealed class ProductionRequestService : IProductionRequestService
                 ProductionItemStatus.IN_PRODUCTION or
                 ProductionItemStatus.CANCELLED,
             ProductionItemStatus.IN_PRODUCTION => targetStatus is
-                ProductionItemStatus.BLOCKED or
                 ProductionItemStatus.COMPLETED or
-                ProductionItemStatus.CANCELLED,
-            ProductionItemStatus.BLOCKED => targetStatus is
-                ProductionItemStatus.IN_PRODUCTION or
                 ProductionItemStatus.CANCELLED,
             _ => false
         };
@@ -1236,8 +1327,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             AssignedToName = item.AssignedToName,
             Status = item.Status.ToString() ?? string.Empty,
             Priority = item.Priority,
-            EstimatedStartDate = item.EstimatedStartDate,
-            EstimatedCompletionDate = item.EstimatedCompletionDate,
+            ProductionDeadline = item.ProductionDeadline,
             ProductionItemCount = item.ProductionItemCount,
             CreatedAt = item.CreatedAt,
             UpdatedAt = item.UpdatedAt
@@ -1245,7 +1335,8 @@ public sealed class ProductionRequestService : IProductionRequestService
     }
 
     private static ProductionRequestDetailDto ToDetailDto(
-        ProductionRequestDetailReadModel detail)
+        ProductionRequestDetailReadModel detail,
+        DateOnly? productionDeadline = null)
     {
         return new ProductionRequestDetailDto
         {
@@ -1260,8 +1351,7 @@ public sealed class ProductionRequestService : IProductionRequestService
             AssignedToName = detail.AssignedToName,
             Status = detail.Status.ToString() ?? string.Empty,
             Priority = detail.Priority,
-            EstimatedStartDate = detail.EstimatedStartDate,
-            EstimatedCompletionDate = detail.EstimatedCompletionDate,
+            ProductionDeadline = productionDeadline ?? detail.ProductionDeadline,
             ActualStartDate = detail.ActualStartDate,
             ActualCompletionDate = detail.ActualCompletionDate,
             CancellationReason = detail.CancellationReason,
@@ -1312,12 +1402,34 @@ public sealed class ProductionRequestService : IProductionRequestService
             Status = item.Status.ToString() ?? string.Empty,
             MaterialNote = item.MaterialNote,
             ProductionNote = item.ProductionNote,
-            EstimatedCompletionDate = item.EstimatedCompletionDate,
+            CancellationReason = item.CancellationReason,
             StartedAt = item.StartedAt,
             CompletedAt = item.CompletedAt,
             OrderItemStatus = item.OrderItemStatus.ToString()
         };
     }
+
+    private static ProductionUnavailableItemDto ToUnavailableItemDto(ProductionUnavailableItemReadModel item) =>
+        new()
+        {
+            ProductionItemId = item.ProductionItemId,
+            ProductionRequestId = item.ProductionRequestId,
+            ProductionCode = item.ProductionCode,
+            ProjectId = item.ProjectId,
+            ProjectCode = item.ProjectCode,
+            ProjectName = item.ProjectName,
+            OrderId = item.OrderId,
+            OrderCode = item.OrderCode,
+            AssignedTo = item.AssignedTo,
+            AssignedToName = item.AssignedToName,
+            OrderItemId = item.OrderItemId,
+            ProductNameSnapshot = item.ProductNameSnapshot,
+            ProductVersionNameSnapshot = item.ProductVersionNameSnapshot,
+            Quantity = item.Quantity,
+            Status = item.Status,
+            CancellationReason = item.CancellationReason,
+            CompletedAt = item.CompletedAt
+        };
 
     private static ServiceResult<T> BadRequest<T>(string code, string message)
     {
@@ -1347,7 +1459,6 @@ public sealed class ProductionRequestService : IProductionRequestService
         ProductionRequest productionRequest,
         Order order,
         Project project,
-        int appliedAdjustmentCount,
         OrderItemSynchronizationCounts counts)
     {
         return new ProductionCompletionDto
@@ -1356,19 +1467,15 @@ public sealed class ProductionRequestService : IProductionRequestService
             ProductionStatus = productionRequest.Status.ToString() ?? string.Empty,
             OrderStatus = order.Status.ToString() ?? string.Empty,
             ProjectStatus = project.Status.ToString() ?? string.Empty,
+            ActualStartDate = productionRequest.ActualStartDate,
+            ActualCompletionDate = productionRequest.ActualCompletionDate,
             ReadyOrderItemCount = counts.ReadyOrderItemCount,
             UnavailableOrderItemCount = counts.UnavailableOrderItemCount,
-            AppliedAdjustmentCount = appliedAdjustmentCount,
             FinalTotalAmount = order.FinalTotalAmount,
             PaidAmount = order.PaidAmount,
             RemainingAmount = order.RemainingAmount
         };
     }
-
-    private sealed record ProductionAdjustmentApplicationContext(
-        List<OrderAdjustment> ApplicableAdjustments,
-        List<OrderAdjustment> ConfirmedAdjustments,
-        Dictionary<Guid, OrderAdjustmentItem> UnavailableItemsByOrderItemId);
 
     private sealed record OrderItemSynchronizationCounts(
         int ReadyOrderItemCount,
@@ -1380,16 +1487,22 @@ public sealed class ProductionRequestServiceDependencies
     public ProductionRequestServiceDependencies(
         IUnitOfWork unitOfWork,
         INotificationDispatcher? notifications,
-        ILogger<ProductionRequestService>? logger)
+        ILogger<ProductionRequestService>? logger,
+        IProjectPhaseDeadlineService? phaseDeadlines = null,
+        IProjectChatService? projectChats = null)
     {
         UnitOfWork = unitOfWork;
         Notifications = notifications;
         Logger = logger;
+        PhaseDeadlines = phaseDeadlines;
+        ProjectChats = projectChats;
     }
 
     public IUnitOfWork UnitOfWork { get; }
     public INotificationDispatcher? Notifications { get; }
     public ILogger<ProductionRequestService>? Logger { get; }
+    public IProjectPhaseDeadlineService? PhaseDeadlines { get; }
+    public IProjectChatService? ProjectChats { get; }
 }
 
 public static class ProductionErrorCodes
@@ -1412,7 +1525,7 @@ public static class ProductionErrorCodes
     public const string ProductionItemNotFound = "PRODUCTION_ITEM_NOT_FOUND";
     public const string ProductionCancellationReasonRequired = "PRODUCTION_CANCELLATION_REASON_REQUIRED";
     public const string ProductionStaffNotFound = "PRODUCTION_STAFF_NOT_FOUND";
-    public const string AdjustmentConfirmationRequired = "ADJUSTMENT_CONFIRMATION_REQUIRED";
-    public const string AdjustmentRequiresRefundFlow = "ADJUSTMENT_REQUIRES_REFUND_FLOW";
     public const string ProjectNotFound = "PROJECT_NOT_FOUND";
+    public const string ProductionDateExceedsTarget = "PRODUCTION_DATE_EXCEEDS_TARGET";
+    public const string InvalidQuery = "PRODUCTION_INVALID_QUERY";
 }

@@ -1,8 +1,10 @@
 #nullable enable
 
+using System;
 using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.Application.DTOs.Orders;
+using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.DTOs.Production;
 using FurniSpace.Application.Interfaces.Orders;
 using FurniSpace.Application.Interfaces.Payments;
@@ -45,6 +47,21 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpGet("orders/me")]
+    public async Task<IActionResult> GetMyOrders(
+        [FromQuery] CustomerMyOrdersQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.GetMyOrdersAsync(currentUserId, query, cancellationToken);
+        return ToActionResult(result);
+    }
+
     [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
     [HttpGet("orders/{orderId:guid}")]
     public async Task<IActionResult> GetDetail(
@@ -57,26 +74,6 @@ public sealed class OrdersController : BaseApiController
         }
 
         var result = await _orders.GetDetailAsync(orderId, currentUserId, cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "SALES,ADMIN")]
-    [HttpPatch("orders/{orderId:guid}/financial-adjustment")]
-    public async Task<IActionResult> UpdateFinancialAdjustment(
-        Guid orderId,
-        [FromBody] UpdateOrderFinancialAdjustmentRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _orders.UpdateFinancialAdjustmentAsync(
-            orderId,
-            currentUserId,
-            request,
-            cancellationToken);
         return ToActionResult(result);
     }
 
@@ -93,6 +90,26 @@ public sealed class OrdersController : BaseApiController
         }
 
         var result = await _payments.CreateDepositPaymentForOrderAsync(
+            orderId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,ADMIN")]
+    [HttpPatch("orders/{orderId:guid}/delivery-details")]
+    public async Task<IActionResult> UpdateDeliveryDetails(
+        Guid orderId,
+        [FromBody] UpdateOrderDeliveryDetailsRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.UpdateDeliveryDetailsAsync(
             orderId,
             currentUserId,
             request,
@@ -120,7 +137,8 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,ADMIN")]
+    [Authorize(Roles = "ADMIN")]
+    [Obsolete("Use POST /orders/{orderId}/deliveries with a confirmed delivery schedule instead.")]
     [HttpPatch("orders/{orderId:guid}/prepare-final-payment")]
     public async Task<IActionResult> PrepareFinalPayment(
         Guid orderId,
@@ -176,103 +194,8 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,ADMIN")]
-    [HttpPost("orders/{orderId:guid}/adjustments")]
-    public async Task<IActionResult> CreateAdjustment(
-        Guid orderId,
-        [FromBody] CreateOrderAdjustmentDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _orders.CreateAdjustmentAsync(
-            orderId,
-            currentUserId,
-            request,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "SALES,ADMIN")]
-    [HttpPost("order-adjustments/{orderAdjustmentId:guid}/items")]
-    public async Task<IActionResult> AddAdjustmentItem(
-        Guid orderAdjustmentId,
-        [FromBody] UpsertOrderAdjustmentItemDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _orders.AddAdjustmentItemAsync(
-            orderAdjustmentId,
-            currentUserId,
-            request,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "SALES,ADMIN")]
-    [HttpPatch("order-adjustment-items/{orderAdjustmentItemId:guid}")]
-    public async Task<IActionResult> UpdateAdjustmentItem(
-        Guid orderAdjustmentItemId,
-        [FromBody] UpsertOrderAdjustmentItemDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _orders.UpdateAdjustmentItemAsync(
-            orderAdjustmentItemId,
-            currentUserId,
-            request,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "SALES,ADMIN")]
-    [HttpDelete("order-adjustment-items/{orderAdjustmentItemId:guid}")]
-    public async Task<IActionResult> DeleteAdjustmentItem(
-        Guid orderAdjustmentItemId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _orders.DeleteAdjustmentItemAsync(
-            orderAdjustmentItemId,
-            currentUserId,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "CUSTOMER")]
-    [HttpPatch("order-adjustments/{orderAdjustmentId:guid}/confirm")]
-    public async Task<IActionResult> ConfirmAdjustment(
-        Guid orderAdjustmentId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!TryGetCurrentUserId(out var currentUserId))
-        {
-            return Unauthorized();
-        }
-
-        var result = await _orders.ConfirmAdjustmentAsync(
-            orderAdjustmentId,
-            currentUserId,
-            cancellationToken);
-        return ToActionResult(result);
-    }
-
-    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [Authorize(Roles = "ADMIN")]
+    [Obsolete("Use POST /orders/{orderId}/deliveries with a confirmed delivery schedule instead.")]
     [HttpPatch("orders/{orderId:guid}/start-delivery")]
     public async Task<IActionResult> StartDelivery(
         Guid orderId,
@@ -290,11 +213,11 @@ public sealed class OrdersController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
-    [HttpPatch("order-items/{orderItemId:guid}/delivered-quantity")]
-    public async Task<IActionResult> UpdateDeliveredQuantity(
-        Guid orderItemId,
-        [FromBody] UpdateDeliveredQuantityRequestDto request,
+    [Authorize(Roles = "ADMIN")]
+    [Obsolete("Use POST /orders/{orderId}/deliveries with a confirmed delivery schedule instead.")]
+    [HttpPatch("orders/{orderId:guid}/complete-delivery")]
+    public async Task<IActionResult> CompleteDelivery(
+        Guid orderId,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -302,18 +225,111 @@ public sealed class OrdersController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _orders.UpdateDeliveredQuantityAsync(
-            orderItemId,
+        var result = await _orders.CompleteDeliveryAsync(
+            orderId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPatch("orders/{orderId:guid}/confirm-delivery")]
+    public async Task<IActionResult> ConfirmDelivery(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.ConfirmDeliveryAsync(
+            orderId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,DESIGNER,PRODUCTION,ADMIN")]
+    [HttpGet("orders/{orderId:guid}/payments")]
+    public async Task<IActionResult> GetPayments(
+        Guid orderId,
+        [FromQuery] OrderPaymentHistoryQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _payments.GetPaymentsByOrderAsync(
+            orderId,
+            currentUserId,
+            query,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,PRODUCTION,ADMIN")]
+    [HttpGet("orders/{orderId:guid}/deliveries")]
+    public async Task<IActionResult> GetDeliveries(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.GetDeliveriesAsync(orderId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,PRODUCTION,ADMIN")]
+    [HttpGet("orders/{orderId:guid}/deliveries/{deliveryId:guid}")]
+    public async Task<IActionResult> GetDeliveryDetail(
+        Guid orderId,
+        Guid deliveryId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.GetDeliveryDetailAsync(
+            orderId,
+            deliveryId,
+            currentUserId,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "PRODUCTION,ADMIN")]
+    [HttpPost("orders/{orderId:guid}/deliveries")]
+    public async Task<IActionResult> CreateDeliveryBatch(
+        Guid orderId,
+        [FromBody] CreateDeliveryBatchRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.CreateDeliveryBatchAsync(
+            orderId,
             currentUserId,
             request,
             cancellationToken);
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "CUSTOMER")]
-    [HttpPatch("order-items/{orderItemId:guid}/confirm-delivery")]
-    public async Task<IActionResult> ConfirmItemDelivery(
-        Guid orderItemId,
+    [Authorize(Roles = "PRODUCTION,ADMIN")]
+    [HttpPatch("orders/{orderId:guid}/deliveries/{deliveryId:guid}/complete")]
+    public async Task<IActionResult> CompleteDeliveryBatch(
+        Guid orderId,
+        Guid deliveryId,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -321,10 +337,26 @@ public sealed class OrdersController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _orders.ConfirmItemDeliveryAsync(
-            orderItemId,
+        var result = await _orders.CompleteDeliveryBatchAsync(
+            orderId,
+            deliveryId,
             currentUserId,
             cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER,SALES,PRODUCTION,ADMIN")]
+    [HttpGet("orders/{orderId:guid}/delivery-tracking")]
+    public async Task<IActionResult> GetDeliveryTracking(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _orders.GetDeliveryTrackingAsync(orderId, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 

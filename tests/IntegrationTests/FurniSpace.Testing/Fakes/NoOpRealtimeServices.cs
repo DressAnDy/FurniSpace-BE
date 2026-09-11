@@ -44,6 +44,7 @@ public sealed class NoOpPaymentRealtimeService : IPaymentRealtimeService
 {
     public Task SendPaymentUpdatedAsync(
         PaymentUpdatedRealtimeDto payload,
+        IReadOnlyCollection<Guid>? stakeholderUserIds = null,
         CancellationToken cancellationToken = default) =>
         Task.CompletedTask;
 }

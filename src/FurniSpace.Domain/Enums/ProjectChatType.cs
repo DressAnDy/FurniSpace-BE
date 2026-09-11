@@ -4,6 +4,7 @@ public enum ProjectChatType
 {
     SALES,
     DESIGNER,
+    DESIGNER_SALES,
     PRODUCTION,
     DELIVERY,
     GENERAL,

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FurniSpace.Infrastructure.Repositories.Repository;
 
-public sealed class FinancialReadRepository : IFinancialReadRepository
+public sealed partial class FinancialReadRepository : IFinancialReadRepository
 {
     private const string DefaultCurrency = "VND";
     private const string SeverityHigh = "HIGH";
@@ -69,87 +69,6 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
             FailedTransactionCount = await GetFailedTransactionCountAsync(fromUtc, toUtcExclusive, currency, cancellationToken),
             ActivePaymentCount = await activePaymentQuery.CountAsync(cancellationToken)
         };
-    }
-
-    public async Task<AdminFinancialReceivablesSummaryReadModel> GetReceivablesSummaryAsync(
-        AdminFinancialReceivablesQueryReadModel query,
-        DateTime utcNow,
-        CancellationToken cancellationToken = default)
-    {
-        var receivableOrders = BuildReceivableOrderQuery(query, utcNow);
-        var activePayments = BuildReceivablePaymentQuery(query, utcNow)
-            .Where(payment =>
-                payment.OrderId.HasValue &&
-                receivableOrders.Any(order => order.OrderId == payment.OrderId.Value));
-
-        return new AdminFinancialReceivablesSummaryReadModel
-        {
-            OutstandingPaymentAmount = await activePayments.SumAsync(payment => payment.Amount, cancellationToken),
-            OutstandingPaymentCount = await activePayments.CountAsync(cancellationToken),
-            ContractedReceivableAmount = await receivableOrders.SumAsync(order => order.RemainingAmount ?? 0m, cancellationToken),
-            OrdersWithReceivableCount = await receivableOrders.CountAsync(cancellationToken)
-        };
-    }
-
-    public Task<int> CountReceivableItemsAsync(
-        AdminFinancialReceivablesQueryReadModel query,
-        DateTime utcNow,
-        CancellationToken cancellationToken = default)
-    {
-        return BuildReceivableOrderQuery(query, utcNow).CountAsync(cancellationToken);
-    }
-
-    public async Task<IReadOnlyList<AdminFinancialReceivableItemReadModel>> GetReceivableItemsAsync(
-        AdminFinancialReceivablesQueryReadModel query,
-        DateTime utcNow,
-        CancellationToken cancellationToken = default)
-    {
-        var activePayments = BuildReceivablePaymentQuery(query, utcNow);
-        var rows =
-            from order in BuildReceivableOrderQuery(query, utcNow)
-            join project in _dbContext.ProjectSet on order.ProjectId equals project.ProjectId
-            select new AdminFinancialReceivableItemReadModel
-            {
-                ProjectId = project.ProjectId,
-                ProjectCode = project.ProjectCode,
-                ProjectName = project.ProjectName,
-                OrderId = order.OrderId,
-                OrderCode = order.OrderCode,
-                OrderStatus = order.Status,
-                ConfirmedAt = order.ConfirmedAt,
-                FinalTotalAmount = order.FinalTotalAmount,
-                PaidAmount = order.PaidAmount,
-                RemainingAmount = order.RemainingAmount,
-                ActivePaymentId = activePayments
-                    .Where(payment => payment.OrderId == order.OrderId)
-                    .OrderByDescending(payment => payment.CreatedAt)
-                    .ThenByDescending(payment => payment.PaymentId)
-                    .Select(payment => (Guid?)payment.PaymentId)
-                    .FirstOrDefault(),
-                ActivePaymentType = activePayments
-                    .Where(payment => payment.OrderId == order.OrderId)
-                    .OrderByDescending(payment => payment.CreatedAt)
-                    .ThenByDescending(payment => payment.PaymentId)
-                    .Select(payment => payment.PaymentType)
-                    .FirstOrDefault(),
-                ActivePaymentAmount = activePayments
-                    .Where(payment => payment.OrderId == order.OrderId)
-                    .OrderByDescending(payment => payment.CreatedAt)
-                    .ThenByDescending(payment => payment.PaymentId)
-                    .Select(payment => (decimal?)payment.Amount)
-                    .FirstOrDefault(),
-                ActivePaymentStatus = activePayments
-                    .Where(payment => payment.OrderId == order.OrderId)
-                    .OrderByDescending(payment => payment.CreatedAt)
-                    .ThenByDescending(payment => payment.PaymentId)
-                    .Select(payment => payment.Status)
-                    .FirstOrDefault()
-            };
-
-        return await ApplyReceivableSorting(rows, query)
-            .Skip((query.Page - 1) * query.PageSize)
-            .Take(query.PageSize)
-            .ToListAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<AdminFinancialPaymentTypeBreakdownReadModel>> GetPaymentBreakdownAsync(
@@ -881,9 +800,6 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
                 OrderId = (Guid?)latestOrder.OrderId,
                 OrderCode = latestOrder.OrderCode,
                 OrderStatus = latestOrder.Status,
-                OrderOriginalTotal = (decimal?)latestOrder.OriginalTotalAmount,
-                OrderAdjustmentAmount = latestOrder.ItemAdjustmentAmount,
-                OrderAdditionalDiscount = latestOrder.AdditionalDiscountAmount,
                 OrderFinalTotal = (decimal?)latestOrder.FinalTotalAmount,
                 OrderPaidAmount = latestOrder.PaidAmount,
                 OrderRemainingAmount = latestOrder.RemainingAmount,
@@ -910,7 +826,35 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
                         payment.Currency == DefaultCurrency)
                     .OrderByDescending(payment => payment.PaidAt)
                     .Select(payment => payment.PaidAt)
-                    .FirstOrDefault()
+                    .FirstOrDefault(),
+                CollectedInPeriod = query.FromUtc.HasValue && query.ToUtcExclusive.HasValue
+                    ? _dbContext.PaymentSet
+                        .Where(payment =>
+                            payment.ProjectId == project.ProjectId &&
+                            payment.Status == PaymentStatus.PAID &&
+                            payment.PaymentType.HasValue &&
+                            canonicalPaymentTypes.Contains(payment.PaymentType.Value) &&
+                            payment.PaidAt.HasValue &&
+                            payment.PaidAt.Value >= query.FromUtc.Value &&
+                            payment.PaidAt.Value < query.ToUtcExclusive.Value &&
+                            payment.Currency == DefaultCurrency)
+                        .Sum(payment => (decimal?)payment.Amount) ?? 0m
+                    : 0m,
+                LastPaidInPeriod = query.FromUtc.HasValue && query.ToUtcExclusive.HasValue
+                    ? _dbContext.PaymentSet
+                        .Where(payment =>
+                            payment.ProjectId == project.ProjectId &&
+                            payment.Status == PaymentStatus.PAID &&
+                            payment.PaymentType.HasValue &&
+                            canonicalPaymentTypes.Contains(payment.PaymentType.Value) &&
+                            payment.PaidAt.HasValue &&
+                            payment.PaidAt.Value >= query.FromUtc.Value &&
+                            payment.PaidAt.Value < query.ToUtcExclusive.Value &&
+                            payment.Currency == DefaultCurrency)
+                        .OrderByDescending(payment => payment.PaidAt)
+                        .Select(payment => payment.PaidAt)
+                        .FirstOrDefault()
+                    : null
             };
     }
 
@@ -943,109 +887,6 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
                 !_dbContext.PaymentTransactionSet.Any(transaction =>
                     transaction.PaymentId == payment.PaymentId &&
                     transaction.Status == PaymentTransactionStatus.SUCCESS));
-    }
-
-    private IQueryable<Domain.Entities.Payment> BuildReceivablePaymentQuery(
-        AdminFinancialReceivablesQueryReadModel query,
-        DateTime utcNow)
-    {
-        var payments = BuildActivePaymentQuery(utcNow, DefaultCurrency);
-        if (query.PaymentType.HasValue)
-        {
-            payments = payments.Where(payment => payment.PaymentType == query.PaymentType.Value);
-        }
-
-        if (query.PaymentStatus.HasValue)
-        {
-            payments = payments.Where(payment => payment.Status == query.PaymentStatus.Value);
-        }
-
-        return payments;
-    }
-
-    private IQueryable<Domain.Entities.Order> BuildReceivableOrderQuery(
-        AdminFinancialReceivablesQueryReadModel query,
-        DateTime utcNow)
-    {
-        var orders = _dbContext.OrderSet
-            .Where(order =>
-                order.Status.HasValue &&
-                ActiveReceivableOrderStatuses.Contains(order.Status.Value) &&
-                order.RemainingAmount.HasValue &&
-                order.RemainingAmount.Value > 0m);
-
-        if (query.ProjectId.HasValue)
-        {
-            orders = orders.Where(order => order.ProjectId == query.ProjectId.Value);
-        }
-
-        if (query.CustomerId.HasValue)
-        {
-            orders = orders.Where(order => order.CustomerId == query.CustomerId.Value);
-        }
-
-        if (query.SalesId.HasValue)
-        {
-            orders = orders.Where(order =>
-                order.SalesId == query.SalesId.Value ||
-                _dbContext.ProjectSet.Any(project =>
-                    project.ProjectId == order.ProjectId &&
-                    project.AssignedSalesId == query.SalesId.Value));
-        }
-
-        if (query.OrderStatus.HasValue)
-        {
-            orders = orders.Where(order => order.Status == query.OrderStatus.Value);
-        }
-
-        if (query.FromUtc.HasValue)
-        {
-            orders = orders.Where(order => order.ConfirmedAt.HasValue && order.ConfirmedAt.Value >= query.FromUtc.Value);
-        }
-
-        if (query.ToUtcExclusive.HasValue)
-        {
-            orders = orders.Where(order => order.ConfirmedAt.HasValue && order.ConfirmedAt.Value < query.ToUtcExclusive.Value);
-        }
-
-        if (query.PaymentType.HasValue || query.PaymentStatus.HasValue)
-        {
-            var payments = BuildReceivablePaymentQuery(query, utcNow);
-            orders = orders.Where(order => payments.Any(payment => payment.OrderId == order.OrderId));
-        }
-
-        return orders;
-    }
-
-    private static IQueryable<AdminFinancialReceivableItemReadModel> ApplyReceivableSorting(
-        IQueryable<AdminFinancialReceivableItemReadModel> rows,
-        AdminFinancialReceivablesQueryReadModel query)
-    {
-        var descending = string.Equals(query.SortDirection, "desc", StringComparison.OrdinalIgnoreCase);
-        return query.SortBy switch
-        {
-            "projectCode" => descending
-                ? rows.OrderByDescending(row => row.ProjectCode).ThenByDescending(row => row.OrderCode)
-                : rows.OrderBy(row => row.ProjectCode).ThenBy(row => row.OrderCode),
-            "projectName" => descending
-                ? rows.OrderByDescending(row => row.ProjectName).ThenByDescending(row => row.OrderCode)
-                : rows.OrderBy(row => row.ProjectName).ThenBy(row => row.OrderCode),
-            "orderCode" => descending
-                ? rows.OrderByDescending(row => row.OrderCode)
-                : rows.OrderBy(row => row.OrderCode),
-            "orderStatus" => descending
-                ? rows.OrderByDescending(row => row.OrderStatus).ThenByDescending(row => row.OrderCode)
-                : rows.OrderBy(row => row.OrderStatus).ThenBy(row => row.OrderCode),
-            "finalTotalAmount" => descending
-                ? rows.OrderByDescending(row => row.FinalTotalAmount).ThenByDescending(row => row.OrderCode)
-                : rows.OrderBy(row => row.FinalTotalAmount).ThenBy(row => row.OrderCode),
-            "remainingAmount" => descending
-                ? rows.OrderByDescending(row => row.RemainingAmount).ThenByDescending(row => row.OrderCode)
-                : rows.OrderBy(row => row.RemainingAmount).ThenBy(row => row.OrderCode),
-            _ => descending
-                ? rows.OrderByDescending(row => row.ConfirmedAt).ThenByDescending(row => row.OrderCode)
-                : rows.OrderBy(row => row.ConfirmedAt).ThenBy(row => row.OrderCode)
-        };
     }
 
     private static IQueryable<AdminFinancialPaymentRowReadModel> ApplyOperationalPaymentSorting(
@@ -1099,6 +940,7 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
             "orderRemainingAmount" => rows.OrderBy(row => row.OrderRemainingAmount).ThenBy(row => row.ProjectId),
             "totalProjectCashCollected" => rows.OrderBy(row => row.TotalProjectCashCollected).ThenBy(row => row.ProjectId),
             "lastPaidAt" => rows.OrderBy(row => row.LastPaidAt).ThenBy(row => row.ProjectId),
+            "collectedInPeriod" => rows.OrderBy(row => row.CollectedInPeriod).ThenBy(row => row.ProjectId),
             _ => rows.OrderBy(row => row.ProjectCreatedAt).ThenBy(row => row.ProjectId)
         };
     }
@@ -1116,6 +958,7 @@ public sealed class FinancialReadRepository : IFinancialReadRepository
             "orderRemainingAmount" => rows.OrderByDescending(row => row.OrderRemainingAmount).ThenByDescending(row => row.ProjectId),
             "totalProjectCashCollected" => rows.OrderByDescending(row => row.TotalProjectCashCollected).ThenByDescending(row => row.ProjectId),
             "lastPaidAt" => rows.OrderByDescending(row => row.LastPaidAt).ThenByDescending(row => row.ProjectId),
+            "collectedInPeriod" => rows.OrderByDescending(row => row.CollectedInPeriod).ThenByDescending(row => row.ProjectId),
             _ => rows.OrderByDescending(row => row.ProjectCreatedAt).ThenByDescending(row => row.ProjectId)
         };
     }

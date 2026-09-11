@@ -28,8 +28,7 @@ public sealed class ProductVersionsControllerTests
     [Theory]
     [InlineData(nameof(ProductVersionsController.Update))]
     [InlineData(nameof(ProductVersionsController.SetDefault))]
-    [InlineData(nameof(ProductVersionsController.UploadFile))]
-    public void Mutations_RequireAdminRole(string methodName)
+    public void AdminOnlyMutations_RequireAdminRole(string methodName)
     {
         var authorize = typeof(ProductVersionsController)
             .GetMethods()
@@ -40,6 +39,20 @@ public sealed class ProductVersionsControllerTests
 
         Assert.NotNull(authorize);
         Assert.Equal("ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public void UploadFile_RequiresDesignerAndAdminRoles()
+    {
+        var authorize = typeof(ProductVersionsController)
+            .GetMethods()
+            .Single(method => method.Name == nameof(ProductVersionsController.UploadFile))
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .SingleOrDefault();
+
+        Assert.NotNull(authorize);
+        Assert.Equal("DESIGNER,ADMIN", authorize.Roles);
     }
 
     [Fact]

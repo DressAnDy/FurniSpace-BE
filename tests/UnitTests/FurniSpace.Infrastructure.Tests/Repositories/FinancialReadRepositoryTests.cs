@@ -136,15 +136,18 @@ public sealed class FinancialReadRepositoryTests
         var total = await repository.CountReceivableItemsAsync(query, now);
         var items = await repository.GetReceivableItemsAsync(query, now);
 
-        Assert.Equal(70m, summary.OutstandingPaymentAmount);
-        Assert.Equal(1, summary.OutstandingPaymentCount);
+        Assert.Equal(0m, summary.OutstandingPaymentAmount);
+        Assert.Equal(0, summary.OutstandingPaymentCount);
         Assert.Equal(120m, summary.ContractedReceivableAmount);
         Assert.Equal(2, summary.OrdersWithReceivableCount);
         Assert.Equal(2, total);
         Assert.Equal(orderWithPayment.OrderId, items[0].OrderId);
         Assert.Equal(activePayment.PaymentId, items[0].ActivePaymentId);
         Assert.Equal(PaymentStatus.PENDING, items[0].ActivePaymentStatus);
+        Assert.Equal("FAILED", items[0].CollectionState);
+        Assert.Equal(1, summary.FailedPaymentCount);
         Assert.Null(items[1].ActivePaymentId);
+        Assert.Equal("EXPIRED", items[1].CollectionState);
     }
 
     [Fact]
@@ -260,9 +263,6 @@ public sealed class FinancialReadRepositoryTests
             project.ProjectId,
             customerId,
             salesId);
-        latestOrder.OriginalTotalAmount = 1000m;
-        latestOrder.ItemAdjustmentAmount = 50m;
-        latestOrder.AdditionalDiscountAmount = 150m;
         latestOrder.PaidAmount = 600m;
         var activePayment = CreatePayment(
             PaymentType.REMAINING_PAYMENT,
@@ -311,9 +311,6 @@ public sealed class FinancialReadRepositoryTests
         Assert.Equal(100m, row.ProjectStartFeeAmount);
         Assert.Equal(PaymentStatus.PAID, row.ProjectStartFeeStatus);
         Assert.Equal(latestOrder.OrderId, row.OrderId);
-        Assert.Equal(1000m, row.OrderOriginalTotal);
-        Assert.Equal(50m, row.OrderAdjustmentAmount);
-        Assert.Equal(150m, row.OrderAdditionalDiscount);
         Assert.Equal(900m, row.OrderFinalTotal);
         Assert.Equal(600m, row.OrderPaidAmount);
         Assert.Equal(300m, row.OrderRemainingAmount);
@@ -352,6 +349,43 @@ public sealed class FinancialReadRepositoryTests
         Assert.Null(row.OrderId);
         Assert.Null(row.ActivePaymentId);
         Assert.Equal(0m, row.TotalProjectCashCollected);
+    }
+
+    [Fact]
+    public async Task GetProjectFinancialRowsAsync_SortsByCollectedInPeriod()
+    {
+        await using var context = CreateContext();
+        var now = new DateTime(2026, 7, 25, 0, 0, 0, DateTimeKind.Utc);
+        var periodStart = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+        var periodEnd = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+        var lowCollectionProject = CreateProject(Guid.NewGuid(), null, ProjectStatus.IN_PRODUCTION, now.AddDays(-3), "Low Collection");
+        var highCollectionProject = CreateProject(Guid.NewGuid(), null, ProjectStatus.IN_PRODUCTION, now.AddDays(-3), "High Collection");
+        context.AccountSet.AddRange(
+            CreateAccount(lowCollectionProject.CustomerId, "Customer Low"),
+            CreateAccount(highCollectionProject.CustomerId, "Customer High"));
+        context.ProjectSet.AddRange(lowCollectionProject, highCollectionProject);
+        context.PaymentSet.AddRange(
+            CreatePayment(PaymentType.DEPOSIT, PaymentStatus.PAID, 100m, paidAt: periodStart.AddDays(2), projectId: lowCollectionProject.ProjectId),
+            CreatePayment(PaymentType.DEPOSIT, PaymentStatus.PAID, 500m, paidAt: periodStart.AddDays(3), projectId: highCollectionProject.ProjectId));
+        await context.SaveChangesAsync();
+        var repository = new FinancialReadRepository(context);
+        var query = new AdminFinancialProjectsQueryReadModel
+        {
+            FromUtc = periodStart,
+            ToUtcExclusive = periodEnd,
+            Page = 1,
+            PageSize = 10,
+            SortBy = "collectedInPeriod",
+            SortDirection = "desc"
+        };
+
+        var rows = await repository.GetProjectFinancialRowsAsync(query, now, CanonicalPaymentTypes);
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(highCollectionProject.ProjectId, rows[0].ProjectId);
+        Assert.Equal(500m, rows[0].CollectedInPeriod);
+        Assert.Equal(periodStart.AddDays(3), rows[0].LastPaidInPeriod);
+        Assert.Equal(100m, rows[1].CollectedInPeriod);
     }
 
     [Fact]
@@ -699,7 +733,6 @@ public sealed class FinancialReadRepositoryTests
             OrderCode = Guid.NewGuid().ToString("N")[..12],
             CustomerId = customerId,
             SalesId = salesId,
-            OriginalTotalAmount = finalTotalAmount,
             FinalTotalAmount = finalTotalAmount,
             RemainingAmount = remainingAmount,
             Status = status,

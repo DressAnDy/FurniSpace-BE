@@ -41,6 +41,7 @@ public sealed class PaymentListItemReadModel
     public PaymentStatus? Status { get; set; }
     public DateTime? ExpiredAt { get; set; }
     public DateTime? PaidAt { get; set; }
+    public DateTime? CancelledAt { get; set; }
     public DateTime? CreatedAt { get; set; }
 }
 

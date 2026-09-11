@@ -1,9 +1,15 @@
+#nullable enable
+
 using FurniSpace.Domain.Enums;
 
 namespace FurniSpace.Infrastructure.ReadModels.Financial;
 
 public sealed class AdminFinancialReceivablesQueryReadModel
 {
+    public string? Keyword { get; set; }
+    public string? CollectionState { get; set; }
+    public int? MinAgeDays { get; set; }
+    public int? MaxAgeDays { get; set; }
     public Guid? ProjectId { get; set; }
     public Guid? CustomerId { get; set; }
     public Guid? SalesId { get; set; }

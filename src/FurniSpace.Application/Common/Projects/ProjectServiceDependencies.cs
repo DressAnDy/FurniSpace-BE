@@ -1,5 +1,6 @@
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
+using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Infrastructure.Interfaces;
@@ -17,4 +18,11 @@ public sealed record ProjectServiceDependencies(
     IProjectChatService? ProjectChats,
     ISearchIndexService? Search,
     IProjectSearchIndexer? ProjectSearchIndexer,
-    IPaymentRepository Payments);
+    IPaymentRepository Payments,
+    IOrderRepository Orders,
+    IQuotationRepository Quotations,
+    IProposalRepository Proposals,
+    IProductionRequestRepository ProductionRequests,
+    IProjectScheduleRepository Schedules,
+    IDeliveryRepository Deliveries,
+    IProjectPhaseDeadlineService PhaseDeadlines);

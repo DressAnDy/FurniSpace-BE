@@ -30,6 +30,22 @@ internal static class RoomPlannerSceneServiceConstants
     internal const string EmptyTemplateEditorVersion = "ROOM_PLANNER_BABYLON_BUILDING_V1";
     internal const string RoomPlannerProductNotInSceneCode = "ROOM_PLANNER_PRODUCT_NOT_IN_SCENE";
     internal const string RoomPlannerProductResolveInvalidCode = "ROOM_PLANNER_PRODUCT_RESOLVE_INVALID";
+    internal const string RoomPlannerLayoutAssetNotInSceneCode = "ROOM_PLANNER_LAYOUT_ASSET_NOT_IN_SCENE";
+    internal const string LayoutAssetNotFoundCode = "LAYOUT_ASSET_NOT_FOUND";
+    internal const string LayoutAssetInactiveCode = "LAYOUT_ASSET_INACTIVE";
+    internal const string RoomPlannerLayoutAssetForbiddenCode = "ROOM_PLANNER_LAYOUT_ASSET_FORBIDDEN";
+    internal const string RoomPlannerObjectTypeInvalidCode = "ROOM_PLANNER_OBJECT_TYPE_INVALID";
+    internal const string RoomPlannerFloorOpeningInvalidCode = "ROOM_PLANNER_FLOOR_OPENING_INVALID";
+    internal const string RoomPlannerFloorOpeningOutOfBoundsCode = "ROOM_PLANNER_FLOOR_OPENING_OUT_OF_BOUNDS";
+    internal const string RoomPlannerFloorOpeningDuplicateCode = "ROOM_PLANNER_FLOOR_OPENING_DUPLICATE";
+    internal const string RoomPlannerSurfaceMaterialInvalidCode = "ROOM_PLANNER_SURFACE_MATERIAL_INVALID";
+    internal const string LayoutAssetObjectType = "LAYOUT_ASSET";
+    internal const string StructuralAssetObjectType = "STRUCTURAL_ASSET";
+    internal const string DecorativeAssetObjectType = "DECORATIVE_ASSET";
+    internal const string FurnitureObjectType = "FURNITURE";
+    internal const string FloorOpeningTypeStair = "STAIR";
+    internal const string FloorOpeningTypeVoid = "VOID";
+    internal const string FloorOpeningTypeServiceShaft = "SERVICE_SHAFT";
     internal const decimal DefaultFloorHeight = 3m;
     internal const decimal DefaultSlabThickness = 0.12m;
 }

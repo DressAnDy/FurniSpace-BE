@@ -14,6 +14,7 @@ public abstract class ProposalBaseDto<TStatus>
     public DateTime? PublishedAt { get; set; }
     public DateTime? SelectedAt { get; set; }
     public DateTime? RejectedAt { get; set; }
+    public string? RevisionNote { get; set; }
     public DateTime? CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -40,6 +41,11 @@ public sealed class ProposalSceneAreaDto
     public string AreaName { get; set; } = string.Empty;
     public string? AreaType { get; set; }
     public int? FloorNumber { get; set; }
+    public bool IsSpecialLayout { get; set; }
+    public decimal? AreaSqm { get; set; }
+    public decimal? Width { get; set; }
+    public decimal? Length { get; set; }
+    public decimal? Height { get; set; }
     public int SortOrder { get; set; }
     public string? Status { get; set; }
 }

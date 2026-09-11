@@ -372,6 +372,28 @@ public sealed class QuotationsControllerTests
             return Task.FromResult(CreateResult);
         }
 
+        public Task<ServiceResult<QuotationDetailDto>> CreateDraftFromProposalSelectionAsync(
+            Guid projectId,
+            Guid proposalId,
+            Guid triggeredByUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = triggeredByUserId;
+            return Task.FromResult(CreateResult);
+        }
+
+        public Task<ServiceResult<QuotationDetailDto>> AddDraftQuotationForSelectedProposalAsync(
+            Guid projectId,
+            Guid proposalId,
+            Guid triggeredByUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = triggeredByUserId;
+            return Task.FromResult(CreateResult);
+        }
+
         public Task<ServiceResult<QuotationDetailDto>> UpdateAsync(
             Guid quotationId,
             Guid currentUserId,

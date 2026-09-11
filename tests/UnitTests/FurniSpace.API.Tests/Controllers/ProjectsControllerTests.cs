@@ -8,10 +8,13 @@ using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Projects;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectChatMessages;
+using FurniSpace.Application.DTOs.ProjectReviews;
 using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Proposals;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
+using FurniSpace.Application.Interfaces.MeasurementImages;
 using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.ProjectReviews;
 using FurniSpace.Application.Interfaces.Proposals;
 using FurniSpace.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -23,6 +26,8 @@ namespace FurniSpace.API.Tests.Controllers;
 
 public sealed class ProjectsControllerTests
 {
+    private static readonly IMeasurementImageService NoOpMeasurementImages = new NoOpMeasurementImageService();
+    private static readonly IProjectReviewService NoOpProjectReviews = new NoOpProjectReviewService();
     [Fact]
     public void Controller_RequiresAuthorization()
     {
@@ -108,6 +113,15 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public void UpdateTargetCompletionDate_AllowsCustomerSalesAndAdminRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.UpdateTargetCompletionDate));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public void UpdateStatus_AllowsSalesDesignerAndAdminRoles()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.UpdateStatus));
@@ -117,12 +131,30 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public void Complete_AllowsSalesAndAdminRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.Complete));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
     public void Reject_AllowsSalesAndAdminRoles()
     {
         var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.Reject));
 
         Assert.NotNull(authorize);
         Assert.Equal("SALES,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public void ReopenProposal_AllowsCustomerSalesAndAdminRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.ReopenProposal));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,SALES,ADMIN", authorize.Roles);
     }
 
     [Fact]
@@ -151,7 +183,7 @@ public sealed class ProjectsControllerTests
         };
         var service = new FakeProjectService(
             ServiceResult<ProjectDto>.Created(response, "Project request submitted successfully."));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -187,7 +219,7 @@ public sealed class ProjectsControllerTests
     public async Task Create_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -264,7 +296,7 @@ public sealed class ProjectsControllerTests
     public async Task GetList_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -325,7 +357,7 @@ public sealed class ProjectsControllerTests
     public async Task GetByUser_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -379,7 +411,7 @@ public sealed class ProjectsControllerTests
     public async Task GetById_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -427,7 +459,8 @@ public sealed class ProjectsControllerTests
         var controller = new ProjectsController(
             new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
             new FakeProjectChatMessageService(),
-            proposalService)
+            proposalService,
+            NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -482,7 +515,7 @@ public sealed class ProjectsControllerTests
     public async Task AssignSales_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -537,7 +570,7 @@ public sealed class ProjectsControllerTests
     public async Task RequestInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -592,10 +625,68 @@ public sealed class ProjectsControllerTests
     }
 
     [Fact]
+    public async Task UpdateTargetCompletionDate_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var targetDate = DateOnly.FromDateTime(DateTime.UtcNow.Date).AddDays(45);
+        var response = new ProjectTargetCompletionDateDto
+        {
+            ProjectId = projectId,
+            TargetCompletionDate = targetDate,
+            UpdatedAt = DateTime.UtcNow
+        };
+        var service = new FakeProjectService(
+            createResult: ServiceResult<ProjectDto>.Created(new ProjectDto()),
+            updateTargetCompletionDateResult: ServiceResult<ProjectTargetCompletionDateDto>.Success(
+                response,
+                "Project target completion date updated successfully."));
+        var controller = CreateControllerWithUser(service, currentUserId);
+        var request = new UpdateProjectTargetCompletionDateRequestDto
+        {
+            TargetCompletionDate = targetDate
+        };
+
+        var actionResult = await controller.UpdateTargetCompletionDate(projectId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectTargetCompletionDateDto>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project target completion date updated successfully.", result.Message);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Same(request, service.UpdateTargetCompletionDateRequest);
+    }
+
+    [Fact]
+    public async Task UpdateTargetCompletionDate_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.UpdateTargetCompletionDate(
+            Guid.NewGuid(),
+            new UpdateProjectTargetCompletionDateRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.ProjectId);
+        Assert.Equal(Guid.Empty, service.CurrentUserId);
+        Assert.Null(service.UpdateTargetCompletionDateRequest);
+    }
+
+    [Fact]
     public async Task UpdateBasicInformation_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -651,7 +742,7 @@ public sealed class ProjectsControllerTests
     public async Task UpdateStatus_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -665,6 +756,55 @@ public sealed class ProjectsControllerTests
         Assert.Equal(Guid.Empty, service.ProjectId);
         Assert.Equal(Guid.Empty, service.CurrentUserId);
         Assert.Null(service.UpdateStatusRequest);
+    }
+
+    [Fact]
+    public async Task Complete_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var response = new ProjectCompletionDto
+        {
+            ProjectId = projectId,
+            ProjectStatus = nameof(ProjectStatus.COMPLETED),
+            CompletedAt = DateTime.UtcNow
+        };
+        var service = new FakeProjectService(
+            createResult: ServiceResult<ProjectDto>.Created(new ProjectDto()),
+            completeResult: ServiceResult<ProjectCompletionDto>.Success(
+                response,
+                "Project completed successfully."));
+        var controller = CreateControllerWithUser(service, currentUserId);
+
+        var actionResult = await controller.Complete(projectId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectCompletionDto>>(objectResult.Value);
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project completed successfully.", result.Message);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task Complete_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.Complete(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(Guid.Empty, service.ProjectId);
+        Assert.Equal(Guid.Empty, service.CurrentUserId);
     }
 
     [Fact]
@@ -707,7 +847,7 @@ public sealed class ProjectsControllerTests
     public async Task Reject_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -770,7 +910,7 @@ public sealed class ProjectsControllerTests
     public async Task AssignDesigner_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto()));
-        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService())
+        var controller = new ProjectsController(service, new FakeProjectChatMessageService(), new FakeProposalService(), NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -786,6 +926,161 @@ public sealed class ProjectsControllerTests
         Assert.Null(service.AssignDesignerRequest);
     }
 
+    [Fact]
+    public void SearchChatMessages_AllowsProjectParticipantRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.SearchChatMessages));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("SALES,ADMIN,CUSTOMER,DESIGNER", authorize.Roles);
+    }
+
+    [Fact]
+    public void GetMeasurementImages_AllowsProjectParticipantRoles()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(ProjectsController.GetMeasurementImages));
+
+        Assert.NotNull(authorize);
+        Assert.Equal("CUSTOMER,SALES,DESIGNER,ADMIN", authorize.Roles);
+    }
+
+    [Fact]
+    public async Task SearchChatMessages_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var response = new ProjectChatMessageSearchResponseDto { Page = 1, Limit = 20, Total = 0, Items = [] };
+        var chatService = new FakeProjectChatMessageService(
+            searchResult: ServiceResult<ProjectChatMessageSearchResponseDto>.Success(response, "Search completed."));
+        var controller = CreateControllerWithUser(
+            new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
+            currentUserId,
+            chatService: chatService);
+
+        var actionResult = await controller.SearchChatMessages(projectId, "hello", page: 2, limit: 10);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(projectId, chatService.ProjectId);
+        Assert.Equal(currentUserId, chatService.CurrentUserId);
+        Assert.Equal("hello", chatService.SearchQuery);
+        Assert.Equal(2, chatService.SearchPage);
+        Assert.Equal(10, chatService.SearchLimit);
+    }
+
+    [Fact]
+    public async Task SearchChatMessages_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var controller = new ProjectsController(
+            new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
+            new FakeProjectChatMessageService(),
+            new FakeProposalService(),
+            NoOpMeasurementImages, NoOpProjectReviews)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var actionResult = await controller.SearchChatMessages(Guid.NewGuid(), "hello");
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
+    public async Task GetMeasurementImages_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var areaId = Guid.NewGuid();
+        var response = new FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto
+        {
+            Page = 1,
+            Limit = 20,
+            Total = 0,
+            Items = []
+        };
+        var measurementService = new RecordingMeasurementImageService(
+            ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.Success(
+                response,
+                "Gallery retrieved."));
+        var controller = CreateControllerWithUser(
+            new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
+            currentUserId,
+            measurementImages: measurementService);
+
+        var actionResult = await controller.GetMeasurementImages(
+            projectId,
+            scheduleId,
+            areaId,
+            assigned: true,
+            page: 2,
+            limit: 10);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(projectId, measurementService.ProjectId);
+        Assert.Equal(currentUserId, measurementService.CurrentUserId);
+        Assert.NotNull(measurementService.LastQuery);
+        Assert.Equal(scheduleId, measurementService.LastQuery.ScheduleId);
+        Assert.Equal(areaId, measurementService.LastQuery.ProjectAreaId);
+        Assert.True(measurementService.LastQuery.Assigned);
+        Assert.Equal(2, measurementService.LastQuery.Page);
+        Assert.Equal(10, measurementService.LastQuery.Limit);
+    }
+
+    [Fact]
+    public async Task GetMeasurementImages_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var controller = new ProjectsController(
+            new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
+            new FakeProjectChatMessageService(),
+            new FakeProposalService(),
+            NoOpMeasurementImages, NoOpProjectReviews)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var actionResult = await controller.GetMeasurementImages(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
+    public async Task ReopenProposal_ReturnsServiceResultThroughBaseController()
+    {
+        var currentUserId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var response = new ReopenProposalResponseDto { ProjectId = projectId };
+        var service = new FakeProjectService(
+            createResult: ServiceResult<ProjectDto>.Created(new ProjectDto()),
+            reopenProposalResult: ServiceResult<ReopenProposalResponseDto>.Success(response, "Proposal reopened."));
+        var controller = CreateControllerWithUser(service, currentUserId);
+
+        var actionResult = await controller.ReopenProposal(projectId);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task ReopenProposal_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var controller = new ProjectsController(
+            new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
+            new FakeProjectChatMessageService(),
+            new FakeProposalService(),
+            NoOpMeasurementImages, NoOpProjectReviews)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var actionResult = await controller.ReopenProposal(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
     private static AuthorizeAttribute? GetMethodAuthorizeAttribute(string methodName)
     {
         return typeof(ProjectsController)
@@ -799,12 +1094,15 @@ public sealed class ProjectsControllerTests
     private static ProjectsController CreateControllerWithUser(
         FakeProjectService service,
         Guid currentUserId,
-        FakeProposalService? proposalService = null)
+        FakeProposalService? proposalService = null,
+        FakeProjectChatMessageService? chatService = null,
+        IMeasurementImageService? measurementImages = null)
     {
         return new ProjectsController(
             service,
-            new FakeProjectChatMessageService(),
-            proposalService ?? new FakeProposalService())
+            chatService ?? new FakeProjectChatMessageService(),
+            proposalService ?? new FakeProposalService(),
+            measurementImages ?? NoOpMeasurementImages, NoOpProjectReviews)
         {
             ControllerContext = new ControllerContext
             {
@@ -827,8 +1125,11 @@ public sealed class ProjectsControllerTests
         private readonly ServiceResult<ProjectSalesAssignmentDto> _assignSalesResult;
         private readonly ServiceResult<ProjectInformationRequestDto> _requestInformationResult;
         private readonly ServiceResult<ProjectBasicInformationDto> _updateBasicInformationResult;
+        private readonly ServiceResult<ProjectTargetCompletionDateDto> _updateTargetCompletionDateResult;
         private readonly ServiceResult<ProjectStatusUpdateDto> _updateStatusResult;
         private readonly ServiceResult<ProjectRejectionDto> _rejectResult;
+        private readonly ServiceResult<ProjectCompletionDto> _completeResult;
+        private readonly ServiceResult<ReopenProposalResponseDto> _reopenProposalResult;
         private readonly ServiceResult<ProjectDesignerAssignmentDto> _assignDesignerResult;
         private readonly ServiceResult<ProjectsByUserResponseDto> _projectsByUserResult;
 
@@ -839,8 +1140,11 @@ public sealed class ProjectsControllerTests
             ServiceResult<ProjectSalesAssignmentDto>? assignSalesResult = null,
             ServiceResult<ProjectInformationRequestDto>? requestInformationResult = null,
             ServiceResult<ProjectBasicInformationDto>? updateBasicInformationResult = null,
+            ServiceResult<ProjectTargetCompletionDateDto>? updateTargetCompletionDateResult = null,
             ServiceResult<ProjectStatusUpdateDto>? updateStatusResult = null,
             ServiceResult<ProjectRejectionDto>? rejectResult = null,
+            ServiceResult<ProjectCompletionDto>? completeResult = null,
+            ServiceResult<ReopenProposalResponseDto>? reopenProposalResult = null,
             ServiceResult<ProjectDesignerAssignmentDto>? assignDesignerResult = null,
             ServiceResult<ProjectsByUserResponseDto>? projectsByUserResult = null)
         {
@@ -852,10 +1156,16 @@ public sealed class ProjectsControllerTests
                 ServiceResult<ProjectInformationRequestDto>.Success(new ProjectInformationRequestDto());
             _updateBasicInformationResult = updateBasicInformationResult ??
                 ServiceResult<ProjectBasicInformationDto>.Success(new ProjectBasicInformationDto());
+            _updateTargetCompletionDateResult = updateTargetCompletionDateResult ??
+                ServiceResult<ProjectTargetCompletionDateDto>.Success(new ProjectTargetCompletionDateDto());
             _updateStatusResult = updateStatusResult ??
                 ServiceResult<ProjectStatusUpdateDto>.Success(new ProjectStatusUpdateDto());
             _rejectResult = rejectResult ??
                 ServiceResult<ProjectRejectionDto>.Success(new ProjectRejectionDto());
+            _completeResult = completeResult ??
+                ServiceResult<ProjectCompletionDto>.Success(new ProjectCompletionDto());
+            _reopenProposalResult = reopenProposalResult ??
+                ServiceResult<ReopenProposalResponseDto>.Success(new ReopenProposalResponseDto());
             _assignDesignerResult = assignDesignerResult ??
                 ServiceResult<ProjectDesignerAssignmentDto>.Success(new ProjectDesignerAssignmentDto());
             _projectsByUserResult = projectsByUserResult ??
@@ -869,6 +1179,7 @@ public sealed class ProjectsControllerTests
         public AssignProjectSalesRequestDto? AssignSalesRequest { get; private set; }
         public RequestProjectInformationRequestDto? RequestInformationRequest { get; private set; }
         public UpdateProjectBasicInformationRequestDto? UpdateBasicInformationRequest { get; private set; }
+        public UpdateProjectTargetCompletionDateRequestDto? UpdateTargetCompletionDateRequest { get; private set; }
         public UpdateProjectStatusRequestDto? UpdateStatusRequest { get; private set; }
         public RejectProjectRequestDto? RejectRequest { get; private set; }
         public AssignProjectDesignerRequestDto? AssignDesignerRequest { get; private set; }
@@ -931,6 +1242,18 @@ public sealed class ProjectsControllerTests
             return Task.FromResult(_updateBasicInformationResult);
         }
 
+        public Task<ServiceResult<ProjectTargetCompletionDateDto>> UpdateTargetCompletionDateAsync(
+            Guid projectId,
+            Guid currentUserId,
+            UpdateProjectTargetCompletionDateRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            UpdateTargetCompletionDateRequest = request;
+            return Task.FromResult(_updateTargetCompletionDateResult);
+        }
+
         public Task<ServiceResult<ProjectStatusUpdateDto>> UpdateStatusAsync(
             Guid projectId,
             Guid currentUserId,
@@ -953,6 +1276,16 @@ public sealed class ProjectsControllerTests
             CurrentUserId = currentUserId;
             RejectRequest = request;
             return Task.FromResult(_rejectResult);
+        }
+
+        public Task<ServiceResult<ProjectCompletionDto>> CompleteAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_completeResult);
         }
 
         public Task<ServiceResult<ProjectDesignerAssignmentDto>> AssignDesignerAsync(
@@ -987,6 +1320,16 @@ public sealed class ProjectsControllerTests
             UserId = userId;
             ProjectsByUserQuery = query;
             return Task.FromResult(_projectsByUserResult);
+        }
+
+        public Task<ServiceResult<ReopenProposalResponseDto>> ReopenProposalAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_reopenProposalResult);
         }
     }
 
@@ -1108,6 +1451,12 @@ public sealed class ProjectsControllerTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<UpdateProposalResponseDto>.Success(new UpdateProposalResponseDto()));
 
+        public Task<ServiceResult<ReopenProposalForEditingResponseDto>> ReopenForEditingAsync(
+            Guid proposalId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ReopenProposalForEditingResponseDto>.Success(new ReopenProposalForEditingResponseDto()));
+
         public Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(
             Guid sceneId,
             Guid currentUserId,
@@ -1118,6 +1467,20 @@ public sealed class ProjectsControllerTests
 
     private sealed class FakeProjectChatMessageService : IProjectChatMessageService
     {
+        private readonly ServiceResult<ProjectChatMessageSearchResponseDto>? _searchResult;
+
+        public FakeProjectChatMessageService(
+            ServiceResult<ProjectChatMessageSearchResponseDto>? searchResult = null)
+        {
+            _searchResult = searchResult;
+        }
+
+        public Guid ProjectId { get; private set; }
+        public Guid CurrentUserId { get; private set; }
+        public string? SearchQuery { get; private set; }
+        public int SearchPage { get; private set; }
+        public int SearchLimit { get; private set; }
+
         public Task<bool> CanAccessChatAsync(
             Guid chatId,
             Guid currentUserId,
@@ -1154,8 +1517,271 @@ public sealed class ProjectsControllerTests
             int page,
             int limit,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            SearchQuery = query;
+            SearchPage = page;
+            SearchLimit = limit;
+            return Task.FromResult(_searchResult ?? ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
                 new ProjectChatMessageSearchResponseDto(),
                 string.Empty));
+        }
+    }
+
+    private sealed class RecordingMeasurementImageService : IMeasurementImageService
+    {
+        private readonly ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto> _galleryResult;
+
+        public RecordingMeasurementImageService(
+            ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto> galleryResult)
+        {
+            _galleryResult = galleryResult;
+        }
+
+        public Guid ProjectId { get; private set; }
+        public Guid CurrentUserId { get; private set; }
+        public FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto? LastQuery { get; private set; }
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.UploadMeasurementImageRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            LastQuery = query;
+            return Task.FromResult(_galleryResult);
+        }
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetScheduleMeasurementImagesAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectAreaMeasurementImagesAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> LinkMeasurementImageToAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> UnlinkMeasurementImageFromAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
+    }
+
+    private sealed class NoOpMeasurementImageService : IMeasurementImageService
+    {
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.UploadMeasurementImageRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
+            Guid projectId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetScheduleMeasurementImagesAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetProjectAreaMeasurementImagesAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> LinkMeasurementImageToAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>> UnlinkMeasurementImageFromAreaAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageAreaLinkResponseDto>.NotFound());
+    }
+
+    private sealed class NoOpProjectReviewService : IProjectReviewService
+    {
+        public Task<ServiceResult<ProjectReviewDto>> GetByProjectAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectReviewDto>.NotFound(ProjectReviewErrorCodes.NotFound));
+
+        public Task<ServiceResult<ProjectReviewDto>> CreateAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CreateProjectReviewRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectReviewDto>.Unauthorized());
+    }
+
+    [Fact]
+    public async Task GetReview_ReturnsServiceResultThroughBaseController()
+    {
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var reviewService = new FakeProjectReviewService(
+            getResult: ServiceResult<ProjectReviewDto>.Success(
+                new ProjectReviewDto { ProjectId = projectId, Rating = 5 },
+                "ok"));
+        var controller = BuildReviewController(reviewService, customerId);
+
+        var result = await controller.GetReview(projectId);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(projectId, reviewService.ProjectId);
+        Assert.Equal(customerId, reviewService.CurrentUserId);
+    }
+
+    [Fact]
+    public async Task GetReview_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = BuildReviewController(new FakeProjectReviewService(), userId: null);
+
+        var result = await controller.GetReview(Guid.NewGuid());
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    [Fact]
+    public async Task CreateReview_ReturnsServiceResultThroughBaseController()
+    {
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var request = new CreateProjectReviewRequestDto
+        {
+            Rating = 4,
+            DesignQualityRating = 5,
+            ServiceQualityRating = 4,
+            DeliveryRating = 4,
+            Comment = "Nice"
+        };
+        var reviewService = new FakeProjectReviewService(
+            createResult: ServiceResult<ProjectReviewDto>.Success(
+                new ProjectReviewDto { ProjectId = projectId, Rating = 4 },
+                "ok"));
+        var controller = BuildReviewController(reviewService, customerId);
+
+        var result = await controller.CreateReview(projectId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(projectId, reviewService.ProjectId);
+        Assert.Same(request, reviewService.CreateRequest);
+    }
+
+    [Fact]
+    public async Task CreateReview_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = BuildReviewController(new FakeProjectReviewService(), userId: null);
+
+        var result = await controller.CreateReview(
+            Guid.NewGuid(),
+            new CreateProjectReviewRequestDto { Rating = 4, DesignQualityRating = 4, ServiceQualityRating = 4, DeliveryRating = 4 });
+
+        Assert.IsType<UnauthorizedResult>(result);
+    }
+
+    private static ProjectsController BuildReviewController(IProjectReviewService reviewService, Guid? userId)
+    {
+        var controller = new ProjectsController(
+            new FakeProjectService(ServiceResult<ProjectDto>.Created(new ProjectDto())),
+            new FakeProjectChatMessageService(),
+            new FakeProposalService(),
+            NoOpMeasurementImages,
+            reviewService);
+
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = userId.HasValue
+                ? new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [
+                        new Claim(ClaimTypes.NameIdentifier, userId.Value.ToString())
+                    ], "Test"))
+                }
+                : new DefaultHttpContext()
+        };
+
+        return controller;
+    }
+
+    private sealed class FakeProjectReviewService : IProjectReviewService
+    {
+        private readonly ServiceResult<ProjectReviewDto>? _getResult;
+        private readonly ServiceResult<ProjectReviewDto>? _createResult;
+
+        public FakeProjectReviewService(
+            ServiceResult<ProjectReviewDto>? getResult = null,
+            ServiceResult<ProjectReviewDto>? createResult = null)
+        {
+            _getResult = getResult;
+            _createResult = createResult;
+        }
+
+        public Guid ProjectId { get; private set; }
+        public Guid CurrentUserId { get; private set; }
+        public CreateProjectReviewRequestDto? CreateRequest { get; private set; }
+
+        public Task<ServiceResult<ProjectReviewDto>> GetByProjectAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(_getResult ?? ServiceResult<ProjectReviewDto>.NotFound(ProjectReviewErrorCodes.NotFound));
+        }
+
+        public Task<ServiceResult<ProjectReviewDto>> CreateAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CreateProjectReviewRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            CreateRequest = request;
+            return Task.FromResult(_createResult ?? ServiceResult<ProjectReviewDto>.Unauthorized());
+        }
     }
 }

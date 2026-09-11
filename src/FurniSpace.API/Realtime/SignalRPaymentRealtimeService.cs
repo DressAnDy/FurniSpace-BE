@@ -1,3 +1,5 @@
+#nullable enable
+
 using FurniSpace.API.Hubs;
 using FurniSpace.Application.Common.Realtime;
 using FurniSpace.Application.DTOs.Payments;
@@ -15,15 +17,31 @@ public sealed class SignalRPaymentRealtimeService : IPaymentRealtimeService
         _hub = hub;
     }
 
-    public Task SendPaymentUpdatedAsync(
+    public async Task SendPaymentUpdatedAsync(
         PaymentUpdatedRealtimeDto payload,
+        IReadOnlyCollection<Guid>? stakeholderUserIds = null,
         CancellationToken cancellationToken = default)
     {
-        return _hub.Clients
+        await _hub.Clients
             .Group(PaymentRealtimeConstants.Payment(payload.PaymentId))
             .SendAsync(
                 PaymentRealtimeConstants.PaymentUpdatedEvent,
                 payload,
                 cancellationToken);
+
+        if (stakeholderUserIds is null || stakeholderUserIds.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var userId in stakeholderUserIds.Where(id => id != Guid.Empty).Distinct())
+        {
+            await _hub.Clients
+                .Group(RealtimeGroupNames.User(userId))
+                .SendAsync(
+                    PaymentRealtimeConstants.PaymentUpdatedEvent,
+                    payload,
+                    cancellationToken);
+        }
     }
 }

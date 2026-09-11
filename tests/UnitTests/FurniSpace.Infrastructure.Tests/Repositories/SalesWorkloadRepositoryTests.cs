@@ -82,7 +82,7 @@ public sealed class SalesWorkloadRepositoryTests
     public void ResolvePressureWeight_MatchesPolicy()
     {
         Assert.Equal(1.00m, SalesWorkloadPressurePolicy.ResolvePressureWeight(ProjectStatus.PROPOSAL_CONSULTING));
-        Assert.Equal(0.75m, SalesWorkloadPressurePolicy.ResolvePressureWeight(ProjectStatus.PRODUCTION_BLOCKED));
+        Assert.Equal(0.30m, SalesWorkloadPressurePolicy.ResolvePressureWeight(ProjectStatus.READY_FOR_DELIVERY));
         Assert.Equal(0m, SalesWorkloadPressurePolicy.ResolvePressureWeight(ProjectStatus.IN_CONSULTATION));
         Assert.Equal(
             SalesWorkloadPressurePolicy.BucketDesignMonitor,

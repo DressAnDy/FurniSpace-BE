@@ -17,6 +17,7 @@ public class QuotationDto
     public decimal? VatRate { get; set; }
     public decimal? VatAmount { get; set; }
     public decimal? TotalAmount { get; set; }
+    public decimal? DepositAmount { get; set; }
     public string Currency { get; set; } = "VND";
     public QuotationStatus? Status { get; set; }
     public DateOnly? ValidUntil { get; set; }

@@ -35,7 +35,6 @@ public static class SalesWorkloadPressurePolicy
     public static readonly ProjectStatus[] Fulfillment =
     [
         ProjectStatus.IN_PRODUCTION,
-        ProjectStatus.PRODUCTION_BLOCKED,
         ProjectStatus.READY_FOR_DELIVERY,
         ProjectStatus.DELIVERING,
         ProjectStatus.DELIVERED
@@ -61,7 +60,6 @@ public static class SalesWorkloadPressurePolicy
         ProjectStatus.QUOTATION_REVISION_REQUESTED,
         ProjectStatus.ORDER_CONFIRMED,
         ProjectStatus.IN_PRODUCTION,
-        ProjectStatus.PRODUCTION_BLOCKED,
         ProjectStatus.READY_FOR_DELIVERY,
         ProjectStatus.DELIVERING,
         ProjectStatus.DELIVERED
@@ -71,7 +69,6 @@ public static class SalesWorkloadPressurePolicy
     public const decimal WeightSpaceVerified = 0.50m;
     public const decimal WeightProposalConsulting = 1.00m;
     public const decimal WeightInProduction = 0.20m;
-    public const decimal WeightProductionBlocked = 0.75m;
     public const decimal WeightReadyForDelivery = 0.30m;
     public const decimal WeightDelivering = 0.40m;
     public const decimal WeightDelivered = 0.50m;
@@ -138,7 +135,6 @@ public static class SalesWorkloadPressurePolicy
             ProjectStatus.SPACE_VERIFIED => WeightSpaceVerified,
             ProjectStatus.PROPOSAL_CONSULTING => WeightProposalConsulting,
             ProjectStatus.IN_PRODUCTION => WeightInProduction,
-            ProjectStatus.PRODUCTION_BLOCKED => WeightProductionBlocked,
             ProjectStatus.READY_FOR_DELIVERY => WeightReadyForDelivery,
             ProjectStatus.DELIVERING => WeightDelivering,
             ProjectStatus.DELIVERED => WeightDelivered,
@@ -153,7 +149,6 @@ public static class SalesWorkloadPressurePolicy
             counts.SpaceVerifiedCount * WeightSpaceVerified +
             counts.ProposalConsultingCount * WeightProposalConsulting +
             counts.InProductionCount * WeightInProduction +
-            counts.ProductionBlockedCount * WeightProductionBlocked +
             counts.ReadyForDeliveryCount * WeightReadyForDelivery +
             counts.DeliveringCount * WeightDelivering +
             counts.DeliveredCount * WeightDelivered;

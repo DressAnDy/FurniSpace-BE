@@ -581,7 +581,7 @@ API/Middleware/RequestLoggingMiddleware.cs
 API/Middleware/ExceptionHandlingMiddleware.cs
 ```
 
-- Console is always one readable line. Development also writes `logs/furnispace-YYYYMMDD.log`; other environments write a structured `.json` file without a rendered-message duplicate
+- Console request logs use a short block: API, HTTP code plus application error code when present, response message when present, and elapsed time. Development also writes `logs/furnispace-YYYYMMDD.log`; other environments write a structured `.json` file without a rendered-message duplicate
 - Enrich with `Application`, `CorrelationId`, `TraceId`; authenticated requests include `UserId`
 - `4xx` / slow (≥1s) → Warning; `5xx` → Error
 - Successful `GET`/`HEAD`/`OPTIONS` under 300 ms, successful login under 1s, and successful SignalR hub traffic → Debug so routine page loads do not flood Information logs

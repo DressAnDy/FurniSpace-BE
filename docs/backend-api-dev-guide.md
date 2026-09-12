@@ -581,11 +581,11 @@ API/Middleware/RequestLoggingMiddleware.cs
 API/Middleware/ExceptionHandlingMiddleware.cs
 ```
 
-- Development: readable console + `logs/furnispace-YYYYMMDD.log`
-- Other envs: structured JSON console + `.json` log file; rendered-message duplicates are omitted
+- Console is always one readable line. Development also writes `logs/furnispace-YYYYMMDD.log`; other environments write a structured `.json` file without a rendered-message duplicate
 - Enrich with `Application`, `CorrelationId`, `TraceId`; authenticated requests include `UserId`
 - `4xx` / slow (≥1s) → Warning; `5xx` → Error
-- Successful login requests below 1s and successful SignalR hub traffic → Debug to avoid noisy request logs
+- Successful `GET`/`HEAD`/`OPTIONS` under 300 ms, successful login under 1s, and successful SignalR hub traffic → Debug so routine page loads do not flood Information logs
+- Mutations and slower reads remain Information
 - Login request logs omit `UserId` because a stale authentication cookie may belong to the previous session
 - Use structured templates; never interpolate secrets into messages
 - Never log passwords, tokens, OTPs, connection strings, or sensitive bodies

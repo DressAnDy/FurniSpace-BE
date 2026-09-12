@@ -8,6 +8,9 @@ namespace FurniSpace.API.Middleware;
 
 public sealed class RequestLoggingMiddleware(RequestDelegate next)
 {
+    private const long SlowRequestMilliseconds = 1_000;
+    private const long NotableReadMilliseconds = 300;
+
     private static readonly PathString LoginPath = new("/auth/login");
     private static readonly PathString HubsPath = new("/hubs");
 
@@ -30,28 +33,27 @@ public sealed class RequestLoggingMiddleware(RequestDelegate next)
         stopwatch.Stop();
 
         var statusCode = context.Response.StatusCode;
+        var elapsedMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
         var level = GetLogLevel(
+            context.Request.Method,
             context.Request.Path,
             statusCode,
-            stopwatch.ElapsedMilliseconds);
+            (long)elapsedMilliseconds);
 
         Log.ForContext<RequestLoggingMiddleware>()
             .ForContext("EventType", "HttpRequestCompleted")
-            .ForContext("RequestMethod", context.Request.Method)
-            .ForContext("RequestPath", context.Request.Path.Value)
-            .ForContext("StatusCode", statusCode)
-            .ForContext("ElapsedMs", stopwatch.Elapsed.TotalMilliseconds)
             .ForContext("UserId", userId)
             .Write(
                 level,
-                "HTTP {RequestMethod} {RequestPath} responded {StatusCode} in {ElapsedMs:0.000} ms",
+                "{RequestMethod} {RequestPath} {StatusCode} {ElapsedMs:0}ms",
                 context.Request.Method,
                 context.Request.Path.Value,
                 statusCode,
-                stopwatch.Elapsed.TotalMilliseconds);
+                elapsedMilliseconds);
     }
 
     internal static LogEventLevel GetLogLevel(
+        string method,
         PathString requestPath,
         int statusCode,
         long elapsedMilliseconds)
@@ -71,16 +73,24 @@ public sealed class RequestLoggingMiddleware(RequestDelegate next)
             return LogEventLevel.Debug;
         }
 
-        if (elapsedMilliseconds >= 1_000)
+        if (elapsedMilliseconds >= SlowRequestMilliseconds)
         {
             return LogEventLevel.Warning;
         }
 
-        if (requestPath.StartsWithSegments(LoginPath))
+        if (requestPath.StartsWithSegments(LoginPath)
+            || (IsRoutineRead(method) && elapsedMilliseconds < NotableReadMilliseconds))
         {
             return LogEventLevel.Debug;
         }
 
         return LogEventLevel.Information;
+    }
+
+    private static bool IsRoutineRead(string method)
+    {
+        return HttpMethods.IsGet(method)
+            || HttpMethods.IsHead(method)
+            || HttpMethods.IsOptions(method);
     }
 }

@@ -1,10 +1,7 @@
-using Elastic.Clients.Elasticsearch;
 using FurniSpace.API.IntegrationTests.Authentication;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Payments;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
-using FurniSpace.Application.Interfaces.Search;
-using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Testing.Fakes;
@@ -17,7 +14,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 using Npgsql;
 using StackExchange.Redis;
 
@@ -42,10 +38,6 @@ public sealed class FurniSpaceWebApplicationFactory : WebApplicationFactory<Prog
                 ["ConnectionStrings:DefaultConnection"] = _database.ConnectionString,
                 ["ConnectionStrings:MigrationConnection"] = _database.ConnectionString,
                 ["Redis:ConnectionString"] = "localhost:6379,abortConnect=false",
-                ["Elasticsearch:Url"] = "http://localhost:9200",
-                ["Elasticsearch:IndexPrefix"] = "furnispace-integration",
-                ["Elasticsearch:InitializeIndices"] = "false",
-                ["ElasticsearchLogging:Enabled"] = "false",
                 ["Smtp:Host"] = "127.0.0.1",
                 ["Smtp:FromEmail"] = "integration@furnispace.test",
                 ["FirebaseStorage:Bucket"] = "furnispace-integration",
@@ -76,41 +68,20 @@ public sealed class FurniSpaceWebApplicationFactory : WebApplicationFactory<Prog
                 options.UseNpgsql(serviceProvider.GetRequiredService<NpgsqlDataSource>(), npgsql =>
                     npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
 
-            var indexInitializer = services.SingleOrDefault(descriptor =>
-                descriptor.ServiceType == typeof(IHostedService)
-                && descriptor.ImplementationType == typeof(ElasticsearchIndexInitializer));
-            if (indexInitializer is not null)
-            {
-                services.Remove(indexInitializer);
-            }
-
-            services.RemoveAll<IProductSearchIndexer>();
-            services.RemoveAll<IProjectSearchIndexer>();
-            services.RemoveAll<IChatMessageSearchIndexer>();
-            services.RemoveAll<IProjectFileSearchIndexer>();
             services.RemoveAll<INotificationDispatcher>();
             services.RemoveAll<IFileStorageService>();
             services.RemoveAll<IConnectionMultiplexer>();
             services.RemoveAll<ICacheService>();
-            services.RemoveAll<ElasticsearchClient>();
-            services.RemoveAll<ISearchIndexService>();
-            services.RemoveAll<IIndexManager>();
             services.RemoveAll<IEmailService>();
             services.RemoveAll<IPayOsClient>();
             services.RemoveAll<IRealtimeNotificationService>();
             services.RemoveAll<IProjectChatRealtimeService>();
             services.RemoveAll<IPaymentRealtimeService>();
-            services.AddScoped<IProductSearchIndexer, NoOpSearchIndexer>();
-            services.AddScoped<IProjectSearchIndexer, NoOpSearchIndexer>();
-            services.AddScoped<IChatMessageSearchIndexer, NoOpSearchIndexer>();
-            services.AddScoped<IProjectFileSearchIndexer, NoOpSearchIndexer>();
             services.AddSingleton<CapturingNotificationDispatcher>();
             services.AddSingleton<INotificationDispatcher>(serviceProvider =>
                 serviceProvider.GetRequiredService<CapturingNotificationDispatcher>());
             services.AddScoped<IFileStorageService, FakeFileStorageService>();
             services.AddSingleton<ICacheService, InMemoryCacheService>();
-            services.AddSingleton<ISearchIndexService, CoreSearchIndexService>();
-            services.AddSingleton<IIndexManager, NoOpIndexManager>();
             services.AddSingleton<CapturingEmailService>();
             services.AddSingleton<IEmailService>(serviceProvider =>
                 serviceProvider.GetRequiredService<CapturingEmailService>());

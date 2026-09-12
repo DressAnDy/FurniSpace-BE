@@ -13,7 +13,6 @@ public sealed class ApiIntegrationFixture : IAsyncLifetime
 {
     public const string TestJwtSecret = "integration-test-secret-key-32-bytes-minimum";
     private const string PlaceholderRedis = "localhost:6379,abortConnect=false";
-    private const string PlaceholderElasticsearch = "http://localhost:9200";
 
     private readonly List<(string Key, string? Previous)> _environmentOverrides = [];
     private FurniSpaceWebApplicationFactory? _factory;
@@ -41,8 +40,6 @@ public sealed class ApiIntegrationFixture : IAsyncLifetime
         SetEnvironment("ConnectionStrings__MigrationConnection", Database.ConnectionString);
         SetEnvironment("Redis__ConnectionString", PlaceholderRedis);
         SetEnvironment("REDIS_CONNECTION", PlaceholderRedis);
-        SetEnvironment("Elasticsearch__Url", PlaceholderElasticsearch);
-        SetEnvironment("ELASTICSEARCH_URL", PlaceholderElasticsearch);
         SetEnvironment("PAYOS_ENABLED", "true");
         SetEnvironment("PAYOS_RETURN_URL", "https://frontend.integration.test/payments/return");
         SetEnvironment("PAYOS_CANCEL_URL", "https://frontend.integration.test/payments/cancel");

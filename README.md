@@ -234,6 +234,5 @@ dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --no-build -c
 
 - [Backend API Developer Guide](docs/backend-api-dev-guide.md)
 - [Redis Cache Guide](docs/redis-cache-guide.md)
-- [Elasticsearch Docker Guide](docs/elasticsearch-docker-guide.md)
 - [Huong dan Redis Cache](docs/redis-cache-guide.vi.md)
 - [Định hướng triển khai module 3D bằng Babylon.js](docs/furnispace-babylonjs-3d-module.md)

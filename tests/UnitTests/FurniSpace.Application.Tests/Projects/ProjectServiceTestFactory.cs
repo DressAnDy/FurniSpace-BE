@@ -11,7 +11,6 @@ using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.Projects;
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -33,10 +32,6 @@ internal sealed class ProjectServiceFactoryOptions
     public IProjectChatService? ProjectChats { get; init; }
 
     public ProjectServiceTransitionFakes? TransitionFakes { get; init; }
-
-    public ISearchIndexService? Search { get; init; }
-
-    public IProjectSearchIndexer? ProjectSearchIndexer { get; init; }
 
     public IPaymentRepository? Payments { get; init; }
 
@@ -78,8 +73,6 @@ internal static class ProjectServiceTestFactory
                 options.Dispatcher,
                 Logger: null,
                 options.ProjectChats,
-                options.Search,
-                options.ProjectSearchIndexer,
                 options.Payments ?? new FakeProjectPaymentRepository(),
                 options.Orders ?? new FakeProjectOrderRepository(),
                 options.Quotations ?? new FakeProjectQuotationRepository(),

@@ -442,7 +442,6 @@ public sealed class WorkloadAccountServiceTests
             repository,
             new FakeAuthService(),
             new InMemoryCacheService(),
-            new NoOpSearchIndexService(),
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
             new PasswordHasher<Account>());
     }

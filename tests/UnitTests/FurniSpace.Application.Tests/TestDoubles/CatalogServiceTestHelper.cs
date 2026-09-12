@@ -10,7 +10,6 @@ using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Tests;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Infrastructure.Common.Storage;
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -30,8 +29,6 @@ public static class CatalogServiceTestHelper
         IProjectFileRepository files,
         IFileStorageService? storage = null,
         ProductPreviewImageSettings? previewSettings = null,
-        ISearchIndexService? search = null,
-        IProductSearchIndexer? productSearchIndexer = null,
         IBusinessTypeRepository? businessTypes = null,
         ICatalogRepository? catalog = null)
     {
@@ -42,8 +39,6 @@ public static class CatalogServiceTestHelper
             files,
             new ProductServiceDependencies(
                 storage ?? new NoOpFileStorageService(),
-                search ?? new NoOpSearchIndexService(),
-                productSearchIndexer ?? new NoOpProductSearchIndexer(),
                 DefaultUploadSettings(),
                 previewSettings ?? DefaultPreviewImageSettings(),
                 DefaultFirebaseSettings()),
@@ -71,7 +66,6 @@ public static class CatalogServiceTestHelper
         IProjectFileRepository files,
         IFileStorageService? storage = null,
         ProductPreviewImageSettings? previewSettings = null,
-        IProductSearchIndexer? productSearchIndexer = null,
         ICatalogRepository? catalog = null,
         IUnitOfWork? unitOfWork = null)
     {
@@ -84,7 +78,6 @@ public static class CatalogServiceTestHelper
                 DefaultUploadSettings(),
                 previewSettings ?? DefaultPreviewImageSettings(),
                 DefaultFirebaseSettings()),
-            productSearchIndexer ?? new NoOpProductSearchIndexer(),
             unitOfWork ?? TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync));
     }
 

@@ -6,7 +6,6 @@ using static FurniSpace.Application.Constants.MeasurementImages.MeasurementImage
 using FurniSpace.Application.DTOs.MeasurementImages;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.MeasurementImages;
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
@@ -35,7 +34,6 @@ public sealed class MeasurementImageService : IMeasurementImageService
     private readonly IFileStorageService _storage;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
-    private readonly IProjectFileSearchIndexer? _projectFileSearchIndexer;
 
     public MeasurementImageService(
         IProjectScheduleRepository schedules,
@@ -48,7 +46,6 @@ public sealed class MeasurementImageService : IMeasurementImageService
         _storage = dependencies.Storage;
         _uploadSettings = dependencies.UploadSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
-        _projectFileSearchIndexer = dependencies.ProjectFileSearchIndexer;
     }
 
     public async Task<ServiceResult<MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
@@ -196,8 +193,6 @@ public sealed class MeasurementImageService : IMeasurementImageService
             await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
             throw;
         }
-
-        await SyncProjectFileIndexAsync(fileId, cancellationToken);
 
         var fileResponse = BuildUploadResponse(
             schedule.ProjectId,
@@ -809,8 +804,4 @@ public sealed class MeasurementImageService : IMeasurementImageService
         }
     }
 
-    private Task SyncProjectFileIndexAsync(Guid fileId, CancellationToken cancellationToken)
-    {
-        return _projectFileSearchIndexer?.SyncFileAsync(fileId, cancellationToken) ?? Task.CompletedTask;
-    }
 }

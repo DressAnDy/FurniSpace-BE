@@ -6,15 +6,11 @@ using static FurniSpace.Application.Constants.ProjectChatMessages.ProjectChatMes
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
-using FurniSpace.Application.Interfaces.Search;
-using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
-using FurniSpace.Infrastructure.Common.Search.Documents;
-using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
@@ -32,8 +28,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ProjectChatFileUploadDependencies _fileUpload;
     private readonly ILogger<ProjectChatMessageServiceDependencies> _logger;
-    private readonly ISearchIndexService? _search;
-    private readonly IChatMessageSearchIndexer? _chatMessageSearchIndexer;
     private readonly INotificationDispatcher? _notifications;
 
     public ProjectChatMessageService(
@@ -47,8 +41,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         _unitOfWork = dependencies.UnitOfWork;
         _fileUpload = dependencies.FileUpload;
         _logger = dependencies.Logger;
-        _search = dependencies.Search;
-        _chatMessageSearchIndexer = dependencies.ChatMessageSearchIndexer;
         _notifications = dependencies.Notifications;
     }
 
@@ -161,33 +153,12 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
                 "You do not have access to search messages for this project.");
         }
 
-        ProjectChatMessageSearchResponseDto response;
-        if (_search is not null)
-        {
-            try
-            {
-                var searchResult = await _search.SearchAsync<ChatMessageSearchDocument>(
-                    ChatMessageIndexName,
-                    ChatMessageElasticsearchQueryFactory.BuildProjectSearch(projectId, query, page, limit),
-                    cancellationToken);
-
-                response = new ProjectChatMessageSearchResponseDto
-                {
-                    Items = searchResult.Documents.Select(ChatMessageSearchResponseMapper.ToItem).ToList(),
-                    Page = page,
-                    Limit = limit,
-                    Total = (int)Math.Min(searchResult.Total, int.MaxValue)
-                };
-            }
-            catch
-            {
-                response = await GetProjectMessagesFromRepositoryAsync(projectId, query, page, limit, cancellationToken);
-            }
-        }
-        else
-        {
-            response = await GetProjectMessagesFromRepositoryAsync(projectId, query, page, limit, cancellationToken);
-        }
+        var response = await GetProjectMessagesFromRepositoryAsync(
+            projectId,
+            query,
+            page,
+            limit,
+            cancellationToken);
 
         return ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
             response,
@@ -236,7 +207,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
 
         await _messages.AddAsync(message, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await SyncChatMessageIndexAsync(message.MessageId, cancellationToken);
 
         var response = MapCreatedMessage(message, access);
 
@@ -368,8 +338,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             await _fileUpload.Storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
             throw;
         }
-
-        await SyncChatMessageIndexAsync(message.MessageId, cancellationToken);
 
         var response = MapCreatedMessage(message, access, storedFile);
 
@@ -647,11 +615,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             Limit = limit,
             Total = total
         };
-    }
-
-    private Task SyncChatMessageIndexAsync(Guid messageId, CancellationToken cancellationToken)
-    {
-        return _chatMessageSearchIndexer?.SyncMessageAsync(messageId, cancellationToken) ?? Task.CompletedTask;
     }
 
     private async Task DispatchChatNotificationAsync(

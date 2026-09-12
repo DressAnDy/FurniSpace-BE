@@ -859,7 +859,7 @@ Route: `products` (+ preview files controller)
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
 | GET | `/products/suggest` | Public | Autocomplete |
-| GET | `/products/search` | Public | Elasticsearch search |
+| GET | `/products/search` | Public | PostgreSQL product search |
 | GET | `/products` | Public | List |
 | GET | `/products/{productId}` | Public | Detail |
 | GET | `/products/{productId}/similar` | Public | Similar products |
@@ -4118,8 +4118,6 @@ All values are JSON strings matching C# member names.
 | GET | `/` | Public | Returns `"FurniSpace API"`; Swagger UI also served at `/` |
 | GET | `/health/redis` | Public | Only if `REDIS_DEBUG_HEALTH` / `Redis:DebugHealth` enabled |
 | GET | `/swagger/v1/swagger.json` | Public | OpenAPI document |
-
-CLI (not HTTP): `dotnet run --project src/FurniSpace.API -- reindex {accounts|products|projects|chat-messages|project-files}`
 
 ---
 

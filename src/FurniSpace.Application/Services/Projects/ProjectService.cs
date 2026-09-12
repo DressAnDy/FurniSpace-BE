@@ -14,15 +14,10 @@ using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.Projects;
-using FurniSpace.Application.Interfaces.Search;
-using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.Common.Search.Documents;
 using FurniSpace.Infrastructure.Common.Accounts;
 using FurniSpace.Infrastructure.ReadModels.Projects;
-using FurniSpace.Infrastructure.Interfaces;
-using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
@@ -34,8 +29,6 @@ public sealed class ProjectService : IProjectService
 {
     private readonly IProjectRepository _projects;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly ISearchIndexService? _search;
-    private readonly IProjectSearchIndexer? _projectSearchIndexer;
     private readonly ProjectStatusTransitionEvaluator _transitionEvaluator;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<ProjectService>? _logger;
@@ -59,8 +52,6 @@ public sealed class ProjectService : IProjectService
         _notifications = dependencies.Notifications;
         _logger = dependencies.Logger;
         _projectChats = dependencies.ProjectChats;
-        _search = dependencies.Search;
-        _projectSearchIndexer = dependencies.ProjectSearchIndexer;
         _payments = dependencies.Payments;
         _orders = dependencies.Orders;
         _quotations = dependencies.Quotations;
@@ -119,7 +110,6 @@ public sealed class ProjectService : IProjectService
 
         await _projects.AddAsync(project, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
         await DispatchProjectSubmittedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectDto>.Created(
@@ -413,35 +403,10 @@ public sealed class ProjectService : IProjectService
             repositoryQuery.AssignedDesignerId = currentUserId;
         }
 
-        ProjectListResponseDto response;
-        if (!string.IsNullOrWhiteSpace(repositoryQuery.Search) && _search is not null)
-        {
-            try
-            {
-                var searchResult = await _search.SearchAsync<ProjectSearchDocument>(
-                    ProjectIndexName,
-                    ProjectElasticsearchQueryFactory.Build(repositoryQuery),
-                    cancellationToken);
-
-                response = new ProjectListResponseDto
-                {
-                    Items = searchResult.Documents
-                        .Select(document => ProjectSearchDocumentMapper.ToListItem(document).Adapt<ProjectListItemDto>())
-                        .ToList(),
-                    Page = query.Page,
-                    Limit = query.Limit,
-                    Total = (int)Math.Min(searchResult.Total, int.MaxValue)
-                };
-            }
-            catch
-            {
-                response = await GetProjectListFromRepositoryAsync(repositoryQuery, query, cancellationToken);
-            }
-        }
-        else
-        {
-            response = await GetProjectListFromRepositoryAsync(repositoryQuery, query, cancellationToken);
-        }
+        var response = await GetProjectListFromRepositoryAsync(
+            repositoryQuery,
+            query,
+            cancellationToken);
 
         return ServiceResult<ProjectListResponseDto>.Success(
             response,
@@ -463,11 +428,6 @@ public sealed class ProjectService : IProjectService
             Limit = query.Limit,
             Total = total
         };
-    }
-
-    private Task SyncProjectIndexAsync(Guid projectId, CancellationToken cancellationToken)
-    {
-        return _projectSearchIndexer?.SyncProjectAsync(projectId, cancellationToken) ?? Task.CompletedTask;
     }
 
     public async Task<ServiceResult<ProjectsByUserResponseDto>> GetByUserAsync(
@@ -672,7 +632,6 @@ public sealed class ProjectService : IProjectService
             throw;
         }
 
-        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
         await DispatchProjectAcceptedNotificationAsync(project, cancellationToken);
 
         var response = project.Adapt<ProjectSalesAssignmentDto>();
@@ -726,7 +685,6 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = requestedAt;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
         await DispatchProjectMoreInformationRequestedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectInformationRequestDto>.Success(
@@ -789,7 +747,6 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
         if (shouldNotifyAssignedSales)
         {
             await DispatchProjectBasicInformationUpdatedNotificationAsync(project, cancellationToken);
@@ -873,7 +830,6 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = updatedAt;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
 
         return ServiceResult<ProjectTargetCompletionDateDto>.Success(
             new ProjectTargetCompletionDateDto
@@ -964,7 +920,6 @@ public sealed class ProjectService : IProjectService
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
         await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
 
         var message = newStatus == ProjectStatus.PROPOSAL_SELECTED
@@ -1030,7 +985,6 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = project.RejectedAt;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
         await DispatchProjectRequestRejectedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectRejectionDto>.Success(
@@ -1095,7 +1049,6 @@ public sealed class ProjectService : IProjectService
         project.UpdatedAt = now;
         _projects.Update(project);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
         await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
 
         return ServiceResult<ProjectCompletionDto>.Success(
@@ -1240,7 +1193,6 @@ public sealed class ProjectService : IProjectService
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
-            await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
 
             return ServiceResult<ReopenProposalResponseDto>.Success(
                 BuildReopenSuccessResponse(
@@ -1394,7 +1346,6 @@ public sealed class ProjectService : IProjectService
             throw;
         }
 
-        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
         await DispatchProjectDesignerAssignedNotificationAsync(project, designer.AccountId, cancellationToken);
 
         return ServiceResult<ProjectDesignerAssignmentDto>.Success(

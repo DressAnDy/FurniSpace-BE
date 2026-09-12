@@ -5,7 +5,6 @@ using FurniSpace.Application.DTOs.Accounts;
 using FurniSpace.Application.DTOs.Search;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.Identity;
-using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Accounts;
@@ -17,7 +16,6 @@ using Microsoft.AspNetCore.Identity;
 using System.Security.Cryptography;
 using System.Text;
 using InfrastructureCacheService = FurniSpace.Infrastructure.Interfaces.ICacheService;
-using InfrastructureSearchIndexService = FurniSpace.Infrastructure.Interfaces.ISearchIndexService;
 
 namespace FurniSpace.Application.Services.Accounts;
 
@@ -27,14 +25,12 @@ public sealed class AccountService : IAccountService
     private readonly IAuthService _auth;
     private readonly IUnitOfWork _unitOfWork;
     private readonly InfrastructureCacheService _cache;
-    private readonly InfrastructureSearchIndexService _search;
     private readonly IPasswordHasher<Account> _passwordHasher;
 
     public AccountService(
         IAccountRepository accounts,
         IAuthService auth,
         InfrastructureCacheService cache,
-        InfrastructureSearchIndexService search,
         IUnitOfWork unitOfWork,
         IPasswordHasher<Account> passwordHasher)
     {
@@ -42,7 +38,6 @@ public sealed class AccountService : IAccountService
         _auth = auth;
         _unitOfWork = unitOfWork;
         _cache = cache;
-        _search = search;
         _passwordHasher = passwordHasher;
     }
 
@@ -83,7 +78,6 @@ public sealed class AccountService : IAccountService
         var dto = account.Adapt<AccountDto>();
         await CacheAccountAsync(dto, cancellationToken);
         await InvalidateAccountListsAsync(cancellationToken);
-        await IndexAccountAsync(dto, cancellationToken);
 
         return ServiceResult<AccountDto>.Created(dto);
     }
@@ -153,7 +147,6 @@ public sealed class AccountService : IAccountService
         var accountDto = account.Adapt<AccountDto>();
         await CacheAccountAsync(accountDto, cancellationToken);
         await InvalidateAccountListsAsync(cancellationToken);
-        await IndexAccountAsync(accountDto, cancellationToken);
 
         var dto = account.Adapt<MyProfileDto>();
         dto.Role = await _accounts.GetRoleNameAsync(account.RoleId, cancellationToken) ?? string.Empty;
@@ -559,33 +552,9 @@ public sealed class AccountService : IAccountService
         bool includeDeleted,
         CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var aggregation = await _search.AggregateAsync(
-                AccountIndexName,
-                AccountElasticsearchQueryFactory.BuildStatsAggregation(includeDeleted),
-                cancellationToken);
-
-            var roleCounts = await EnrichRoleFacetLabelsAsync(
-                SearchFacetMapper.ToDto(
-                    aggregation.Facets.GetValueOrDefault(AccountElasticsearchQueryFactory.RoleIdField) ?? []),
-                cancellationToken);
-
-            return ServiceResult<AccountSearchStatsDto>.Success(
-                new AccountSearchStatsDto
-                {
-                    StatusCounts = SearchFacetMapper.ToDto(
-                        aggregation.Facets.GetValueOrDefault(AccountElasticsearchQueryFactory.StatusField) ?? []),
-                    RoleCounts = roleCounts
-                },
-                "Account search stats retrieved successfully.");
-        }
-        catch
-        {
-            return ServiceResult<AccountSearchStatsDto>.Success(
-                await GetSearchStatsFromDatabaseAsync(includeDeleted, cancellationToken),
-                "Account search stats retrieved successfully.");
-        }
+        return ServiceResult<AccountSearchStatsDto>.Success(
+            await GetSearchStatsFromDatabaseAsync(includeDeleted, cancellationToken),
+            "Account search stats retrieved successfully.");
     }
 
     public async Task<ServiceResult<AccountSuggestResponseDto>> SuggestAsync(
@@ -603,35 +572,21 @@ public sealed class AccountService : IAccountService
             return ServiceResult<AccountSuggestResponseDto>.BadRequest("Limit must be between 1 and 20.");
         }
 
-        IReadOnlyList<AccountSuggestItemDto> items;
-        try
-        {
-            var searchResult = await _search.SearchAsync<AccountDto>(
-                AccountIndexName,
-                AccountElasticsearchQueryFactory.BuildSuggest(query, limit),
-                cancellationToken);
-
-            items = searchResult.Documents
-                .Select(account => new AccountSuggestItemDto
-                {
-                    AccountId = account.AccountId,
-                    FullName = account.FullName,
-                    Email = account.Email
-                })
-                .ToList();
-        }
-        catch
-        {
-            var fallbackResult = await GetPagedAccountsFromDatabaseAsync(1, limit, query.Trim(), null, includeDeleted: false, cancellationToken);
-            items = fallbackResult.Items
-                .Select(account => new AccountSuggestItemDto
-                {
-                    AccountId = account.AccountId,
-                    FullName = account.FullName,
-                    Email = account.Email
-                })
-                .ToList();
-        }
+        var result = await GetPagedAccountsFromDatabaseAsync(
+            1,
+            limit,
+            query.Trim(),
+            null,
+            includeDeleted: false,
+            cancellationToken);
+        var items = result.Items
+            .Select(account => new AccountSuggestItemDto
+            {
+                AccountId = account.AccountId,
+                FullName = account.FullName,
+                Email = account.Email
+            })
+            .ToList();
 
         return ServiceResult<AccountSuggestResponseDto>.Success(
             new AccountSuggestResponseDto { Items = items },
@@ -676,7 +631,6 @@ public sealed class AccountService : IAccountService
         var dto = account.Adapt<AccountDto>();
         await CacheAccountAsync(dto, cancellationToken);
         await InvalidateAccountListsAsync(cancellationToken);
-        await IndexAccountAsync(dto, cancellationToken);
         if (wasActive && account.Status != AccountStatus.ACTIVE)
         {
             await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
@@ -699,7 +653,6 @@ public sealed class AccountService : IAccountService
 
         await TryRemoveCacheAsync(AccountItemCacheKey(accountId), cancellationToken);
         await InvalidateAccountListsAsync(cancellationToken);
-        await TryDeleteIndexAsync(accountId, cancellationToken);
         await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
 
         return ServiceResult.Success("Account deleted successfully.");
@@ -726,28 +679,13 @@ public sealed class AccountService : IAccountService
         bool includeDeleted,
         CancellationToken cancellationToken)
     {
-        var request = AccountElasticsearchQueryFactory.BuildSearch(
+        return await GetPagedAccountsFromDatabaseAsync(
             page,
             pageSize,
             normalizedSearch,
             normalizedStatus,
-            includeDeleted);
-
-        try
-        {
-            var searchResult = await _search.SearchAsync<AccountDto>(AccountIndexName, request, cancellationToken);
-
-            return PagedResult<AccountDto>.Create(
-                searchResult.Documents.ToList(),
-                page,
-                pageSize,
-                (int)Math.Min(searchResult.Total, int.MaxValue));
-        }
-        catch
-        {
-            var fallback = await GetPagedAccountsFromDatabaseAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
-            return fallback;
-        }
+            includeDeleted,
+            cancellationToken);
     }
 
     private async Task<AccountSearchStatsDto> GetSearchStatsFromDatabaseAsync(
@@ -819,36 +757,6 @@ public sealed class AccountService : IAccountService
         catch
         {
             // Cache invalidation should not fail the database-backed account workflow.
-        }
-    }
-
-    private async Task IndexAccountAsync(AccountDto account, CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (account.DeletedAt is not null)
-            {
-                await _search.DeleteAsync(AccountIndexName, account.AccountId.ToString(), cancellationToken);
-                return;
-            }
-
-            await _search.IndexAsync(AccountIndexName, account.AccountId.ToString(), account, cancellationToken);
-        }
-        catch
-        {
-            // Search indexing is eventually consistent and should not fail the database write.
-        }
-    }
-
-    private async Task TryDeleteIndexAsync(Guid accountId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await _search.DeleteAsync(AccountIndexName, accountId.ToString(), cancellationToken);
-        }
-        catch
-        {
-            // Search indexing is eventually consistent and should not fail the database write.
         }
     }
 

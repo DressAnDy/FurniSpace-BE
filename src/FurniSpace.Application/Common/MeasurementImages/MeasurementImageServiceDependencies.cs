@@ -1,4 +1,3 @@
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
@@ -12,14 +11,12 @@ public sealed class MeasurementImageServiceDependencies
         IUnitOfWork unitOfWork,
         IFileStorageService storage,
         IOptions<FileUploadSettings> uploadSettings,
-        IOptions<FirebaseStorageSettings> firebaseSettings,
-        IProjectFileSearchIndexer? projectFileSearchIndexer = null)
+        IOptions<FirebaseStorageSettings> firebaseSettings)
     {
         UnitOfWork = unitOfWork;
         Storage = storage;
         UploadSettings = uploadSettings.Value;
         FirebaseSettings = firebaseSettings.Value;
-        ProjectFileSearchIndexer = projectFileSearchIndexer;
     }
 
     public IUnitOfWork UnitOfWork { get; }
@@ -30,5 +27,4 @@ public sealed class MeasurementImageServiceDependencies
 
     public FirebaseStorageSettings FirebaseSettings { get; }
 
-    public IProjectFileSearchIndexer? ProjectFileSearchIndexer { get; }
 }

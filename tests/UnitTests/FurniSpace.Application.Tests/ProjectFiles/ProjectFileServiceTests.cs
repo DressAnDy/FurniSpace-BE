@@ -651,9 +651,7 @@ public sealed class ProjectFileServiceTests
                 {
                     Bucket = "test-bucket",
                     ProjectFilesPrefix = "projects"
-                },
-                Search: null,
-                ProjectFileSearchIndexer: null));
+                }));
     }
 
     private static UploadProjectFileRequestDto CreateUploadRequest(

@@ -5,7 +5,6 @@ namespace FurniSpace.Application.Constants.Projects;
 
 internal static class ProjectServiceConstants
 {
-    internal const string ProjectIndexName = "projects";
     internal const int MaxNoteLength = 1000;
     internal const int MaxRejectionReasonLength = 1000;
     internal const string ProjectReferenceType = "PROJECT";

@@ -7,7 +7,6 @@ namespace FurniSpace.Application.Constants.ProjectFiles;
 
 internal static class ProjectFileServiceConstants
 {
-    internal const string ProjectFileIndexName = "project-files";
     internal const string ProjectReferenceType = "PROJECT";
     internal const string ProjectAreaReferenceType = "PROJECT_AREA";
     internal const string InactiveOrMissingRoleMessage = "Authenticated account is not active or has no role.";

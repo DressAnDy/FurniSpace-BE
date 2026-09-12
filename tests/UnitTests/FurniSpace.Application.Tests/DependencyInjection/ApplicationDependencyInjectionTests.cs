@@ -25,8 +25,7 @@ public sealed class ApplicationDependencyInjectionTests
                 ["JwtSettings:SecretKey"] = "01234567890123456789012345678901",
                 ["JwtSettings:Issuer"] = "test",
                 ["JwtSettings:Audience"] = "test",
-                ["Redis:ConnectionString"] = "localhost:6379",
-                ["Elasticsearch:Url"] = "http://localhost:9200"
+                ["Redis:ConnectionString"] = "localhost:6379"
             })
             .Build();
 

@@ -4,12 +4,9 @@ using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
-using FurniSpace.Application.Interfaces.Search;
-using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
-using FurniSpace.Infrastructure.Common.Search.Documents;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
@@ -21,7 +18,6 @@ namespace FurniSpace.Application.Services.Products;
 
 public sealed class ProductService : IProductService
 {
-    private const string ProductIndexName = "products";
     private const string BusinessTypeInactiveCode = "BUSINESS_TYPE_INACTIVE";
     private const string BusinessTypeNotFoundCode = "BUSINESS_TYPE_NOT_FOUND";
     private const string InvalidBusinessTypeIdCode = "INVALID_BUSINESS_TYPE_ID";
@@ -39,8 +35,6 @@ public sealed class ProductService : IProductService
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
-    private readonly ISearchIndexService _search;
-    private readonly IProductSearchIndexer _productSearchIndexer;
     private readonly FileUploadSettings _uploadSettings;
     private readonly ProductPreviewImageSettings _previewSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
@@ -60,8 +54,6 @@ public sealed class ProductService : IProductService
         _files = files;
         _unitOfWork = unitOfWork;
         _storage = dependencies.Storage;
-        _search = dependencies.Search;
-        _productSearchIndexer = dependencies.ProductSearchIndexer;
         _uploadSettings = dependencies.UploadSettings;
         _previewSettings = dependencies.PreviewSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
@@ -112,7 +104,6 @@ public sealed class ProductService : IProductService
         await _products.AddAsync(product, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         product.Status ??= ProductStatus.ACTIVE;
-        await _productSearchIndexer.SyncProductAsync(product.ProductId, cancellationToken);
 
         var dto = product.Adapt<ProductDto>();
         dto.BusinessTypes = businessTypeAssignment.BusinessTypes.Adapt<List<ProductBusinessTypeDto>>();
@@ -167,7 +158,6 @@ public sealed class ProductService : IProductService
         product.Status ??= ProductStatus.ACTIVE;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await _productSearchIndexer.SyncProductAsync(product.ProductId, cancellationToken);
 
         var updatedDto = product.Adapt<ProductDto>();
         updatedDto.BusinessTypes = businessTypeIdsResult.BusinessTypes.Adapt<List<ProductBusinessTypeDto>>();
@@ -289,42 +279,16 @@ public sealed class ProductService : IProductService
             return ServiceResult<ProductListResponseDto>.BadRequest(validationError);
         }
 
-        ProductListResponseDto response;
-        try
+        var result = await _products.SearchPublicAsync(
+            ToRepositorySearchQuery(request),
+            cancellationToken);
+        var response = new ProductListResponseDto
         {
-            var searchRequest = ProductElasticsearchQueryFactory.Build(request);
-            var searchResult = await _search.SearchAsync<ProductSearchDocument>(
-                ProductIndexName,
-                searchRequest,
-                cancellationToken);
-
-            var items = searchResult.Documents
-                .Select(ProductSearchResponseMapper.ToListItem)
-                .ToList();
-
-            response = new ProductListResponseDto
-            {
-                Items = items,
-                Page = request.Page,
-                Limit = request.Limit,
-                Total = (int)Math.Min(searchResult.Total, int.MaxValue),
-                Facets = SearchFacetMapper.ToProductFacets(searchResult.Facets)
-            };
-        }
-        catch
-        {
-            var fallback = await _products.SearchPublicAsync(
-                ProductElasticsearchQueryFactory.ToRepositoryQuery(request),
-                cancellationToken);
-
-            response = new ProductListResponseDto
-            {
-                Items = fallback.Items.Adapt<List<ProductListItemDto>>(),
-                Page = request.Page,
-                Limit = request.Limit,
-                Total = fallback.Total
-            };
-        }
+            Items = result.Items.Adapt<List<ProductListItemDto>>(),
+            Page = request.Page,
+            Limit = request.Limit,
+            Total = result.Total
+        };
 
         var responseItems = response.Items.ToList();
         await EnrichListItemsAsync(responseItems, cancellationToken);
@@ -348,33 +312,14 @@ public sealed class ProductService : IProductService
             return ServiceResult<ProductSuggestResponseDto>.BadRequest("Limit must be between 1 and 20.");
         }
 
-        IReadOnlyList<ProductSuggestItemDto> items;
-        try
-        {
-            var searchResult = await _search.SearchAsync<ProductSearchDocument>(
-                ProductIndexName,
-                ProductElasticsearchQueryFactory.BuildSuggest(query, limit),
-                cancellationToken);
-
-            items = searchResult.Documents
-                .Select(document => new ProductSuggestItemDto
-                {
-                    ProductId = document.ProductId,
-                    ProductName = document.ProductName
-                })
-                .ToList();
-        }
-        catch
-        {
-            var fallback = await _products.SuggestPublicAsync(query, limit, cancellationToken);
-            items = fallback
-                .Select(item => new ProductSuggestItemDto
-                {
-                    ProductId = item.ProductId,
-                    ProductName = item.ProductName
-                })
-                .ToList();
-        }
+        var suggestions = await _products.SuggestPublicAsync(query, limit, cancellationToken);
+        var items = suggestions
+            .Select(item => new ProductSuggestItemDto
+            {
+                ProductId = item.ProductId,
+                ProductName = item.ProductName
+            })
+            .ToList();
 
         return ServiceResult<ProductSuggestResponseDto>.Success(
             new ProductSuggestResponseDto { Items = items },
@@ -396,38 +341,14 @@ public sealed class ProductService : IProductService
             return ServiceResult<ProductListResponseDto>.BadRequest("Limit must be between 1 and 20.");
         }
 
-        ProductListResponseDto response;
-        try
+        var similarProducts = await _products.GetSimilarPublicAsync(productId, limit, cancellationToken);
+        var response = new ProductListResponseDto
         {
-            var searchResult = await _search.MoreLikeThisAsync<ProductSearchDocument>(
-                ProductIndexName,
-                productId.ToString(),
-                ProductElasticsearchQueryFactory.BuildSimilar(limit),
-                cancellationToken);
-
-            var items = searchResult.Documents
-                .Select(ProductSearchResponseMapper.ToListItem)
-                .ToList();
-
-            response = new ProductListResponseDto
-            {
-                Items = items,
-                Page = 1,
-                Limit = limit,
-                Total = items.Count
-            };
-        }
-        catch
-        {
-            var fallback = await _products.GetSimilarPublicAsync(productId, limit, cancellationToken);
-            response = new ProductListResponseDto
-            {
-                Items = fallback.Adapt<List<ProductListItemDto>>(),
-                Page = 1,
-                Limit = limit,
-                Total = fallback.Count
-            };
-        }
+            Items = similarProducts.Adapt<List<ProductListItemDto>>(),
+            Page = 1,
+            Limit = limit,
+            Total = similarProducts.Count
+        };
 
         var responseItems = response.Items.ToList();
         await EnrichListItemsAsync(responseItems, cancellationToken);
@@ -1046,6 +967,29 @@ public sealed class ProductService : IProductService
 
     private static string? NormalizeOptional(string? value)
         => CatalogFileStorageHelpers.NormalizeOptional(value);
+
+    private static ProductSearchQueryReadModel ToRepositorySearchQuery(ProductSearchRequestDto request)
+    {
+        var businessTypeIds = request.BusinessTypeIds?
+            .Where(id => id > 0)
+            .Distinct()
+            .OrderBy(id => id)
+            .ToArray();
+
+        return new ProductSearchQueryReadModel
+        {
+            Query = NormalizeOptional(request.Query),
+            CategoryId = request.CategoryId,
+            BusinessTypeIds = businessTypeIds is { Length: > 0 } ? businessTypeIds : null,
+            Material = NormalizeOptional(request.Material),
+            Color = NormalizeOptional(request.Color),
+            MinPrice = request.MinPrice,
+            MaxPrice = request.MaxPrice,
+            Sort = NormalizeOptional(request.Sort),
+            Page = request.Page,
+            Limit = request.Limit
+        };
+    }
 
     private static CatalogFileDto? PickThumbnail(
         IEnumerable<CatalogFileReadModel> files,

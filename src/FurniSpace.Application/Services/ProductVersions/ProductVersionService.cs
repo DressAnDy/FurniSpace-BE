@@ -8,7 +8,6 @@ using FurniSpace.Application.DTOs.CustomizationRequests;
 using FurniSpace.Application.DTOs.ProductVersions;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
@@ -33,7 +32,6 @@ public sealed class ProductVersionService : IProductVersionService
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
-    private readonly IProductSearchIndexer _productSearchIndexer;
     private readonly FileUploadSettings _uploadSettings;
     private readonly ProductPreviewImageSettings _previewSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
@@ -43,7 +41,6 @@ public sealed class ProductVersionService : IProductVersionService
         ICatalogRepository catalog,
         IProjectFileRepository files,
         ProductVersionFileUploadDependencies fileUpload,
-        IProductSearchIndexer productSearchIndexer,
         IUnitOfWork unitOfWork)
     {
         _productVersions = productVersions;
@@ -51,7 +48,6 @@ public sealed class ProductVersionService : IProductVersionService
         _files = files;
         _unitOfWork = unitOfWork;
         _storage = fileUpload.Storage;
-        _productSearchIndexer = productSearchIndexer;
         _uploadSettings = fileUpload.UploadSettings;
         _previewSettings = fileUpload.PreviewSettings;
         _firebaseSettings = fileUpload.FirebaseSettings;
@@ -110,7 +106,6 @@ public sealed class ProductVersionService : IProductVersionService
         await _productVersions.AddAsync(productVersion, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         productVersion.Status ??= ProductStatus.ACTIVE;
-        await _productSearchIndexer.SyncProductAsync(productId, cancellationToken);
 
         return ServiceResult<ProductVersionDto>.Created(
             ToVersionDto(productVersion),
@@ -161,7 +156,6 @@ public sealed class ProductVersionService : IProductVersionService
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await _productSearchIndexer.SyncProductAsync(productVersion.ProductId, cancellationToken);
 
         return ServiceResult<ProductVersionDto>.Success(
             ToVersionDto(productVersion),
@@ -194,7 +188,6 @@ public sealed class ProductVersionService : IProductVersionService
         await _productVersions.SetDefaultAsync(productVersion, cancellationToken);
         productVersion.IsDefault = true;
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await _productSearchIndexer.SyncProductAsync(productVersion.ProductId, cancellationToken);
 
         return ServiceResult<SetDefaultProductVersionDto>.Success(
             new SetDefaultProductVersionDto
@@ -1005,7 +998,6 @@ public sealed class ProductVersionService : IProductVersionService
         }
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await _productSearchIndexer.SyncProductAsync(productVersion.ProductId, cancellationToken);
 
         return ServiceResult<ProductVersionLifecycleStatusResponseDto>.Success(
             new ProductVersionLifecycleStatusResponseDto

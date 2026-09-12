@@ -1093,8 +1093,6 @@ public sealed class ProjectChatMessageServiceTests
                         Options.Create(new FirebaseStorageSettings())),
                     new FirebaseStorageSettings()),
                 NullLogger<ProjectChatMessageServiceDependencies>.Instance,
-                Search: null,
-                ChatMessageSearchIndexer: null,
                 Notifications: notifications));
     }
 

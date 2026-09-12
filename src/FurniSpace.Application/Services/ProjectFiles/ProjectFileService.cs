@@ -5,13 +5,10 @@ using static FurniSpace.Application.Constants.ProjectFiles.ProjectFileServiceCon
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
-using FurniSpace.Application.Interfaces.Search;
-using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
-using FurniSpace.Infrastructure.Common.Search.Documents;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -29,8 +26,6 @@ public sealed class ProjectFileService : IProjectFileService
     private readonly IFileStorageService _storage;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
-    private readonly ISearchIndexService? _search;
-    private readonly IProjectFileSearchIndexer? _projectFileSearchIndexer;
 
     public ProjectFileService(
         IProjectFileRepository projectFiles,
@@ -47,8 +42,6 @@ public sealed class ProjectFileService : IProjectFileService
         _storage = dependencies.Storage;
         _uploadSettings = dependencies.UploadSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
-        _search = dependencies.Search;
-        _projectFileSearchIndexer = dependencies.ProjectFileSearchIndexer;
     }
 
     public async Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectFileAsync(
@@ -807,8 +800,6 @@ public sealed class ProjectFileService : IProjectFileService
             throw;
         }
 
-        await SyncProjectFileIndexAsync(fileId, cancellationToken);
-
         return ServiceResult<ProjectFileUploadResponseDto>.Created(
             BuildUploadResponse(context.ProjectId, context.ReferenceType, context.ReferenceId, storedFile, fileLink, uploadResult),
             context.SuccessMessage);
@@ -1257,55 +1248,14 @@ public sealed class ProjectFileService : IProjectFileService
         Guid? customerAccountId,
         CancellationToken cancellationToken)
     {
-        if (_search is null)
-        {
-            return await GetProjectFilesSearchFromRepositoryAsync(
-                projectId,
-                query,
-                page,
-                limit,
-                customerVisibleOnly,
-                customerAccountId,
-                cancellationToken);
-        }
-
-        try
-        {
-            var searchResult = await _search.SearchAsync<ProjectFileSearchDocument>(
-                ProjectFileIndexName,
-                ProjectFileElasticsearchQueryFactory.BuildProjectSearch(
-                    projectId,
-                    query,
-                    page,
-                    limit,
-                    customerVisibleOnly,
-                    customerAccountId),
-                cancellationToken);
-
-            return new ProjectFileSearchResponseDto
-            {
-                Items = searchResult.Documents.Select(ProjectFileSearchResponseMapper.ToItem).ToList(),
-                Page = page,
-                Limit = limit,
-                Total = (int)Math.Min(searchResult.Total, int.MaxValue)
-            };
-        }
-        catch
-        {
-            return await GetProjectFilesSearchFromRepositoryAsync(
-                projectId,
-                query,
-                page,
-                limit,
-                customerVisibleOnly,
-                customerAccountId,
-                cancellationToken);
-        }
-    }
-
-    private Task SyncProjectFileIndexAsync(Guid fileId, CancellationToken cancellationToken)
-    {
-        return _projectFileSearchIndexer?.SyncFileAsync(fileId, cancellationToken) ?? Task.CompletedTask;
+        return await GetProjectFilesSearchFromRepositoryAsync(
+            projectId,
+            query,
+            page,
+            limit,
+            customerVisibleOnly,
+            customerAccountId,
+            cancellationToken);
     }
 
     private sealed class LinkedFileUploadContext

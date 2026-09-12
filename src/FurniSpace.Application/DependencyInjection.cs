@@ -40,10 +40,8 @@ using FurniSpace.Application.Interfaces.ProductIssues;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Reports;
 using FurniSpace.Application.Interfaces.RoomPlanner;
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Accounts;
 using FurniSpace.Application.Services.BusinessTypes;
-using FurniSpace.Application.Services.Search;
 using FurniSpace.Application.Services.Categories;
 using FurniSpace.Application.Services.Catalog;
 using FurniSpace.Application.Services.CustomizationRequests;
@@ -205,16 +203,12 @@ public static class DependencyInjection
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<ProjectChatFileUploadDependencies>(),
                 sp.GetRequiredService<ILogger<ProjectChatMessageServiceDependencies>>(),
-                sp.GetService<ISearchIndexService>(),
-                sp.GetService<IChatMessageSearchIndexer>(),
                 sp.GetService<INotificationDispatcher>());
         });
         services.AddScoped<ProductServiceDependencies>(sp =>
         {
             return new ProductServiceDependencies(
                 sp.GetRequiredService<IFileStorageService>(),
-                sp.GetRequiredService<ISearchIndexService>(),
-                sp.GetRequiredService<IProductSearchIndexer>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
                 sp.GetRequiredService<IOptions<ProductPreviewImageSettings>>().Value,
                 sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
@@ -226,9 +220,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<IFileStorageService>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
-                sp.GetService<ISearchIndexService>(),
-                sp.GetService<IProjectFileSearchIndexer>());
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
         });
         services.AddScoped<ProductVersionFileUploadDependencies>(sp =>
         {
@@ -244,8 +236,7 @@ public static class DependencyInjection
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<IFileStorageService>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>(),
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>(),
-                sp.GetService<IProjectFileSearchIndexer>()));
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>()));
         services.AddScoped<IMeasurementImageService, MeasurementImageService>();
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
@@ -268,8 +259,6 @@ public static class DependencyInjection
                 sp.GetService<INotificationDispatcher>(),
                 sp.GetService<ILogger<ProjectService>>(),
                 sp.GetService<IProjectChatService>(),
-                sp.GetService<ISearchIndexService>(),
-                sp.GetService<IProjectSearchIndexer>(),
                 sp.GetRequiredService<PaymentRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IOrderRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IQuotationRepository>(),
@@ -305,11 +294,6 @@ public static class DependencyInjection
         services.AddScoped<IProjectAreaService, ProjectAreaService>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepositoryAdapter>();
         services.AddScoped<IRoomPlannerSceneService, RoomPlannerSceneService>();
-        services.AddScoped<ISearchReindexService, SearchReindexService>();
-        services.AddScoped<IProductSearchIndexer, ProductSearchIndexer>();
-        services.AddScoped<IProjectSearchIndexer, ProjectSearchIndexer>();
-        services.AddScoped<IChatMessageSearchIndexer, ChatMessageSearchIndexer>();
-        services.AddScoped<IProjectFileSearchIndexer, ProjectFileSearchIndexer>();
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<PaymentServiceDependencies>(sp =>
         {

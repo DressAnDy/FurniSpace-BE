@@ -14,7 +14,6 @@ Related guides (deeper topics):
 | `docs/signalr-notification-guide.md` | Realtime hubs and groups |
 | `docs/firebase-storage-service-guide.md` | File upload / Firebase |
 | `docs/mongodb-room-planner-guide.md` | Room planner scenes |
-| `docs/elasticsearch-docker-guide.md` | Search / reindex locally |
 
 ---
 
@@ -54,7 +53,7 @@ Rules:
 - `Domain` must not reference Application, Infrastructure, or API.
 - **Repository contracts and implementations live in Infrastructure** (not Domain).
 - Application owns use-case orchestration, DTOs, mapping (Mapster), validation helpers, JWT/session orchestration.
-- Infrastructure owns EF Core, PostgreSQL, migrations, repositories, Redis, Elasticsearch, Mongo, Gmail, Firebase.
+- Infrastructure owns EF Core, PostgreSQL, migrations, repositories, Redis, Mongo, Gmail, Firebase.
 - API stays thin: bind HTTP, authorize, call Application services, map `ServiceResult` → HTTP. Controllers must not use EF, Redis, or repositories.
 
 There is **no MediatR / FluentValidation pipeline**. Validation is Application-side checks plus API `ValidationFilter`.
@@ -128,7 +127,7 @@ private readonly IProjectService _projects;
 private readonly IAuthService _auth;
 ```
 
-Do **not** inject `AppDbContext`, repositories, Redis, or Elasticsearch into controllers.
+Do **not** inject `AppDbContext`, repositories, or Redis into controllers.
 
 ### Application
 
@@ -154,7 +153,7 @@ using FurniSpace.Infrastructure.Repositories.IRepository;
 using FurniSpace.Infrastructure.Interfaces; // ICacheService, IEmailService, ...
 ```
 
-Application must not contain EF queries, Redis commands, SQL, Elasticsearch client calls, or HTTP SDK bodies for external providers (those stay in Infrastructure or thin Application adapters that call Infrastructure interfaces).
+Application must not contain EF queries, Redis commands, SQL, or HTTP SDK bodies for external providers (those stay in Infrastructure or thin Application adapters that call Infrastructure interfaces).
 
 ### Infrastructure
 
@@ -170,7 +169,6 @@ FurniSpace.Infrastructure/
   Caching/              RedisCacheService, RedisKeyBuilder
   Common/
     Caching/            RedisSettings
-    Search/Elasticsearch/
     Email/
     Storage/            Firebase
     Mongo/
@@ -222,7 +220,7 @@ HTTP
   -> Application service
   -> Domain entity / enum rules
   -> Infrastructure repository or provider
-  -> PostgreSQL / Redis / Elasticsearch / Mongo / Firebase / Gmail / PayOS|SePay
+  -> PostgreSQL / Redis / Mongo / Firebase / Gmail / PayOS|SePay
   -> DTO
   -> ServiceResult<T>
   -> BaseApiController.ToActionResult(...)
@@ -408,18 +406,10 @@ Registered in `Infrastructure/DependencyInjection.cs` (called from `Application.
 | --- | --- | --- |
 | PostgreSQL | `ConnectionStrings:DefaultConnection` / `MigrationConnection`, env `__` forms | Npgsql enum mapping |
 | Redis | `Redis:ConnectionString`, `REDIS_CONNECTION`, optional `REDIS_PASSWORD` | |
-| Elasticsearch | `Elasticsearch:Url`, `ELASTICSEARCH_URL`, `InitializeIndices` | Indexers in Application/Search |
 | MongoDB | `MongoDb:*`, `MONGODB_CONNECTION_STRING` | Room planner scenes |
 | Firebase Storage | `FIREBASE_STORAGE_BUCKET`, credentials path | Project/product files |
 | Gmail API | `GmailApi__*` | Transactional email |
 | PayOS / SePay | Application options + env overrides | Webhooks under Payments controllers |
-
-Reindex CLI (exits after run):
-
-```powershell
-dotnet run --project src/FurniSpace.API -- reindex products
-# modules: accounts | products | projects | chat-messages | project-files
-```
 
 ---
 
@@ -556,11 +546,7 @@ Product create/update may include `"businessTypeIds": [1, 2]`.
 - `null` = no assignment stored; `[]` = explicitly none.
 - Filters on `GET /products` and `GET /products/search` use **ANY** semantics (`&&` array overlap). Invalid IDs (≤ 0) → `400 INVALID_BUSINESS_TYPE_FILTER`.
 
-`ProductSearchDocument` includes `businessTypeIds`. After mapping changes:
-
-```powershell
-dotnet run --project src/FurniSpace.API -- reindex products
-```
+Product search reads `businessTypeIds` directly from PostgreSQL; no secondary index rebuild is required after mapping changes.
 
 ---
 
@@ -569,7 +555,7 @@ dotnet run --project src/FurniSpace.API -- reindex products
 | Suite | Projects | Notes |
 | --- | --- | --- |
 | Unit | `tests/UnitTests/FurniSpace.UnitTests.sln` → `*.Tests` | No Docker; CI + Sonar |
-| Core integration | `*.IntegrationTests` + trait `Category=Core` | Postgres Testcontainers; Redis/ES/email/storage faked in API factory |
+| Core integration | `*.IntegrationTests` + trait `Category=Core` | Postgres Testcontainers; Redis/email/storage faked in API factory |
 | Shared harness | `FurniSpace.Testing` | Excluded from Sonar coverage (test infra) |
 
 ```powershell
@@ -596,9 +582,11 @@ API/Middleware/ExceptionHandlingMiddleware.cs
 ```
 
 - Development: readable console + `logs/furnispace-YYYYMMDD.log`
-- Other envs: structured JSON console + `.json` log file
+- Other envs: structured JSON console + `.json` log file; rendered-message duplicates are omitted
 - Enrich with `Application`, `CorrelationId`, `TraceId`; authenticated requests include `UserId`
 - `4xx` / slow (≥1s) → Warning; `5xx` → Error
+- Successful login requests below 1s and successful SignalR hub traffic → Debug to avoid noisy request logs
+- Login request logs omit `UserId` because a stale authentication cookie may belong to the previous session
 - Use structured templates; never interpolate secrets into messages
 - Never log passwords, tokens, OTPs, connection strings, or sensitive bodies
 
@@ -609,7 +597,7 @@ API/Middleware/ExceptionHandlingMiddleware.cs
 - Read existing files before editing; keep changes scoped.
 - Follow current folders and namespaces (no inventing `Features/` or Domain repositories).
 - Do not move repository interfaces into Domain.
-- Do not put EF/Redis/Elasticsearch client code in Application services.
+- Do not put EF/Redis client code in Application services.
 - Do not put business rules in controllers.
 - Use DTOs + `ServiceResult<T>` for Application outputs.
 - Update this guide when architecture or conventions change.

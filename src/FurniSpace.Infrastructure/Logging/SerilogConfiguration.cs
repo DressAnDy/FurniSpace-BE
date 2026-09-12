@@ -28,7 +28,8 @@ public static class SerilogConfiguration
 
         if (useJsonFormatting)
         {
-            var jsonFormatter = new JsonFormatter(renderMessage: true);
+            // Keep structured fields without duplicating them in RenderedMessage/Renderings.
+            var jsonFormatter = new JsonFormatter(renderMessage: false);
 
             loggerConfiguration
                 .WriteTo.Console(jsonFormatter)

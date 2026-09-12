@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Serilog.Context;
 
 namespace FurniSpace.API.Middleware;
@@ -13,13 +12,11 @@ public sealed class CorrelationIdMiddleware(RequestDelegate next)
     public async Task InvokeAsync(HttpContext context)
     {
         var correlationId = GetCorrelationId(context);
-        var traceId = Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier;
 
         context.Items[ItemKey] = correlationId;
         context.Response.Headers[HeaderName] = correlationId;
 
         using (LogContext.PushProperty("CorrelationId", correlationId))
-        using (LogContext.PushProperty("TraceId", traceId))
         {
             await next(context);
         }

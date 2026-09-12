@@ -1,3 +1,4 @@
+using FurniSpace.API.Logging;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FurniSpace.API.Middleware;
@@ -31,6 +32,7 @@ public sealed class ExceptionHandlingMiddleware(
             context.Response.Clear();
             context.Response.StatusCode = StatusCodes.Status500InternalServerError;
             context.Response.Headers[CorrelationIdMiddleware.HeaderName] = correlationId;
+            RequestLogSummary.Set(context, "An unexpected error occurred.", null);
 
             await context.Response.WriteAsJsonAsync(new ProblemDetails
             {

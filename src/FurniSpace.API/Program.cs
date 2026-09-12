@@ -49,7 +49,11 @@ Log.Logger = SerilogConfiguration.CreateLogger(
 builder.Host.UseSerilog();
 
 builder.Services
-    .AddControllers(options => options.Filters.Add<ValidationFilter>())
+    .AddControllers(options =>
+    {
+        options.Filters.Add<ValidationFilter>();
+        options.Filters.Add<RequestLogResultFilter>();
+    })
     .ConfigureApiBehaviorOptions(options => options.SuppressModelStateInvalidFilter = true)
     .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 ConfigureForwardedHeaders(builder.Services, builder.Configuration);

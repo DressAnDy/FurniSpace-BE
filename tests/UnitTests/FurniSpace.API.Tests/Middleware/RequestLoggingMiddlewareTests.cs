@@ -31,4 +31,45 @@ public sealed class RequestLoggingMiddlewareTests
 
         Assert.Equal(expected, actual);
     }
+
+    [Fact]
+    public void FormatRequestLog_IncludesApiCodeMessageAndTime()
+    {
+        var actual = RequestLoggingMiddleware.FormatRequestLog(
+            "POST",
+            "/auth/login",
+            200,
+            errorCode: null,
+            "Logged in successfully.",
+            4310.4);
+
+        Assert.Equal(
+            """
+            API      POST /auth/login
+                           Code     200
+                           Message  Logged in successfully.
+                           Time     4310ms
+            """,
+            actual);
+    }
+
+    [Fact]
+    public void FormatRequestLog_OmitsEmptyMessageAndAppendsErrorCode()
+    {
+        var actual = RequestLoggingMiddleware.FormatRequestLog(
+            "GET",
+            "/products/search",
+            400,
+            "INVALID_BUSINESS_TYPE_FILTER",
+            message: null,
+            12);
+
+        Assert.Equal(
+            """
+            API      GET /products/search
+                           Code     400 INVALID_BUSINESS_TYPE_FILTER
+                           Time     12ms
+            """,
+            actual);
+    }
 }

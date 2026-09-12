@@ -1,5 +1,10 @@
+#nullable enable
+
 using System.Diagnostics;
+using System.Globalization;
 using System.Security.Claims;
+using System.Text;
+using FurniSpace.API.Logging;
 using Serilog;
 using Serilog.Context;
 using Serilog.Events;
@@ -40,16 +45,52 @@ public sealed class RequestLoggingMiddleware(RequestDelegate next)
             statusCode,
             (long)elapsedMilliseconds);
 
+        var summary = RequestLogSummary.Get(context);
         Log.ForContext<RequestLoggingMiddleware>()
             .ForContext("EventType", "HttpRequestCompleted")
             .ForContext("UserId", userId)
+            .ForContext("StatusCode", statusCode)
+            .ForContext("ErrorCode", summary?.ErrorCode)
+            .ForContext("ElapsedMs", elapsedMilliseconds)
             .Write(
                 level,
-                "{RequestMethod} {RequestPath} {StatusCode} {ElapsedMs:0}ms",
-                context.Request.Method,
-                context.Request.Path.Value,
-                statusCode,
-                elapsedMilliseconds);
+                "{RequestLog:l}",
+                FormatRequestLog(
+                    context.Request.Method,
+                    context.Request.Path.Value,
+                    statusCode,
+                    summary?.ErrorCode,
+                    summary?.Message,
+                    elapsedMilliseconds));
+    }
+
+    internal static string FormatRequestLog(
+        string method,
+        string? path,
+        int statusCode,
+        string? errorCode,
+        string? message,
+        double elapsedMilliseconds)
+    {
+        var code = string.IsNullOrWhiteSpace(errorCode)
+            ? statusCode.ToString(CultureInfo.InvariantCulture)
+            : $"{statusCode.ToString(CultureInfo.InvariantCulture)} {errorCode}";
+        var builder = new StringBuilder()
+            .Append("API      ").Append(method).Append(' ').Append(path)
+            .AppendLine()
+            .Append("               Code     ").Append(code);
+
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            builder.AppendLine().Append("               Message  ").Append(message);
+        }
+
+        return builder
+            .AppendLine()
+            .Append("               Time     ")
+            .Append(elapsedMilliseconds.ToString("0", CultureInfo.InvariantCulture))
+            .Append("ms")
+            .ToString();
     }
 
     internal static LogEventLevel GetLogLevel(

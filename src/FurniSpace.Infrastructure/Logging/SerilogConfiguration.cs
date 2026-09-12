@@ -9,7 +9,7 @@ public static class SerilogConfiguration
     public const string ApplicationName = "FurniSpace.API";
 
     private const string ConsoleOutputTemplate =
-        "{Timestamp:HH:mm:ss.fff} [{Level:u3}] [{SourceContext}] [CID:{CorrelationId}] {Message:lj}{NewLine}{Exception}";
+        "{Timestamp:HH:mm:ss} [{Level:u3}] {Message:lj}{NewLine}{Exception}";
 
     private const string FileOutputTemplate =
         "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{Application}] [{SourceContext}] [CID:{CorrelationId}] [TraceId:{TraceId}] {Message:lj}{NewLine}{Exception}";
@@ -23,28 +23,24 @@ public static class SerilogConfiguration
             .Enrich.FromLogContext()
             .Enrich.WithProperty("Application", ApplicationName);
 
+        loggerConfiguration.WriteTo.Console(outputTemplate: ConsoleOutputTemplate);
+
         if (useJsonFormatting)
         {
-            // Keep structured fields without duplicating them in RenderedMessage/Renderings.
-            var jsonFormatter = new JsonFormatter(renderMessage: false);
-
-            loggerConfiguration
-                .WriteTo.Console(jsonFormatter)
-                .WriteTo.File(
-                    jsonFormatter,
-                    "logs/furnispace-.json",
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 30);
+            // Console stays one line. The file keeps structured fields without a rendered duplicate.
+            loggerConfiguration.WriteTo.File(
+                new JsonFormatter(renderMessage: false),
+                "logs/furnispace-.json",
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 30);
         }
         else
         {
-            loggerConfiguration
-                .WriteTo.Console(outputTemplate: ConsoleOutputTemplate)
-                .WriteTo.File(
-                    "logs/furnispace-.log",
-                    rollingInterval: RollingInterval.Day,
-                    retainedFileCountLimit: 30,
-                    outputTemplate: FileOutputTemplate);
+            loggerConfiguration.WriteTo.File(
+                "logs/furnispace-.log",
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 30,
+                outputTemplate: FileOutputTemplate);
         }
 
         return loggerConfiguration.CreateLogger();

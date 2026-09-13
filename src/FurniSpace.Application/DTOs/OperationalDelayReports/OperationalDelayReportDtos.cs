@@ -14,6 +14,7 @@ public static class OperationalDelayReportErrorCodes
     public const string DeliveryProjectMismatch = "OPERATIONAL_DELAY_DELIVERY_PROJECT_MISMATCH";
     public const string Forbidden = "OPERATIONAL_DELAY_FORBIDDEN";
     public const string InvalidRequest = "OPERATIONAL_DELAY_INVALID_REQUEST";
+    public const string ResolutionNoteTooLong = "OPERATIONAL_DELAY_RESOLUTION_NOTE_TOO_LONG";
 }
 
 public sealed class CreateProductionDelayReportRequestDto
@@ -31,6 +32,11 @@ public sealed class CreateDeliveryDelayReportRequestDto
     public string? ProductionReasonCode { get; set; }
     public string DeliveryReasonCode { get; set; } = string.Empty;
     public string ReasonDetail { get; set; } = string.Empty;
+}
+
+public sealed class ResolveReportRequestDto
+{
+    public string? ResolutionNote { get; set; }
 }
 
 public sealed class OperationalDelayReportDto
@@ -51,6 +57,9 @@ public sealed class OperationalDelayReportDto
     public string? ReporterName { get; set; }
     public DateTime ReportedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime? ResolvedAt { get; set; }
+    public string? ResolutionNote { get; set; }
 }
 
 public sealed class OperationalDelayReportListResponseDto

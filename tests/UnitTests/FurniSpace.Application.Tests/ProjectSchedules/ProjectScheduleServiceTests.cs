@@ -247,14 +247,111 @@ public sealed class ProjectScheduleServiceTests
     public async Task CreateAsync_DispatchesNotification_AfterSuccessfulCreate()
     {
         var salesId = Guid.NewGuid();
-        var project = CreateProject(assignedSalesId: salesId);
+        var customerId = Guid.NewGuid();
+        var assignedStaffId = Guid.NewGuid();
+        var project = CreateProject(customerId: customerId, assignedSalesId: salesId);
         var dispatcher = new FakeNotificationDispatcher();
+        var request = ValidCreateRequest();
+        request.AssignedStaffId = assignedStaffId;
         var service = BuildService(new() { Role = "SALES", ProjectDetail = project, Dispatcher = dispatcher });
 
-        await service.CreateAsync(project.ProjectId, salesId, ValidCreateRequest());
+        var result = await service.CreateAsync(project.ProjectId, salesId, request);
 
+        Assert.Equal(201, result.Status);
         Assert.Equal(1, dispatcher.DispatchCallCount);
         Assert.Equal(NotificationType.ProjectScheduleCreated, dispatcher.LastType);
+        Assert.Equal(
+            new[] { customerId, assignedStaffId }.OrderBy(id => id),
+            dispatcher.LastReceiverIds.OrderBy(id => id));
+        Assert.Equal("PROJECT_SCHEDULE", dispatcher.LastRequest!.ReferenceType);
+        Assert.Equal(result.Data!.ScheduleId, dispatcher.LastRequest.ReferenceId);
+        Assert.Equal(project.ProjectId, dispatcher.LastRequest.ProjectId);
+        AssertScheduleMetadata(
+            dispatcher.LastRequest.Metadata!,
+            result.Data.ScheduleId,
+            project.ProjectId,
+            request.ScheduleType,
+            ProjectScheduleStatus.PENDING_CONFIRMATION,
+            request.ScheduledStart,
+            request.ScheduledEnd);
+    }
+
+    [Fact]
+    public async Task CreateAsync_MeasurementSchedule_IncludesAssignedDesignerAsReceiver()
+    {
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var project = CreateProject(
+            customerId: customerId,
+            assignedSalesId: salesId,
+            assignedDesignerId: designerId,
+            status: ProjectStatus.MEASUREMENT_REQUIRED);
+        var dispatcher = new FakeNotificationDispatcher();
+        var request = ValidMeasurementCreateRequest(designerId);
+        var service = BuildService(new()
+        {
+            Role = "SALES",
+            ProjectDetail = project,
+            Dispatcher = dispatcher
+        });
+
+        await service.CreateAsync(project.ProjectId, salesId, request);
+
+        Assert.Equal(NotificationType.ProjectScheduleCreated, dispatcher.LastType);
+        Assert.Equal(
+            new[] { customerId, designerId }.OrderBy(id => id),
+            dispatcher.LastReceiverIds.OrderBy(id => id));
+    }
+
+    [Fact]
+    public async Task UpdateStatusAsync_CustomerConfirm_DispatchesProjectScheduleConfirmed()
+    {
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var schedule = CreateScheduleEntity(status: ProjectScheduleStatus.PENDING_CONFIRMATION);
+        schedule.AssignedStaffId = staffId;
+        var detail = CreateScheduleDetail(
+            customerId: customerId,
+            assignedSalesId: salesId,
+            assignedStaffId: staffId,
+            status: ProjectScheduleStatus.PENDING_CONFIRMATION,
+            scheduleId: schedule.ScheduleId);
+        detail.ProjectId = schedule.ProjectId;
+        var scheduleRepo = new FakeProjectScheduleRepository(entityById: schedule, detail: detail);
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = BuildService(new()
+        {
+            Role = "CUSTOMER",
+            ScheduleDetail = detail,
+            ScheduleRepo = scheduleRepo,
+            Dispatcher = dispatcher
+        });
+
+        var result = await service.UpdateStatusAsync(
+            schedule.ScheduleId,
+            customerId,
+            new UpdateProjectScheduleStatusRequestDto { Status = ProjectScheduleStatus.CONFIRMED });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectScheduleStatus.CONFIRMED, schedule.Status);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(NotificationType.ProjectScheduleConfirmed, dispatcher.LastType);
+        Assert.Equal(
+            new[] { salesId, staffId }.OrderBy(id => id),
+            dispatcher.LastReceiverIds.OrderBy(id => id));
+        Assert.DoesNotContain(customerId, dispatcher.LastReceiverIds);
+        Assert.Equal("PROJECT_SCHEDULE", dispatcher.LastRequest!.ReferenceType);
+        Assert.Equal(schedule.ScheduleId, dispatcher.LastRequest.ReferenceId);
+        AssertScheduleMetadata(
+            dispatcher.LastRequest.Metadata!,
+            schedule.ScheduleId,
+            schedule.ProjectId,
+            schedule.ScheduleType!.Value,
+            ProjectScheduleStatus.CONFIRMED,
+            schedule.ScheduledStart,
+            schedule.ScheduledEnd);
     }
 
     [Fact]
@@ -2308,10 +2405,29 @@ public sealed class ProjectScheduleServiceTests
             => Task.CompletedTask;
     }
 
+    private static void AssertScheduleMetadata(
+        IReadOnlyDictionary<string, object?> metadata,
+        Guid scheduleId,
+        Guid projectId,
+        ProjectScheduleType scheduleType,
+        ProjectScheduleStatus status,
+        DateTime scheduledStart,
+        DateTime? scheduledEnd)
+    {
+        Assert.Equal(scheduleId, metadata["scheduleId"]);
+        Assert.Equal(projectId, metadata["projectId"]);
+        Assert.Equal(scheduleType.ToString(), metadata["scheduleType"]);
+        Assert.Equal(status.ToString(), metadata["status"]);
+        Assert.Equal(scheduledStart, metadata["scheduledStart"]);
+        Assert.Equal(scheduledEnd, metadata["scheduledEnd"]);
+    }
+
     private sealed class FakeNotificationDispatcher : INotificationDispatcher
     {
         public int DispatchCallCount { get; private set; }
         public NotificationType LastType { get; private set; }
+        public NotificationDispatchRequest? LastRequest { get; private set; }
+        public List<Guid> LastReceiverIds { get; } = [];
 
         public Task DispatchAsync(
             NotificationType type,
@@ -2322,6 +2438,9 @@ public sealed class ProjectScheduleServiceTests
         {
             DispatchCallCount++;
             LastType = type;
+            LastRequest = request;
+            LastReceiverIds.Clear();
+            LastReceiverIds.AddRange(receiverIds);
             return Task.CompletedTask;
         }
     }

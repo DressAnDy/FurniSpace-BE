@@ -28,4 +28,10 @@ public interface IOperationalDelayReportService
         Guid reportId,
         Guid currentUserId,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<OperationalDelayReportDto>> ResolveAsync(
+        Guid reportId,
+        Guid currentUserId,
+        ResolveReportRequestDto request,
+        CancellationToken cancellationToken = default);
 }

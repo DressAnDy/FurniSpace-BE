@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.ProductIssues;
+using FurniSpace.Application.Common.Reports;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.Constants.ProductIssues;
@@ -152,7 +153,8 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
             AffectedQuantity = request.AffectedQuantity,
             ReportedBy = currentUserId,
             ReportedAt = now,
-            CreatedAt = now
+            CreatedAt = now,
+            Status = ReportResolutionStatus.OPEN
         };
 
         try
@@ -287,6 +289,60 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
         return ServiceResult<ProductIssueReportDto>.Success(
             ToDto(detail),
             "Product issue report retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProductIssueReportDto>> ResolveAsync(
+        Guid issueId,
+        Guid currentUserId,
+        ResolveProductIssueRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (issueId == Guid.Empty || currentUserId == Guid.Empty)
+        {
+            return BadRequest(ProductIssueErrorCodes.InvalidRequest, "Issue id is required.");
+        }
+
+        var noteError = ValidateResolutionNote(request.ResolutionNote);
+        if (noteError is not null)
+        {
+            return noteError;
+        }
+
+        var issue = await _issues.GetByIdAsync(issueId, cancellationToken);
+        if (issue is null)
+        {
+            return NotFound(ProductIssueErrorCodes.IssueNotFound, IssueNotFoundMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(issue.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound(ProductIssueErrorCodes.IssueNotFound, IssueNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!await CanResolveAsync(project.ProjectId, project.CustomerId, roleName, currentUserId, cancellationToken))
+        {
+            return Forbidden();
+        }
+
+        var normalizedNote = ReportResolutionSupport.NormalizeResolutionNote(request.ResolutionNote);
+        ReportResolutionSupport.ApplyResolveTransition(
+            issue.Status,
+            () =>
+            {
+                issue.Status = ReportResolutionStatus.RESOLVED;
+                issue.ResolvedAt = DateTime.UtcNow;
+                issue.ResolutionNote = normalizedNote;
+            });
+
+        _issues.Update(issue);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var detail = await _issues.GetDetailAsync(issueId, cancellationToken);
+        return ServiceResult<ProductIssueReportDto>.Success(
+            ToDto(detail!),
+            "Product issue report resolved successfully.");
     }
 
     private async Task<(StoredFile StoredFile, FileLink FileLink)> UploadEvidenceAsync(
@@ -438,6 +494,21 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
         return false;
     }
 
+    private async Task<bool> CanResolveAsync(
+        Guid projectId,
+        Guid customerId,
+        string? roleName,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        if (IsCustomer(roleName) || IsDesigner(roleName))
+        {
+            return false;
+        }
+
+        return await CanViewAsync(projectId, customerId, roleName, currentUserId, cancellationToken);
+    }
+
     private ServiceResult<ProductIssueReportDto>? ValidateEvidenceFiles(
         IReadOnlyList<ProductIssueEvidenceUploadDto> files)
     {
@@ -542,7 +613,10 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
             ReportedBy = item.ReportedBy,
             ReporterName = item.ReporterName,
             ReportedAt = item.ReportedAt,
-            CreatedAt = item.CreatedAt
+            CreatedAt = item.CreatedAt,
+            Status = item.Status.ToString(),
+            ResolvedAt = item.ResolvedAt,
+            ResolutionNote = item.ResolutionNote
         };
     }
 
@@ -584,8 +658,24 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
             ReportedBy = issue.ReportedBy,
             ReportedAt = issue.ReportedAt,
             CreatedAt = issue.CreatedAt,
+            Status = issue.Status,
+            ResolvedAt = issue.ResolvedAt,
+            ResolutionNote = issue.ResolutionNote,
             ProductNameSnapshot = productNameSnapshot
         };
+    }
+
+    private static ServiceResult<ProductIssueReportDto>? ValidateResolutionNote(string? note)
+    {
+        var normalized = ReportResolutionSupport.NormalizeResolutionNote(note);
+        if (normalized?.Length > ReportResolutionSupport.MaxResolutionNoteLength)
+        {
+            return BadRequest(
+                ProductIssueErrorCodes.ResolutionNoteTooLong,
+                $"Resolution note must not exceed {ReportResolutionSupport.MaxResolutionNoteLength} characters.");
+        }
+
+        return null;
     }
 
     private static bool IsAdmin(string? roleName) =>

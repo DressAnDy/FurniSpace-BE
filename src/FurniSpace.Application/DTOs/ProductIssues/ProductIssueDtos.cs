@@ -15,6 +15,7 @@ public static class ProductIssueErrorCodes
     public const string Forbidden = "PRODUCT_ISSUE_FORBIDDEN";
     public const string InvalidRequest = "PRODUCT_ISSUE_INVALID_REQUEST";
     public const string FileUploadFailed = "PRODUCT_ISSUE_FILE_UPLOAD_FAILED";
+    public const string ResolutionNoteTooLong = "PRODUCT_ISSUE_RESOLUTION_NOTE_TOO_LONG";
 }
 
 public sealed class ProductIssueEvidenceUploadDto
@@ -61,7 +62,15 @@ public sealed class ProductIssueReportDto
     public string? ReporterName { get; set; }
     public DateTime ReportedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime? ResolvedAt { get; set; }
+    public string? ResolutionNote { get; set; }
     public IReadOnlyList<ProductIssueEvidenceFileDto> EvidenceFiles { get; set; } = [];
+}
+
+public sealed class ResolveProductIssueRequestDto
+{
+    public string? ResolutionNote { get; set; }
 }
 
 public sealed class ProductIssueReportListResponseDto

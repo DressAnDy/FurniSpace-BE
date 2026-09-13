@@ -22,6 +22,8 @@ internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepositor
 
     public bool HasUnresolvedConfirmedDeliverySchedule { get; init; }
 
+    public bool HasActiveDeliverySchedule { get; init; }
+
     public bool HasLinkedInProgressDelivery { get; init; }
 
     public IReadOnlyList<ProjectSchedule> UnusedFutureDeliverySchedules { get; init; } = [];
@@ -129,7 +131,7 @@ internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepositor
         Guid projectId,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(ConfirmedDeliverySchedule);
+        return Task.FromResult(HasActiveDeliverySchedule || ConfirmedDeliverySchedule);
     }
 
     public Task<bool> HasUnresolvedConfirmedDeliveryScheduleAsync(
@@ -144,6 +146,13 @@ internal sealed class EmptyProjectScheduleRepository : IProjectScheduleRepositor
         CancellationToken cancellationToken = default)
     {
         return Task.FromResult(HasLinkedInProgressDelivery);
+    }
+
+    public Task<IReadOnlyList<ProjectSchedule>> GetActiveMeasurementSchedulesForCleanupAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<ProjectSchedule>>([]);
     }
 
     public Task<IReadOnlyList<ProjectSchedule>> GetUnusedFutureDeliverySchedulesAsync(

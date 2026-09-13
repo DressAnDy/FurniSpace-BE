@@ -173,5 +173,14 @@ public sealed class ProductIssuesControllerTests
             => Task.FromResult(ServiceResult<ProductIssueReportDto>.Success(
                 new ProductIssueReportDto(),
                 "Product issue report retrieved successfully."));
+
+        public Task<ServiceResult<ProductIssueReportDto>> ResolveAsync(
+            Guid issueId,
+            Guid currentUserId,
+            ResolveProductIssueRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductIssueReportDto>.Success(
+                new ProductIssueReportDto(),
+                "Product issue report resolved successfully."));
     }
 }

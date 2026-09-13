@@ -65,6 +65,7 @@ public class AppDbContext : DbContext
     private const string ProductionDelayReasonCodeColumnType = "production_delay_reason_code";
     private const string DeliveryDelayReasonCodeColumnType = "delivery_delay_reason_code";
     private const string DeliveryProductIssueTypeColumnType = "delivery_product_issue_type";
+    private const string ReportResolutionStatusColumnType = "report_resolution_status";
 
     private const string ProjectChatTypeColumnType = "project_chat_type";
     private const string ProjectChatStatusColumnType = "project_chat_status";
@@ -1267,6 +1268,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ReportedBy).HasColumnName("reported_by").HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.ReportedAt).HasColumnName("reported_at").HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType(ReportResolutionStatusColumnType).HasDefaultValue(ReportResolutionStatus.OPEN).IsRequired();
+            entity.Property(e => e.ResolvedAt).HasColumnName("resolved_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.ResolutionNote).HasColumnName("resolution_note").HasColumnType(TextColumnType);
             entity.HasIndex(e => new { e.ProjectId, e.ReportPhase }).HasDatabaseName("idx_operational_delay_reports_project_phase");
             entity.HasIndex(e => e.ProductionRequestId).HasDatabaseName("idx_operational_delay_reports_production_request");
             entity.HasIndex(e => e.OrderId).HasDatabaseName("idx_operational_delay_reports_order");
@@ -1296,6 +1300,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ReportedBy).HasColumnName("reported_by").HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.ReportedAt).HasColumnName("reported_at").HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType(ReportResolutionStatusColumnType).HasDefaultValue(ReportResolutionStatus.OPEN).IsRequired();
+            entity.Property(e => e.ResolvedAt).HasColumnName("resolved_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.ResolutionNote).HasColumnName("resolution_note").HasColumnType(TextColumnType);
             entity.HasIndex(e => e.ProjectId).HasDatabaseName("idx_delivery_product_issue_reports_project");
             entity.HasIndex(e => e.OrderId).HasDatabaseName("idx_delivery_product_issue_reports_order");
             entity.HasIndex(e => e.OrderItemId).HasDatabaseName("idx_delivery_product_issue_reports_order_item");

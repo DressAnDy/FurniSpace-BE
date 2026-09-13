@@ -3,6 +3,7 @@
 using System.Security.Claims;
 using FurniSpace.API.Base;
 using FurniSpace.API.DTOs.ProductIssues;
+using FurniSpace.Application.DTOs.ProductIssues;
 using FurniSpace.Application.Interfaces.ProductIssues;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -86,6 +87,22 @@ public sealed class ProductIssuesController : BaseApiController
         }
 
         var result = await _productIssues.GetDetailAsync(issueId, currentUserId, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [HttpPatch("product-issues/{issueId:guid}/resolve")]
+    public async Task<IActionResult> Resolve(
+        Guid issueId,
+        [FromBody] ResolveProductIssueRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _productIssues.ResolveAsync(issueId, currentUserId, request, cancellationToken);
         return ToActionResult(result);
     }
 

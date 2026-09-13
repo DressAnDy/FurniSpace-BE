@@ -16,4 +16,7 @@ public class DeliveryProductIssueReport
     public Guid ReportedBy { get; set; }
     public DateTime ReportedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    public ReportResolutionStatus Status { get; set; } = ReportResolutionStatus.OPEN;
+    public DateTime? ResolvedAt { get; set; }
+    public string? ResolutionNote { get; set; }
 }

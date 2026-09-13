@@ -115,7 +115,7 @@ public static class NotificationTemplateProvider
             NotificationType.ProjectScheduleCreated => new NotificationTemplate(
                 "New project schedule created",
                 "A {ScheduleType} schedule has been created for project \"{ProjectName}\" at {ScheduledStart}.",
-                NotificationDeliveryLevel.RealtimeOnly,
+                NotificationDeliveryLevel.InAppRealtime,
                 "project_schedule.created"),
 
             NotificationType.ProjectScheduleUpdated => new NotificationTemplate(
@@ -127,7 +127,7 @@ public static class NotificationTemplateProvider
             NotificationType.ProjectScheduleConfirmed => new NotificationTemplate(
                 "Project schedule confirmed",
                 "The {ScheduleType} schedule for project \"{ProjectName}\" has been confirmed.",
-                NotificationDeliveryLevel.RealtimeOnly,
+                NotificationDeliveryLevel.InAppRealtime,
                 "project_schedule.confirmed"),
 
             NotificationType.ProjectScheduleCompleted => new NotificationTemplate(

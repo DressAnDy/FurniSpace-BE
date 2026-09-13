@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.ProjectSchedules;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.Constants.Orders;
@@ -303,16 +304,21 @@ public sealed partial class OrderService
                 order.UpdatedAt = now;
                 _orders.Update(order);
                 await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+
+                var remainingQuantity = await _orders.GetTotalRemainingDeliverableQuantityAsync(
+                    order.OrderId,
+                    transactionCancellationToken);
+                if (remainingQuantity == 0)
+                {
+                    await ProjectScheduleCleanupSupport.CancelUnusedDeliverySchedulesAsync(
+                        _schedules,
+                        project.ProjectId,
+                        now,
+                        transactionCancellationToken);
+                    await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
+                }
             },
             cancellationToken);
-
-        var remainingQuantity = await _orders.GetTotalRemainingDeliverableQuantityAsync(
-            order.OrderId,
-            cancellationToken);
-        if (remainingQuantity == 0)
-        {
-            await CancelUnusedFutureDeliverySchedulesAsync(project.ProjectId, now, cancellationToken);
-        }
 
         await OrderNotificationSupport.TryDispatchUpdatedAsync(
             _notifications,
@@ -589,32 +595,15 @@ public sealed partial class OrderService
         return ServiceResult<T>.Forbidden(ForbiddenMessage);
     }
 
-    private async Task CancelUnusedFutureDeliverySchedulesAsync(
+    private Task CancelUnusedFutureDeliverySchedulesAsync(
         Guid projectId,
         DateTime now,
         CancellationToken cancellationToken)
     {
-        var schedules = await _schedules.GetUnusedFutureDeliverySchedulesAsync(projectId, cancellationToken);
-        if (schedules.Count == 0)
-        {
-            return;
-        }
-
-        await UnitOfWorkTransactions.ExecuteAsync(
-            _unitOfWork,
-            async transactionCancellationToken =>
-            {
-                foreach (var schedule in schedules)
-                {
-                    schedule.Status = ProjectScheduleStatus.CANCELLED;
-                    schedule.CancelledAt = now;
-                    schedule.UpdatedAt = now;
-                    schedule.InternalNote = OrderDeliveryConstants.AllItemsAlreadyDeliveredCancellationNote;
-                    _schedules.Update(schedule);
-                }
-
-                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
-            },
+        return ProjectScheduleCleanupSupport.CancelUnusedDeliverySchedulesAsync(
+            _schedules,
+            projectId,
+            now,
             cancellationToken);
     }
 

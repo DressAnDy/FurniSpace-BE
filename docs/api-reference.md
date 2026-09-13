@@ -1485,6 +1485,19 @@ All four ratings are required integers from 1 through 5. Only the owning Custome
 }
 ```
 
+### Measurement schedule auto-cancel (side effect)
+
+When project phase moves past measurement need, backend cancels stale **MEASUREMENT** schedules in the same transaction — no notification, no extra API.
+
+| Trigger | Condition |
+| --- | --- |
+| `PATCH /projects/{projectId}/status` | New status `SPACE_VERIFIED` or `PROPOSAL_CONSULTING` |
+| `PATCH /projects/{projectId}/designer-assignment` | Resolved status `SPACE_VERIFIED` after assign |
+
+Affected schedules: `MEASUREMENT` + (`PENDING_CONFIRMATION` \| `CONFIRMED`). Sets `status = CANCELLED`, `cancelledAt`, appends `internalNote` token `MEASUREMENT_PHASE_SUPERSEDED`. `COMPLETED` / already `CANCELLED` unchanged.
+
+FE: refetch project schedules after status/assign-designer success. See `docs/fe-handoff/measurement-schedule-phase-cleanup.md`.
+
 ### Project status lifecycle (summary)
 
 ```text
@@ -2089,6 +2102,8 @@ Returns `DeliveryDetailDto` (`201`) with batch `deliveryId`, `status: IN_PROGRES
 
 No body. Marks batch `COMPLETED`, updates item delivered quantities/statuses. Response: `DeliveryBatchCompletionDto` with `updatedItemCount`.
 
+When all deliverable quantities for the order reach zero after this batch, backend auto-cancels unused `DELIVERY` schedules still in `PENDING_CONFIRMATION` or `CONFIRMED` (no linked batch / not completed). Cancelled rows append `internalNote` token `ALL_ITEMS_ALREADY_DELIVERED`. No notification.
+
 ### List / detail deliveries
 
 `DeliveryListResponseDto.items[]`: `deliveryId`, `orderId`, `status`, `itemCount`, `createdAt`, `completedAt?`
@@ -2119,7 +2134,15 @@ No request body. Admin-only obsolete compatibility path; creates and completes o
 
 ### Confirm delivery (customer)
 
-No request body. Requires all deliverable items fully delivered (`DELIVERED` or full quantity) and order `DELIVERING`.
+No request body. Requires all deliverable items fully delivered (`DELIVERED` or full quantity) and order `AWAITING_CUSTOMER_CONFIRMATION`.
+
+Pre-confirm backend cancels unused delivery schedules (same rules as batch-complete terminal cleanup), then blocks if any active delivery schedule remains — e.g. schedule linked to an in-progress batch.
+
+| `errorCode` | When |
+| --- | --- |
+| `DELIVERY_BATCH_IN_PROGRESS` | An `IN_PROGRESS` delivery batch exists |
+| `DELIVERABLE_ITEMS_NOT_PHYSICALLY_DELIVERED` | Quantities not fully delivered |
+| `UNRESOLVED_DELIVERY_SCHEDULE` | Active `PENDING_CONFIRMATION` / `CONFIRMED` delivery schedule still exists after cleanup |
 
 After `confirm-delivery`:
 
@@ -2209,11 +2232,27 @@ Customer may report an issue when `orderItem.deliveredQuantity > 0`. Does not bl
 
 `DeliveryProductIssueType`: `DAMAGED`, `WRONG_ITEM`, `WRONG_SPECIFICATION`, `MISSING_PART`, `QUALITY_DEFECT`, `INSTALLATION_ISSUE`, `QUANTITY_MISMATCH`, `OTHER`
 
+List/detail DTO includes resolution lifecycle: `status` (`OPEN`, `RESOLVED`), `resolvedAt?`, `resolutionNote?`. New reports default to `OPEN`.
+
+### Resolve product issue
+
+`PATCH /product-issues/{issueId}/resolve` — SALES, PRODUCTION, ADMIN
+
+```json
+{
+  "resolutionNote": "Replaced damaged unit on next delivery round."
+}
+```
+
+`resolutionNote` optional, max 4000 chars. Idempotent when already `RESOLVED`. No notification on resolve.
+
+Errors: `PRODUCT_ISSUE_NOT_FOUND`, `PRODUCT_ISSUE_FORBIDDEN`, `PRODUCT_ISSUE_RESOLUTION_NOTE_TOO_LONG`, `REPORT_RESOLUTION_NOTE_TOO_LONG`
+
 ---
 
 ## 13a. Operational delay reports
 
-Record-only internal evidence. No resolve/update workflow. `CUSTOMER` and `DESIGNER` cannot access.
+Record-only internal evidence with **OPEN/RESOLVED** lifecycle. `CUSTOMER` and `DESIGNER` cannot access.
 
 | Method | Path | Roles |
 | --- | --- | --- |
@@ -2221,6 +2260,7 @@ Record-only internal evidence. No resolve/update workflow. `CUSTOMER` and `DESIG
 | POST | `/projects/{projectId}/delay-reports/delivery` | SALES, PRODUCTION, ADMIN |
 | GET | `/projects/{projectId}/delay-reports?phase=PRODUCTION\|DELIVERY` | same |
 | GET | `/delay-reports/{reportId}` | same |
+| PATCH | `/delay-reports/{reportId}/resolve` | SALES, PRODUCTION, ADMIN |
 
 Production deadline source: `ProjectPhaseTimeline(PRODUCTION).dueDate` (snapshotted at create).  
 Delivery deadline source: `Project.targetCompletionDate` (not delivery schedule `scheduledEnd`).
@@ -2252,6 +2292,20 @@ Backend derives `deadlineSnapshot`, `delayState` (`AT_RISK` on/before deadline, 
 `OperationalDelayState`: `AT_RISK`, `OVERDUE`  
 `ProductionDelayReasonCode`: `MATERIAL_DELAY`, `TECHNICAL_ISSUE`, `CUSTOMIZATION_ISSUE`, `CAPACITY_CONSTRAINT`, `QUALITY_REWORK`, `DEPENDENCY_DELAY`, `OTHER`  
 `DeliveryDelayReasonCode`: `CUSTOMER_RESCHEDULE`, `VEHICLE_ISSUE`, `PRODUCT_NOT_READY`, `SITE_NOT_READY`, `STAFF_UNAVAILABLE`, `WEATHER`, `ACCESS_RESTRICTION`, `OTHER`
+
+List/detail DTO includes `status` (`OPEN`, `RESOLVED`), `resolvedAt?`, `resolutionNote?`. `delayState` remains the snapshot at report time only — not a lifecycle status.
+
+### Resolve delay report
+
+`PATCH /delay-reports/{reportId}/resolve`
+
+```json
+{
+  "resolutionNote": "Customer agreed to new delivery window."
+}
+```
+
+Same resolve rules as product issues. Errors: `OPERATIONAL_DELAY_REPORT_NOT_FOUND`, `OPERATIONAL_DELAY_FORBIDDEN`, `OPERATIONAL_DELAY_RESOLUTION_NOTE_TOO_LONG`, `REPORT_RESOLUTION_NOTE_TOO_LONG`
 
 ---
 
@@ -2574,6 +2628,34 @@ Rules:
 
 Errors: `SCHEDULE_CHANGE_NOTE_REQUIRED`, `INVALID_SCHEDULE_TYPE`, `INVALID_SCHEDULE_STATUS_TRANSITION`, `DELIVERY_IN_PROGRESS_BLOCKS_SCHEDULE_CANCEL`, `403`.
 
+### Notification side effects
+
+Schedule create and customer confirm dispatch **in-app + realtime** notifications after the schedule transaction commits successfully. Realtime push failure does not roll back the schedule change.
+
+| Trigger | `notificationType` | SignalR event | Recipients |
+| --- | --- | --- | --- |
+| Successful create (`POST …/schedules`) | `ProjectScheduleCreated` | `project_schedule.created` | Project **Customer**, **AssignedStaff**; plus **AssignedDesigner** when `scheduleType = MEASUREMENT` and designer is not already a receiver |
+| Customer confirm (`PATCH …/status` → `CONFIRMED`) | `ProjectScheduleConfirmed` | `project_schedule.confirmed` | **AssignedSales**, **AssignedStaff** (Customer who confirmed does **not** receive this notification) |
+
+Both use `referenceType = PROJECT_SCHEDULE`, `referenceId = scheduleId`, `projectId = projectId`.
+
+Realtime payload (§22) includes enriched `metadata` so FE can update schedule UI without an immediate refetch:
+
+```json
+{
+  "scheduleId": "uuid",
+  "projectId": "uuid",
+  "scheduleType": "MEASUREMENT",
+  "status": "PENDING_CONFIRMATION",
+  "scheduledStart": "2026-09-13T08:00:00Z",
+  "scheduledEnd": "2026-09-13T10:00:00Z"
+}
+```
+
+On confirm, `status` in metadata is `CONFIRMED`. Other schedule lifecycle events (`updated`, `completed`, `cancelled`) keep their existing delivery levels; only **created** and **confirmed** are persisted to notification history.
+
+Persisted rows appear in `GET /notifications/me` (§19). Dedupe key: `receiverId + notificationType + referenceType + referenceId`.
+
 ### Measurement image capture
 
 Upload via backend multipart (same pattern as catalog/product preview). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`. Future confirmed schedules are allowed, so FE does not need to wait until runtime to upload measurement photos.
@@ -2797,6 +2879,18 @@ Route: `notifications`
 ```
 
 Realtime push: `/hubs/notifications` (§22).
+
+### Schedule notification types
+
+| `notificationType` | When | `referenceType` |
+| --- | --- | --- |
+| `ProjectScheduleCreated` | Schedule created (pending customer confirmation) | `PROJECT_SCHEDULE` |
+| `ProjectScheduleConfirmed` | Customer confirmed schedule | `PROJECT_SCHEDULE` |
+| `ProductionRequestAssigned` | Production request assigned to staff | `PRODUCTION_REQUEST` |
+
+List items do not embed domain metadata; use SignalR payload `metadata` (§22) or refetch the referenced resource.
+
+FE handoff index: `docs/fe-handoff/`
 
 ---
 
@@ -3742,6 +3836,19 @@ Create production request: `POST /orders/{orderId}/production-request` (§13).
 }
 ```
 
+Dispatches **InAppRealtime** notification after successful assign:
+
+| Field | Value |
+| --- | --- |
+| `notificationType` | `ProductionRequestAssigned` |
+| SignalR event | `production.request.assigned` |
+| `referenceType` | `PRODUCTION_REQUEST` |
+| `referenceId` | `productionRequestId` |
+
+Recipients: assigned production user + project Assigned Sales.  
+Metadata: `productionRequestId`, `assignedToAccountId`.  
+See §22 and `docs/fe-handoff/notifications-realtime-schedule-production.md`.
+
 ### Start
 
 Optional body (ignored for date assignment — server sets `actualStartDate` to UTC today on start):
@@ -3826,6 +3933,41 @@ Notification message: `{SenderName} sent a new message in "{ChatTitle}".`
 ### Payment realtime payload (typical)
 
 `PaymentUpdatedRealtimeDto`: `paymentId`, `projectId`, `paymentCode`, `status?`, `amount`, `paidAmount`, `remainingAmount`, `paymentTransactionId`, `transactionAmount`, `appliedAmount`, `paidAt?`, `occurredAt`
+
+### Project schedule notification events
+
+Hub: `/hubs/notifications` — direct to `user:{accountId}` groups (same as other in-app notifications).
+
+| Event | `notificationType` | Persisted to bell/history |
+| --- | --- | --- |
+| `project_schedule.created` | `ProjectScheduleCreated` | Yes |
+| `project_schedule.confirmed` | `ProjectScheduleConfirmed` | Yes |
+
+Standard envelope fields: `notificationId`, `title`, `message`, `notificationType`, `projectId`, `referenceType`, `referenceId`, `createdAt`, `occurredAt`, `metadata`.
+
+`metadata` (schedule create / confirm):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `scheduleId` | uuid | Same as `referenceId` |
+| `projectId` | uuid | Same as top-level `projectId` |
+| `scheduleType` | string | e.g. `MEASUREMENT`, `DELIVERY` |
+| `status` | string | Post-action status: `PENDING_CONFIRMATION` (create) or `CONFIRMED` (confirm) |
+| `scheduledStart` | datetime (UTC ISO) | Current schedule start |
+| `scheduledEnd` | datetime? (UTC ISO) | Nullable when domain allows |
+
+Other schedule SignalR events (`project_schedule.updated`, `project_schedule.completed`, `project_schedule.cancelled`) remain **realtime-only** (not persisted).
+
+### Production assignment notification event
+
+| Event | `notificationType` | Persisted |
+| --- | --- | --- |
+| `production.request.assigned` | `ProductionRequestAssigned` | Yes |
+
+Metadata: `productionRequestId`, `assignedToAccountId`.  
+Related (also persisted): `production.request.created`, `production.request.completed`.
+
+FE handoff: `docs/fe-handoff/notifications-realtime-schedule-production.md` (schedule + production assign).
 
 ---
 

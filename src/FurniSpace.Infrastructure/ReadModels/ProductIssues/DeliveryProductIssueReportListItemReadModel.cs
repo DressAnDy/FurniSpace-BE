@@ -16,4 +16,7 @@ public class DeliveryProductIssueReportListItemReadModel
     public string? ReporterName { get; init; }
     public DateTime ReportedAt { get; init; }
     public DateTime CreatedAt { get; init; }
+    public ReportResolutionStatus Status { get; init; }
+    public DateTime? ResolvedAt { get; init; }
+    public string? ResolutionNote { get; init; }
 }

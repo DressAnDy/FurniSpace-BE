@@ -79,10 +79,26 @@ internal sealed class TestUnitOfWork : IUnitOfWork
 
     public static IUnitOfWork ForFailingSaveChanges()
     {
-        return new TestUnitOfWork(
-            _ => Task.CompletedTask,
-            _ => throw new InvalidOperationException("Save failed."),
-            _ => Task.CompletedTask,
-            _ => Task.CompletedTask);
+        return ForSaveChangesFailsAfterSuccessCount(
+            0,
+            () => new InvalidOperationException("Save failed."));
+    }
+
+    public static IUnitOfWork ForSaveChangesFailsAfterSuccessCount(
+        int successCount,
+        Func<Exception> createException)
+    {
+        ArgumentNullException.ThrowIfNull(createException);
+        var completed = 0;
+        return ForSaveChanges(_ =>
+        {
+            completed++;
+            if (completed > successCount)
+            {
+                throw createException();
+            }
+
+            return Task.FromResult(1);
+        });
     }
 }

@@ -32,7 +32,7 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
-    public async Task UploadProjectFileAsync_WithCustomerProjectAccess_UploadsAndPersistsFile()
+    public async Task CompleteProjectFileUploadAsync_WithCustomerProjectAccess_UploadsAndPersistsFile()
     {
         var customerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -49,10 +49,11 @@ public sealed class ProjectFileServiceTests
         var storage = new FakeFileStorageService();
         var service = CreateService(repository, storage);
 
-        var result = await service.UploadProjectFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProjectFileUploadAsync(
+            service,
             projectId,
             customerId,
-            CreateUploadRequest("shop-reference.jpg", FileType.REFERENCE_IMAGE, visibility: null, note: " Reference image "));
+            CreatePrepareRequest("shop-reference.jpg", FileType.REFERENCE_IMAGE, visibility: null, note: " Reference image "));
 
         Assert.Equal(201, result.Status);
         Assert.Equal("Project file uploaded successfully.", result.Message);
@@ -67,7 +68,7 @@ public sealed class ProjectFileServiceTests
 
         Assert.Single(repository.StoredFiles);
         Assert.Single(repository.FileLinks);
-        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(2, repository.SaveChangesCallCount);
         Assert.Equal(customerId, repository.StoredFiles[0].UploadedBy);
         Assert.Equal("jpg", repository.StoredFiles[0].FileExtension);
         Assert.Equal(FileStatus.ACTIVE, repository.StoredFiles[0].Status);
@@ -75,9 +76,8 @@ public sealed class ProjectFileServiceTests
         Assert.Equal("PROJECT", repository.FileLinks[0].ReferenceType);
         Assert.Equal("Reference image", repository.FileLinks[0].Description);
 
-        Assert.NotNull(storage.UploadRequest);
-        Assert.Equal("image/jpeg", storage.UploadRequest.ContentType);
-        Assert.Equal(repository.StoredFiles[0].StoragePath, storage.UploadRequest.ObjectName);
+        Assert.NotNull(storage.FinalizeRequest);
+        Assert.Equal(repository.StoredFiles[0].StoragePath, storage.FinalizeRequest.ObjectName);
     }
 
     [Fact]
@@ -185,7 +185,7 @@ public sealed class ProjectFileServiceTests
             customerId,
             new CompleteProjectFileUploadRequestDto { FileId = fileId });
 
-        Assert.Equal(200, result.Status);
+        Assert.Equal(201, result.Status);
         Assert.Equal("Project file uploaded successfully.", result.Message);
         Assert.NotNull(result.Data);
         Assert.Equal(fileId, result.Data.FileId);
@@ -255,7 +255,7 @@ public sealed class ProjectFileServiceTests
             new CompleteProjectFileUploadRequestDto { FileId = fileId });
 
         Assert.Equal(409, result.Status);
-        Assert.Equal(ProjectFileDirectUploadErrorCodes.UploadObjectMissing, result.ErrorCode);
+        Assert.Equal(DirectFileUploadErrorCodes.UploadObjectMissing, result.ErrorCode);
         Assert.Equal(FileStatus.PENDING, storedFile.Status);
     }
 
@@ -419,7 +419,7 @@ public sealed class ProjectFileServiceTests
             new CompleteProjectFileUploadRequestDto { FileId = fileId });
 
         Assert.Equal(403, result.Status);
-        Assert.Equal(ProjectFileDirectUploadErrorCodes.UploadForbidden, result.ErrorCode);
+        Assert.Equal(DirectFileUploadErrorCodes.UploadForbidden, result.ErrorCode);
     }
 
     [Fact]
@@ -456,7 +456,7 @@ public sealed class ProjectFileServiceTests
             new CompleteProjectFileUploadRequestDto { FileId = fileId });
 
         Assert.Equal(409, result.Status);
-        Assert.Equal(ProjectFileDirectUploadErrorCodes.UploadNotPending, result.ErrorCode);
+        Assert.Equal(DirectFileUploadErrorCodes.UploadNotPending, result.ErrorCode);
     }
 
     [Fact]
@@ -508,12 +508,12 @@ public sealed class ProjectFileServiceTests
             adminId,
             new CompleteProjectFileUploadRequestDto { FileId = fileId });
 
-        Assert.Equal(200, result.Status);
+        Assert.Equal(201, result.Status);
         Assert.Equal(FileStatus.ACTIVE, storedFile.Status);
     }
 
     [Fact]
-    public async Task UploadProjectAreaFileAsync_AssignedDesigner_UploadsAndLinksProjectAreaFile()
+    public async Task CompleteProjectAreaFileUploadAsync_AssignedDesigner_UploadsAndLinksProjectAreaFile()
     {
         var designerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -529,9 +529,9 @@ public sealed class ProjectFileServiceTests
             }
         };
         var service = CreateService(repository, new FakeFileStorageService());
-        var request = CreateUploadRequest("blueprint.pdf", FileType.PDF_DRAWING, isPrimary: true, displayOrder: 2);
+        var request = CreatePrepareRequest("blueprint.pdf", FileType.PDF_DRAWING, isPrimary: true, displayOrder: 2);
 
-        var result = await service.UploadProjectAreaFileAsync(projectAreaId, designerId, request);
+        var result = await DirectUploadTestDoubles.CompleteProjectAreaFileUploadAsync(service, projectAreaId, designerId, request);
 
         Assert.Equal(201, result.Status);
         Assert.Equal("Project area file uploaded successfully.", result.Message);
@@ -548,14 +548,14 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
-    public async Task UploadProjectAreaFileAsync_WithUnsupportedFileType_ReturnsBadRequest()
+    public async Task PrepareProjectAreaFileUploadAsync_WithUnsupportedFileType_ReturnsBadRequest()
     {
         var service = CreateService(new FakeProjectFileRepository(), new FakeFileStorageService());
 
-        var result = await service.UploadProjectAreaFileAsync(
+        var result = await service.PrepareProjectAreaFileUploadAsync(
             Guid.NewGuid(),
             Guid.NewGuid(),
-            CreateUploadRequest("preview.jpg", FileType.PRODUCT_PREVIEW));
+            CreatePrepareRequest("preview.jpg", FileType.PRODUCT_PREVIEW));
 
         Assert.Equal(400, result.Status);
         Assert.Contains("Project area file type is not supported.", result.Errors!);
@@ -642,17 +642,16 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
-    public async Task UploadProjectFileAsync_WithInvalidFile_ReturnsValidationErrors()
+    public async Task PrepareProjectFileUploadAsync_WithInvalidFile_ReturnsValidationErrors()
     {
         var repository = new FakeProjectFileRepository();
         var service = CreateService(repository, new FakeFileStorageService());
 
-        var result = await service.UploadProjectFileAsync(
+        var result = await service.PrepareProjectFileUploadAsync(
             Guid.NewGuid(),
             Guid.NewGuid(),
-            new UploadProjectFileRequestDto
+            new PrepareProjectFileUploadRequestDto
             {
-                Content = Stream.Null,
                 OriginalFileName = "invalid.exe",
                 ContentType = "application/x-msdownload",
                 FileSizeBytes = 0,
@@ -661,7 +660,6 @@ public sealed class ProjectFileServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal("Validation failed", result.Message);
-        Assert.Contains("File is required.", result.Errors!);
         Assert.Contains("File size must be greater than zero.", result.Errors!);
         Assert.Contains("File extension is not allowed.", result.Errors!);
         Assert.Contains("File MIME type is not allowed.", result.Errors!);
@@ -670,7 +668,7 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
-    public async Task UploadProjectFileAsync_WithUnassignedSales_ReturnsForbidden()
+    public async Task PrepareProjectFileUploadAsync_WithUnassignedSales_ReturnsForbidden()
     {
         var salesId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -687,19 +685,19 @@ public sealed class ProjectFileServiceTests
         var storage = new FakeFileStorageService();
         var service = CreateService(repository, storage);
 
-        var result = await service.UploadProjectFileAsync(
+        var result = await service.PrepareProjectFileUploadAsync(
             projectId,
             salesId,
-            CreateUploadRequest("floor-plan.pdf", FileType.PDF_DRAWING));
+            CreatePrepareRequest("floor-plan.pdf", FileType.PDF_DRAWING));
 
         Assert.Equal(403, result.Status);
         Assert.Equal("You do not have access to upload files to this project.", result.Message);
-        Assert.Null(storage.UploadRequest);
+        Assert.Null(storage.SignedUploadRequest);
         Assert.Empty(repository.StoredFiles);
     }
 
     [Fact]
-    public async Task UploadProjectFileAsync_WithMissingRole_ReturnsForbidden()
+    public async Task PrepareProjectFileUploadAsync_WithMissingRole_ReturnsForbidden()
     {
         var customerId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -715,14 +713,14 @@ public sealed class ProjectFileServiceTests
         var storage = new FakeFileStorageService();
         var service = CreateService(repository, storage);
 
-        var result = await service.UploadProjectFileAsync(
+        var result = await service.PrepareProjectFileUploadAsync(
             projectId,
             customerId,
-            CreateUploadRequest("floor-plan.pdf", FileType.PDF_DRAWING));
+            CreatePrepareRequest("floor-plan.pdf", FileType.PDF_DRAWING));
 
         Assert.Equal(403, result.Status);
         Assert.Equal("Authenticated account is not active or has no role.", result.Message);
-        Assert.Null(storage.UploadRequest);
+        Assert.Null(storage.SignedUploadRequest);
         Assert.Empty(repository.StoredFiles);
     }
 
@@ -1065,6 +1063,13 @@ public sealed class ProjectFileServiceTests
         FakeCatalogProductRepository? products = null,
         FakeCatalogProductVersionRepository? productVersions = null)
     {
+        var firebaseSettings = new FirebaseStorageSettings
+        {
+            Bucket = "test-bucket",
+            ProjectFilesPrefix = "projects"
+        };
+        var coordinator = DirectUploadTestDoubles.CreateCoordinator(storage, firebaseSettings);
+
         return new ProjectFileService(
             repository,
             products ?? new FakeCatalogProductRepository(),
@@ -1074,20 +1079,17 @@ public sealed class ProjectFileServiceTests
                 global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
                 storage,
                 storage,
+                coordinator,
                 new FileUploadSettings
                 {
                     MaxFileSizeBytes = 1024 * 1024,
                     AllowedExtensions = [".jpg", ".jpeg", ".pdf"],
                     AllowedMimeTypes = ["image/jpeg", "application/pdf"]
                 },
-                new FirebaseStorageSettings
-                {
-                    Bucket = "test-bucket",
-                    ProjectFilesPrefix = "projects"
-                }));
+                firebaseSettings));
     }
 
-    private static UploadProjectFileRequestDto CreateUploadRequest(
+    private static PrepareProjectFileUploadRequestDto CreatePrepareRequest(
         string fileName,
         FileType fileType,
         FileVisibility? visibility = FileVisibility.STAFF_ONLY,
@@ -1095,9 +1097,8 @@ public sealed class ProjectFileServiceTests
         bool? isPrimary = null,
         int? displayOrder = null)
     {
-        return new UploadProjectFileRequestDto
+        return new PrepareProjectFileUploadRequestDto
         {
-            Content = new MemoryStream(Encoding.UTF8.GetBytes("file-content")),
             OriginalFileName = fileName,
             ContentType = fileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)
                 ? "application/pdf"

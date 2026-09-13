@@ -2,7 +2,6 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
-using FurniSpace.API.DTOs.ProjectFiles;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
 using FurniSpace.Domain.Enums;
@@ -15,8 +14,6 @@ namespace FurniSpace.API.Controllers.Projects;
 [Route("project-areas/{projectAreaId:guid}/files")]
 public sealed class ProjectAreaFilesController : BaseApiController
 {
-    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
-
     private readonly IProjectFileService _projectFiles;
 
     public ProjectAreaFilesController(IProjectFileService projectFiles)
@@ -25,12 +22,10 @@ public sealed class ProjectAreaFilesController : BaseApiController
     }
 
     [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
-    [HttpPost]
-    [Consumes("multipart/form-data")]
-    [RequestSizeLimit(MultipartRequestLimitBytes)]
-    public async Task<IActionResult> UploadProjectAreaFile(
+    [HttpPost("upload-url")]
+    public async Task<IActionResult> PrepareProjectAreaFileUpload(
         Guid projectAreaId,
-        [FromForm] UploadProjectFileFormRequest request,
+        [FromBody] PrepareProjectFileUploadRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -38,10 +33,31 @@ public sealed class ProjectAreaFilesController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _projectFiles.UploadProjectAreaFileAsync(
+        var result = await _projectFiles.PrepareProjectAreaFileUploadAsync(
             projectAreaId,
             currentUserId,
-            request.ToRequestDto(),
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
+    [HttpPost("complete")]
+    public async Task<IActionResult> CompleteProjectAreaFileUpload(
+        Guid projectAreaId,
+        [FromBody] CompleteProjectFileUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projectFiles.CompleteProjectAreaFileUploadAsync(
+            projectAreaId,
+            currentUserId,
+            request,
             cancellationToken);
 
         return ToActionResult(result);
@@ -51,10 +67,7 @@ public sealed class ProjectAreaFilesController : BaseApiController
     [HttpGet]
     public async Task<IActionResult> GetProjectAreaFiles(
         Guid projectAreaId,
-        [FromQuery] FileType? fileType = null,
-        [FromQuery] FileVisibility? visibility = null,
-        [FromQuery] int page = 1,
-        [FromQuery] int limit = 20,
+        [FromQuery] ProjectFilesQueryDto query,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -65,13 +78,7 @@ public sealed class ProjectAreaFilesController : BaseApiController
         var result = await _projectFiles.GetProjectAreaFilesAsync(
             projectAreaId,
             currentUserId,
-            new ProjectFilesQueryDto
-            {
-                FileType = fileType,
-                Visibility = visibility,
-                Page = page,
-                Limit = limit
-            },
+            query,
             cancellationToken);
 
         return ToActionResult(result);
@@ -79,7 +86,7 @@ public sealed class ProjectAreaFilesController : BaseApiController
 
     [Authorize(Roles = "SALES,DESIGNER,ADMIN")]
     [HttpPatch("{fileId:guid}/primary")]
-    public async Task<IActionResult> SetPrimary(
+    public async Task<IActionResult> SetPrimaryFile(
         Guid projectAreaId,
         Guid fileId,
         CancellationToken cancellationToken = default)

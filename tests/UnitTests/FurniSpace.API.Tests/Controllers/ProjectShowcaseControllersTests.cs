@@ -10,7 +10,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Projects;
 using FurniSpace.API.Controllers.Admin;
-using FurniSpace.API.DTOs.ProjectShowcases;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectShowcases;
 using FurniSpace.Application.Interfaces.ProjectShowcases;
@@ -95,41 +94,42 @@ public sealed class ProjectShowcaseControllersTests
     }
 
     [Fact]
-    public void Media_Upload_RequiresSalesAndAdmin()
+    public void Media_CompleteUpload_RequiresSalesAndAdmin()
     {
-        var authorize = GetMethodAuthorize<ProjectShowcaseMediaController>(nameof(ProjectShowcaseMediaController.Upload));
+        var authorize = GetMethodAuthorize<ProjectShowcaseMediaController>(nameof(ProjectShowcaseMediaController.CompleteUpload));
 
         Assert.Equal("SALES,ADMIN", authorize.Roles);
     }
 
     [Fact]
-    public async Task Media_Upload_PassesMultipartRequestToService()
+    public async Task Media_CompleteUpload_PassesRequestToService()
     {
         var showcaseId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
         var service = new FakeProjectShowcaseService(
-            uploadMediaResult: ServiceResult<ProjectShowcaseMediaDto>.Created(
+            completeMediaResult: ServiceResult<ProjectShowcaseMediaDto>.Created(
                 new ProjectShowcaseMediaDto { IsCover = true, MediaType = ProjectShowcaseMediaType.FINAL },
                 "Uploaded"));
         var controller = WithUser(new ProjectShowcaseMediaController(service), "SALES");
-        var request = new UploadProjectShowcaseMediaFormRequest
+        var request = new CompleteProjectShowcaseMediaUploadRequestDto
         {
-            File = CreateFormFile("showcase.jpg", "image/jpeg", "file-content"),
+            FileId = fileId,
             MediaType = ProjectShowcaseMediaType.FINAL,
             Title = "Cover",
             SetAsCover = true
         };
 
-        var actionResult = await controller.Upload(showcaseId, request);
+        var actionResult = await controller.CompleteUpload(showcaseId, request);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(201, objectResult.StatusCode);
         Assert.Equal(showcaseId, service.LastShowcaseId);
-        Assert.NotNull(service.LastUploadRequest);
-        Assert.Equal("showcase.jpg", service.LastUploadRequest!.OriginalFileName);
+        Assert.NotNull(service.LastCompleteUploadRequest);
+        Assert.Equal(fileId, service.LastCompleteUploadRequest!.FileId);
     }
 
     [Fact]
-    public async Task Media_Upload_WithoutUser_ReturnsUnauthorized()
+    public async Task Media_CompleteUpload_WithoutUser_ReturnsUnauthorized()
     {
         var controller = new ProjectShowcaseMediaController(new FakeProjectShowcaseService())
         {
@@ -142,9 +142,9 @@ public sealed class ProjectShowcaseControllersTests
             }
         };
 
-        var actionResult = await controller.Upload(
+        var actionResult = await controller.CompleteUpload(
             Guid.NewGuid(),
-            new UploadProjectShowcaseMediaFormRequest());
+            new CompleteProjectShowcaseMediaUploadRequestDto { FileId = Guid.NewGuid() });
 
         Assert.IsType<UnauthorizedResult>(actionResult);
     }
@@ -255,16 +255,6 @@ public sealed class ProjectShowcaseControllersTests
         return controller;
     }
 
-    private static FormFile CreateFormFile(string fileName, string contentType, string content)
-    {
-        var stream = new MemoryStream(Encoding.UTF8.GetBytes(content));
-        return new FormFile(stream, 0, stream.Length, "file", fileName)
-        {
-            Headers = new HeaderDictionary(),
-            ContentType = contentType
-        };
-    }
-
     private sealed class FakeProjectShowcaseService : IProjectShowcaseService
     {
         private readonly ServiceResult<ProjectShowcaseDto>? _createResult;
@@ -277,7 +267,7 @@ public sealed class ProjectShowcaseControllersTests
         private readonly ServiceResult<AdminProjectShowcaseListResponseDto>? _adminListResult;
         private readonly ServiceResult<ProjectShowcaseDto>? _adminDetailResult;
         private readonly ServiceResult<ProjectShowcaseMediaDto>? _addMediaResult;
-        private readonly ServiceResult<ProjectShowcaseMediaDto>? _uploadMediaResult;
+        private readonly ServiceResult<ProjectShowcaseMediaDto>? _completeMediaResult;
         private readonly ServiceResult<ProjectShowcaseDto>? _reorderMediaResult;
         private readonly ServiceResult<ProjectShowcaseMediaDto>? _setCoverResult;
         private readonly ServiceResult<ProjectShowcaseDto>? _removeMediaResult;
@@ -293,7 +283,7 @@ public sealed class ProjectShowcaseControllersTests
             ServiceResult<AdminProjectShowcaseListResponseDto>? adminListResult = null,
             ServiceResult<ProjectShowcaseDto>? adminDetailResult = null,
             ServiceResult<ProjectShowcaseMediaDto>? addMediaResult = null,
-            ServiceResult<ProjectShowcaseMediaDto>? uploadMediaResult = null,
+            ServiceResult<ProjectShowcaseMediaDto>? completeMediaResult = null,
             ServiceResult<ProjectShowcaseDto>? reorderMediaResult = null,
             ServiceResult<ProjectShowcaseMediaDto>? setCoverResult = null,
             ServiceResult<ProjectShowcaseDto>? removeMediaResult = null)
@@ -308,7 +298,7 @@ public sealed class ProjectShowcaseControllersTests
             _adminListResult = adminListResult;
             _adminDetailResult = adminDetailResult;
             _addMediaResult = addMediaResult;
-            _uploadMediaResult = uploadMediaResult;
+            _completeMediaResult = completeMediaResult;
             _reorderMediaResult = reorderMediaResult;
             _setCoverResult = setCoverResult;
             _removeMediaResult = removeMediaResult;
@@ -318,7 +308,7 @@ public sealed class ProjectShowcaseControllersTests
 
         public Guid LastShowcaseId { get; private set; }
 
-        public UploadProjectShowcaseMediaRequestDto? LastUploadRequest { get; private set; }
+        public CompleteProjectShowcaseMediaUploadRequestDto? LastCompleteUploadRequest { get; private set; }
 
         public Task<ServiceResult<ProjectShowcaseDto>> CreateAsync(
             Guid projectId,
@@ -395,15 +385,27 @@ public sealed class ProjectShowcaseControllersTests
             return Task.FromResult(_addMediaResult ?? ServiceResult<ProjectShowcaseMediaDto>.Unauthorized());
         }
 
-        public Task<ServiceResult<ProjectShowcaseMediaDto>> UploadMediaAsync(
+        public Task<ServiceResult<PrepareProjectShowcaseMediaUploadResponseDto>> PrepareMediaUploadAsync(
             Guid showcaseId,
             Guid currentUserId,
-            UploadProjectShowcaseMediaRequestDto request,
+            PrepareProjectShowcaseMediaUploadRequestDto request,
             CancellationToken cancellationToken = default)
         {
             LastShowcaseId = showcaseId;
-            LastUploadRequest = request;
-            return Task.FromResult(_uploadMediaResult ?? _addMediaResult ?? ServiceResult<ProjectShowcaseMediaDto>.Unauthorized());
+            return Task.FromResult(ServiceResult<PrepareProjectShowcaseMediaUploadResponseDto>.Created(
+                new PrepareProjectShowcaseMediaUploadResponseDto(),
+                "Project showcase media upload URL created successfully."));
+        }
+
+        public Task<ServiceResult<ProjectShowcaseMediaDto>> CompleteMediaUploadAsync(
+            Guid showcaseId,
+            Guid currentUserId,
+            CompleteProjectShowcaseMediaUploadRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            LastShowcaseId = showcaseId;
+            LastCompleteUploadRequest = request;
+            return Task.FromResult(_completeMediaResult ?? _addMediaResult ?? ServiceResult<ProjectShowcaseMediaDto>.Unauthorized());
         }
 
         public Task<ServiceResult<ProjectShowcaseDto>> ReorderMediaAsync(

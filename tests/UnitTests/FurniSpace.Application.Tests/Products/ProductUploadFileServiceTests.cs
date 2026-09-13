@@ -2,9 +2,7 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Products;
@@ -34,7 +32,8 @@ public sealed class ProductUploadFileServiceTests
             repository,
             storage);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(
+            service,
             productId,
             adminId,
             CreateUploadRequest("catalog.jpg", FileType.OTHER, description: " Catalog note "));
@@ -45,8 +44,9 @@ public sealed class ProductUploadFileServiceTests
         Assert.Equal("PRODUCT", result.Data.ReferenceType);
         Assert.Equal(productId, result.Data.ReferenceId);
         Assert.Equal(FileType.OTHER, result.Data.FileType);
-        Assert.StartsWith($"products/{productId:D}/", storage.UploadRequest!.ObjectName, StringComparison.Ordinal);
+        Assert.StartsWith($"products/{productId:D}/", repository.StoredFiles[0].StoragePath, StringComparison.Ordinal);
         Assert.Single(repository.StoredFiles);
+        Assert.Equal(FileStatus.ACTIVE, repository.StoredFiles[0].Status);
         Assert.Equal("Catalog note", repository.FileLinks[0].Description);
     }
 
@@ -59,7 +59,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await service.PrepareFileUploadAsync(
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("reference.jpg", FileType.REFERENCE_IMAGE));
@@ -79,7 +79,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("brown.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
@@ -102,7 +102,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 1));
@@ -128,7 +128,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("extra.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
@@ -145,7 +145,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             new CatalogFileTestRepository());
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 0));
@@ -165,7 +165,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("tail.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 99));
@@ -183,7 +183,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             Guid.NewGuid(),
             Guid.NewGuid(),
             CreateUploadRequest("catalog.jpg", FileType.OTHER));
@@ -199,7 +199,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(Guid.NewGuid()),
             new CatalogFileTestRepository());
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             Guid.Empty,
             Guid.NewGuid(),
             CreateUploadRequest("catalog.jpg", FileType.OTHER));
@@ -216,7 +216,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             new CatalogFileTestRepository());
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.Empty,
             CreateUploadRequest("catalog.jpg", FileType.OTHER));
@@ -234,7 +234,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("model.glb", FileType.MODEL_3D));
@@ -251,7 +251,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             new CatalogFileTestRepository());
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("catalog.exe", FileType.OTHER));
@@ -269,7 +269,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("catalog.pdf", FileType.PRODUCT_PREVIEW, "application/pdf"));
@@ -294,7 +294,7 @@ public sealed class ProductUploadFileServiceTests
                 AllowedMimeTypes = ["image/webp"]
             });
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", fileSizeBytes: 100));
@@ -312,7 +312,7 @@ public sealed class ProductUploadFileServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductFileUploadAsync(service,
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("hero.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
@@ -332,7 +332,6 @@ public sealed class ProductUploadFileServiceTests
     {
         return new UploadCatalogFileRequestDto
         {
-            Content = new MemoryStream(Encoding.UTF8.GetBytes("file-content")),
             OriginalFileName = fileName,
             ContentType = contentType,
             FileSizeBytes = fileSizeBytes,
@@ -446,7 +445,7 @@ public sealed class ProductUploadFileServiceTests
                 link.ReferenceId == productId &&
                 link.ReferenceType == CatalogFileReferenceTypes.Product &&
                 link.FileType == FileType.PRODUCT_PREVIEW &&
-                StoredFiles.Any(file => file.FileId == link.FileId && file.Status != FileStatus.ARCHIVED))
+                StoredFiles.Any(file => file.FileId == link.FileId && file.Status == FileStatus.ACTIVE))
             .ToList();
 
         public Task<int> CountProductPreviewFilesAsync(Guid productId, CancellationToken cancellationToken = default)
@@ -501,7 +500,7 @@ public sealed class ProductUploadFileServiceTests
             => Task.FromResult<FileLinkReadModel?>(null);
 
         public Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByFileIdAsync(Guid fileId, CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<FileLink>>([]);
+            => Task.FromResult<IReadOnlyList<FileLink>>(FileLinks.Where(link => link.FileId == fileId).ToList());
 
         public void RemoveFileLinks(IEnumerable<FileLink> fileLinks) { }
 

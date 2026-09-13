@@ -2,7 +2,6 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
-using FurniSpace.API.DTOs.MeasurementImages;
 using FurniSpace.Application.DTOs.MeasurementImages;
 using FurniSpace.Application.DTOs.ProjectSchedules;
 using FurniSpace.Application.Interfaces.MeasurementImages;
@@ -17,8 +16,6 @@ namespace FurniSpace.API.Controllers.Projects;
 [Route("project-schedules")]
 public sealed class ProjectSchedulesController : BaseApiController
 {
-    private const long MeasurementMultipartRequestLimitBytes = 100L * 1024L * 1024L;
-
     private readonly IProjectScheduleService _schedules;
     private readonly IMeasurementImageService _measurementImages;
 
@@ -184,12 +181,10 @@ public sealed class ProjectSchedulesController : BaseApiController
     }
 
     [Authorize(Roles = "DESIGNER,ADMIN")]
-    [HttpPost("{scheduleId:guid}/measurement-images")]
-    [Consumes("multipart/form-data")]
-    [RequestSizeLimit(MeasurementMultipartRequestLimitBytes)]
-    public async Task<IActionResult> UploadMeasurementImage(
+    [HttpPost("{scheduleId:guid}/measurement-images/upload-url")]
+    public async Task<IActionResult> PrepareMeasurementImageUpload(
         Guid scheduleId,
-        [FromForm] UploadMeasurementImageFormRequest request,
+        [FromBody] PrepareMeasurementImageUploadRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -197,10 +192,31 @@ public sealed class ProjectSchedulesController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _measurementImages.UploadMeasurementImageAsync(
+        var result = await _measurementImages.PrepareMeasurementImageUploadAsync(
             scheduleId,
             currentUserId,
-            request.ToRequestDto(),
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpPost("{scheduleId:guid}/measurement-images/complete")]
+    public async Task<IActionResult> CompleteMeasurementImageUpload(
+        Guid scheduleId,
+        [FromBody] CompleteMeasurementImageUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _measurementImages.CompleteMeasurementImageUploadAsync(
+            scheduleId,
+            currentUserId,
+            request,
             cancellationToken);
 
         return ToActionResult(result);

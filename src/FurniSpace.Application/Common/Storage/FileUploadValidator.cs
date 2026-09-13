@@ -25,14 +25,22 @@ public sealed class FileUploadValidator : IFileUploadValidator
                 "File is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(payload.OriginalFileName))
+        return ValidateMetadata(payload.OriginalFileName, payload.ContentType, payload.FileSizeBytes);
+    }
+
+    public FileUploadValidationResult ValidateMetadata(
+        string originalFileName,
+        string contentType,
+        long fileSizeBytes)
+    {
+        if (string.IsNullOrWhiteSpace(originalFileName))
         {
             return FileUploadValidationResult.Failure(
                 FileUploadValidationFailureKind.MissingFileName,
                 "Original file name is required.");
         }
 
-        if (payload.FileSizeBytes <= 0)
+        if (fileSizeBytes <= 0)
         {
             return FileUploadValidationResult.Failure(
                 FileUploadValidationFailureKind.InvalidFileSize,
@@ -40,14 +48,14 @@ public sealed class FileUploadValidator : IFileUploadValidator
         }
 
         var maxFileSize = ResolveMaxFileSize();
-        if (payload.FileSizeBytes > maxFileSize)
+        if (fileSizeBytes > maxFileSize)
         {
             return FileUploadValidationResult.Failure(
                 FileUploadValidationFailureKind.FileTooLarge,
                 $"File size must not exceed {maxFileSize} bytes.");
         }
 
-        var extension = Path.GetExtension(payload.OriginalFileName);
+        var extension = Path.GetExtension(originalFileName);
         if (string.IsNullOrWhiteSpace(extension) ||
             !AllowedExtensions().Contains(extension, StringComparer.OrdinalIgnoreCase))
         {
@@ -56,8 +64,8 @@ public sealed class FileUploadValidator : IFileUploadValidator
                 "File extension is not allowed.");
         }
 
-        var contentType = ProjectFileUploadSupport.NormalizeContentType(payload.ContentType);
-        if (!AllowedMimeTypes().Contains(contentType, StringComparer.OrdinalIgnoreCase))
+        var normalizedContentType = ProjectFileUploadSupport.NormalizeContentType(contentType);
+        if (!AllowedMimeTypes().Contains(normalizedContentType, StringComparer.OrdinalIgnoreCase))
         {
             return FileUploadValidationResult.Failure(
                 FileUploadValidationFailureKind.InvalidMimeType,

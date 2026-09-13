@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Projects;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.LayoutAssets;
 using FurniSpace.Application.Interfaces.LayoutAssets;
 using Microsoft.AspNetCore.Authorization;
@@ -121,10 +122,17 @@ public sealed class RoomPlannerLayoutAssetsControllerTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<LayoutAssetDto>.Unauthorized());
 
-        public Task<ServiceResult<FurniSpace.Application.DTOs.Products.CatalogFileUploadResponseDto>> UploadFileAsync(
+        public Task<ServiceResult<PrepareDirectUploadResponseDto>> PrepareFileUploadAsync(
             Guid layoutAssetId,
             Guid currentUserId,
             FurniSpace.Application.DTOs.Products.UploadCatalogFileRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PrepareDirectUploadResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<FurniSpace.Application.DTOs.Products.CatalogFileUploadResponseDto>> CompleteFileUploadAsync(
+            Guid layoutAssetId,
+            Guid currentUserId,
+            CompleteDirectUploadRequestDto request,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.Products.CatalogFileUploadResponseDto>.Unauthorized());
 

@@ -92,7 +92,7 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
     public Task<IReadOnlyList<FileLink>> GetFileLinkEntitiesByFileIdAsync(
         Guid fileId,
         CancellationToken cancellationToken = default) =>
-        ProjectFileRepositoryStubResponses.EmptyFileLinks(fileId, cancellationToken);
+        Task.FromResult<IReadOnlyList<FileLink>>(FileLinks.Where(link => link.FileId == fileId).ToList());
 
     public void RemoveFileLinks(IEnumerable<FileLink> fileLinks)
     {
@@ -102,7 +102,7 @@ public sealed class FakeCatalogProjectFileRepository : IProjectFileRepository
     public IQueryable<StoredFile> Query() => StoredFiles.AsQueryable();
 
     public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
-        ProjectFileRepositoryStubResponses.NullStoredFile(id, cancellationToken);
+        Task.FromResult(StoredFiles.FirstOrDefault(file => file.FileId == id));
 
     public Task<IReadOnlyList<StoredFile>> ListAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<StoredFile>>(StoredFiles);

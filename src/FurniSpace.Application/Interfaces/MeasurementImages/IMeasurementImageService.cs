@@ -6,10 +6,16 @@ namespace FurniSpace.Application.Interfaces.MeasurementImages;
 
 public interface IMeasurementImageService
 {
-    Task<ServiceResult<MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
+    Task<ServiceResult<PrepareMeasurementImageUploadResponseDto>> PrepareMeasurementImageUploadAsync(
         Guid scheduleId,
         Guid currentUserId,
-        UploadMeasurementImageRequestDto request,
+        PrepareMeasurementImageUploadRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<MeasurementImageUploadResponseDto>> CompleteMeasurementImageUploadAsync(
+        Guid scheduleId,
+        Guid currentUserId,
+        CompleteMeasurementImageUploadRequestDto request,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(

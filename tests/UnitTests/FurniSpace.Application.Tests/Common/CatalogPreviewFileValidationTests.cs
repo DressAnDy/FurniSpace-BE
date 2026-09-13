@@ -1,8 +1,5 @@
 #nullable enable
 
-using System;
-using System.IO;
-using System.Text;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Infrastructure.Common.Storage;
@@ -20,10 +17,9 @@ public sealed class CatalogPreviewFileValidationTests
     [InlineData("image/webp")]
     [InlineData("image/gif")]
     [InlineData("image/svg+xml")]
-    public void ValidateFileContent_WithAllowedImageMimeTypes_ReturnsNull(string mimeType)
+    public void ValidateMetadata_WithAllowedImageMimeTypes_ReturnsNull(string mimeType)
     {
-        var error = CatalogPreviewFileValidation.ValidateFileContent(
-            new MemoryStream([1, 2, 3]),
+        var error = CatalogPreviewFileValidation.ValidateMetadata(
             "preview.jpg",
             mimeType,
             3,
@@ -35,10 +31,9 @@ public sealed class CatalogPreviewFileValidationTests
     }
 
     [Fact]
-    public void ValidateFileContent_WithPdfMimeType_ReturnsInvalidFileType()
+    public void ValidateMetadata_WithPdfMimeType_ReturnsInvalidFileType()
     {
-        var error = CatalogPreviewFileValidation.ValidateFileContent(
-            new MemoryStream([1, 2, 3]),
+        var error = CatalogPreviewFileValidation.ValidateMetadata(
             "catalog.pdf",
             "application/pdf",
             3,
@@ -52,12 +47,11 @@ public sealed class CatalogPreviewFileValidationTests
     }
 
     [Fact]
-    public void ValidateFileContent_WithOversizedFile_ReturnsFileTooLarge()
+    public void ValidateMetadata_WithOversizedFile_ReturnsFileTooLarge()
     {
         var settings = new ProductPreviewImageSettings { MaxFileSizeBytes = 10 };
 
-        var error = CatalogPreviewFileValidation.ValidateFileContent(
-            new MemoryStream(Encoding.UTF8.GetBytes("012345678901")),
+        var error = CatalogPreviewFileValidation.ValidateMetadata(
             "preview.webp",
             "image/webp",
             11,

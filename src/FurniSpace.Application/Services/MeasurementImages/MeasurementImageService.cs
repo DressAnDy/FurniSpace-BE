@@ -18,7 +18,7 @@ using Mapster;
 
 namespace FurniSpace.Application.Services.MeasurementImages;
 
-public sealed class MeasurementImageService : IMeasurementImageService
+public sealed partial class MeasurementImageService : IMeasurementImageService
 {
     private static readonly string[] AllowedImageExtensions = [".jpg", ".jpeg", ".png", ".webp"];
     private static readonly string[] AllowedImageMimeTypes =
@@ -31,7 +31,7 @@ public sealed class MeasurementImageService : IMeasurementImageService
     private readonly IProjectScheduleRepository _schedules;
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IFileStorageService _storage;
+    private readonly DirectFileUploadCoordinator _directUploadCoordinator;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
 
@@ -43,179 +43,9 @@ public sealed class MeasurementImageService : IMeasurementImageService
         _schedules = schedules;
         _files = files;
         _unitOfWork = dependencies.UnitOfWork;
-        _storage = dependencies.Storage;
+        _directUploadCoordinator = dependencies.DirectUploadCoordinator;
         _uploadSettings = dependencies.UploadSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
-    }
-
-    public async Task<ServiceResult<MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
-        Guid scheduleId,
-        Guid currentUserId,
-        UploadMeasurementImageRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        if (scheduleId == Guid.Empty)
-        {
-            return ServiceResult<MeasurementImageUploadResponseDto>.BadRequest("Schedule id is required.");
-        }
-
-        if (currentUserId == Guid.Empty)
-        {
-            return ServiceResult<MeasurementImageUploadResponseDto>.Unauthorized();
-        }
-
-        var validationErrors = ValidateUploadRequest(request);
-        if (validationErrors.Count > 0)
-        {
-            return ServiceResult<MeasurementImageUploadResponseDto>.BadRequest(validationErrors);
-        }
-
-        var roleName = await _files.GetAccountRoleNameAsync(currentUserId, cancellationToken);
-        if (string.IsNullOrWhiteSpace(roleName))
-        {
-            return ServiceResult<MeasurementImageUploadResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
-        }
-
-        var schedule = await _schedules.GetDetailAsync(scheduleId, cancellationToken);
-        if (schedule is null)
-        {
-            return ServiceResult<MeasurementImageUploadResponseDto>.NotFound(ScheduleNotFoundMessage);
-        }
-
-        var eligibilityError = ValidateCaptureEligibility(schedule);
-        if (eligibilityError is not null)
-        {
-            return eligibilityError;
-        }
-
-        if (!CanCaptureMeasurementImage(schedule, currentUserId, roleName))
-        {
-            return ServiceResult<MeasurementImageUploadResponseDto>.Forbidden(
-                "Only the assigned designer can upload measurement images for this schedule.");
-        }
-
-        var areaValidationError = await ValidateOptionalAreaLinkAsync(
-            request.ProjectAreaId,
-            schedule,
-            currentUserId,
-            roleName,
-            cancellationToken);
-        if (areaValidationError is not null)
-        {
-            return areaValidationError;
-        }
-
-        var now = DateTime.UtcNow;
-        var fileId = Guid.NewGuid();
-        var scheduleFileLinkId = Guid.NewGuid();
-        var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
-        var generatedFileName = ProjectFileUploadSupport.BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = ProjectFileUploadSupport.BuildProjectObjectName(
-            _firebaseSettings,
-            schedule.ProjectId,
-            generatedFileName);
-        var visibility = ProjectFileUploadSupport.ResolveVisibility(
-            request.Visibility,
-            roleName,
-            ApplicationRoles.Customer);
-
-        var uploadResult = await _storage.UploadAsync(
-            new StorageUploadRequest
-            {
-                Content = request.Content,
-                ObjectName = objectName,
-                ContentType = ProjectFileUploadSupport.NormalizeContentType(request.ContentType)
-            },
-            cancellationToken);
-
-        var storedFile = new StoredFile
-        {
-            FileId = fileId,
-            UploadedBy = currentUserId,
-            OriginalFileName = originalFileName,
-            StoredFileName = generatedFileName,
-            FileUrl = uploadResult.PublicUrl,
-            StoragePath = uploadResult.ObjectName,
-            MimeType = ProjectFileUploadSupport.NormalizeContentType(request.ContentType),
-            FileExtension = ProjectFileUploadSupport.NormalizeExtension(originalFileName),
-            FileSizeBytes = request.FileSizeBytes,
-            Status = FileStatus.ACTIVE,
-            UploadedAt = now
-        };
-        var scheduleFileLink = new FileLink
-        {
-            FileLinkId = scheduleFileLinkId,
-            FileId = fileId,
-            ReferenceType = ProjectScheduleReferenceType,
-            ReferenceId = scheduleId,
-            FileType = FileType.SPACE_IMAGE,
-            Visibility = visibility,
-            Description = ProjectFileUploadSupport.NormalizeOptionalText(request.Note),
-            CreatedBy = currentUserId,
-            CreatedAt = now
-        };
-
-        FileLink? areaFileLink = null;
-        if (request.ProjectAreaId.HasValue && request.ProjectAreaId.Value != Guid.Empty)
-        {
-            var projectAreaId = request.ProjectAreaId.Value;
-            areaFileLink = new FileLink
-            {
-                FileLinkId = Guid.NewGuid(),
-                FileId = fileId,
-                ReferenceType = ProjectAreaReferenceType,
-                ReferenceId = projectAreaId,
-                FileType = FileType.SPACE_IMAGE,
-                Visibility = FileVisibility.STAFF_ONLY,
-                CreatedBy = currentUserId,
-                CreatedAt = now
-            };
-        }
-
-        try
-        {
-            await ExecuteInTransactionAsync(
-                async ct =>
-                {
-                    await _files.AddAsync(storedFile, ct);
-                    await _files.AddFileLinkAsync(scheduleFileLink, ct);
-                    if (areaFileLink is not null)
-                    {
-                        await _files.AddFileLinkAsync(areaFileLink, ct);
-                    }
-
-                    await _unitOfWork.SaveChangesAsync(ct);
-                },
-                cancellationToken);
-        }
-        catch
-        {
-            await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
-            throw;
-        }
-
-        var fileResponse = BuildUploadResponse(
-            schedule.ProjectId,
-            scheduleId,
-            storedFile,
-            scheduleFileLink,
-            uploadResult);
-
-        return ServiceResult<MeasurementImageUploadResponseDto>.Created(
-            new MeasurementImageUploadResponseDto
-            {
-                File = fileResponse,
-                ScheduleId = scheduleId,
-                AreaLink = areaFileLink is null
-                    ? null
-                    : new MeasurementImageAreaLinkResponseDto
-                    {
-                        ProjectAreaId = areaFileLink.ReferenceId,
-                        FileId = fileId,
-                        FileLinkId = areaFileLink.FileLinkId
-                    }
-            },
-            "Measurement image uploaded successfully.");
     }
 
     public async Task<ServiceResult<MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
@@ -639,47 +469,6 @@ public sealed class MeasurementImageService : IMeasurementImageService
         }
 
         return null;
-    }
-
-    private List<string> ValidateUploadRequest(UploadMeasurementImageRequestDto request)
-    {
-        var errors = new List<string>();
-
-        if (request.Content == Stream.Null || !request.Content.CanRead)
-        {
-            errors.Add("File is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(request.OriginalFileName))
-        {
-            errors.Add("Original file name is required.");
-        }
-
-        if (request.FileSizeBytes <= 0)
-        {
-            errors.Add("File size must be greater than zero.");
-        }
-
-        var maxFileSize = ResolveMaxFileSize();
-        if (request.FileSizeBytes > maxFileSize)
-        {
-            errors.Add($"File size must not exceed {maxFileSize} bytes.");
-        }
-
-        var extension = Path.GetExtension(request.OriginalFileName);
-        if (string.IsNullOrWhiteSpace(extension) ||
-            !AllowedImageExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
-        {
-            errors.Add("Only image file extensions are allowed for measurement photos.");
-        }
-
-        var contentType = ProjectFileUploadSupport.NormalizeContentType(request.ContentType);
-        if (!AllowedImageMimeTypes.Contains(contentType, StringComparer.OrdinalIgnoreCase))
-        {
-            errors.Add("Only image MIME types are allowed for measurement photos.");
-        }
-
-        return errors;
     }
 
     private static ProjectFileUploadResponseDto BuildUploadResponse(

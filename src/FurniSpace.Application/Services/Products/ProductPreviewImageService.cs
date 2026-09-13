@@ -1,7 +1,8 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Storage;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
-using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Interfaces;
@@ -19,6 +20,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
+    private readonly CatalogDirectFileUploadService _catalogDirectUpload;
     private readonly ProductPreviewImageSettings _settings;
     private readonly FirebaseStorageSettings _firebaseSettings;
 
@@ -26,6 +28,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
         IProductRepository products,
         IProjectFileRepository files,
         IFileStorageService storage,
+        CatalogDirectFileUploadService catalogDirectUpload,
         IOptions<ProductPreviewImageSettings> settings,
         IOptions<FirebaseStorageSettings> firebaseSettings,
         IUnitOfWork unitOfWork)
@@ -33,15 +36,84 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
         _products = products;
         _files = files;
         _storage = storage;
+        _catalogDirectUpload = catalogDirectUpload;
         _settings = settings.Value;
         _firebaseSettings = firebaseSettings.Value;
         _unitOfWork = unitOfWork;
     }
 
-    public async Task<ServiceResult<ProductPreviewImageUploadResponseDto>> UploadAsync(
+    public async Task<ServiceResult<PrepareDirectUploadResponseDto>> PreparePreviewUploadAsync(
         Guid productId,
         Guid currentUserId,
         UploadProductPreviewImageRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (productId == Guid.Empty)
+        {
+            return ServiceResult<PrepareDirectUploadResponseDto>.BadRequest(ProductValidationMessages.ProductIdRequired);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PrepareDirectUploadResponseDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        var validationError = ValidateUploadRequest(request);
+        if (validationError is not null)
+        {
+            return ServiceResult<PrepareDirectUploadResponseDto>.Failure(validationError);
+        }
+
+        if (await ResolveProductErrorAsync<PrepareDirectUploadResponseDto>(productId, cancellationToken) is { } productError)
+        {
+            return productError;
+        }
+
+        var existingCount = await _files.CountProductPreviewFilesAsync(productId, cancellationToken);
+        if (existingCount >= _settings.MaxCount)
+        {
+            return ServiceResult<PrepareDirectUploadResponseDto>.Failure(
+                Error.Conflict(
+                    ProductPreviewImageErrorCodes.MaxFilesExceeded,
+                    $"A product can have at most {_settings.MaxCount} preview images."));
+        }
+
+        var existingLinks = await _files.GetProductPreviewFileLinkEntitiesAsync(productId, cancellationToken);
+        var displayOrder = PreviewImageFileLinkOrdering.ResolveDisplayOrder(
+            request.DisplayOrder,
+            existingLinks,
+            existingCount);
+
+        var metadata = new UploadCatalogFileRequestDto
+        {
+            OriginalFileName = request.OriginalFileName,
+            ContentType = request.ContentType,
+            FileSizeBytes = request.FileSizeBytes,
+            FileType = FileType.PRODUCT_PREVIEW,
+            Description = request.Description,
+            DisplayOrder = displayOrder
+        };
+
+        return await _catalogDirectUpload.PrepareAsync(
+            new CatalogDirectUploadPrepareRequest(
+                currentUserId,
+                metadata,
+                CatalogFileReferenceTypes.Product,
+                productId,
+                (_, generatedFileName) => CatalogPreviewImageServiceHelpers.BuildProductStorageObjectName(
+                    _firebaseSettings,
+                    productId,
+                    generatedFileName),
+                FileType.PRODUCT_PREVIEW,
+                FileVisibility.CUSTOMER_VISIBLE,
+                displayOrder),
+            cancellationToken);
+    }
+
+    public async Task<ServiceResult<ProductPreviewImageUploadResponseDto>> CompletePreviewUploadAsync(
+        Guid productId,
+        Guid currentUserId,
+        CompleteDirectUploadRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (productId == Guid.Empty)
@@ -54,106 +126,68 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
             return ServiceResult<ProductPreviewImageUploadResponseDto>.Unauthorized("Authenticated account id is required.");
         }
 
-        var validationError = ValidateUploadRequest(request);
-        if (validationError is not null)
-        {
-            return ServiceResult<ProductPreviewImageUploadResponseDto>.Failure(validationError);
-        }
-
         if (await ResolveProductErrorAsync<ProductPreviewImageUploadResponseDto>(productId, cancellationToken) is { } productError)
         {
             return productError;
         }
 
         var existingCount = await _files.CountProductPreviewFilesAsync(productId, cancellationToken);
-        if (existingCount >= _settings.MaxCount)
-        {
-            return ServiceResult<ProductPreviewImageUploadResponseDto>.Failure(
-                Error.Conflict(
-                    ProductPreviewImageErrorCodes.MaxFilesExceeded,
-                    $"A product can have at most {_settings.MaxCount} preview images."));
-        }
+        var pendingLink = (await _files.GetFileLinkEntitiesByFileIdAsync(request.FileId, cancellationToken))
+            .FirstOrDefault(link =>
+                link.ReferenceType == CatalogFileReferenceTypes.Product &&
+                link.ReferenceId == productId);
+        var shiftDisplayOrders = pendingLink?.DisplayOrder is int insertOrder && insertOrder <= existingCount;
 
-        var existingLinks = await _files.GetProductPreviewFileLinkEntitiesAsync(productId, cancellationToken);
-        var displayOrder = PreviewImageFileLinkOrdering.ResolveDisplayOrder(
-            request.DisplayOrder,
-            existingLinks,
-            existingCount);
-
-        var now = DateTime.UtcNow;
-        var fileId = Guid.NewGuid();
-        var fileLinkId = Guid.NewGuid();
-        var originalFileName = CatalogFileStorageHelpers.NormalizeOriginalFileName(request.OriginalFileName);
-        var generatedFileName = CatalogFileStorageHelpers.BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = CatalogPreviewImageServiceHelpers.BuildProductStorageObjectName(
-            _firebaseSettings,
-            productId,
-            generatedFileName);
-
-        var uploadResult = await _storage.UploadAsync(
-            new StorageUploadRequest
+        var completeResult = await _catalogDirectUpload.CompleteAsync(
+            new CatalogDirectUploadCompleteRequest(
+                currentUserId,
+                request.FileId,
+                CatalogFileReferenceTypes.Product,
+                productId,
+                "Product preview image uploaded successfully."),
+            async (context, ct) =>
             {
-                Content = request.Content,
-                ObjectName = objectName,
-                ContentType = CatalogFileStorageHelpers.NormalizeContentType(request.ContentType)
+                if (shiftDisplayOrders)
+                {
+                    var existingLinks = (await _files.GetProductPreviewFileLinkEntitiesAsync(productId, ct))
+                        .Where(link => link.FileId != context.FileLink.FileId)
+                        .ToList();
+                    PreviewImageFileLinkOrdering.ShiftDisplayOrdersForInsert(
+                        existingLinks,
+                        context.FileLink.DisplayOrder!.Value);
+                }
+
+                var pendingLinks = PreviewImageFileLinkOrdering.MergePendingPreviewLink(
+                    await _files.GetProductPreviewFileLinkEntitiesAsync(productId, ct),
+                    context.FileLink);
+                PreviewImageFileLinkOrdering.NormalizeDisplayOrdersAndPrimary(pendingLinks);
+                PreviewImageFileLinkOrdering.EnsureUniquePositiveDisplayOrders(pendingLinks);
             },
             cancellationToken);
 
-        var storedFile = CatalogPreviewImageServiceHelpers.CreatePreviewStoredFile(
-            fileId,
-            currentUserId,
-            originalFileName,
-            generatedFileName,
-            uploadResult,
-            request,
-            now);
-
-        var fileLink = CatalogPreviewImageServiceHelpers.CreateProductPreviewFileLink(
-            fileLinkId,
-            fileId,
-            productId,
-            displayOrder,
-            currentUserId,
-            now,
-            request.Description);
-
-        try
+        if (completeResult.Status is not (200 or 201) || completeResult.Data is null)
         {
-            await UnitOfWorkTransactions.ExecuteAsync(
-                _unitOfWork,
-                async ct =>
-                {
-                    if (request.DisplayOrder.HasValue)
-                    {
-                        PreviewImageFileLinkOrdering.ShiftDisplayOrdersForInsert(existingLinks, displayOrder);
-                    }
-
-                    var pendingLinks = existingLinks.Append(fileLink).ToList();
-                    PreviewImageFileLinkOrdering.EnsureUniquePositiveDisplayOrders(pendingLinks);
-
-                    await _files.AddAsync(storedFile, ct);
-                    await _files.AddFileLinkAsync(fileLink, ct);
-                    await _unitOfWork.SaveChangesAsync(ct);
-                },
-                cancellationToken);
-        }
-        catch
-        {
-            await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
-            throw;
+            return new ServiceResult<ProductPreviewImageUploadResponseDto>(
+                completeResult.Status,
+                completeResult.Message ?? "Product preview image upload completion failed.")
+            {
+                ErrorCode = completeResult.ErrorCode,
+                Errors = completeResult.Errors
+            };
         }
 
+        var uploaded = completeResult.Data;
         return ServiceResult<ProductPreviewImageUploadResponseDto>.Created(
             new ProductPreviewImageUploadResponseDto
             {
-                FileId = fileId,
-                Url = uploadResult.PublicUrl,
-                DisplayOrder = displayOrder,
-                FileType = FileType.PRODUCT_PREVIEW,
-                Description = fileLink.Description,
-                CreatedAt = now
+                FileId = uploaded.FileId,
+                Url = uploaded.FileUrl,
+                DisplayOrder = uploaded.DisplayOrder ?? 0,
+                FileType = uploaded.FileType,
+                Description = uploaded.Description,
+                CreatedAt = uploaded.CreatedAt ?? uploaded.UploadedAt
             },
-            "Product preview image uploaded successfully.");
+            completeResult.Message ?? "Product preview image uploaded successfully.");
     }
 
     public async Task<ServiceResult<ProductPreviewImageListResponseDto>> GetListAsync(
@@ -423,7 +457,7 @@ public sealed class ProductPreviewImageService : IProductPreviewImageService
 
     private Error? ValidateUploadRequest(UploadProductPreviewImageRequestDto request)
     {
-        var validationError = CatalogPreviewUploadValidation.ValidateFileContent(
+        var validationError = CatalogPreviewUploadValidation.ValidateMetadata(
             request,
             _settings,
             ProductPreviewImageErrorCodes.InvalidFileType,

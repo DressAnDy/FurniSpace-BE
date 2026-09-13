@@ -81,6 +81,185 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
+    public async Task PrepareProjectFileUploadAsync_WithCustomerProjectAccess_CreatesPendingRecordAndSignedUrl()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId,
+                Status = ProjectStatus.SUBMITTED
+            }
+        };
+        var storage = new FakeFileStorageService();
+        var service = CreateService(repository, storage);
+        var request = new PrepareProjectFileUploadRequestDto
+        {
+            OriginalFileName = "shop-reference.jpg",
+            ContentType = "image/jpeg",
+            FileSizeBytes = 204800,
+            FileType = FileType.REFERENCE_IMAGE,
+            Note = "Reference image"
+        };
+
+        var result = await service.PrepareProjectFileUploadAsync(projectId, customerId, request);
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal("Project file upload URL created successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(projectId, result.Data.ProjectId);
+        Assert.NotEqual(Guid.Empty, result.Data.FileId);
+        Assert.Contains("storage.example.com/upload/", result.Data.UploadUrl, StringComparison.Ordinal);
+        Assert.Equal("image/jpeg", result.Data.ContentType);
+        Assert.True(result.Data.ExpiresAt > DateTime.UtcNow);
+
+        Assert.Single(repository.StoredFiles);
+        Assert.Single(repository.FileLinks);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+        Assert.Equal(FileStatus.PENDING, repository.StoredFiles[0].Status);
+        Assert.Equal(string.Empty, repository.StoredFiles[0].FileUrl);
+        Assert.Equal(customerId, repository.StoredFiles[0].UploadedBy);
+        Assert.Equal("PROJECT", repository.FileLinks[0].ReferenceType);
+        Assert.Equal(projectId, repository.FileLinks[0].ReferenceId);
+
+        Assert.NotNull(storage.SignedUploadRequest);
+        Assert.Equal(repository.StoredFiles[0].StoragePath, storage.SignedUploadRequest.ObjectName);
+        Assert.Equal("image/jpeg", storage.SignedUploadRequest.ContentType);
+    }
+
+    [Fact]
+    public async Task CompleteProjectFileUploadAsync_WithPendingFile_ActivatesFile()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var fileLinkId = Guid.NewGuid();
+        var storagePath = $"projects/{projectId:D}/{fileId:N}.jpg";
+        var storedFile = new StoredFile
+        {
+            FileId = fileId,
+            UploadedBy = customerId,
+            OriginalFileName = "shop-reference.jpg",
+            StoredFileName = $"{fileId:N}.jpg",
+            FileUrl = string.Empty,
+            StoragePath = storagePath,
+            MimeType = "image/jpeg",
+            FileExtension = "jpg",
+            FileSizeBytes = 204800,
+            Status = FileStatus.PENDING,
+            UploadedAt = DateTime.UtcNow
+        };
+        var link = new FileLink
+        {
+            FileLinkId = fileLinkId,
+            FileId = fileId,
+            ReferenceType = "PROJECT",
+            ReferenceId = projectId,
+            FileType = FileType.REFERENCE_IMAGE,
+            Visibility = FileVisibility.CUSTOMER_VISIBLE,
+            CreatedBy = customerId,
+            CreatedAt = DateTime.UtcNow,
+            Description = "Reference image"
+        };
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId,
+                Status = ProjectStatus.SUBMITTED
+            }
+        };
+        repository.Entities[fileId] = storedFile;
+        repository.FileLinkEntities.Add(link);
+        var storage = new FakeFileStorageService();
+        var service = CreateService(repository, storage);
+
+        var result = await service.CompleteProjectFileUploadAsync(
+            projectId,
+            customerId,
+            new CompleteProjectFileUploadRequestDto { FileId = fileId });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project file uploaded successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(fileId, result.Data.FileId);
+        Assert.Equal(fileLinkId, result.Data.FileLinkId);
+        Assert.Equal(projectId, result.Data.ProjectId);
+        Assert.Equal(FileStatus.ACTIVE, storedFile.Status);
+        Assert.Equal($"https://storage.example.com/{storagePath}", storedFile.FileUrl);
+        Assert.Same(storedFile, repository.UpdatedFile);
+        Assert.Equal(1, repository.SaveChangesCallCount);
+
+        Assert.NotNull(storage.FinalizeRequest);
+        Assert.Equal(storagePath, storage.FinalizeRequest.ObjectName);
+        Assert.Equal("image/jpeg", storage.FinalizeRequest.ContentType);
+        Assert.Equal(204800, storage.FinalizeRequest.ExpectedSizeBytes);
+    }
+
+    [Fact]
+    public async Task CompleteProjectFileUploadAsync_WhenObjectMissing_ReturnsConflict()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var storagePath = $"projects/{projectId:D}/{fileId:N}.jpg";
+        var storedFile = new StoredFile
+        {
+            FileId = fileId,
+            UploadedBy = customerId,
+            OriginalFileName = "shop-reference.jpg",
+            StoredFileName = $"{fileId:N}.jpg",
+            FileUrl = string.Empty,
+            StoragePath = storagePath,
+            MimeType = "image/jpeg",
+            FileExtension = "jpg",
+            FileSizeBytes = 204800,
+            Status = FileStatus.PENDING,
+            UploadedAt = DateTime.UtcNow
+        };
+        var link = new FileLink
+        {
+            FileLinkId = Guid.NewGuid(),
+            FileId = fileId,
+            ReferenceType = "PROJECT",
+            ReferenceId = projectId,
+            FileType = FileType.REFERENCE_IMAGE,
+            Visibility = FileVisibility.CUSTOMER_VISIBLE,
+            CreatedBy = customerId,
+            CreatedAt = DateTime.UtcNow
+        };
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId,
+                Status = ProjectStatus.SUBMITTED
+            }
+        };
+        repository.Entities[fileId] = storedFile;
+        repository.FileLinkEntities.Add(link);
+        var storage = new FakeFileStorageService { FinalizeShouldFail = true };
+        var service = CreateService(repository, storage);
+
+        var result = await service.CompleteProjectFileUploadAsync(
+            projectId,
+            customerId,
+            new CompleteProjectFileUploadRequestDto { FileId = fileId });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectFileDirectUploadErrorCodes.UploadObjectMissing, result.ErrorCode);
+        Assert.Equal(FileStatus.PENDING, storedFile.Status);
+    }
+
+    [Fact]
     public async Task UploadProjectAreaFileAsync_AssignedDesigner_UploadsAndLinksProjectAreaFile()
     {
         var designerId = Guid.NewGuid();
@@ -641,6 +820,7 @@ public sealed class ProjectFileServiceTests
             new ProjectFileServiceDependencies(
                 global::FurniSpace.Application.Tests.TestDoubles.TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
                 storage,
+                storage,
                 new FileUploadSettings
                 {
                     MaxFileSizeBytes = 1024 * 1024,
@@ -732,16 +912,52 @@ public sealed class ProjectFileServiceTests
         };
     }
 
-    private sealed class FakeFileStorageService : IFileStorageService
+    private sealed class FakeFileStorageService : IFileStorageService, IDirectFileUploadStorageService
     {
         public StorageUploadRequest? UploadRequest { get; private set; }
+        public StorageSignedUploadRequest? SignedUploadRequest { get; private set; }
+        public StorageDirectUploadFinalizeRequest? FinalizeRequest { get; private set; }
         public string? DeletedObjectName { get; private set; }
+        public bool FinalizeShouldFail { get; init; }
 
         public Task<StorageUploadResult> UploadAsync(
             StorageUploadRequest request,
             CancellationToken cancellationToken = default)
         {
             UploadRequest = request;
+            return Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+                Bucket = "test-bucket"
+            });
+        }
+
+        public Task<StorageSignedUploadResult> CreateSignedUploadUrlAsync(
+            StorageSignedUploadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            SignedUploadRequest = request;
+            return Task.FromResult(new StorageSignedUploadResult
+            {
+                UploadUrl = $"https://storage.example.com/upload/{request.ObjectName}",
+                ObjectName = request.ObjectName,
+                Bucket = "test-bucket",
+                ContentType = request.ContentType,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+            });
+        }
+
+        public Task<StorageUploadResult> FinalizeDirectUploadAsync(
+            StorageDirectUploadFinalizeRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            FinalizeRequest = request;
+            if (FinalizeShouldFail)
+            {
+                throw new InvalidOperationException("Storage object 'missing' was not found. Upload the file to the signed URL before completing.");
+            }
+
             return Task.FromResult(new StorageUploadResult
             {
                 ObjectName = request.ObjectName,

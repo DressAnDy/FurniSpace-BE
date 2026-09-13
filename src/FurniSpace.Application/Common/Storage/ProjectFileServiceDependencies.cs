@@ -7,5 +7,6 @@ namespace FurniSpace.Application.Common.Storage;
 public sealed record ProjectFileServiceDependencies(
     IUnitOfWork UnitOfWork,
     IFileStorageService Storage,
+    IDirectFileUploadStorageService DirectUploadStorage,
     FileUploadSettings UploadSettings,
     FirebaseStorageSettings FirebaseSettings);

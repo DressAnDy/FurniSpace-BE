@@ -219,6 +219,7 @@ public static class DependencyInjection
             return new ProjectFileServiceDependencies(
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IDirectFileUploadStorageService>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
                 sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
         });

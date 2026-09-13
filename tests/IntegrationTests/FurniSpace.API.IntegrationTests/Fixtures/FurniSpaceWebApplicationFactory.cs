@@ -80,7 +80,9 @@ public sealed class FurniSpaceWebApplicationFactory : WebApplicationFactory<Prog
             services.AddSingleton<CapturingNotificationDispatcher>();
             services.AddSingleton<INotificationDispatcher>(serviceProvider =>
                 serviceProvider.GetRequiredService<CapturingNotificationDispatcher>());
-            services.AddScoped<IFileStorageService, FakeFileStorageService>();
+            services.AddScoped<FakeFileStorageService>();
+            services.AddScoped<IFileStorageService>(sp => sp.GetRequiredService<FakeFileStorageService>());
+            services.AddScoped<IDirectFileUploadStorageService>(sp => sp.GetRequiredService<FakeFileStorageService>());
             services.AddSingleton<ICacheService, InMemoryCacheService>();
             services.AddSingleton<CapturingEmailService>();
             services.AddSingleton<IEmailService>(serviceProvider =>

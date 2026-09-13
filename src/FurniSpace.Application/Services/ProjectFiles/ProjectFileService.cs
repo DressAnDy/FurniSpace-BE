@@ -24,6 +24,7 @@ public sealed class ProjectFileService : IProjectFileService
     private readonly ILayoutAssetRepository _layoutAssets;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
+    private readonly IDirectFileUploadStorageService _directUploadStorage;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
 
@@ -40,6 +41,7 @@ public sealed class ProjectFileService : IProjectFileService
         _layoutAssets = layoutAssets;
         _unitOfWork = dependencies.UnitOfWork;
         _storage = dependencies.Storage;
+        _directUploadStorage = dependencies.DirectUploadStorage;
         _uploadSettings = dependencies.UploadSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
     }
@@ -95,6 +97,248 @@ public sealed class ProjectFileService : IProjectFileService
                 SuccessMessage = "Project file uploaded successfully."
             },
             cancellationToken);
+    }
+
+    public async Task<ServiceResult<PrepareProjectFileUploadResponseDto>> PrepareProjectFileUploadAsync(
+        Guid projectId,
+        Guid currentUserId,
+        PrepareProjectFileUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<PrepareProjectFileUploadResponseDto>.BadRequest("Project id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<PrepareProjectFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        var validationErrors = ValidateUploadMetadata(request);
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<PrepareProjectFileUploadResponseDto>.BadRequest(validationErrors);
+        }
+
+        var project = await _projectFiles.GetProjectAccessAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<PrepareProjectFileUploadResponseDto>.NotFound("Project not found.");
+        }
+
+        var roleName = await _projectFiles.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(roleName))
+        {
+            return ServiceResult<PrepareProjectFileUploadResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
+        }
+
+        if (!CanUpload(project.CustomerId, project.AssignedSalesId, project.AssignedDesignerId, currentUserId, roleName))
+        {
+            return ServiceResult<PrepareProjectFileUploadResponseDto>.Forbidden("You do not have access to upload files to this project.");
+        }
+
+        var now = DateTime.UtcNow;
+        var fileId = Guid.NewGuid();
+        var fileLinkId = Guid.NewGuid();
+        var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
+        var generatedFileName = BuildGeneratedFileName(fileId, originalFileName);
+        var objectName = BuildProjectObjectName(projectId, generatedFileName);
+        var contentType = NormalizeContentType(request.ContentType);
+        var visibility = ResolveVisibility(request.Visibility, roleName);
+        var storedFile = CreatePendingStoredFile(
+            fileId,
+            currentUserId,
+            originalFileName,
+            generatedFileName,
+            objectName,
+            contentType,
+            request.FileSizeBytes,
+            now);
+        var fileLink = CreateFileLink(
+            fileLinkId,
+            fileId,
+            new LinkedFileUploadContext
+            {
+                ProjectId = projectId,
+                ReferenceType = ProjectReferenceType,
+                ReferenceId = projectId,
+                CurrentUserId = currentUserId,
+                RoleName = roleName,
+                Request = ToUploadRequest(request),
+                SuccessMessage = "Project file uploaded successfully."
+            },
+            visibility,
+            now);
+
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                await _projectFiles.AddAsync(storedFile, ct);
+                await _projectFiles.AddFileLinkAsync(fileLink, ct);
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
+
+        try
+        {
+            var signedUpload = await _directUploadStorage.CreateSignedUploadUrlAsync(
+                new StorageSignedUploadRequest
+                {
+                    ObjectName = objectName,
+                    ContentType = contentType,
+                    Expiration = TimeSpan.FromMinutes(Math.Clamp(_firebaseSettings.UploadSignedUrlExpirationMinutes, 1, 60))
+                },
+                cancellationToken);
+
+            return ServiceResult<PrepareProjectFileUploadResponseDto>.Created(
+                new PrepareProjectFileUploadResponseDto
+                {
+                    FileId = fileId,
+                    ProjectId = projectId,
+                    UploadUrl = signedUpload.UploadUrl,
+                    ContentType = signedUpload.ContentType,
+                    ExpiresAt = signedUpload.ExpiresAt
+                },
+                "Project file upload URL created successfully.");
+        }
+        catch
+        {
+            await _storage.DeleteAsync(objectName, cancellationToken);
+            _projectFiles.Remove(storedFile);
+            _projectFiles.RemoveFileLinks([fileLink]);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task<ServiceResult<ProjectFileUploadResponseDto>> CompleteProjectFileUploadAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CompleteProjectFileUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.BadRequest("Project id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
+        }
+
+        if (request.FileId == Guid.Empty)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.BadRequest("File id is required.");
+        }
+
+        var project = await _projectFiles.GetProjectAccessAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.NotFound("Project not found.");
+        }
+
+        var roleName = await _projectFiles.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (string.IsNullOrWhiteSpace(roleName))
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Forbidden(InactiveOrMissingRoleMessage);
+        }
+
+        if (!CanUpload(project.CustomerId, project.AssignedSalesId, project.AssignedDesignerId, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Forbidden("You do not have access to upload files to this project.");
+        }
+
+        var storedFile = await _projectFiles.GetByIdAsync(request.FileId, cancellationToken);
+        if (storedFile is null)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Failure(
+                Error.NotFound(ProjectFileDirectUploadErrorCodes.UploadNotFound, FileNotFoundMessage));
+        }
+
+        var fileLinks = await _projectFiles.GetFileLinkEntitiesByFileIdAsync(request.FileId, cancellationToken);
+        var projectLink = fileLinks.FirstOrDefault(link =>
+            string.Equals(link.ReferenceType, ProjectReferenceType, StringComparison.OrdinalIgnoreCase) &&
+            link.ReferenceId == projectId);
+        if (projectLink is null)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Failure(
+                Error.NotFound(ProjectFileDirectUploadErrorCodes.UploadNotFound, FileNotFoundMessage));
+        }
+
+        if (storedFile.UploadedBy != currentUserId &&
+            !string.Equals(roleName, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Failure(
+                Error.Forbidden(
+                    ProjectFileDirectUploadErrorCodes.UploadForbidden,
+                    "You can only complete your own direct upload session."));
+        }
+
+        if (storedFile.Status == FileStatus.ACTIVE)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Success(
+                BuildUploadResponse(
+                    projectId,
+                    ProjectReferenceType,
+                    projectId,
+                    storedFile,
+                    projectLink,
+                    new StorageUploadResult
+                    {
+                        Bucket = _firebaseSettings.Bucket,
+                        ObjectName = storedFile.StoragePath,
+                        PublicUrl = storedFile.FileUrl
+                    }),
+                "Project file uploaded successfully.");
+        }
+
+        if (storedFile.Status != FileStatus.PENDING)
+        {
+            return ServiceResult<ProjectFileUploadResponseDto>.Failure(
+                Error.Conflict(
+                    ProjectFileDirectUploadErrorCodes.UploadNotPending,
+                    "Project file upload is not pending completion."));
+        }
+
+        StorageUploadResult uploadResult;
+        try
+        {
+            uploadResult = await _directUploadStorage.FinalizeDirectUploadAsync(
+                new StorageDirectUploadFinalizeRequest
+                {
+                    ObjectName = storedFile.StoragePath,
+                    ContentType = storedFile.MimeType,
+                    ExpectedSizeBytes = storedFile.FileSizeBytes
+                },
+                cancellationToken);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return MapDirectUploadFailure<ProjectFileUploadResponseDto>(exception);
+        }
+
+        storedFile.Status = FileStatus.ACTIVE;
+        storedFile.FileUrl = uploadResult.PublicUrl;
+        storedFile.UploadedAt = DateTime.UtcNow;
+
+        await ExecuteInTransactionAsync(
+            async ct =>
+            {
+                _projectFiles.Update(storedFile);
+                if (projectLink.IsPrimary == true)
+                {
+                    await ClearOtherPrimaryProjectAreaLinksAsync(projectLink, ct);
+                }
+
+                await _unitOfWork.SaveChangesAsync(ct);
+            },
+            cancellationToken);
+
+        return ServiceResult<ProjectFileUploadResponseDto>.Success(
+            BuildUploadResponse(projectId, ProjectReferenceType, projectId, storedFile, projectLink, uploadResult),
+            "Project file uploaded successfully.");
     }
 
     public async Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectAreaFileAsync(
@@ -688,12 +932,28 @@ public sealed class ProjectFileService : IProjectFileService
 
     private List<string> ValidateRequest(UploadProjectFileRequestDto request)
     {
-        var errors = new List<string>();
+        var errors = ValidateUploadMetadata(new PrepareProjectFileUploadRequestDto
+        {
+            OriginalFileName = request.OriginalFileName,
+            ContentType = request.ContentType,
+            FileSizeBytes = request.FileSizeBytes,
+            FileType = request.FileType,
+            Visibility = request.Visibility,
+            IsPrimary = request.IsPrimary,
+            DisplayOrder = request.DisplayOrder,
+            Note = request.Note
+        });
         if (request.Content == Stream.Null || !request.Content.CanRead)
         {
             errors.Add("File is required.");
         }
 
+        return errors;
+    }
+
+    private List<string> ValidateUploadMetadata(PrepareProjectFileUploadRequestDto request)
+    {
+        var errors = new List<string>();
         if (string.IsNullOrWhiteSpace(request.OriginalFileName))
         {
             errors.Add("Original file name is required.");
@@ -723,6 +983,69 @@ public sealed class ProjectFileService : IProjectFileService
         }
 
         return errors;
+    }
+
+    private static UploadProjectFileRequestDto ToUploadRequest(PrepareProjectFileUploadRequestDto request)
+    {
+        return new UploadProjectFileRequestDto
+        {
+            OriginalFileName = request.OriginalFileName,
+            ContentType = request.ContentType,
+            FileSizeBytes = request.FileSizeBytes,
+            FileType = request.FileType,
+            Visibility = request.Visibility,
+            IsPrimary = request.IsPrimary,
+            DisplayOrder = request.DisplayOrder,
+            Note = request.Note
+        };
+    }
+
+    private static StoredFile CreatePendingStoredFile(
+        Guid fileId,
+        Guid currentUserId,
+        string originalFileName,
+        string generatedFileName,
+        string storagePath,
+        string contentType,
+        long fileSizeBytes,
+        DateTime now) =>
+        new()
+        {
+            FileId = fileId,
+            UploadedBy = currentUserId,
+            OriginalFileName = originalFileName,
+            StoredFileName = generatedFileName,
+            FileUrl = string.Empty,
+            StoragePath = storagePath,
+            MimeType = contentType,
+            FileExtension = NormalizeExtension(originalFileName),
+            FileSizeBytes = fileSizeBytes,
+            Status = FileStatus.PENDING,
+            UploadedAt = now
+        };
+
+    private static ServiceResult<T> MapDirectUploadFailure<T>(InvalidOperationException exception)
+    {
+        var message = exception.Message;
+        if (message.Contains("was not found", StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<T>.Failure(
+                Error.Conflict(ProjectFileDirectUploadErrorCodes.UploadObjectMissing, message));
+        }
+
+        if (message.Contains("size mismatch", StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<T>.Failure(
+                Error.Conflict(ProjectFileDirectUploadErrorCodes.UploadSizeMismatch, message));
+        }
+
+        if (message.Contains("content type mismatch", StringComparison.OrdinalIgnoreCase))
+        {
+            return ServiceResult<T>.Failure(
+                Error.Conflict(ProjectFileDirectUploadErrorCodes.UploadContentTypeMismatch, message));
+        }
+
+        return ServiceResult<T>.Failure(Error.Conflict(ProjectFileDirectUploadErrorCodes.UploadObjectMissing, message));
     }
 
     private static List<string> ValidateProjectAreaFileRequest(UploadProjectFileRequestDto request)

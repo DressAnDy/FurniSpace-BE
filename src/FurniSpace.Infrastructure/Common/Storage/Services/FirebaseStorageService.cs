@@ -1,34 +1,127 @@
-using Google.Apis.Auth.OAuth2;
 using Google.Cloud.Storage.V1;
-using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Interfaces;
-using Google;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Text.Json;
+using System.Diagnostics;
+using Google;
 using StorageObject = Google.Apis.Storage.v1.Data.Object;
 
 namespace FurniSpace.Infrastructure.Common.Storage;
 
-public sealed class FirebaseStorageService : IFileStorageService
+public sealed class FirebaseStorageService : IFileStorageService, IDirectFileUploadStorageService
 {
     private const string DownloadTokenMetadataKey = "firebaseStorageDownloadTokens";
     private readonly FirebaseStorageSettings _settings;
     private readonly StorageClient _storageClient;
+    private readonly UrlSigner _urlSigner;
+    private readonly ILogger<FirebaseStorageService> _logger;
 
-    public FirebaseStorageService(IOptions<FirebaseStorageSettings> settings)
+    public FirebaseStorageService(
+        StorageClient storageClient,
+        UrlSigner urlSigner,
+        IOptions<FirebaseStorageSettings> settings,
+        ILogger<FirebaseStorageService> logger)
     {
+        _storageClient = storageClient;
+        _urlSigner = urlSigner;
         _settings = settings.Value;
-        _storageClient = CreateStorageClient(_settings);
+        _logger = logger;
+    }
+
+    public Task<StorageSignedUploadResult> CreateSignedUploadUrlAsync(
+        StorageSignedUploadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureBucketConfigured();
+
+        var expiration = request.Expiration > TimeSpan.Zero
+            ? request.Expiration
+            : TimeSpan.FromMinutes(Math.Clamp(_settings.UploadSignedUrlExpirationMinutes, 1, 60));
+        var expiresAt = DateTime.UtcNow.Add(expiration);
+        var contentType = string.IsNullOrWhiteSpace(request.ContentType)
+            ? "application/octet-stream"
+            : request.ContentType.Trim();
+
+        var template = UrlSigner.RequestTemplate
+            .FromBucket(_settings.Bucket)
+            .WithObjectName(request.ObjectName)
+            .WithHttpMethod(HttpMethod.Put)
+            .WithContentHeaders(new Dictionary<string, IEnumerable<string>>
+            {
+                ["Content-Type"] = [contentType]
+            });
+
+        var options = UrlSigner.Options.FromExpiration(expiresAt);
+        var signedUrl = _urlSigner.Sign(template, options);
+
+        return Task.FromResult(new StorageSignedUploadResult
+        {
+            UploadUrl = signedUrl,
+            ObjectName = request.ObjectName,
+            Bucket = _settings.Bucket,
+            ContentType = contentType,
+            ExpiresAt = expiresAt
+        });
+    }
+
+    public async Task<StorageUploadResult> FinalizeDirectUploadAsync(
+        StorageDirectUploadFinalizeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureBucketConfigured();
+
+        StorageObject storageObject;
+        try
+        {
+            storageObject = await _storageClient.GetObjectAsync(
+                _settings.Bucket,
+                request.ObjectName,
+                cancellationToken: cancellationToken);
+        }
+        catch (GoogleApiException exception) when (exception.HttpStatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new InvalidOperationException(
+                $"Storage object '{request.ObjectName}' was not found. Upload the file to the signed URL before completing.",
+                exception);
+        }
+
+        var actualSize = storageObject.Size is null ? 0L : (long)storageObject.Size.Value;
+        if (request.ExpectedSizeBytes > 0 && actualSize != request.ExpectedSizeBytes)
+        {
+            throw new InvalidOperationException(
+                $"Storage object size mismatch. Expected {request.ExpectedSizeBytes} bytes but found {actualSize} bytes.");
+        }
+
+        var normalizedContentType = string.IsNullOrWhiteSpace(request.ContentType)
+            ? "application/octet-stream"
+            : request.ContentType.Trim();
+        if (!string.IsNullOrWhiteSpace(storageObject.ContentType) &&
+            !string.Equals(storageObject.ContentType, normalizedContentType, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Storage object content type mismatch. Expected '{normalizedContentType}' but found '{storageObject.ContentType}'.");
+        }
+
+        var downloadToken = Guid.NewGuid().ToString("N");
+        storageObject.Metadata ??= new Dictionary<string, string>();
+        storageObject.Metadata[DownloadTokenMetadataKey] = downloadToken;
+        storageObject.ContentType = normalizedContentType;
+
+        await _storageClient.UpdateObjectAsync(storageObject, cancellationToken: cancellationToken);
+
+        return new StorageUploadResult
+        {
+            Bucket = _settings.Bucket,
+            ObjectName = request.ObjectName,
+            PublicUrl = BuildFirebaseDownloadUrl(_settings.Bucket, request.ObjectName, downloadToken)
+        };
     }
 
     public async Task<StorageUploadResult> UploadAsync(
         StorageUploadRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_settings.Bucket))
-        {
-            throw new InvalidOperationException("Firebase storage bucket is missing. Set FirebaseStorage__Bucket or FIREBASE_STORAGE_BUCKET.");
-        }
+        EnsureBucketConfigured();
 
         var downloadToken = Guid.NewGuid().ToString("N");
         var storageObject = new StorageObject
@@ -42,10 +135,28 @@ public sealed class FirebaseStorageService : IFileStorageService
             }
         };
 
+        var stopwatch = Stopwatch.StartNew();
         await _storageClient.UploadObjectAsync(
             storageObject,
             request.Content,
             cancellationToken: cancellationToken);
+        stopwatch.Stop();
+
+        if (stopwatch.ElapsedMilliseconds >= 1_000)
+        {
+            _logger.LogWarning(
+                "Firebase upload completed in {ElapsedMs} ms for object {ObjectName} ({ContentType})",
+                stopwatch.ElapsedMilliseconds,
+                request.ObjectName,
+                request.ContentType);
+        }
+        else
+        {
+            _logger.LogDebug(
+                "Firebase upload completed in {ElapsedMs} ms for object {ObjectName}",
+                stopwatch.ElapsedMilliseconds,
+                request.ObjectName);
+        }
 
         return new StorageUploadResult
         {
@@ -59,10 +170,7 @@ public sealed class FirebaseStorageService : IFileStorageService
         string objectName,
         CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(_settings.Bucket))
-        {
-            throw new InvalidOperationException("Firebase storage bucket is missing. Set FirebaseStorage__Bucket or FIREBASE_STORAGE_BUCKET.");
-        }
+        EnsureBucketConfigured();
 
         if (string.IsNullOrWhiteSpace(objectName))
         {
@@ -82,73 +190,15 @@ public sealed class FirebaseStorageService : IFileStorageService
         }
     }
 
-    private static StorageClient CreateStorageClient(FirebaseStorageSettings settings)
+    private void EnsureBucketConfigured()
     {
-        var credentialsPath = settings.CredentialsPath
-            ?? Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS")
-            ?? Environment.GetEnvironmentVariable("FIREBASE_CREDENTIALS_PATH");
-
-        if (string.IsNullOrWhiteSpace(credentialsPath))
+        if (string.IsNullOrWhiteSpace(_settings.Bucket))
         {
-            var credential = CreateCredentialFromEnvironment();
-            return credential is null
-                ? StorageClient.Create()
-                : StorageClient.Create(credential);
+            throw new InvalidOperationException("Firebase storage bucket is missing. Set FirebaseStorage__Bucket or FIREBASE_STORAGE_BUCKET.");
         }
-
-        return StorageClient.Create(GoogleCredential.FromFile(credentialsPath));
     }
 
-    private static GoogleCredential? CreateCredentialFromEnvironment()
-    {
-        var projectId = GetEnvironmentValue("FIREBASE_PROJECT_ID");
-        var privateKey = GetEnvironmentValue("FIREBASE_PRIVATE_KEY")?.Replace("\\n", "\n", StringComparison.Ordinal);
-        var clientEmail = GetEnvironmentValue("FIREBASE_CLIENT_EMAIL");
-
-        if (string.IsNullOrWhiteSpace(projectId) ||
-            string.IsNullOrWhiteSpace(privateKey) ||
-            string.IsNullOrWhiteSpace(clientEmail))
-        {
-            return null;
-        }
-
-        var serviceAccount = new Dictionary<string, string?>
-        {
-            ["type"] = GetEnvironmentValue("FIREBASE_TYPE") ?? "service_account",
-            ["project_id"] = projectId,
-            ["private_key_id"] = GetEnvironmentValue("FIREBASE_PRIVATE_KEY_ID"),
-            ["private_key"] = privateKey,
-            ["client_email"] = clientEmail,
-            ["client_id"] = GetEnvironmentValue("FIREBASE_CLIENT_ID"),
-            ["auth_uri"] = GetEnvironmentValue("FIREBASE_AUTH_URI") ?? "https://accounts.google.com/o/oauth2/auth",
-            ["token_uri"] = GetEnvironmentValue("FIREBASE_TOKEN_URI") ?? "https://oauth2.googleapis.com/token",
-            ["auth_provider_x509_cert_url"] = GetEnvironmentValue("FIREBASE_AUTH_PROVIDER_X509_CERT_URL") ?? "https://www.googleapis.com/oauth2/v1/certs",
-            ["client_x509_cert_url"] = GetEnvironmentValue("FIREBASE_CLIENT_X509_CERT_URL")
-        };
-
-        var json = JsonSerializer.Serialize(serviceAccount);
-        return GoogleCredential.FromJson(json);
-    }
-
-    private static string? GetEnvironmentValue(string name)
-    {
-        var value = Environment.GetEnvironmentVariable(name);
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-
-        value = value.Trim();
-        if (value.Length >= 2 &&
-            ((value[0] == '"' && value[^1] == '"') || (value[0] == '\'' && value[^1] == '\'')))
-        {
-            value = value[1..^1];
-        }
-
-        return value;
-    }
-
-    private static string BuildFirebaseDownloadUrl(string bucket, string objectName, string downloadToken)
+    internal static string BuildFirebaseDownloadUrl(string bucket, string objectName, string downloadToken)
     {
         var encodedObjectName = Uri.EscapeDataString(objectName);
         return $"https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encodedObjectName}?alt=media&token={downloadToken}";

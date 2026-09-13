@@ -3,6 +3,7 @@ using FurniSpace.Infrastructure.Common.Caching;
 using FurniSpace.Infrastructure.Common.Email;
 using FurniSpace.Infrastructure.Common.Mongo;
 using FurniSpace.Infrastructure.Common.Storage;
+using Google.Cloud.Storage.V1;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Data.Mongo;
@@ -113,7 +114,19 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(baseUrl);
             client.Timeout = TimeSpan.FromSeconds(Math.Clamp(settings.TimeoutSeconds, 1, 60));
         });
-        services.AddScoped<IFileStorageService, FirebaseStorageService>();
+        services.AddSingleton(sp =>
+        {
+            var settings = sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value;
+            return FirebaseStorageClientFactory.Create(settings);
+        });
+        services.AddSingleton(sp =>
+        {
+            var settings = sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value;
+            return FirebaseStorageClientFactory.CreateUrlSigner(settings);
+        });
+        services.AddScoped<FirebaseStorageService>();
+        services.AddScoped<IFileStorageService>(sp => sp.GetRequiredService<FirebaseStorageService>());
+        services.AddScoped<IDirectFileUploadStorageService>(sp => sp.GetRequiredService<FirebaseStorageService>());
 
         return services;
     }

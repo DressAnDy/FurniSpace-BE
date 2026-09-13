@@ -12,11 +12,19 @@ public sealed class FirebaseStorageService : IFileStorageService, IDirectFileUpl
 {
     private const string DownloadTokenMetadataKey = "firebaseStorageDownloadTokens";
     private readonly FirebaseStorageSettings _settings;
-    private readonly IStorageObjectClient _storageClient;
-    private readonly ISignedUploadUrlGenerator _urlSigner;
     private readonly ILogger<FirebaseStorageService> _logger;
+    private IStorageObjectClient? _storageClient;
+    private ISignedUploadUrlGenerator? _urlSigner;
 
     public FirebaseStorageService(
+        IOptions<FirebaseStorageSettings> settings,
+        ILogger<FirebaseStorageService> logger)
+    {
+        _settings = settings.Value;
+        _logger = logger;
+    }
+
+    internal FirebaseStorageService(
         IStorageObjectClient storageClient,
         ISignedUploadUrlGenerator urlSigner,
         IOptions<FirebaseStorageSettings> settings,
@@ -52,7 +60,7 @@ public sealed class FirebaseStorageService : IFileStorageService, IDirectFileUpl
             });
 
         var options = UrlSigner.Options.FromExpiration(expiresAt);
-        var signedUrl = _urlSigner.Sign(template, options);
+        var signedUrl = ResolveUrlSigner().Sign(template, options);
 
         return Task.FromResult(new StorageSignedUploadResult
         {
@@ -73,7 +81,7 @@ public sealed class FirebaseStorageService : IFileStorageService, IDirectFileUpl
         StorageObject storageObject;
         try
         {
-            storageObject = await _storageClient.GetObjectAsync(
+            storageObject = await ResolveStorageClient().GetObjectAsync(
                 _settings.Bucket,
                 request.ObjectName,
                 cancellationToken: cancellationToken);
@@ -107,7 +115,7 @@ public sealed class FirebaseStorageService : IFileStorageService, IDirectFileUpl
         storageObject.Metadata[DownloadTokenMetadataKey] = downloadToken;
         storageObject.ContentType = normalizedContentType;
 
-        await _storageClient.UpdateObjectAsync(storageObject, cancellationToken: cancellationToken);
+        await ResolveStorageClient().UpdateObjectAsync(storageObject, cancellationToken: cancellationToken);
 
         return new StorageUploadResult
         {
@@ -136,7 +144,7 @@ public sealed class FirebaseStorageService : IFileStorageService, IDirectFileUpl
         };
 
         var stopwatch = Stopwatch.StartNew();
-        await _storageClient.UploadObjectAsync(
+        await ResolveStorageClient().UploadObjectAsync(
             storageObject,
             request.Content,
             cancellationToken: cancellationToken);
@@ -179,7 +187,7 @@ public sealed class FirebaseStorageService : IFileStorageService, IDirectFileUpl
 
         try
         {
-            await _storageClient.DeleteObjectAsync(
+            await ResolveStorageClient().DeleteObjectAsync(
                 _settings.Bucket,
                 objectName,
                 cancellationToken: cancellationToken);
@@ -197,6 +205,12 @@ public sealed class FirebaseStorageService : IFileStorageService, IDirectFileUpl
             throw new InvalidOperationException("Firebase storage bucket is missing. Set FirebaseStorage__Bucket or FIREBASE_STORAGE_BUCKET.");
         }
     }
+
+    private IStorageObjectClient ResolveStorageClient() =>
+        _storageClient ??= new GoogleStorageObjectClient(FirebaseStorageClientFactory.Create(_settings));
+
+    private ISignedUploadUrlGenerator ResolveUrlSigner() =>
+        _urlSigner ??= new GoogleSignedUploadUrlGenerator(FirebaseStorageClientFactory.CreateUrlSigner(_settings));
 
     internal static string BuildFirebaseDownloadUrl(string bucket, string objectName, string downloadToken)
     {

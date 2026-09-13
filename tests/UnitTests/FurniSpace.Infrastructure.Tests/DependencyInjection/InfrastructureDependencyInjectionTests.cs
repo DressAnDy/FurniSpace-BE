@@ -36,8 +36,9 @@ public sealed class InfrastructureDependencyInjectionTests
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IEmailService));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IFileStorageService));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IDirectFileUploadStorageService));
-        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IStorageObjectClient));
-        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(ISignedUploadUrlGenerator));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(FirebaseStorageService));
+        Assert.DoesNotContain(services, descriptor => descriptor.ServiceType.Name == "StorageClient");
+        Assert.DoesNotContain(services, descriptor => descriptor.ServiceType.Name == "UrlSigner");
     }
 
     [Fact]

@@ -203,7 +203,7 @@ public sealed class FirebaseStorageServiceDirectUploadTests
     private static FirebaseStorageService CreateService(
         IStorageObjectClient storageClient,
         ISignedUploadUrlGenerator urlSigner) =>
-        new(
+        new FirebaseStorageService(
             storageClient,
             urlSigner,
             Options.Create(Settings),

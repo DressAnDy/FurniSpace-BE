@@ -13,6 +13,16 @@ namespace FurniSpace.Infrastructure.Tests.Storage;
 public sealed class FirebaseStorageServiceTests
 {
     [Fact]
+    public void Constructor_WithSettings_DoesNotInitializeFirebaseClients()
+    {
+        var service = new FirebaseStorageService(
+            Microsoft.Extensions.Options.Options.Create(new FirebaseStorageSettings { Bucket = "test-bucket" }),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<FirebaseStorageService>.Instance);
+
+        Assert.NotNull(service);
+    }
+
+    [Fact]
     public async Task UploadAndDelete_WhenBucketMissing_ThrowBeforeCallingStorageClient()
     {
         var service = CreateServiceWithoutConstructor(new FirebaseStorageSettings());

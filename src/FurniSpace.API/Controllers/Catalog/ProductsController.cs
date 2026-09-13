@@ -2,7 +2,7 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
-using FurniSpace.API.DTOs.Products;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 using Microsoft.AspNetCore.Authorization;
@@ -13,9 +13,6 @@ namespace FurniSpace.API.Controllers.Catalog;
 [Route("products")]
 public sealed class ProductsController : BaseApiController
 {
-    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
-    private const long PreviewMultipartRequestLimitBytes = 10L * 1024L * 1024L;
-
     private readonly IProductService _products;
     private readonly IProductPreviewImageService _previewImages;
 
@@ -145,12 +142,10 @@ public sealed class ProductsController : BaseApiController
     }
 
     [Authorize(Roles = "ADMIN")]
-    [HttpPost("{productId:guid}/files")]
-    [Consumes("multipart/form-data")]
-    [RequestSizeLimit(MultipartRequestLimitBytes)]
-    public async Task<IActionResult> UploadFile(
+    [HttpPost("{productId:guid}/files/upload-url")]
+    public async Task<IActionResult> PrepareFileUpload(
         Guid productId,
-        [FromForm] UploadCatalogFileFormRequest request,
+        [FromBody] UploadCatalogFileRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId))
@@ -158,10 +153,31 @@ public sealed class ProductsController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _products.UploadFileAsync(
+        var result = await _products.PrepareFileUploadAsync(
             productId,
             currentUserId,
-            request.ToRequestDto(),
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("{productId:guid}/files/complete")]
+    public async Task<IActionResult> CompleteFileUpload(
+        Guid productId,
+        [FromBody] CompleteDirectUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _products.CompleteFileUploadAsync(
+            productId,
+            currentUserId,
+            request,
             cancellationToken);
 
         return ToActionResult(result);
@@ -177,12 +193,10 @@ public sealed class ProductsController : BaseApiController
     }
 
     [Authorize(Roles = "ADMIN")]
-    [HttpPost("{productId:guid}/preview-files")]
-    [Consumes("multipart/form-data")]
-    [RequestSizeLimit(PreviewMultipartRequestLimitBytes)]
-    public async Task<IActionResult> UploadPreviewFile(
+    [HttpPost("{productId:guid}/preview-files/upload-url")]
+    public async Task<IActionResult> PreparePreviewFileUpload(
         Guid productId,
-        [FromForm] UploadProductPreviewImageFormRequest request,
+        [FromBody] UploadProductPreviewImageRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId))
@@ -190,10 +204,31 @@ public sealed class ProductsController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _previewImages.UploadAsync(
+        var result = await _previewImages.PreparePreviewUploadAsync(
             productId,
             currentUserId,
-            request.ToRequestDto(),
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("{productId:guid}/preview-files/complete")]
+    public async Task<IActionResult> CompletePreviewFileUpload(
+        Guid productId,
+        [FromBody] CompleteDirectUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _previewImages.CompletePreviewUploadAsync(
+            productId,
+            currentUserId,
+            request,
             cancellationToken);
 
         return ToActionResult(result);

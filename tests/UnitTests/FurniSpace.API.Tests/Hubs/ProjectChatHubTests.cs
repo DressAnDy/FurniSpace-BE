@@ -245,10 +245,19 @@ public sealed class ProjectChatHubTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()));
 
-        public Task<ServiceResult<ProjectChatMessageDto>> SendFileMessageAsync(
+        public Task<ServiceResult<PrepareProjectChatFileUploadResponseDto>> PrepareFileMessageUploadAsync(
             Guid chatId,
             Guid currentUserId,
-            SendFileChatMessageRequestDto request,
+            PrepareProjectChatFileUploadRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<PrepareProjectChatFileUploadResponseDto>.Created(
+                new PrepareProjectChatFileUploadResponseDto(),
+                "Project chat file upload URL created successfully."));
+
+        public Task<ServiceResult<ProjectChatMessageDto>> CompleteFileMessageUploadAsync(
+            Guid chatId,
+            Guid currentUserId,
+            CompleteProjectChatFileUploadRequestDto request,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()));
 

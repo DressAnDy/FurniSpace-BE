@@ -6,7 +6,6 @@ using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Projects;
-using FurniSpace.API.DTOs.ProjectFiles;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
@@ -20,35 +19,45 @@ namespace FurniSpace.API.Tests.Controllers;
 public sealed class ProjectAreaFilesControllerTests
 {
     [Fact]
-    public async Task UploadProjectAreaFile_PassesMultipartRequestToService()
+    public async Task PrepareProjectAreaFileUpload_PassesRequestToService()
     {
         var userId = Guid.NewGuid();
         var areaId = Guid.NewGuid();
         var response = new ProjectFileUploadResponseDto { ReferenceType = "PROJECT_AREA", ReferenceId = areaId };
         var service = new FakeProjectFileService
         {
-            UploadAreaResult = ServiceResult<ProjectFileUploadResponseDto>.Created(
-                response,
-                "Project area file uploaded successfully.")
+            PrepareAreaResult = ServiceResult<PrepareProjectAreaFileUploadResponseDto>.Created(
+                new PrepareProjectAreaFileUploadResponseDto
+                {
+                    FileId = Guid.NewGuid(),
+                    ProjectAreaId = areaId,
+                    ProjectId = Guid.NewGuid(),
+                    UploadUrl = "https://storage.example.com/upload",
+                    ContentType = "application/pdf",
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+                },
+                "Project area file upload URL created successfully.")
         };
         var controller = CreateController(service, userId);
-        var request = new UploadProjectFileFormRequest
+        var request = new PrepareProjectFileUploadRequestDto
         {
-            File = CreateFormFile("area.pdf"),
+            OriginalFileName = "area.pdf",
+            ContentType = "application/pdf",
+            FileSizeBytes = 12,
             FileType = FileType.PDF_DRAWING,
             Visibility = FileVisibility.STAFF_ONLY,
             IsPrimary = true,
             DisplayOrder = 3
         };
 
-        var actionResult = await controller.UploadProjectAreaFile(areaId, request);
+        var actionResult = await controller.PrepareProjectAreaFileUpload(areaId, request);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(201, objectResult.StatusCode);
         Assert.Equal(areaId, service.ProjectAreaId);
         Assert.Equal(userId, service.CurrentUserId);
-        Assert.True(service.UploadRequest!.IsPrimary);
-        Assert.Equal(3, service.UploadRequest.DisplayOrder);
+        Assert.True(service.PrepareAreaRequest!.IsPrimary);
+        Assert.Equal(3, service.PrepareAreaRequest.DisplayOrder);
     }
 
     [Fact]
@@ -64,10 +73,13 @@ public sealed class ProjectAreaFilesControllerTests
 
         var actionResult = await controller.GetProjectAreaFiles(
             areaId,
-            FileType.FLOOR_PLAN,
-            FileVisibility.CUSTOMER_VISIBLE,
-            page: 2,
-            limit: 10);
+            new ProjectFilesQueryDto
+            {
+                FileType = FileType.FLOOR_PLAN,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                Page = 2,
+                Limit = 10
+            });
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(200, objectResult.StatusCode);
@@ -91,7 +103,7 @@ public sealed class ProjectAreaFilesControllerTests
         };
         var controller = CreateController(service, userId);
 
-        var actionResult = await controller.SetPrimary(areaId, fileId);
+        var actionResult = await controller.SetPrimaryFile(areaId, fileId);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(200, objectResult.StatusCode);
@@ -101,11 +113,11 @@ public sealed class ProjectAreaFilesControllerTests
     }
 
     [Fact]
-    public async Task UploadProjectAreaFile_ReturnsUnauthorized_WhenClaimMissing()
+    public async Task PrepareProjectAreaFileUpload_ReturnsUnauthorized_WhenClaimMissing()
     {
         var controller = CreateController(new FakeProjectFileService(), userId: null);
 
-        var actionResult = await controller.UploadProjectAreaFile(Guid.NewGuid(), new UploadProjectFileFormRequest());
+        var actionResult = await controller.PrepareProjectAreaFileUpload(Guid.NewGuid(), new PrepareProjectFileUploadRequestDto());
 
         Assert.IsType<UnauthorizedResult>(actionResult);
     }
@@ -149,26 +161,32 @@ public sealed class ProjectAreaFilesControllerTests
         public Guid ProjectAreaId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public Guid FileId { get; private set; }
-        public UploadProjectFileRequestDto? UploadRequest { get; private set; }
+        public PrepareProjectFileUploadRequestDto? PrepareAreaRequest { get; private set; }
         public ProjectFilesQueryDto? AreaFilesQuery { get; private set; }
-        public ServiceResult<ProjectFileUploadResponseDto> UploadAreaResult { get; init; } =
-            ServiceResult<ProjectFileUploadResponseDto>.Created(new ProjectFileUploadResponseDto());
+        public ServiceResult<PrepareProjectAreaFileUploadResponseDto> PrepareAreaResult { get; init; } =
+            ServiceResult<PrepareProjectAreaFileUploadResponseDto>.Created(new PrepareProjectAreaFileUploadResponseDto());
         public ServiceResult<ProjectFilesResponseDto> AreaFilesResult { get; init; } =
             ServiceResult<ProjectFilesResponseDto>.Success(new ProjectFilesResponseDto());
         public ServiceResult<ProjectAreaFilePrimaryResponseDto> PrimaryResult { get; init; } =
             ServiceResult<ProjectAreaFilePrimaryResponseDto>.Success(new ProjectAreaFilePrimaryResponseDto());
 
-        public Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectAreaFileAsync(
+        public Task<ServiceResult<PrepareProjectAreaFileUploadResponseDto>> PrepareProjectAreaFileUploadAsync(
             Guid projectAreaId,
             Guid currentUserId,
-            UploadProjectFileRequestDto request,
+            PrepareProjectFileUploadRequestDto request,
             CancellationToken cancellationToken = default)
         {
             ProjectAreaId = projectAreaId;
             CurrentUserId = currentUserId;
-            UploadRequest = request;
-            return Task.FromResult(UploadAreaResult);
+            PrepareAreaRequest = request;
+            return Task.FromResult(PrepareAreaResult);
         }
+
+        public Task<ServiceResult<ProjectFileUploadResponseDto>> CompleteProjectAreaFileUploadAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            CompleteProjectFileUploadRequestDto request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
         public Task<ServiceResult<ProjectFilesResponseDto>> GetProjectAreaFilesAsync(
             Guid projectAreaId,
@@ -194,7 +212,6 @@ public sealed class ProjectAreaFilesControllerTests
             return Task.FromResult(PrimaryResult);
         }
 
-        public Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectFileAsync(Guid projectId, Guid currentUserId, UploadProjectFileRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ServiceResult<PrepareProjectFileUploadResponseDto>> PrepareProjectFileUploadAsync(Guid projectId, Guid currentUserId, PrepareProjectFileUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ServiceResult<ProjectFileUploadResponseDto>> CompleteProjectFileUploadAsync(Guid projectId, Guid currentUserId, CompleteProjectFileUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ServiceResult<FileDetailResponseDto>> GetFileDetailAsync(Guid fileId, Guid currentUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();

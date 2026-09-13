@@ -11,6 +11,18 @@ public interface IDeliveryProductIssueReportService
         CreateProductIssueRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<PrepareProductIssueEvidenceUploadResponseDto>> PrepareEvidenceUploadAsync(
+        Guid orderId,
+        Guid currentUserId,
+        PrepareProductIssueEvidenceUploadRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<CompleteProductIssueEvidenceUploadResponseDto>> CompleteEvidenceUploadAsync(
+        Guid orderId,
+        Guid currentUserId,
+        CompleteProductIssueEvidenceUploadRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProductIssueReportListResponseDto>> GetByOrderAsync(
         Guid orderId,
         Guid currentUserId,

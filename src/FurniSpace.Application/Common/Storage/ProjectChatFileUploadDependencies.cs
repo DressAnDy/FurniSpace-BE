@@ -6,4 +6,5 @@ namespace FurniSpace.Application.Common.Storage;
 public sealed record ProjectChatFileUploadDependencies(
     IFileStorageService Storage,
     IFileUploadValidator FileUploadValidator,
+    DirectFileUploadCoordinator DirectUploadCoordinator,
     FirebaseStorageSettings FirebaseSettings);

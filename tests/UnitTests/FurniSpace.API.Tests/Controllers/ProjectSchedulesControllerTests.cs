@@ -325,37 +325,40 @@ public sealed class ProjectSchedulesControllerTests
     }
 
     [Fact]
-    public void UploadMeasurementImage_RequiresDesignerAndAdmin()
+    public void PrepareMeasurementImageUpload_RequiresDesignerAndAdmin()
     {
-        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.UploadMeasurementImage));
+        var attr = GetMethodAuthorize<ProjectSchedulesController>(nameof(ProjectSchedulesController.PrepareMeasurementImageUpload));
 
         Assert.NotNull(attr);
         Assert.Equal("DESIGNER,ADMIN", attr.Roles);
     }
 
     [Fact]
-    public async Task UploadMeasurementImage_ReturnsServiceResult()
+    public async Task PrepareMeasurementImageUpload_ReturnsServiceResult()
     {
         var scheduleId = Guid.NewGuid();
         var userId = Guid.NewGuid();
         var measurementImages = new RecordingMeasurementImageService(
-            ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>.Created(
-                new FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto(),
+            ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadResponseDto>.Created(
+                new FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadResponseDto(),
                 "Uploaded"));
         var controller = BuildController(
             new FakeProjectScheduleService(ServiceResult<ProjectScheduleDto>.Success(new ProjectScheduleDto())),
             userId,
             measurementImages);
 
-        var request = new FurniSpace.API.DTOs.MeasurementImages.UploadMeasurementImageFormRequest
+        var request = new FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadRequestDto
         {
-            Note = "North wall"
+            Note = "North wall",
+            OriginalFileName = "wall.jpg",
+            ContentType = "image/jpeg",
+            FileSizeBytes = 1024
         };
-        var actionResult = await controller.UploadMeasurementImage(scheduleId, request);
+        var actionResult = await controller.PrepareMeasurementImageUpload(scheduleId, request);
 
         Assert.Equal(201, Assert.IsType<ObjectResult>(actionResult).StatusCode);
         Assert.Equal(scheduleId, measurementImages.LastScheduleId);
-        Assert.Equal("North wall", measurementImages.LastUploadRequest?.Note);
+        Assert.Equal("North wall", measurementImages.LastPrepareRequest?.Note);
     }
 
     [Fact]
@@ -565,32 +568,32 @@ public sealed class ProjectSchedulesControllerTests
 
     private sealed class RecordingMeasurementImageService : FakeMeasurementImageService
     {
-        private readonly ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>? _uploadResult;
+        private readonly ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadResponseDto>? _prepareResult;
         private readonly ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>? _scheduleGalleryResult;
 
         public RecordingMeasurementImageService(
-            ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>? uploadResult = null,
+            ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadResponseDto>? prepareResult = null,
             ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>? scheduleGalleryResult = null)
         {
-            _uploadResult = uploadResult;
+            _prepareResult = prepareResult;
             _scheduleGalleryResult = scheduleGalleryResult;
         }
 
         public Guid LastScheduleId { get; private set; }
 
-        public FurniSpace.Application.DTOs.MeasurementImages.UploadMeasurementImageRequestDto? LastUploadRequest { get; private set; }
+        public FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadRequestDto? LastPrepareRequest { get; private set; }
 
         public FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryQueryDto? LastQuery { get; private set; }
 
-        public override Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
+        public override Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadResponseDto>> PrepareMeasurementImageUploadAsync(
             Guid scheduleId,
             Guid currentUserId,
-            FurniSpace.Application.DTOs.MeasurementImages.UploadMeasurementImageRequestDto request,
+            FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadRequestDto request,
             CancellationToken cancellationToken = default)
         {
             LastScheduleId = scheduleId;
-            LastUploadRequest = request;
-            return Task.FromResult(_uploadResult ?? ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>.Unauthorized());
+            LastPrepareRequest = request;
+            return Task.FromResult(_prepareResult ?? ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadResponseDto>.Unauthorized());
         }
 
         public override Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageGalleryResponseDto>> GetScheduleMeasurementImagesAsync(
@@ -607,10 +610,17 @@ public sealed class ProjectSchedulesControllerTests
 
     private class FakeMeasurementImageService : IMeasurementImageService
     {
-        public virtual Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
+        public virtual Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadResponseDto>> PrepareMeasurementImageUploadAsync(
             Guid scheduleId,
             Guid currentUserId,
-            FurniSpace.Application.DTOs.MeasurementImages.UploadMeasurementImageRequestDto request,
+            FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.PrepareMeasurementImageUploadResponseDto>.NotFound());
+
+        public virtual Task<ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>> CompleteMeasurementImageUploadAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            FurniSpace.Application.DTOs.MeasurementImages.CompleteMeasurementImageUploadRequestDto request,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ServiceResult<FurniSpace.Application.DTOs.MeasurementImages.MeasurementImageUploadResponseDto>.NotFound());
 

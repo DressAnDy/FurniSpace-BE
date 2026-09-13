@@ -152,10 +152,17 @@ public sealed class PublicShowcasesControllerTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<ProjectShowcaseMediaDto>.Unauthorized());
 
-        public Task<ServiceResult<ProjectShowcaseMediaDto>> UploadMediaAsync(
+        public Task<ServiceResult<PrepareProjectShowcaseMediaUploadResponseDto>> PrepareMediaUploadAsync(
             Guid showcaseId,
             Guid currentUserId,
-            UploadProjectShowcaseMediaRequestDto request,
+            PrepareProjectShowcaseMediaUploadRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PrepareProjectShowcaseMediaUploadResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<ProjectShowcaseMediaDto>> CompleteMediaUploadAsync(
+            Guid showcaseId,
+            Guid currentUserId,
+            CompleteProjectShowcaseMediaUploadRequestDto request,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<ProjectShowcaseMediaDto>.Unauthorized());
 

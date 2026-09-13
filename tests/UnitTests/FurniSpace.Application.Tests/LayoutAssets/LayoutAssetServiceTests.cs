@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common.LayoutAssets;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.DTOs.LayoutAssets;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Services.LayoutAssets;
@@ -172,13 +173,12 @@ public sealed class LayoutAssetServiceTests
         };
         var service = CreateService(repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteLayoutAssetFileUploadAsync(service, 
             assetId,
             Guid.NewGuid(),
             new UploadCatalogFileRequestDto
             {
-                Content = new MemoryStream([1, 2, 3]),
-                OriginalFileName = "preview.jpg",
+OriginalFileName = "preview.jpg",
                 ContentType = "image/jpeg",
                 FileSizeBytes = 3,
                 FileType = FileType.PRODUCT_PREVIEW
@@ -362,13 +362,12 @@ public sealed class LayoutAssetServiceTests
         var fileRepository = new FakeLayoutAssetFileRepository();
         var service = CreateService(repository, fileRepository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteLayoutAssetFileUploadAsync(service, 
             assetId,
             userId,
             new UploadCatalogFileRequestDto
             {
-                Content = new MemoryStream([1, 2, 3, 4]),
-                OriginalFileName = "preview.webp",
+OriginalFileName = "preview.webp",
                 ContentType = "image/webp",
                 FileSizeBytes = 4,
                 FileType = FileType.PREVIEW,
@@ -378,7 +377,7 @@ public sealed class LayoutAssetServiceTests
         Assert.Equal(201, result.Status);
         Assert.Equal(1, fileRepository.AddStoredFileCallCount);
         Assert.Equal(1, fileRepository.AddFileLinkCallCount);
-        Assert.Equal(1, fileRepository.SaveChangesCallCount);
+        Assert.Equal(2, fileRepository.SaveChangesCallCount);
     }
 
     [Fact]
@@ -386,13 +385,12 @@ public sealed class LayoutAssetServiceTests
     {
         var service = CreateService(new FakeLayoutAssetRepository());
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteLayoutAssetFileUploadAsync(service, 
             Guid.Parse("14141414-1414-1414-1414-141414141414"),
             Guid.NewGuid(),
             new UploadCatalogFileRequestDto
             {
-                Content = new MemoryStream([1]),
-                OriginalFileName = "preview.webp",
+OriginalFileName = "preview.webp",
                 ContentType = "image/webp",
                 FileSizeBytes = 1,
                 FileType = FileType.PREVIEW
@@ -407,13 +405,12 @@ public sealed class LayoutAssetServiceTests
         var assetId = Guid.Parse("15151515-1515-1515-1515-151515151515");
         var service = CreateService(new FakeLayoutAssetRepository { Detail = CreateAsset(assetId) });
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteLayoutAssetFileUploadAsync(service, 
             assetId,
             Guid.Empty,
             new UploadCatalogFileRequestDto
             {
-                Content = new MemoryStream([1]),
-                OriginalFileName = "preview.webp",
+OriginalFileName = "preview.webp",
                 ContentType = "image/webp",
                 FileSizeBytes = 1,
                 FileType = FileType.PREVIEW
@@ -530,15 +527,28 @@ public sealed class LayoutAssetServiceTests
     {
         var files = fileRepository ?? new FakeLayoutAssetFileRepository();
         var fileStorage = storage ?? new FakeFileStorageService();
+        var firebaseSettings = new FirebaseStorageSettings
+        {
+            Bucket = "test-bucket",
+            LayoutAssetFilesPrefix = "layout-assets"
+        };
+        var unitOfWork = TestUnitOfWork.ForSaveChanges(_ =>
+        {
+            repository.SaveChangesCallCount++;
+            files.SaveChangesCallCount++;
+            return Task.FromResult(1);
+        });
+        var coordinator = DirectUploadTestDoubles.CreateCoordinator(fileStorage, firebaseSettings);
+        var catalogDirectUpload = new CatalogDirectFileUploadService(
+            files,
+            unitOfWork,
+            coordinator,
+            firebaseSettings);
+
         return new LayoutAssetService(
             repository,
             files,
-            TestUnitOfWork.ForSaveChanges(_ =>
-            {
-                repository.SaveChangesCallCount++;
-                files.SaveChangesCallCount++;
-                return Task.FromResult(1);
-            }),
+            unitOfWork,
             new LayoutAssetServiceDependencies(
                 fileStorage,
                 new FileUploadSettings
@@ -547,11 +557,9 @@ public sealed class LayoutAssetServiceTests
                     AllowedExtensions = [".jpg", ".jpeg", ".webp", ".glb"],
                     AllowedMimeTypes = ["image/jpeg", "image/webp", "model/gltf-binary"]
                 },
-                new FirebaseStorageSettings
-                {
-                    Bucket = "test-bucket",
-                    LayoutAssetFilesPrefix = "layout-assets"
-                }));
+                firebaseSettings,
+                coordinator,
+                catalogDirectUpload));
     }
 
     private sealed class FakeLayoutAssetRepository : ILayoutAssetRepository
@@ -652,9 +660,15 @@ public sealed class LayoutAssetServiceTests
             return Task.FromResult(1);
         }
 
+        public List<StoredFile> StoredFiles { get; } = [];
+
+        public List<FileLink> StoredFileLinks { get; } = [];
+
         public Task AddAsync(StoredFile entity, CancellationToken cancellationToken = default)
         {
             AddStoredFileCallCount++;
+            StoredFiles.Add(entity);
+            FileById ??= entity;
             return Task.CompletedTask;
         }
 
@@ -673,6 +687,8 @@ public sealed class LayoutAssetServiceTests
         public Task AddFileLinkAsync(FileLink fileLink, CancellationToken cancellationToken = default)
         {
             AddFileLinkCallCount++;
+            StoredFileLinks.Add(fileLink);
+            FileLinksByFileId = StoredFileLinks.Where(link => link.FileId == fileLink.FileId).ToList();
             return Task.CompletedTask;
         }
 
@@ -687,7 +703,8 @@ public sealed class LayoutAssetServiceTests
 
         public Task<StoredFile?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         {
-            return Task.FromResult(FileById?.FileId == id ? FileById : null);
+            var stored = StoredFiles.FirstOrDefault(file => file.FileId == id) ?? FileById;
+            return Task.FromResult(stored?.FileId == id ? stored : null);
         }
 
         public Task<IReadOnlyList<CatalogFileReadModel>> GetCatalogFilesByReferencesAsync(

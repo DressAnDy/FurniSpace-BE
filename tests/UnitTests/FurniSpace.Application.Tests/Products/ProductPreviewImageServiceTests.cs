@@ -31,7 +31,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("preview.jpg", displayOrder: 1));
@@ -58,7 +59,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadAsync(productId, Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            productId, Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
 
         Assert.Equal(409, result.Status);
         Assert.Equal(ProductPreviewImageErrorCodes.MaxFilesExceeded, result.ErrorCode);
@@ -176,6 +178,33 @@ public sealed class ProductPreviewImageServiceTests
 
         Assert.Equal(400, result.Status);
         Assert.Equal(ProductPreviewImageErrorCodes.InvalidReorderPayload, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task ReorderAsync_ExcludesPendingPreviewFilesFromExpectedSet()
+    {
+        var productId = Guid.NewGuid();
+        var firstId = Guid.NewGuid();
+        var secondId = Guid.NewGuid();
+        var pendingId = Guid.NewGuid();
+        var repository = new PreviewImageTestRepository();
+        repository.SeedPreview(productId, 1, firstId);
+        repository.SeedPreview(productId, 2, secondId);
+        repository.SeedPendingPreview(productId, 3, pendingId);
+
+        var service = CatalogServiceTestHelper.CreateProductPreviewImageService(
+            new StubProductRepository(productId),
+            repository);
+
+        var result = await service.ReorderAsync(
+            productId,
+            new ReorderProductPreviewImagesRequestDto { FileIds = [secondId, firstId] });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, result.Data!.Count);
+        Assert.DoesNotContain(result.Data, item => item.FileId == pendingId);
+        Assert.Equal(secondId, result.Data[0].FileId);
+        Assert.True(result.Data[0].IsPrimary);
     }
 
     [Fact]
@@ -317,7 +346,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             new PreviewImageTestRepository());
 
-        var result = await service.UploadAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("preview.exe"));
@@ -341,7 +371,8 @@ public sealed class ProductPreviewImageServiceTests
                 AllowedMimeTypes = ["image/jpeg"]
             });
 
-        var result = await service.UploadAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("preview.jpg", fileSizeBytes: 100));
@@ -385,7 +416,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(Guid.NewGuid()),
             new PreviewImageTestRepository());
 
-        var result = await service.UploadAsync(Guid.Empty, Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            Guid.Empty, Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
 
         Assert.Equal(400, result.Status);
         Assert.Equal("Product id is required.", result.Message);
@@ -399,7 +431,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             new PreviewImageTestRepository());
 
-        var result = await service.UploadAsync(productId, Guid.Empty, CreateUploadRequest("preview.jpg"));
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            productId, Guid.Empty, CreateUploadRequest("preview.jpg"));
 
         Assert.Equal(401, result.Status);
         Assert.Equal("Authenticated account id is required.", result.Message);
@@ -412,7 +445,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(),
             new PreviewImageTestRepository());
 
-        var result = await service.UploadAsync(Guid.NewGuid(), Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            Guid.NewGuid(), Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
 
         Assert.Equal(404, result.Status);
         Assert.Equal("Product not found.", result.Message);
@@ -430,7 +464,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadAsync(productId, Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            productId, Guid.NewGuid(), CreateUploadRequest("preview.jpg"));
 
         Assert.Equal(201, result.Status);
         Assert.Equal(3, result.Data!.DisplayOrder);
@@ -448,7 +483,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             repository);
 
-        var result = await service.UploadAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("preview.jpg", displayOrder: 1));
@@ -467,7 +503,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             new PreviewImageTestRepository());
 
-        var result = await service.UploadAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("preview.jpg", contentType: "application/pdf"));
@@ -484,7 +521,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             new PreviewImageTestRepository());
 
-        var result = await service.UploadAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            
             productId,
             Guid.NewGuid(),
             CreateUploadRequest(string.Empty));
@@ -501,7 +539,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             new PreviewImageTestRepository());
 
-        var result = await service.UploadAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("preview.jpg", fileSizeBytes: 0));
@@ -518,7 +557,8 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             new PreviewImageTestRepository());
 
-        var result = await service.UploadAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service,
+            
             productId,
             Guid.NewGuid(),
             CreateUploadRequest("preview.jpg", displayOrder: 99));
@@ -537,10 +577,12 @@ public sealed class ProductPreviewImageServiceTests
             new StubProductRepository(productId),
             repository,
             storage,
-            unitOfWork: TestUnitOfWork.ForFailingSaveChanges());
+            unitOfWork: TestUnitOfWork.ForSaveChangesFailsAfterSuccessCount(
+                1,
+                () => new InvalidOperationException("Save failed.")));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UploadAsync(productId, Guid.NewGuid(), CreateUploadRequest("preview.jpg")));
+            DirectUploadTestDoubles.CompleteProductPreviewUploadAsync(service, productId, Guid.NewGuid(), CreateUploadRequest("preview.jpg")));
 
         Assert.NotNull(storage.DeletedObjectName);
     }
@@ -700,8 +742,7 @@ public sealed class ProductPreviewImageServiceTests
     {
         return new UploadProductPreviewImageRequestDto
         {
-            Content = new MemoryStream(Encoding.UTF8.GetBytes("file-content")),
-            OriginalFileName = fileName,
+OriginalFileName = fileName,
             ContentType = contentType,
             FileSizeBytes = fileSizeBytes,
             DisplayOrder = displayOrder
@@ -755,6 +796,16 @@ public sealed class ProductPreviewImageServiceTests
 
         public void SeedPreview(Guid productId, int displayOrder, Guid? fileId = null)
         {
+            SeedPreviewFile(productId, displayOrder, fileId, FileStatus.ACTIVE);
+        }
+
+        public void SeedPendingPreview(Guid productId, int displayOrder, Guid? fileId = null)
+        {
+            SeedPreviewFile(productId, displayOrder, fileId, FileStatus.PENDING);
+        }
+
+        private void SeedPreviewFile(Guid productId, int displayOrder, Guid? fileId, FileStatus status)
+        {
             var id = fileId ?? Guid.NewGuid();
             var now = DateTime.UtcNow;
             StoredFiles.Add(new StoredFile
@@ -762,11 +813,11 @@ public sealed class ProductPreviewImageServiceTests
                 FileId = id,
                 OriginalFileName = "preview.jpg",
                 StoredFileName = $"{id:N}.jpg",
-                FileUrl = $"https://storage.example.com/{id:N}.jpg",
+                FileUrl = status == FileStatus.PENDING ? string.Empty : $"https://storage.example.com/{id:N}.jpg",
                 StoragePath = $"products/{productId:D}/{id:N}.jpg",
                 MimeType = "image/jpeg",
                 FileSizeBytes = 100,
-                Status = FileStatus.ACTIVE,
+                Status = status,
                 UploadedAt = now
             });
             FileLinks.Add(new FileLink
@@ -778,7 +829,7 @@ public sealed class ProductPreviewImageServiceTests
                 FileType = FileType.PRODUCT_PREVIEW,
                 Visibility = FileVisibility.CUSTOMER_VISIBLE,
                 DisplayOrder = displayOrder,
-                IsPrimary = displayOrder == 1,
+                IsPrimary = displayOrder == 1 && status == FileStatus.ACTIVE,
                 CreatedAt = now
             });
         }
@@ -934,7 +985,7 @@ public sealed class ProductPreviewImageServiceTests
             => Task.FromResult<ProjectLinkedFileReadModel?>(null);
     }
 
-    private sealed class TrackingPreviewStorage : IFileStorageService
+    private sealed class TrackingPreviewStorage : IFileStorageService, IDirectFileUploadStorageService
     {
         public string? DeletedObjectName { get; private set; }
 
@@ -949,6 +1000,28 @@ public sealed class ProductPreviewImageServiceTests
                 Bucket = "test-bucket"
             });
         }
+
+        public Task<StorageSignedUploadResult> CreateSignedUploadUrlAsync(
+            StorageSignedUploadRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new StorageSignedUploadResult
+            {
+                UploadUrl = $"https://storage.example.com/upload/{request.ObjectName}",
+                ObjectName = request.ObjectName,
+                Bucket = "test-bucket",
+                ContentType = request.ContentType,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+            });
+
+        public Task<StorageUploadResult> FinalizeDirectUploadAsync(
+            StorageDirectUploadFinalizeRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+                Bucket = "test-bucket"
+            });
 
         public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default)
         {

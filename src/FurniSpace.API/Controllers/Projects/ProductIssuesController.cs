@@ -2,7 +2,6 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
-using FurniSpace.API.DTOs.ProductIssues;
 using FurniSpace.Application.DTOs.ProductIssues;
 using FurniSpace.Application.Interfaces.ProductIssues;
 using Microsoft.AspNetCore.Authorization;
@@ -14,8 +13,6 @@ namespace FurniSpace.API.Controllers.Projects;
 [Route("")]
 public sealed class ProductIssuesController : BaseApiController
 {
-    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
-
     private readonly IDeliveryProductIssueReportService _productIssues;
 
     public ProductIssuesController(IDeliveryProductIssueReportService productIssues)
@@ -25,11 +22,10 @@ public sealed class ProductIssuesController : BaseApiController
 
     [Authorize(Roles = "CUSTOMER")]
     [HttpPost("orders/{orderId:guid}/product-issues")]
-    [Consumes("multipart/form-data")]
-    [RequestSizeLimit(MultipartRequestLimitBytes)]
+    [Consumes("application/json")]
     public async Task<IActionResult> Create(
         Guid orderId,
-        [FromForm] CreateProductIssueFormRequest request,
+        [FromBody] CreateProductIssueRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -40,7 +36,47 @@ public sealed class ProductIssuesController : BaseApiController
         var result = await _productIssues.CreateAsync(
             orderId,
             currentUserId,
-            request.ToRequestDto(),
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPost("orders/{orderId:guid}/product-issues/evidence/upload-url")]
+    public async Task<IActionResult> PrepareEvidenceUpload(
+        Guid orderId,
+        [FromBody] PrepareProductIssueEvidenceUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _productIssues.PrepareEvidenceUploadAsync(
+            orderId,
+            currentUserId,
+            request,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "CUSTOMER")]
+    [HttpPost("orders/{orderId:guid}/product-issues/evidence/complete")]
+    public async Task<IActionResult> CompleteEvidenceUpload(
+        Guid orderId,
+        [FromBody] CompleteProductIssueEvidenceUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _productIssues.CompleteEvidenceUploadAsync(
+            orderId,
+            currentUserId,
+            request,
             cancellationToken);
         return ToActionResult(result);
     }

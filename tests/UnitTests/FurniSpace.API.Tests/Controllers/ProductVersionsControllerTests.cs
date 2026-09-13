@@ -9,10 +9,10 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Catalog;
-using FurniSpace.API.DTOs.Products;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Catalog;
 using FurniSpace.Application.DTOs.ProductVersions;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
 using FurniSpace.Domain.Enums;
@@ -42,11 +42,11 @@ public sealed class ProductVersionsControllerTests
     }
 
     [Fact]
-    public void UploadFile_RequiresDesignerAndAdminRoles()
+    public void PrepareFileUpload_RequiresDesignerAndAdminRoles()
     {
         var authorize = typeof(ProductVersionsController)
             .GetMethods()
-            .Single(method => method.Name == nameof(ProductVersionsController.UploadFile))
+            .Single(method => method.Name == nameof(ProductVersionsController.PrepareFileUpload))
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
             .Cast<AuthorizeAttribute>()
             .SingleOrDefault();
@@ -200,25 +200,7 @@ public sealed class ProductVersionsControllerTests
     }
 
     [Fact]
-    public void UploadFile_ConsumesMultipartAndUsesRequestLimit()
-    {
-        var method = typeof(ProductVersionsController)
-            .GetMethods()
-            .Single(methodInfo => methodInfo.Name == nameof(ProductVersionsController.UploadFile));
-
-        var consumes = method.GetCustomAttributes(typeof(ConsumesAttribute), inherit: false)
-            .Cast<ConsumesAttribute>()
-            .Single();
-        var requestSizeLimit = method.GetCustomAttributes(typeof(RequestSizeLimitAttribute), inherit: false)
-            .Cast<RequestSizeLimitAttribute>()
-            .Single();
-
-        Assert.Contains("multipart/form-data", consumes.ContentTypes);
-        Assert.NotNull(requestSizeLimit);
-    }
-
-    [Fact]
-    public async Task UploadFile_WithoutUserIdClaim_ReturnsUnauthorized()
+    public async Task PrepareFileUpload_WithoutUserIdClaim_ReturnsUnauthorized()
     {
         var service = new FakeProductVersionService();
         var controller = new ProductVersionsController(service)
@@ -229,14 +211,14 @@ public sealed class ProductVersionsControllerTests
             }
         };
 
-        var actionResult = await controller.UploadFile(Guid.NewGuid(), new UploadCatalogFileFormRequest());
+        var actionResult = await controller.PrepareFileUpload(Guid.NewGuid(), new UploadCatalogFileRequestDto());
 
         Assert.IsType<UnauthorizedResult>(actionResult);
         Assert.Equal(Guid.Empty, service.ProductVersionId);
     }
 
     [Fact]
-    public async Task UploadFile_PassesMultipartRequestToService()
+    public async Task PrepareFileUpload_PassesRequestToService()
     {
         var currentUserId = Guid.NewGuid();
         var productVersionId = Guid.NewGuid();
@@ -247,35 +229,38 @@ public sealed class ProductVersionsControllerTests
             ReferenceId = productVersionId,
             FileType = FileType.PRODUCT_PREVIEW
         };
+        var prepareResponse = new PrepareDirectUploadResponseDto { FileId = response.FileId };
         var service = new FakeProductVersionService(
-            uploadFileResult: ServiceResult<CatalogFileUploadResponseDto>.Created(
-                response,
-                "Product version file uploaded successfully."));
+            prepareFileUploadResult: ServiceResult<PrepareDirectUploadResponseDto>.Created(
+                prepareResponse,
+                "Catalog file upload URL created successfully."));
         var controller = CreateController(service, currentUserId);
-        var request = new UploadCatalogFileFormRequest
+        var request = new UploadCatalogFileRequestDto
         {
-            File = CreateFormFile("chair-preview.webp", "image/webp", "file-content"),
+            OriginalFileName = "chair-preview.webp",
+            ContentType = "image/webp",
+            FileSizeBytes = 12,
             FileType = FileType.PRODUCT_PREVIEW,
             Visibility = FileVisibility.CUSTOMER_VISIBLE,
             Description = "Preview image",
             DisplayOrder = 2
         };
 
-        var actionResult = await controller.UploadFile(productVersionId, request);
+        var actionResult = await controller.PrepareFileUpload(productVersionId, request);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(201, objectResult.StatusCode);
-        var result = Assert.IsType<ServiceResult<CatalogFileUploadResponseDto>>(objectResult.Value);
-        Assert.Same(response, result.Data);
+        var result = Assert.IsType<ServiceResult<PrepareDirectUploadResponseDto>>(objectResult.Value);
+        Assert.Same(prepareResponse, result.Data);
         Assert.Equal(productVersionId, service.ProductVersionId);
         Assert.Equal(currentUserId, service.CurrentUserId);
-        Assert.NotNull(service.UploadFileRequest);
-        Assert.Equal("chair-preview.webp", service.UploadFileRequest.OriginalFileName);
-        Assert.Equal("image/webp", service.UploadFileRequest.ContentType);
-        Assert.Equal(FileType.PRODUCT_PREVIEW, service.UploadFileRequest.FileType);
-        Assert.Equal(FileVisibility.CUSTOMER_VISIBLE, service.UploadFileRequest.Visibility);
-        Assert.Equal("Preview image", service.UploadFileRequest.Description);
-        Assert.Equal(2, service.UploadFileRequest.DisplayOrder);
+        Assert.NotNull(service.PrepareFileUploadRequest);
+        Assert.Equal("chair-preview.webp", service.PrepareFileUploadRequest.OriginalFileName);
+        Assert.Equal("image/webp", service.PrepareFileUploadRequest.ContentType);
+        Assert.Equal(FileType.PRODUCT_PREVIEW, service.PrepareFileUploadRequest.FileType);
+        Assert.Equal(FileVisibility.CUSTOMER_VISIBLE, service.PrepareFileUploadRequest.Visibility);
+        Assert.Equal("Preview image", service.PrepareFileUploadRequest.Description);
+        Assert.Equal(2, service.PrepareFileUploadRequest.DisplayOrder);
     }
 
     [Fact]
@@ -309,7 +294,8 @@ public sealed class ProductVersionsControllerTests
         private readonly ServiceResult<ProductVersionDto> _updateResult;
         private readonly ServiceResult<SetDefaultProductVersionDto> _setDefaultResult;
         private readonly ServiceResult<ProductVersionDetailDto> _getByIdResult;
-        private readonly ServiceResult<CatalogFileUploadResponseDto> _uploadFileResult;
+        private readonly ServiceResult<PrepareDirectUploadResponseDto> _prepareFileUploadResult;
+        private readonly ServiceResult<CatalogFileUploadResponseDto> _completeFileUploadResult;
         private readonly ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>> _reorderPreviewResult;
         private readonly ServiceResult<DeleteProductVersionPreviewImageResponseDto> _deletePreviewResult;
         private readonly ServiceResult<ProductVersionListResponseDto>? _getListResult;
@@ -319,7 +305,8 @@ public sealed class ProductVersionsControllerTests
             ServiceResult<ProductVersionDto>? updateResult = null,
             ServiceResult<SetDefaultProductVersionDto>? setDefaultResult = null,
             ServiceResult<ProductVersionDetailDto>? getByIdResult = null,
-            ServiceResult<CatalogFileUploadResponseDto>? uploadFileResult = null,
+            ServiceResult<PrepareDirectUploadResponseDto>? prepareFileUploadResult = null,
+            ServiceResult<CatalogFileUploadResponseDto>? completeFileUploadResult = null,
             ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>>? reorderPreviewResult = null,
             ServiceResult<DeleteProductVersionPreviewImageResponseDto>? deletePreviewResult = null,
             ServiceResult<ProductVersionListResponseDto>? getListResult = null)
@@ -336,7 +323,10 @@ public sealed class ProductVersionsControllerTests
             _getByIdResult = getByIdResult ?? ServiceResult<ProductVersionDetailDto>.Success(
                 new ProductVersionDetailDto(),
                 string.Empty);
-            _uploadFileResult = uploadFileResult ?? ServiceResult<CatalogFileUploadResponseDto>.Created(
+            _prepareFileUploadResult = prepareFileUploadResult ?? ServiceResult<PrepareDirectUploadResponseDto>.Created(
+                new PrepareDirectUploadResponseDto(),
+                "Catalog file upload URL created successfully.");
+            _completeFileUploadResult = completeFileUploadResult ?? ServiceResult<CatalogFileUploadResponseDto>.Created(
                 new CatalogFileUploadResponseDto(),
                 "Product version file uploaded successfully.");
             _reorderPreviewResult = reorderPreviewResult ?? ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>>.Success(
@@ -354,7 +344,8 @@ public sealed class ProductVersionsControllerTests
         public Guid FileId { get; private set; }
         public CreateProductVersionRequestDto? CreateRequest { get; private set; }
         public UpdateProductVersionRequestDto? UpdateRequest { get; private set; }
-        public UploadCatalogFileRequestDto? UploadFileRequest { get; private set; }
+        public UploadCatalogFileRequestDto? PrepareFileUploadRequest { get; private set; }
+        public CompleteDirectUploadRequestDto? CompleteFileUploadRequest { get; private set; }
         public ReorderProductVersionPreviewFilesRequestDto? ReorderPreviewRequest { get; private set; }
 
         public Task<ServiceResult<ProductVersionDto>> CreateAsync(
@@ -393,7 +384,7 @@ public sealed class ProductVersionsControllerTests
             return Task.FromResult(_getByIdResult);
         }
 
-        public Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+        public Task<ServiceResult<PrepareDirectUploadResponseDto>> PrepareFileUploadAsync(
             Guid productVersionId,
             Guid currentUserId,
             UploadCatalogFileRequestDto request,
@@ -401,8 +392,20 @@ public sealed class ProductVersionsControllerTests
         {
             ProductVersionId = productVersionId;
             CurrentUserId = currentUserId;
-            UploadFileRequest = request;
-            return Task.FromResult(_uploadFileResult);
+            PrepareFileUploadRequest = request;
+            return Task.FromResult(_prepareFileUploadResult);
+        }
+
+        public Task<ServiceResult<CatalogFileUploadResponseDto>> CompleteFileUploadAsync(
+            Guid productVersionId,
+            Guid currentUserId,
+            CompleteDirectUploadRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ProductVersionId = productVersionId;
+            CurrentUserId = currentUserId;
+            CompleteFileUploadRequest = request;
+            return Task.FromResult(_completeFileUploadResult);
         }
 
         public Task<ServiceResult<IReadOnlyList<ProductVersionPreviewReorderItemDto>>> ReorderPreviewFilesAsync(

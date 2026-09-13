@@ -10,4 +10,6 @@ public sealed record ProductServiceDependencies(
     FileUploadSettings UploadSettings,
     ProductPreviewImageSettings PreviewSettings,
     FirebaseStorageSettings FirebaseSettings,
+    DirectFileUploadCoordinator DirectUploadCoordinator,
+    CatalogDirectFileUploadService CatalogDirectUpload,
     ILogger<ProductService>? Logger = null);

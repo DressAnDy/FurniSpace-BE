@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Catalog;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.LayoutAssets;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.LayoutAssets;
@@ -285,10 +286,17 @@ public sealed class LayoutAssetsControllerTests
             return Task.FromResult(_updateStatusResult ?? ServiceResult<LayoutAssetDto>.Unauthorized());
         }
 
-        public Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+        public Task<ServiceResult<PrepareDirectUploadResponseDto>> PrepareFileUploadAsync(
             Guid layoutAssetId,
             Guid currentUserId,
             UploadCatalogFileRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PrepareDirectUploadResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<CatalogFileUploadResponseDto>> CompleteFileUploadAsync(
+            Guid layoutAssetId,
+            Guid currentUserId,
+            CompleteDirectUploadRequestDto request,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<CatalogFileUploadResponseDto>.Unauthorized());
 

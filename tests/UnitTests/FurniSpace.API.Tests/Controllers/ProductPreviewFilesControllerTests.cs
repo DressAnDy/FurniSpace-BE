@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Catalog;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 using Microsoft.AspNetCore.Authorization;
@@ -119,10 +120,17 @@ public sealed class ProductPreviewFilesControllerTests
         public Guid? FileId { get; private set; }
         public ReorderProductPreviewImagesRequestDto? ReorderRequest { get; private set; }
 
-        public Task<ServiceResult<ProductPreviewImageUploadResponseDto>> UploadAsync(
+        public Task<ServiceResult<PrepareDirectUploadResponseDto>> PreparePreviewUploadAsync(
             Guid productId,
             Guid currentUserId,
             UploadProductPreviewImageRequestDto request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ServiceResult<ProductPreviewImageUploadResponseDto>> CompletePreviewUploadAsync(
+            Guid productId,
+            Guid currentUserId,
+            CompleteDirectUploadRequestDto request,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

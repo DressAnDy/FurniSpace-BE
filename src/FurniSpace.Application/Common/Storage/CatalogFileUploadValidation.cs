@@ -13,11 +13,6 @@ internal static class CatalogFileUploadValidation
         IReadOnlySet<FileType> allowedFileTypes)
     {
         var errors = new List<string>();
-        if (request.Content == Stream.Null || !request.Content.CanRead)
-        {
-            errors.Add("File is required.");
-        }
-
         if (string.IsNullOrWhiteSpace(request.OriginalFileName))
         {
             errors.Add("Original file name is required.");

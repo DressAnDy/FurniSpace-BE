@@ -5,11 +5,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Catalog;
-using FurniSpace.API.DTOs.Products;
 using FurniSpace.API.Tests.TestDoubles;
 using FurniSpace.Application.Common;
 using System.IO;
 using System.Security.Claims;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.Products;
 using Microsoft.AspNetCore.Http;
 using FurniSpace.Domain.Enums;
@@ -275,11 +275,11 @@ public sealed class ProductsControllerTests
     }
 
     [Fact]
-    public void UploadFile_RequiresAdminRole()
+    public void PrepareFileUpload_RequiresAdminRole()
     {
         var method = typeof(ProductsController)
             .GetMethods()
-            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.UploadFile));
+            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.PrepareFileUpload));
 
         var authorize = method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
             .Cast<AuthorizeAttribute>()
@@ -290,7 +290,7 @@ public sealed class ProductsControllerTests
     }
 
     [Fact]
-    public async Task UploadFile_PassesRequestToProductService()
+    public async Task PrepareFileUpload_PassesRequestToProductService()
     {
         var userId = Guid.NewGuid();
         var productId = Guid.NewGuid();
@@ -301,31 +301,34 @@ public sealed class ProductsControllerTests
             ReferenceId = productId,
             FileType = FileType.PRODUCT_PREVIEW
         };
+        var prepareResponse = new PrepareDirectUploadResponseDto { FileId = Guid.NewGuid() };
         var service = new FakeProductService(
             getAllResult: ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty),
-            uploadFileResult: ServiceResult<CatalogFileUploadResponseDto>.Created(
-                response,
-                "Product file uploaded successfully."));
+            prepareFileUploadResult: ServiceResult<PrepareDirectUploadResponseDto>.Created(
+                prepareResponse,
+                "Catalog file upload URL created successfully."));
         var controller = CreateController(service, userId);
-        var request = new UploadCatalogFileFormRequest
+        var request = new UploadCatalogFileRequestDto
         {
-            File = CreateFormFile("lamp-preview.jpg", "image/jpeg", "file-content"),
+            OriginalFileName = "lamp-preview.jpg",
+            ContentType = "image/jpeg",
+            FileSizeBytes = 12,
             FileType = FileType.PRODUCT_PREVIEW,
             Description = "Preview image"
         };
 
-        var actionResult = await controller.UploadFile(productId, request);
+        var actionResult = await controller.PrepareFileUpload(productId, request);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(201, objectResult.StatusCode);
-        var result = Assert.IsType<ServiceResult<CatalogFileUploadResponseDto>>(objectResult.Value);
-        Assert.Same(response, result.Data);
+        var result = Assert.IsType<ServiceResult<PrepareDirectUploadResponseDto>>(objectResult.Value);
+        Assert.Same(prepareResponse, result.Data);
         Assert.Equal(productId, service.ProductId);
         Assert.Equal(userId, service.CurrentUserId);
-        Assert.NotNull(service.UploadFileRequest);
-        Assert.Equal("lamp-preview.jpg", service.UploadFileRequest.OriginalFileName);
-        Assert.Equal(FileType.PRODUCT_PREVIEW, service.UploadFileRequest.FileType);
-        Assert.Equal("Preview image", service.UploadFileRequest.Description);
+        Assert.NotNull(service.PrepareFileUploadRequest);
+        Assert.Equal("lamp-preview.jpg", service.PrepareFileUploadRequest.OriginalFileName);
+        Assert.Equal(FileType.PRODUCT_PREVIEW, service.PrepareFileUploadRequest.FileType);
+        Assert.Equal("Preview image", service.PrepareFileUploadRequest.Description);
     }
 
     [Fact]
@@ -343,11 +346,11 @@ public sealed class ProductsControllerTests
     }
 
     [Fact]
-    public void UploadPreviewFile_RequiresAdminRole()
+    public void PreparePreviewFileUpload_RequiresAdminRole()
     {
         var method = typeof(ProductsController)
             .GetMethods()
-            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.UploadPreviewFile));
+            .Single(methodInfo => methodInfo.Name == nameof(ProductsController.PreparePreviewFileUpload));
 
         var authorize = method.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
             .Cast<AuthorizeAttribute>()
@@ -382,7 +385,7 @@ public sealed class ProductsControllerTests
     }
 
     [Fact]
-    public async Task UploadPreviewFile_PassesRequestToPreviewService()
+    public async Task PreparePreviewFileUpload_PassesRequestToPreviewService()
     {
         var userId = Guid.NewGuid();
         var productId = Guid.NewGuid();
@@ -395,28 +398,30 @@ public sealed class ProductsControllerTests
         };
         var previewService = new FakeProductPreviewImageService
         {
-            UploadResult = ServiceResult<ProductPreviewImageUploadResponseDto>.Created(
-                response,
-                "Product preview image uploaded successfully.")
+            PrepareUploadResult = ServiceResult<PrepareDirectUploadResponseDto>.Created(
+                new PrepareDirectUploadResponseDto { FileId = response.FileId },
+                "Product preview image upload URL created successfully.")
         };
         var controller = CreateController(CreateDefaultProductService(), previewService, userId);
-        var request = new UploadProductPreviewImageFormRequest
+        var request = new UploadProductPreviewImageRequestDto
         {
-            File = CreateFormFile("preview.jpg", "image/jpeg", "file-content"),
+            OriginalFileName = "preview.jpg",
+            ContentType = "image/jpeg",
+            FileSizeBytes = 12,
             Description = "Cover image",
             DisplayOrder = 1
         };
 
-        var actionResult = await controller.UploadPreviewFile(productId, request);
+        var actionResult = await controller.PreparePreviewFileUpload(productId, request);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(201, objectResult.StatusCode);
         Assert.Equal(productId, previewService.ProductId);
         Assert.Equal(userId, previewService.CurrentUserId);
-        Assert.NotNull(previewService.UploadRequest);
-        Assert.Equal("preview.jpg", previewService.UploadRequest.OriginalFileName);
-        Assert.Equal("Cover image", previewService.UploadRequest.Description);
-        Assert.Equal(1, previewService.UploadRequest.DisplayOrder);
+        Assert.NotNull(previewService.PrepareUploadRequest);
+        Assert.Equal("preview.jpg", previewService.PrepareUploadRequest.OriginalFileName);
+        Assert.Equal("Cover image", previewService.PrepareUploadRequest.Description);
+        Assert.Equal(1, previewService.PrepareUploadRequest.DisplayOrder);
     }
 
     [Theory]

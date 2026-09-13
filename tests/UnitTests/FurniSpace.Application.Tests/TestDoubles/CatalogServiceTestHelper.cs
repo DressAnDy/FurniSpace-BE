@@ -1,5 +1,6 @@
 #nullable enable
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -32,17 +33,14 @@ public static class CatalogServiceTestHelper
         IBusinessTypeRepository? businessTypes = null,
         ICatalogRepository? catalog = null)
     {
+        var unitOfWork = TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync);
         return new ProductService(
             products,
             catalog ?? new FakeCatalogRepository(),
             businessTypes ?? new AllowingBusinessTypeRepository(),
             files,
-            new ProductServiceDependencies(
-                storage ?? new NoOpFileStorageService(),
-                DefaultUploadSettings(),
-                previewSettings ?? DefaultPreviewImageSettings(),
-                DefaultFirebaseSettings()),
-            TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
+            CreateProductServiceDependencies(files, storage, previewSettings, unitOfWork),
+            unitOfWork);
     }
 
     public static ProductPreviewImageService CreateProductPreviewImageService(
@@ -52,13 +50,23 @@ public static class CatalogServiceTestHelper
         ProductPreviewImageSettings? previewSettings = null,
         IUnitOfWork? unitOfWork = null)
     {
+        var resolvedUnitOfWork = unitOfWork ?? TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync);
+        var resolvedStorage = storage ?? new NoOpFileStorageService();
+        var firebaseSettings = DefaultFirebaseSettings();
+        var catalogDirectUpload = CreateCatalogDirectUploadService(
+            files,
+            resolvedStorage,
+            resolvedUnitOfWork,
+            firebaseSettings);
+
         return new ProductPreviewImageService(
             products,
             files,
-            storage ?? new NoOpFileStorageService(),
+            resolvedStorage,
+            catalogDirectUpload,
             Options.Create(previewSettings ?? DefaultPreviewImageSettings()),
-            Options.Create(DefaultFirebaseSettings()),
-            unitOfWork ?? TestUnitOfWork.ForSaveChanges(products.SaveChangesAsync));
+            Options.Create(firebaseSettings),
+            resolvedUnitOfWork);
     }
 
     public static ProductVersionService CreateProductVersionService(
@@ -69,16 +77,75 @@ public static class CatalogServiceTestHelper
         ICatalogRepository? catalog = null,
         IUnitOfWork? unitOfWork = null)
     {
+        var resolvedUnitOfWork = unitOfWork ?? TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync);
         return new ProductVersionService(
             productVersions,
             catalog ?? new FakeCatalogRepository(),
             files,
-            new ProductVersionFileUploadDependencies(
-                storage ?? new NoOpFileStorageService(),
-                DefaultUploadSettings(),
-                previewSettings ?? DefaultPreviewImageSettings(),
-                DefaultFirebaseSettings()),
-            unitOfWork ?? TestUnitOfWork.ForSaveChanges(productVersions.SaveChangesAsync));
+            CreateProductVersionFileUploadDependencies(files, storage, previewSettings, resolvedUnitOfWork),
+            resolvedUnitOfWork);
+    }
+
+    private static ProductServiceDependencies CreateProductServiceDependencies(
+        IProjectFileRepository files,
+        IFileStorageService? storage,
+        ProductPreviewImageSettings? previewSettings,
+        IUnitOfWork unitOfWork)
+    {
+        var resolvedStorage = storage ?? new NoOpFileStorageService();
+        var firebaseSettings = DefaultFirebaseSettings();
+        return new ProductServiceDependencies(
+            resolvedStorage,
+            DefaultUploadSettings(),
+            previewSettings ?? DefaultPreviewImageSettings(),
+            firebaseSettings,
+            CreateDirectUploadCoordinator(resolvedStorage, firebaseSettings),
+            CreateCatalogDirectUploadService(files, resolvedStorage, unitOfWork, firebaseSettings));
+    }
+
+    private static ProductVersionFileUploadDependencies CreateProductVersionFileUploadDependencies(
+        IProjectFileRepository files,
+        IFileStorageService? storage,
+        ProductPreviewImageSettings? previewSettings,
+        IUnitOfWork unitOfWork)
+    {
+        var resolvedStorage = storage ?? new NoOpFileStorageService();
+        var firebaseSettings = DefaultFirebaseSettings();
+        return new ProductVersionFileUploadDependencies(
+            resolvedStorage,
+            DefaultUploadSettings(),
+            previewSettings ?? DefaultPreviewImageSettings(),
+            firebaseSettings,
+            CreateDirectUploadCoordinator(resolvedStorage, firebaseSettings),
+            CreateCatalogDirectUploadService(files, resolvedStorage, unitOfWork, firebaseSettings));
+    }
+
+    private static CatalogDirectFileUploadService CreateCatalogDirectUploadService(
+        IProjectFileRepository files,
+        IFileStorageService storage,
+        IUnitOfWork unitOfWork,
+        FirebaseStorageSettings firebaseSettings)
+    {
+        return new CatalogDirectFileUploadService(
+            files,
+            unitOfWork,
+            CreateDirectUploadCoordinator(storage, firebaseSettings),
+            firebaseSettings);
+    }
+
+    private static DirectFileUploadCoordinator CreateDirectUploadCoordinator(
+        IFileStorageService storage,
+        FirebaseStorageSettings firebaseSettings)
+    {
+        return new DirectFileUploadCoordinator(
+            storage,
+            ResolveDirectUploadStorage(storage),
+            firebaseSettings);
+    }
+
+    private static IDirectFileUploadStorageService ResolveDirectUploadStorage(IFileStorageService storage)
+    {
+        return storage as IDirectFileUploadStorageService ?? new NoOpDirectUploadStorageService();
     }
 
     public static FileUploadSettings DefaultUploadSettings()
@@ -125,6 +192,29 @@ public static class CatalogServiceTestHelper
 
         public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+    }
+
+    private sealed class NoOpDirectUploadStorageService : IDirectFileUploadStorageService
+    {
+        public Task<StorageSignedUploadResult> CreateSignedUploadUrlAsync(
+            StorageSignedUploadRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new StorageSignedUploadResult
+            {
+                UploadUrl = "https://storage.example.com/upload",
+                ContentType = request.ContentType,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+            });
+
+        public Task<StorageUploadResult> FinalizeDirectUploadAsync(
+            StorageDirectUploadFinalizeRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+                Bucket = "test-bucket"
+            });
     }
 
     private sealed class AllowingBusinessTypeRepository : IBusinessTypeRepository

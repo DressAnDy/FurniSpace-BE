@@ -404,7 +404,7 @@ public sealed class ProjectFileRepository : GenericRepository<StoredFile>, IProj
                 joined.Link.ReferenceType == referenceType &&
                 joined.Link.ReferenceId == referenceId &&
                 joined.Link.FileType == FileType.PRODUCT_PREVIEW &&
-                joined.File.Status != FileStatus.ARCHIVED);
+                joined.File.Status == FileStatus.ACTIVE);
 
         if (customerVisibleOnly)
         {

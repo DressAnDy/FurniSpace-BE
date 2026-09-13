@@ -22,8 +22,7 @@ internal static class CatalogPreviewFileValidation
         };
     }
 
-    public static Error? ValidateFileContent(
-        Stream content,
+    public static Error? ValidateMetadata(
         string originalFileName,
         string? contentType,
         long fileSizeBytes,
@@ -32,11 +31,6 @@ internal static class CatalogPreviewFileValidation
         string fileTooLargeCode)
     {
         var effectiveSettings = ResolveEffectiveSettings(settings);
-
-        if (content == Stream.Null || !content.CanRead)
-        {
-            return Error.BadRequest(invalidFileTypeCode, "File is required.");
-        }
 
         if (string.IsNullOrWhiteSpace(originalFileName))
         {

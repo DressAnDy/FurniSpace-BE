@@ -11,6 +11,18 @@ public interface IProjectFileService
         UploadProjectFileRequestDto request,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<PrepareProjectFileUploadResponseDto>> PrepareProjectFileUploadAsync(
+        Guid projectId,
+        Guid currentUserId,
+        PrepareProjectFileUploadRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectFileUploadResponseDto>> CompleteProjectFileUploadAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CompleteProjectFileUploadRequestDto request,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectAreaFileAsync(
         Guid projectAreaId,
         Guid currentUserId,

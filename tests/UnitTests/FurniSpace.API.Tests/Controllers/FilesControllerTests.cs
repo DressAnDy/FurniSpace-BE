@@ -270,6 +270,20 @@ public sealed class FilesControllerTests
             return Task.FromResult(_uploadResult);
         }
 
+        public Task<ServiceResult<PrepareProjectFileUploadResponseDto>> PrepareProjectFileUploadAsync(
+            Guid projectId,
+            Guid currentUserId,
+            PrepareProjectFileUploadRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<PrepareProjectFileUploadResponseDto>.Created(new PrepareProjectFileUploadResponseDto()));
+
+        public Task<ServiceResult<ProjectFileUploadResponseDto>> CompleteProjectFileUploadAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CompleteProjectFileUploadRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectFileUploadResponseDto>.Success(new ProjectFileUploadResponseDto()));
+
         public Task<ServiceResult<FileDetailResponseDto>> GetFileDetailAsync(
             Guid fileId,
             Guid currentUserId,

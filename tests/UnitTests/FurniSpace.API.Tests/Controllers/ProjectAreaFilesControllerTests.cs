@@ -195,6 +195,8 @@ public sealed class ProjectAreaFilesControllerTests
         }
 
         public Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectFileAsync(Guid projectId, Guid currentUserId, UploadProjectFileRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ServiceResult<PrepareProjectFileUploadResponseDto>> PrepareProjectFileUploadAsync(Guid projectId, Guid currentUserId, PrepareProjectFileUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<ServiceResult<ProjectFileUploadResponseDto>> CompleteProjectFileUploadAsync(Guid projectId, Guid currentUserId, CompleteProjectFileUploadRequestDto request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ServiceResult<FileDetailResponseDto>> GetFileDetailAsync(Guid fileId, Guid currentUserId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ServiceResult<ProjectFilesResponseDto>> GetProjectFilesAsync(Guid projectId, Guid currentUserId, ProjectFilesQueryDto query, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ServiceResult<ProjectFileSearchResponseDto>> SearchProjectFilesAsync(Guid projectId, Guid currentUserId, string query, int page, int limit, CancellationToken cancellationToken = default) => throw new NotSupportedException();

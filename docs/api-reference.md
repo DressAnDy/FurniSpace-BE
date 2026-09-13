@@ -2725,9 +2725,44 @@ Project-wide gallery: `GET /projects/{projectId}/measurement-images` with option
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| POST | `/projects/{projectId}/files` | JWT · multipart |
+| POST | `/projects/{projectId}/files/upload-url` | JWT · JSON |
+| POST | `/projects/{projectId}/files/complete` | JWT · JSON |
+| POST | `/projects/{projectId}/files` | JWT · multipart (legacy fallback) |
 | GET | `/projects/{projectId}/files` | JWT |
 | GET | `/projects/{projectId}/files/search` | JWT · `q`, `page`, `limit` |
+
+#### Direct upload (recommended)
+
+1. **Prepare** — `POST /projects/{projectId}/files/upload-url`
+
+```json
+{
+  "originalFileName": "shop-reference.jpg",
+  "contentType": "image/jpeg",
+  "fileSizeBytes": 204800,
+  "fileType": "REFERENCE_IMAGE",
+  "visibility": "CUSTOMER_VISIBLE",
+  "note": "Reference image"
+}
+```
+
+**Prepare response (201):** `fileId`, `projectId`, `uploadUrl`, `contentType`, `expiresAt`
+
+2. **Upload to GCS** — browser/client `PUT uploadUrl` with body = file bytes and header `Content-Type` **exactly** matching prepare `contentType` (signed URL is content-type bound).
+
+3. **Complete** — `POST /projects/{projectId}/files/complete`
+
+```json
+{ "fileId": "..." }
+```
+
+**Complete response (200):** same shape as multipart upload below. Only `fileId` is accepted — object path is resolved server-side. Only the uploader (or Admin) may complete. Idempotent when file is already `ACTIVE`.
+
+**Direct-upload errors (`errorCode`):** `PROJECT_FILE_UPLOAD_NOT_FOUND`, `PROJECT_FILE_UPLOAD_NOT_PENDING`, `PROJECT_FILE_UPLOAD_FORBIDDEN`, `PROJECT_FILE_UPLOAD_OBJECT_MISSING`, `PROJECT_FILE_UPLOAD_SIZE_MISMATCH`, `PROJECT_FILE_UPLOAD_CONTENT_TYPE_MISMATCH`
+
+Pending files (`stored_files.status = PENDING`) are excluded from list/search until complete succeeds.
+
+#### Multipart upload (legacy)
 
 **Multipart fields:** `file`, `fileType`, `visibility?`, `note?`
 
@@ -4241,7 +4276,7 @@ All values are JSON strings matching C# member names.
 | `ProjectChatType` | `SALES`, `DESIGNER`, `DESIGNER_SALES`, `PRODUCTION`, `DELIVERY`, `GENERAL`, `INTERNAL` |
 | `ProjectChatStatus` | `OPEN`, `CLOSED`, `ARCHIVED` |
 | `ProjectChatMessageType` | `TEXT`, `FILE`, `SYSTEM` |
-| `FileStatus` | `ACTIVE`, `ARCHIVED` |
+| `FileStatus` | `PENDING`, `ACTIVE`, `ARCHIVED` |
 | `FileVisibility` | `CUSTOMER_VISIBLE`, `STAFF_ONLY`, `PRIVATE` |
 | `FileType` | `SPACE_IMAGE`, `FLOOR_PLAN`, `REFERENCE_IMAGE`, `BRAND_ASSET`, `CAD_FILE`, `PDF_DRAWING`, `MEASUREMENT_REPORT`, `LIDAR_SCAN`, `MODEL_3D`, `TEXTURE`, `PREVIEW`, `PRODUCT_PREVIEW`, `PROPOSAL_PREVIEW`, `PROPOSAL_FILE`, `QUOTATION_FILE`, `ORDER_DOCUMENT`, `PRODUCTION_FILE`, `DELIVERY_PHOTO`, `DELIVERY_NOTE`, `PRODUCT_ISSUE_EVIDENCE`, `REVIEW_IMAGE`, `PORTFOLIO_IMAGE`, `OTHER` |
 | `OperationalDelayPhase` | `PRODUCTION`, `DELIVERY` |

@@ -53,7 +53,7 @@ public sealed class FirebaseStorageServiceTests
         {
             Environment.SetEnvironmentVariable(name, " 'quoted value' ");
 
-            var value = InvokePrivateStatic<string?>("GetEnvironmentValue", name);
+            var value = InvokeFactoryPrivateStatic<string?>("GetEnvironmentValue", name);
 
             Assert.Equal("quoted value", value);
         }
@@ -87,6 +87,14 @@ public sealed class FirebaseStorageServiceTests
     private static T InvokePrivateStatic<T>(string methodName, params object[] args)
     {
         var value = typeof(FirebaseStorageService)
+            .GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, args);
+        return (T)value!;
+    }
+
+    private static T InvokeFactoryPrivateStatic<T>(string methodName, params object[] args)
+    {
+        var value = typeof(FirebaseStorageClientFactory)
             .GetMethod(methodName, BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, args);
         return (T)value!;

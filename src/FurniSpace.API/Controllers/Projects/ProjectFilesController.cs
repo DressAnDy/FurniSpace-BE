@@ -47,6 +47,46 @@ public sealed class ProjectFilesController : BaseApiController
         return ToActionResult(result);
     }
 
+    [HttpPost("upload-url")]
+    public async Task<IActionResult> PrepareProjectFileUpload(
+        Guid projectId,
+        [FromBody] PrepareProjectFileUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projectFiles.PrepareProjectFileUploadAsync(
+            projectId,
+            currentUserId,
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [HttpPost("complete")]
+    public async Task<IActionResult> CompleteProjectFileUpload(
+        Guid projectId,
+        [FromBody] CompleteProjectFileUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _projectFiles.CompleteProjectFileUploadAsync(
+            projectId,
+            currentUserId,
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
     [HttpGet]
     public async Task<IActionResult> GetProjectFiles(
         Guid projectId,

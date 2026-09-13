@@ -3,7 +3,7 @@ using FurniSpace.Infrastructure.Interfaces;
 
 namespace FurniSpace.Testing.Fakes;
 
-public sealed class FakeFileStorageService : IFileStorageService
+public sealed class FakeFileStorageService : IFileStorageService, IDirectFileUploadStorageService
 {
     public List<string> DeletedObjectNames { get; } = [];
 
@@ -16,6 +16,32 @@ public sealed class FakeFileStorageService : IFileStorageService
         {
             ObjectName = objectName,
             PublicUrl = $"https://storage.integration.test/{objectName}",
+            Bucket = "furnispace-integration"
+        });
+    }
+
+    public Task<StorageSignedUploadResult> CreateSignedUploadUrlAsync(
+        StorageSignedUploadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new StorageSignedUploadResult
+        {
+            UploadUrl = $"https://storage.integration.test/upload/{request.ObjectName}",
+            ObjectName = request.ObjectName,
+            Bucket = "furnispace-integration",
+            ContentType = request.ContentType,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+        });
+    }
+
+    public Task<StorageUploadResult> FinalizeDirectUploadAsync(
+        StorageDirectUploadFinalizeRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new StorageUploadResult
+        {
+            ObjectName = request.ObjectName,
+            PublicUrl = $"https://storage.integration.test/{request.ObjectName}",
             Bucket = "furnispace-integration"
         });
     }

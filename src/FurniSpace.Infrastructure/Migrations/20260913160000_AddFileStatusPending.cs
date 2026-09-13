@@ -1,9 +1,13 @@
+using FurniSpace.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace FurniSpace.Infrastructure.Migrations;
 
+[DbContext(typeof(AppDbContext))]
+[Migration("20260913160000_AddFileStatusPending")]
 public partial class AddFileStatusPending : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

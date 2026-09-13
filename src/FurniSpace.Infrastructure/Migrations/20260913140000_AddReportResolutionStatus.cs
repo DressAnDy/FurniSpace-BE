@@ -1,9 +1,13 @@
+using FurniSpace.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace FurniSpace.Infrastructure.Migrations;
 
+[DbContext(typeof(AppDbContext))]
+[Migration("20260913140000_AddReportResolutionStatus")]
 public partial class AddReportResolutionStatus : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

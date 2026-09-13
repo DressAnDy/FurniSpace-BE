@@ -260,6 +260,259 @@ public sealed class ProjectFileServiceTests
     }
 
     [Fact]
+    public async Task PrepareProjectFileUploadAsync_WithInvalidMetadata_ReturnsBadRequest()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId,
+                Status = ProjectStatus.SUBMITTED
+            }
+        };
+        var service = CreateService(repository, new FakeFileStorageService());
+
+        var result = await service.PrepareProjectFileUploadAsync(
+            projectId,
+            customerId,
+            new PrepareProjectFileUploadRequestDto
+            {
+                OriginalFileName = string.Empty,
+                ContentType = "image/jpeg",
+                FileSizeBytes = 0,
+                FileType = FileType.REFERENCE_IMAGE
+            });
+
+        Assert.Equal(400, result.Status);
+        Assert.NotNull(result.Errors);
+        Assert.Contains(result.Errors!, error => error.Contains("Original file name", StringComparison.Ordinal));
+        Assert.Contains(result.Errors!, error => error.Contains("File size", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PrepareProjectFileUploadAsync_WhenSignedUrlFails_RollsBackPendingRecord()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId,
+                Status = ProjectStatus.SUBMITTED
+            }
+        };
+        var storage = new FakeFileStorageService { SignedUploadShouldFail = true };
+        var service = CreateService(repository, storage);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.PrepareProjectFileUploadAsync(
+                projectId,
+                customerId,
+                new PrepareProjectFileUploadRequestDto
+                {
+                    OriginalFileName = "shop-reference.jpg",
+                    ContentType = "image/jpeg",
+                    FileSizeBytes = 204800,
+                    FileType = FileType.REFERENCE_IMAGE
+                }));
+
+        Assert.Single(repository.StoredFiles);
+        Assert.Same(repository.StoredFiles[0], repository.RemovedFile);
+        Assert.Single(repository.RemovedFileLinks);
+        Assert.NotNull(storage.DeletedObjectName);
+        Assert.Equal(2, repository.SaveChangesCallCount);
+    }
+
+    [Fact]
+    public async Task CompleteProjectFileUploadAsync_WhenAlreadyActive_ReturnsExistingFile()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var storedFile = CreateStoredFile(fileId, customerId);
+        var link = new FileLink
+        {
+            FileLinkId = Guid.NewGuid(),
+            FileId = fileId,
+            ReferenceType = "PROJECT",
+            ReferenceId = projectId,
+            FileType = FileType.REFERENCE_IMAGE,
+            Visibility = FileVisibility.CUSTOMER_VISIBLE
+        };
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId,
+                Status = ProjectStatus.SUBMITTED
+            }
+        };
+        repository.Entities[fileId] = storedFile;
+        repository.FileLinkEntities.Add(link);
+        var storage = new FakeFileStorageService();
+        var service = CreateService(repository, storage);
+
+        var result = await service.CompleteProjectFileUploadAsync(
+            projectId,
+            customerId,
+            new CompleteProjectFileUploadRequestDto { FileId = fileId });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(fileId, result.Data!.FileId);
+        Assert.Null(storage.FinalizeRequest);
+    }
+
+    [Fact]
+    public async Task CompleteProjectFileUploadAsync_WhenWrongUser_ReturnsForbidden()
+    {
+        var uploaderId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var storedFile = new StoredFile
+        {
+            FileId = fileId,
+            UploadedBy = uploaderId,
+            OriginalFileName = "shop-reference.jpg",
+            StoredFileName = $"{fileId:N}.jpg",
+            FileUrl = string.Empty,
+            StoragePath = $"projects/{projectId:D}/{fileId:N}.jpg",
+            MimeType = "image/jpeg",
+            FileExtension = "jpg",
+            FileSizeBytes = 204800,
+            Status = FileStatus.PENDING,
+            UploadedAt = DateTime.UtcNow
+        };
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "SALES",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = salesId,
+                Status = ProjectStatus.SUBMITTED
+            }
+        };
+        repository.Entities[fileId] = storedFile;
+        repository.FileLinkEntities.Add(new FileLink
+        {
+            FileLinkId = Guid.NewGuid(),
+            FileId = fileId,
+            ReferenceType = "PROJECT",
+            ReferenceId = projectId
+        });
+        var service = CreateService(repository, new FakeFileStorageService());
+
+        var result = await service.CompleteProjectFileUploadAsync(
+            projectId,
+            salesId,
+            new CompleteProjectFileUploadRequestDto { FileId = fileId });
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(ProjectFileDirectUploadErrorCodes.UploadForbidden, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteProjectFileUploadAsync_WhenNotPending_ReturnsConflict()
+    {
+        var customerId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var storedFile = CreateStoredFile(fileId, customerId);
+        storedFile.Status = FileStatus.ARCHIVED;
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId,
+                Status = ProjectStatus.SUBMITTED
+            }
+        };
+        repository.Entities[fileId] = storedFile;
+        repository.FileLinkEntities.Add(new FileLink
+        {
+            FileLinkId = Guid.NewGuid(),
+            FileId = fileId,
+            ReferenceType = "PROJECT",
+            ReferenceId = projectId
+        });
+        var service = CreateService(repository, new FakeFileStorageService());
+
+        var result = await service.CompleteProjectFileUploadAsync(
+            projectId,
+            customerId,
+            new CompleteProjectFileUploadRequestDto { FileId = fileId });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(ProjectFileDirectUploadErrorCodes.UploadNotPending, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteProjectFileUploadAsync_AsAdmin_CompletesOtherUsersUpload()
+    {
+        var uploaderId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var storagePath = $"projects/{projectId:D}/{fileId:N}.jpg";
+        var storedFile = new StoredFile
+        {
+            FileId = fileId,
+            UploadedBy = uploaderId,
+            OriginalFileName = "shop-reference.jpg",
+            StoredFileName = $"{fileId:N}.jpg",
+            FileUrl = string.Empty,
+            StoragePath = storagePath,
+            MimeType = "image/jpeg",
+            FileExtension = "jpg",
+            FileSizeBytes = 204800,
+            Status = FileStatus.PENDING,
+            UploadedAt = DateTime.UtcNow
+        };
+        var repository = new FakeProjectFileRepository
+        {
+            RoleName = "ADMIN",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = Guid.NewGuid(),
+                Status = ProjectStatus.SUBMITTED
+            }
+        };
+        repository.Entities[fileId] = storedFile;
+        repository.FileLinkEntities.Add(new FileLink
+        {
+            FileLinkId = Guid.NewGuid(),
+            FileId = fileId,
+            ReferenceType = "PROJECT",
+            ReferenceId = projectId,
+            FileType = FileType.REFERENCE_IMAGE,
+            Visibility = FileVisibility.STAFF_ONLY
+        });
+        var service = CreateService(repository, new FakeFileStorageService());
+
+        var result = await service.CompleteProjectFileUploadAsync(
+            projectId,
+            adminId,
+            new CompleteProjectFileUploadRequestDto { FileId = fileId });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(FileStatus.ACTIVE, storedFile.Status);
+    }
+
+    [Fact]
     public async Task UploadProjectAreaFileAsync_AssignedDesigner_UploadsAndLinksProjectAreaFile()
     {
         var designerId = Guid.NewGuid();
@@ -919,6 +1172,7 @@ public sealed class ProjectFileServiceTests
         public StorageDirectUploadFinalizeRequest? FinalizeRequest { get; private set; }
         public string? DeletedObjectName { get; private set; }
         public bool FinalizeShouldFail { get; init; }
+        public bool SignedUploadShouldFail { get; init; }
 
         public Task<StorageUploadResult> UploadAsync(
             StorageUploadRequest request,
@@ -938,6 +1192,11 @@ public sealed class ProjectFileServiceTests
             CancellationToken cancellationToken = default)
         {
             SignedUploadRequest = request;
+            if (SignedUploadShouldFail)
+            {
+                throw new InvalidOperationException("Signed upload URL generation failed.");
+            }
+
             return Task.FromResult(new StorageSignedUploadResult
             {
                 UploadUrl = $"https://storage.example.com/upload/{request.ObjectName}",

@@ -124,6 +124,10 @@ public static class DependencyInjection
             var settings = sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value;
             return FirebaseStorageClientFactory.CreateUrlSigner(settings);
         });
+        services.AddSingleton<IStorageObjectClient>(sp =>
+            new GoogleStorageObjectClient(sp.GetRequiredService<StorageClient>()));
+        services.AddSingleton<ISignedUploadUrlGenerator>(sp =>
+            new GoogleSignedUploadUrlGenerator(sp.GetRequiredService<UrlSigner>()));
         services.AddScoped<FirebaseStorageService>();
         services.AddScoped<IFileStorageService>(sp => sp.GetRequiredService<FirebaseStorageService>());
         services.AddScoped<IDirectFileUploadStorageService>(sp => sp.GetRequiredService<FirebaseStorageService>());

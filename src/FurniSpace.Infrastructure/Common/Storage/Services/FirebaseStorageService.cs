@@ -12,13 +12,13 @@ public sealed class FirebaseStorageService : IFileStorageService, IDirectFileUpl
 {
     private const string DownloadTokenMetadataKey = "firebaseStorageDownloadTokens";
     private readonly FirebaseStorageSettings _settings;
-    private readonly StorageClient _storageClient;
-    private readonly UrlSigner _urlSigner;
+    private readonly IStorageObjectClient _storageClient;
+    private readonly ISignedUploadUrlGenerator _urlSigner;
     private readonly ILogger<FirebaseStorageService> _logger;
 
     public FirebaseStorageService(
-        StorageClient storageClient,
-        UrlSigner urlSigner,
+        IStorageObjectClient storageClient,
+        ISignedUploadUrlGenerator urlSigner,
         IOptions<FirebaseStorageSettings> settings,
         ILogger<FirebaseStorageService> logger)
     {

@@ -241,6 +241,18 @@ public sealed class ProjectFilesControllerTests
     }
 
     [Fact]
+    public async Task CompleteProjectFileUpload_ReturnsUnauthorized_WhenUserIdClaimMissing()
+    {
+        var controller = CreateController(new FakeProjectFileService(), userId: null);
+
+        var actionResult = await controller.CompleteProjectFileUpload(
+            Guid.NewGuid(),
+            new CompleteProjectFileUploadRequestDto { FileId = Guid.NewGuid() });
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
     public async Task CompleteProjectFileUpload_PassesRequestToService()
     {
         var userId = Guid.NewGuid();

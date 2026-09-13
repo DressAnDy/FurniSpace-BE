@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using FurniSpace.Infrastructure;
+using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.Data.Mongo;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
@@ -34,6 +35,9 @@ public sealed class InfrastructureDependencyInjectionTests
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(ICacheService));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IEmailService));
         Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IFileStorageService));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IDirectFileUploadStorageService));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(IStorageObjectClient));
+        Assert.Contains(services, descriptor => descriptor.ServiceType == typeof(ISignedUploadUrlGenerator));
     }
 
     [Fact]

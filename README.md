@@ -209,7 +209,31 @@ Hệ thống cần được thiết kế theo cấu trúc module để dễ bả
 - Chuẩn bị tài liệu hướng dẫn sử dụng.
 - Chuẩn bị tài liệu kỹ thuật và báo cáo đồ án.
 
+## Build và test
+
+Repository có các solution riêng để phân biệt rõ Unit Test và Integration Test:
+
+- `tests/UnitTests/`: bốn project unit test theo layer.
+- `tests/IntegrationTests/`: ba project integration test và thư viện dùng chung `FurniSpace.Testing`.
+
+```powershell
+# Unit tests: không cần Docker
+dotnet restore tests/UnitTests/FurniSpace.UnitTests.sln
+dotnet build tests/UnitTests/FurniSpace.UnitTests.sln --no-restore -c Release
+dotnet test tests/UnitTests/FurniSpace.UnitTests.sln --no-build -c Release
+
+# Core integration tests: cần Docker
+dotnet restore tests/IntegrationTests/FurniSpace.IntegrationTests.sln
+dotnet build tests/IntegrationTests/FurniSpace.IntegrationTests.sln --no-restore -c Release
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --no-build -c Release --filter "Category=Core"
+```
+
+`FurniSpace.sln` vẫn là meta-solution chứa toàn bộ source và test projects để mở workspace tổng. `FurniSpace.Testing` là thư viện fixture/fake/seeder dùng chung, không phải test project có thể chạy độc lập.
+
 ## Tài liệu liên quan
 
 - [Backend API Developer Guide](docs/backend-api-dev-guide.md)
+- [Redis Cache Guide](docs/redis-cache-guide.md)
+- [Elasticsearch Docker Guide](docs/elasticsearch-docker-guide.md)
+- [Huong dan Redis Cache](docs/redis-cache-guide.vi.md)
 - [Định hướng triển khai module 3D bằng Babylon.js](docs/furnispace-babylonjs-3d-module.md)

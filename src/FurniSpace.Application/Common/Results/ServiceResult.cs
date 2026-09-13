@@ -14,6 +14,9 @@ public class ServiceResult : IServiceResult
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Errors { get; set; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
+
     public ServiceResult()
     {
         Status = -1;
@@ -90,9 +93,24 @@ public class ServiceResult : IServiceResult
         return new ServiceResult(409, message);
     }
 
+    public static ServiceResult TooManyRequests(string message = "Too many requests")
+    {
+        return new ServiceResult(429, message);
+    }
+
+    public static ServiceResult PayloadTooLarge(string message = "Payload too large")
+    {
+        return new ServiceResult(413, message);
+    }
+
+    public static ServiceResult UnsupportedMediaType(string message = "Unsupported media type")
+    {
+        return new ServiceResult(415, message);
+    }
+
     public static ServiceResult Failure(Error error)
     {
-        return new ServiceResult(error.Status, error.Message);
+        return new ServiceResult(error.Status, error.Message) { ErrorCode = error.Code };
     }
 }
 
@@ -104,6 +122,9 @@ public class ServiceResult<T> : IServiceResult
 
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<string>? Errors { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? ErrorCode { get; set; }
 
     object? IServiceResult.Data
     {
@@ -182,8 +203,23 @@ public class ServiceResult<T> : IServiceResult
         return new ServiceResult<T>(409, message);
     }
 
+    public static ServiceResult<T> TooManyRequests(string message = "Too many requests")
+    {
+        return new ServiceResult<T>(429, message);
+    }
+
+    public static ServiceResult<T> PayloadTooLarge(string message = "Payload too large")
+    {
+        return new ServiceResult<T>(413, message);
+    }
+
+    public static ServiceResult<T> UnsupportedMediaType(string message = "Unsupported media type")
+    {
+        return new ServiceResult<T>(415, message);
+    }
+
     public static ServiceResult<T> Failure(Error error)
     {
-        return new ServiceResult<T>(error.Status, error.Message);
+        return new ServiceResult<T>(error.Status, error.Message) { ErrorCode = error.Code };
     }
 }

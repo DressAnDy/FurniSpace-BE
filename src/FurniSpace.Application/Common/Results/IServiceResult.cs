@@ -10,4 +10,5 @@ public interface IServiceResult
     string? Message { get; set; }
     object? Data { get; set; }
     List<string>? Errors { get; set; }
+    string? ErrorCode { get; set; }
 }

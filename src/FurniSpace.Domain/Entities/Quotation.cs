@@ -1,0 +1,33 @@
+﻿using System;
+using FurniSpace.Domain.Enums;
+
+namespace FurniSpace.Domain.Entities;
+
+public class Quotation
+{
+    public Guid QuotationId { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid ProposalId { get; set; }
+    public string QuotationCode { get; set; } = null!;
+    public int? VersionNo { get; set; }
+    public decimal? SubtotalAmount { get; set; }
+    public decimal? TotalDiscountAmount { get; set; }
+    public decimal? PreVatAmount { get; set; }
+    public decimal? VatRate { get; set; }
+    public decimal? VatAmount { get; set; }
+    public decimal? TotalAmount { get; set; }
+    public decimal? DepositAmount { get; set; }
+    public string Currency { get; set; } = "VND";
+    public QuotationStatus? Status { get; set; }
+    public DateOnly? ValidUntil { get; set; }
+    public string? CustomerNote { get; set; }
+    public string? SalesNote { get; set; }
+    public string? RevisionReason { get; set; }
+    public string? RejectReason { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public DateTime? SentAt { get; set; }
+    public DateTime? AcceptedAt { get; set; }
+    public DateTime? RejectedAt { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+}

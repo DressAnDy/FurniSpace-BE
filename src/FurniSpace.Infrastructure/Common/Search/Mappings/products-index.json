@@ -1,0 +1,67 @@
+{
+  "settings": {
+    "analysis": {
+      "filter": {
+        "product_synonym_filter": {
+          "type": "synonym",
+          "synonyms": [
+            "ban,table",
+            "ghe,chair",
+            "go,wood",
+            "cua,door",
+            "tu,cabinet"
+          ]
+        }
+      },
+      "analyzer": {
+        "product_synonym_analyzer": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "product_synonym_filter"]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "productId": { "type": "keyword" },
+      "categoryId": { "type": "keyword" },
+      "categoryName": {
+        "type": "text",
+        "analyzer": "product_synonym_analyzer",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "productCode": {
+        "type": "text",
+        "analyzer": "product_synonym_analyzer",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "productName": {
+        "type": "text",
+        "analyzer": "product_synonym_analyzer",
+        "fields": {
+          "keyword": { "type": "keyword" },
+          "sayt": {
+            "type": "search_as_you_type"
+          }
+        }
+      },
+      "description": {
+        "type": "text",
+        "analyzer": "product_synonym_analyzer"
+      },
+      "material": { "type": "keyword" },
+      "color": { "type": "keyword" },
+      "width": { "type": "double" },
+      "height": { "type": "double" },
+      "depth": { "type": "double" },
+      "estimatedPrice": { "type": "double" },
+      "status": { "type": "keyword" },
+      "isPublic": { "type": "boolean" },
+      "createdAt": { "type": "date" }
+    }
+  }
+}

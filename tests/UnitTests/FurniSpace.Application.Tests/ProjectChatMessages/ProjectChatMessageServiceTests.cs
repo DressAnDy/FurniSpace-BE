@@ -1,0 +1,1380 @@
+#nullable enable
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using FurniSpace.Application.DTOs.ProjectChatMessages;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.ProjectChatMessages;
+using FurniSpace.Application.Common.Storage;
+using FurniSpace.Application.Services.ProjectChatMessages;
+using FurniSpace.Application.Tests;
+using FurniSpace.Application.Tests.TestDoubles;
+using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Storage;
+using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
+using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
+using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Persistence;
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Xunit;
+
+namespace FurniSpace.Application.Tests.ProjectChatMessages;
+
+public sealed class ProjectChatMessageServiceTests
+{
+    static ProjectChatMessageServiceTests()
+    {
+        MapsterTestSetup.EnsureConfigured();
+    }
+    [Fact]
+    public async Task SendTextMessageAsync_WithOpenChat_SavesBeforeRealtimeEvent()
+    {
+        var chatId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.SALES);
+        access = CopyAccess(access, projectId: projectId, currentUserName: "Nguyen Van A");
+        var repository = new FakeProjectChatMessageRepository(access);
+        var saveChangesCallCount = 0;
+        var realtime = new FakeProjectChatRealtimeService((sentProjectId, sentChatId, message) =>
+        {
+            Assert.Equal(1, saveChangesCallCount);
+            Assert.Equal(1, repository.AddCallCount);
+            Assert.Equal(projectId, sentProjectId);
+            Assert.Equal(chatId, sentChatId);
+            Assert.Same(repository.AddedMessage, repository.LastAddedEntity);
+            Assert.Equal(repository.AddedMessage!.MessageId, message.MessageId);
+            return Task.CompletedTask;
+        });
+        var unitOfWork = TestUnitOfWork.ForSaveChanges(_ =>
+        {
+            saveChangesCallCount++;
+            return Task.FromResult(1);
+        });
+        var service = CreateService(repository, realtime, unitOfWork);
+
+        var result = await service.SendTextMessageAsync(
+            chatId,
+            salesId,
+            new SendTextChatMessageRequestDto
+            {
+                MessageType = ProjectChatMessageType.TEXT,
+                Content = "  Please send the floor plan.  "
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal("Message sent successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.NotEqual(Guid.Empty, result.Data.MessageId);
+        Assert.Equal(chatId, result.Data.ChatId);
+        Assert.Equal(salesId, result.Data.SenderId);
+        Assert.Equal("Nguyen Van A", result.Data.SenderName);
+        Assert.Equal("SALES", result.Data.SenderRole);
+        Assert.Equal(ProjectChatMessageType.TEXT.ToString(), result.Data.MessageType);
+        Assert.Equal("Please send the floor plan.", result.Data.Content);
+        Assert.Null(result.Data.Attachment);
+        Assert.NotNull(result.Data.CreatedAt);
+        Assert.Equal(1, saveChangesCallCount);
+        Assert.Equal(1, realtime.CallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WithDesignerChat_NotifiesOtherParticipants()
+    {
+        var chatId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var access = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = projectId,
+            ProjectName = "Cafe Interior",
+            ChatType = ProjectChatType.DESIGNER,
+            ChatTitle = "Design Discussion",
+            ChatStatus = ProjectChatStatus.OPEN,
+            CustomerId = customerId,
+            AssignedSalesId = salesId,
+            AssignedDesignerId = designerId,
+            CurrentUserName = "Emily Designer",
+            RoleName = "DESIGNER"
+        };
+        var repository = new FakeProjectChatMessageRepository(access);
+        var notifications = new FakeNotificationDispatcher();
+        var service = CreateService(repository, notifications: notifications);
+
+        var result = await service.SendTextMessageAsync(chatId, designerId, ValidSendRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Single(notifications.Requests);
+        var request = notifications.Requests[0];
+        Assert.Equal(NotificationType.ProjectChatMessageSent, request.Type);
+        Assert.Equal(
+            new[] { customerId, salesId }.OrderBy(id => id).ToArray(),
+            request.ReceiverIds.OrderBy(id => id).ToArray());
+        Assert.Equal("Emily Designer", request.Parameters["SenderName"]);
+        Assert.Equal("Design Discussion", request.Parameters["ChatTitle"]);
+        Assert.NotNull(request.Request);
+        Assert.Equal(projectId, request.Request.ProjectId);
+        Assert.Equal("PROJECT_CHAT_MESSAGE", request.Request.ReferenceType);
+        Assert.Equal(repository.AddedMessage!.MessageId, request.Request.ReferenceId);
+        Assert.NotNull(request.Request.Metadata);
+        Assert.Equal(chatId, request.Request.Metadata["chatId"]);
+        Assert.Equal(ProjectChatType.DESIGNER.ToString(), request.Request.Metadata["chatType"]);
+        Assert.Equal("Project chat message", request.Request.Metadata["contentPreview"]);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WhenRealtimeFails_StillReturnsCreated()
+    {
+        var chatId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var access = CreateAccess(chatId, adminId, "ADMIN", ProjectChatType.INTERNAL);
+        access = CopyAccess(access, chatStatus: null);
+        var repository = new FakeProjectChatMessageRepository(access);
+        var saveChangesCallCount = 0;
+        var realtime = new FakeProjectChatRealtimeService((_, _, _) =>
+            Task.FromException(new InvalidOperationException("SignalR unavailable")));
+        var service = CreateService(
+            repository,
+            realtime,
+            TestUnitOfWork.ForSaveChanges(_ =>
+            {
+                saveChangesCallCount++;
+                return Task.FromResult(1);
+            }));
+
+        var result = await service.SendTextMessageAsync(
+            chatId,
+            adminId,
+            ValidSendRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, repository.AddCallCount);
+        Assert.Equal(1, saveChangesCallCount);
+        Assert.Equal(1, realtime.CallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WhenNotificationFails_StillReturnsCreated()
+    {
+        var chatId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ChatType = ProjectChatType.SALES,
+            ChatTitle = "Sales Consultation",
+            ChatStatus = ProjectChatStatus.OPEN,
+            CustomerId = customerId,
+            AssignedSalesId = salesId,
+            CurrentUserName = "Customer",
+            RoleName = "CUSTOMER"
+        };
+        var repository = new FakeProjectChatMessageRepository(access);
+        var notifications = new FakeNotificationDispatcher
+        {
+            ThrowOnDispatch = true
+        };
+        var service = CreateService(repository, notifications: notifications);
+
+        var result = await service.SendTextMessageAsync(chatId, customerId, ValidSendRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, repository.AddCallCount);
+        Assert.Single(notifications.Requests);
+    }
+
+    [Theory]
+    [InlineData(ProjectChatStatus.CLOSED)]
+    [InlineData(ProjectChatStatus.ARCHIVED)]
+    public async Task SendTextMessageAsync_WhenChatIsNotOpen_ReturnsConflict(
+        ProjectChatStatus status)
+    {
+        var chatId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var access = CreateAccess(chatId, adminId, "ADMIN", ProjectChatType.INTERNAL);
+        access = CopyAccess(access, chatStatus: status);
+        var repository = new FakeProjectChatMessageRepository(access);
+        var service = CreateService(repository);
+
+        var result = await service.SendTextMessageAsync(chatId, adminId, ValidSendRequest());
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal("Messages can only be sent to an open project chat.", result.Message);
+        Assert.Equal(0, repository.AddCallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WithoutAccess_ReturnsForbidden()
+    {
+        var chatId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var access = CreateAccess(chatId, customerId, "CUSTOMER", ProjectChatType.INTERNAL);
+        var repository = new FakeProjectChatMessageRepository(access);
+        var service = CreateService(repository);
+
+        var result = await service.SendTextMessageAsync(chatId, customerId, ValidSendRequest());
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You do not have access to this project chat.", result.Message);
+        Assert.Equal(0, repository.AddCallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WhenChatDoesNotExist_ReturnsNotFound()
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.SendTextMessageAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            ValidSendRequest());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project chat not found.", result.Message);
+        Assert.Equal(0, repository.AddCallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WithEmptyChatId_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.SendTextMessageAsync(
+            Guid.Empty,
+            Guid.NewGuid(),
+            ValidSendRequest());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Chat id is required.", result.Message);
+        Assert.Equal(0, repository.GetAccessCallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WithEmptyCurrentUser_ReturnsUnauthorized()
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.SendTextMessageAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            ValidSendRequest());
+
+        Assert.Equal(401, result.Status);
+        Assert.Equal("Authenticated account id is required.", result.Message);
+        Assert.Equal(0, repository.GetAccessCallCount);
+    }
+
+    [Theory]
+    [InlineData(ProjectChatMessageType.FILE)]
+    [InlineData(ProjectChatMessageType.SYSTEM)]
+    [InlineData((ProjectChatMessageType)999)]
+    public async Task SendTextMessageAsync_WithNonTextMessageType_ReturnsBadRequest(
+        ProjectChatMessageType messageType)
+    {
+        var request = ValidSendRequest();
+        request.MessageType = messageType;
+        var service = CreateService(new FakeProjectChatMessageRepository());
+
+        var result = await service.SendTextMessageAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Message type must be TEXT.", result.Message);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public async Task SendTextMessageAsync_WithMissingContent_ReturnsBadRequest(string? content)
+    {
+        var request = ValidSendRequest();
+        request.Content = content!;
+        var service = CreateService(new FakeProjectChatMessageRepository());
+
+        var result = await service.SendTextMessageAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Message content is required.", result.Message);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WithTooLongContent_ReturnsBadRequest()
+    {
+        var request = ValidSendRequest();
+        request.Content = new string('M', 4001);
+        var service = CreateService(new FakeProjectChatMessageRepository());
+
+        var result = await service.SendTextMessageAsync(Guid.NewGuid(), Guid.NewGuid(), request);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Message content must not exceed 4000 characters.", result.Message);
+    }
+
+    [Fact]
+    public async Task SendFileMessageAsync_WithOpenChat_StoresFileAndCreatesFileMessage()
+    {
+        var chatId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.SALES);
+        access = CopyAccess(access, projectId: projectId, currentUserName: "Nguyen Van A");
+        var repository = new FakeProjectChatMessageRepository(access);
+        var projectFiles = new FakeCatalogProjectFileRepository();
+        var storage = new FakeFileStorageService();
+        var saveChangesCallCount = 0;
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ =>
+            {
+                saveChangesCallCount++;
+                return Task.FromResult(1);
+            },
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var realtime = new FakeProjectChatRealtimeService();
+        var service = CreateService(repository, realtime, unitOfWork, projectFiles, storage);
+
+        await using var stream = new MemoryStream("floor-plan"u8.ToArray());
+        var result = await service.SendFileMessageAsync(
+            chatId,
+            salesId,
+            new SendFileChatMessageRequestDto
+            {
+                FileContent = stream,
+                OriginalFileName = "floor-plan.pdf",
+                ContentType = "application/pdf",
+                FileSizeBytes = stream.Length,
+                FileType = FileType.FLOOR_PLAN,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                Content = "  Em gửi file mặt bằng.  "
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal("File message sent successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(ProjectChatMessageType.FILE.ToString(), result.Data.MessageType);
+        Assert.Equal("Em gửi file mặt bằng.", result.Data.Content);
+        Assert.NotNull(result.Data.Attachment);
+        Assert.Equal("floor-plan.pdf", result.Data.Attachment.OriginalFileName);
+        Assert.Equal("application/pdf", result.Data.Attachment.MimeType);
+        Assert.Equal(1, repository.AddCallCount);
+        Assert.Single(projectFiles.StoredFiles);
+        Assert.Single(projectFiles.FileLinks);
+        Assert.Equal(projectId, projectFiles.FileLinks[0].ReferenceId);
+        Assert.Equal("PROJECT", projectFiles.FileLinks[0].ReferenceType);
+        Assert.Equal(FileType.FLOOR_PLAN, projectFiles.FileLinks[0].FileType);
+        Assert.Equal(FileVisibility.CUSTOMER_VISIBLE, projectFiles.FileLinks[0].Visibility);
+        Assert.Equal(repository.AddedMessage!.AttachmentFileId, projectFiles.StoredFiles[0].FileId);
+        Assert.Equal(1, saveChangesCallCount);
+        Assert.Equal(1, realtime.CallCount);
+        Assert.NotNull(storage.UploadRequest);
+    }
+
+    [Fact]
+    public async Task SendFileMessageAsync_WithSalesChat_NotifiesAssignedSalesWithFilePreview()
+    {
+        var chatId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ChatType = ProjectChatType.SALES,
+            ChatTitle = "",
+            ChatStatus = ProjectChatStatus.OPEN,
+            CustomerId = customerId,
+            AssignedSalesId = salesId,
+            CurrentUserName = "Customer",
+            RoleName = "CUSTOMER"
+        };
+        var repository = new FakeProjectChatMessageRepository(access);
+        var notifications = new FakeNotificationDispatcher();
+        var service = CreateService(
+            repository,
+            unitOfWork: TestUnitOfWork.ForTransaction(
+                _ => Task.CompletedTask,
+                _ => Task.FromResult(1),
+                _ => Task.CompletedTask,
+                _ => Task.CompletedTask),
+            notifications: notifications);
+
+        await using var stream = new MemoryStream("floor-plan"u8.ToArray());
+        var result = await service.SendFileMessageAsync(
+            chatId,
+            customerId,
+            new SendFileChatMessageRequestDto
+            {
+                FileContent = stream,
+                OriginalFileName = "floor-plan.pdf",
+                ContentType = "application/pdf",
+                FileSizeBytes = stream.Length,
+                FileType = FileType.FLOOR_PLAN
+            });
+
+        Assert.Equal(201, result.Status);
+        var request = Assert.Single(notifications.Requests);
+        var receiverId = Assert.Single(request.ReceiverIds);
+        Assert.Equal(salesId, receiverId);
+        Assert.Equal("Project chat", request.Parameters["ChatTitle"]);
+        Assert.Equal("floor-plan.pdf", request.Request!.Metadata!["contentPreview"]);
+    }
+
+
+    [Fact]
+    public async Task SendFileMessageAsync_WithInvalidMimeType_ReturnsUnsupportedMediaType()
+    {
+        var service = CreateService(new FakeProjectChatMessageRepository());
+
+        await using var stream = new MemoryStream([1, 2, 3]);
+        var result = await service.SendFileMessageAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new SendFileChatMessageRequestDto
+            {
+                FileContent = stream,
+                OriginalFileName = "malware.exe",
+                ContentType = "application/x-msdownload",
+                FileSizeBytes = stream.Length,
+                FileType = FileType.OTHER
+            });
+
+        Assert.Equal(415, result.Status);
+        Assert.Equal("File extension is not allowed.", result.Message);
+    }
+
+    [Fact]
+    public async Task SendFileMessageAsync_WithFileTooLarge_ReturnsPayloadTooLarge()
+    {
+        var service = CreateService(
+            new FakeProjectChatMessageRepository(),
+            uploadSettings: new FileUploadSettings { MaxFileSizeBytes = 1024 });
+
+        await using var stream = new MemoryStream(new byte[2048]);
+        var result = await service.SendFileMessageAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new SendFileChatMessageRequestDto
+            {
+                FileContent = stream,
+                OriginalFileName = "large.pdf",
+                ContentType = "application/pdf",
+                FileSizeBytes = stream.Length,
+                FileType = FileType.FLOOR_PLAN
+            });
+
+        Assert.Equal(413, result.Status);
+        Assert.Contains("File size must not exceed 1024 bytes.", result.Message);
+    }
+
+    [Fact]
+    public async Task SendFileMessageAsync_WhenTransactionFails_DeletesUploadedObject()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.SALES);
+        var repository = new FakeProjectChatMessageRepository(access);
+        var storage = new FakeFileStorageService();
+        var unitOfWork = TestUnitOfWork.ForTransaction(
+            _ => Task.CompletedTask,
+            _ => Task.FromException<int>(new InvalidOperationException("Save failed.")),
+            _ => Task.CompletedTask,
+            _ => Task.CompletedTask);
+        var service = CreateService(repository, unitOfWork: unitOfWork, storage: storage);
+
+        await using var stream = new MemoryStream("floor-plan"u8.ToArray());
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.SendFileMessageAsync(
+                chatId,
+                salesId,
+                new SendFileChatMessageRequestDto
+                {
+                    FileContent = stream,
+                    OriginalFileName = "floor-plan.pdf",
+                    ContentType = "application/pdf",
+                    FileSizeBytes = stream.Length,
+                    FileType = FileType.FLOOR_PLAN
+                }));
+
+        Assert.NotNull(storage.UploadRequest);
+        Assert.Equal(1, storage.DeleteCallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WhenRealtimePublishFails_StillReturnsCreated()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.SALES);
+        var repository = new FakeProjectChatMessageRepository(access);
+        var realtime = new FakeProjectChatRealtimeService((_, _, _) =>
+            throw new InvalidOperationException("SignalR unavailable."));
+        var service = CreateService(repository, realtime);
+
+        var result = await service.SendTextMessageAsync(chatId, salesId, ValidSendRequest());
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(1, repository.AddCallCount);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WithProductionChat_IncludesProductionRequestIdInNotificationMetadata()
+    {
+        var chatId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var productionId = Guid.NewGuid();
+        var productionRequestId = Guid.NewGuid();
+        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.PRODUCTION);
+        access = CopyAccess(
+            access,
+            projectId: projectId,
+            chatStaffId: productionId,
+            productionRequestId: productionRequestId);
+        var repository = new FakeProjectChatMessageRepository(access);
+        var notifications = new FakeNotificationDispatcher();
+        var service = CreateService(repository, notifications: notifications);
+
+        var result = await service.SendTextMessageAsync(chatId, salesId, ValidSendRequest());
+
+        Assert.Equal(201, result.Status);
+        var metadata = notifications.Requests[0].Request!.Metadata!;
+        Assert.Equal(productionRequestId, metadata["productionRequestId"]);
+        Assert.Equal(ProjectChatType.PRODUCTION.ToString(), metadata["chatType"]);
+    }
+
+    [Fact]
+    public async Task CanAccessChatAsync_WithProductionChat_AllowsAssignedSalesAndProductionStaff()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var productionId = Guid.NewGuid();
+        var salesAccess = CreateAccess(chatId, salesId, "SALES", ProjectChatType.PRODUCTION);
+        salesAccess = CopyAccess(salesAccess, chatStaffId: productionId);
+        var productionAccess = CreateAccess(chatId, productionId, "PRODUCTION", ProjectChatType.PRODUCTION);
+        productionAccess = CopyAccess(productionAccess, chatStaffId: productionId);
+
+        Assert.True(await CreateService(new FakeProjectChatMessageRepository(salesAccess))
+            .CanAccessChatAsync(chatId, salesId));
+        Assert.True(await CreateService(new FakeProjectChatMessageRepository(productionAccess))
+            .CanAccessChatAsync(chatId, productionId));
+    }
+
+    [Fact]
+    public async Task CanAccessChatAsync_WithProductionChat_RejectsCustomerAndDesigner()
+    {
+        var chatId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var customerAccess = CreateAccess(chatId, customerId, "CUSTOMER", ProjectChatType.PRODUCTION);
+        var designerAccess = CreateAccess(chatId, designerId, "DESIGNER", ProjectChatType.PRODUCTION);
+
+        Assert.False(await CreateService(new FakeProjectChatMessageRepository(customerAccess))
+            .CanAccessChatAsync(chatId, customerId));
+        Assert.False(await CreateService(new FakeProjectChatMessageRepository(designerAccess))
+            .CanAccessChatAsync(chatId, designerId));
+    }
+
+    [Fact]
+    public async Task CanAccessChatAsync_WithValidParticipant_ReturnsTrue()
+    {
+        var chatId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var repository = new FakeProjectChatMessageRepository(
+            CreateAccess(chatId, designerId, "DESIGNER", ProjectChatType.DESIGNER));
+        var service = CreateService(repository);
+
+        var canAccess = await service.CanAccessChatAsync(chatId, designerId);
+
+        Assert.True(canAccess);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task CanAccessChatAsync_WithEmptyId_ReturnsFalse(
+        bool emptyChatId,
+        bool emptyCurrentUserId)
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var canAccess = await service.CanAccessChatAsync(
+            emptyChatId ? Guid.Empty : Guid.NewGuid(),
+            emptyCurrentUserId ? Guid.Empty : Guid.NewGuid());
+
+        Assert.False(canAccess);
+        Assert.Equal(0, repository.GetAccessCallCount);
+    }
+
+    [Fact]
+    public async Task CanAccessChatAsync_WhenChatMissingOrForbidden_ReturnsFalse()
+    {
+        var chatId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var missingRepository = new FakeProjectChatMessageRepository();
+        var forbiddenRepository = new FakeProjectChatMessageRepository(
+            CreateAccess(chatId, currentUserId, "CUSTOMER", ProjectChatType.INTERNAL));
+
+        Assert.False(await CreateService(missingRepository).CanAccessChatAsync(chatId, currentUserId));
+        Assert.False(await CreateService(forbiddenRepository).CanAccessChatAsync(chatId, currentUserId));
+    }
+
+    [Fact]
+    public async Task GetMessagesAsync_WithAdmin_ReturnsMessagesAndAttachment()
+    {
+        var chatId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var attachment = new ProjectChatMessageAttachmentReadModel
+        {
+            FileId = Guid.NewGuid(),
+            OriginalFileName = "floor-plan.pdf",
+            MimeType = "application/pdf",
+            FileSizeBytes = 2048,
+            FileUrl = "https://files.example/floor-plan.pdf"
+        };
+        var activeMessage = CreateMessage(chatId);
+        activeMessage = CopyMessage(activeMessage, attachment: attachment);
+        var deletedMessage = CopyMessage(
+            CreateMessage(chatId),
+            content: "Hidden content",
+            attachment: attachment,
+            deletedAt: DateTime.UtcNow,
+            messageType: null);
+        var repository = new FakeProjectChatMessageRepository(
+            CreateAccess(chatId, adminId, "ADMIN", ProjectChatType.INTERNAL),
+            [activeMessage, deletedMessage]);
+        var service = CreateService(repository);
+
+        var result = await service.GetMessagesAsync(
+            chatId,
+            adminId,
+            new ProjectChatMessageQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Chat messages retrieved successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(1, result.Data.Page);
+        Assert.Equal(30, result.Data.Limit);
+        Assert.Equal(2, result.Data.Total);
+        Assert.Equal(2, result.Data.Items.Count);
+        var first = result.Data.Items[0];
+        Assert.Equal(ProjectChatMessageType.TEXT.ToString(), first.MessageType);
+        Assert.Equal(activeMessage.Content, first.Content);
+        Assert.NotNull(first.Attachment);
+        Assert.Equal(attachment.FileId, first.Attachment.FileId);
+        Assert.Equal(attachment.OriginalFileName, first.Attachment.OriginalFileName);
+        Assert.Equal(attachment.MimeType, first.Attachment.MimeType);
+        Assert.Equal(attachment.FileSizeBytes, first.Attachment.FileSizeBytes);
+        Assert.Equal(attachment.FileUrl, first.Attachment.FileUrl);
+        var deleted = result.Data.Items[1];
+        Assert.Equal(ProjectChatMessageType.TEXT.ToString(), deleted.MessageType);
+        Assert.Null(deleted.Content);
+        Assert.Null(deleted.Attachment);
+        Assert.False(repository.LastQuery!.SortDescending);
+        Assert.Equal(1, repository.GetAccessCallCount);
+        Assert.Equal(1, repository.GetMessagesCallCount);
+    }
+
+    [Fact]
+    public async Task GetMessagesAsync_WithDescendingSort_NormalizesAndPassesPagination()
+    {
+        var chatId = Guid.NewGuid();
+        var adminId = Guid.NewGuid();
+        var repository = new FakeProjectChatMessageRepository(
+            CreateAccess(chatId, adminId, "admin", ProjectChatType.GENERAL));
+        var service = CreateService(repository);
+
+        var result = await service.GetMessagesAsync(
+            chatId,
+            adminId,
+            new ProjectChatMessageQueryDto { Page = 2, Limit = 10, Sort = " desc " });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(chatId, repository.LastChatId);
+        Assert.NotNull(repository.LastQuery);
+        Assert.Equal(2, repository.LastQuery.Page);
+        Assert.Equal(10, repository.LastQuery.Limit);
+        Assert.True(repository.LastQuery.SortDescending);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WithDesignerSalesChat_AllowsAssignedSalesAndDesignerStaff()
+    {
+        var chatId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var salesAccess = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ProjectName = "Coordination Project",
+            ChatType = ProjectChatType.DESIGNER_SALES,
+            ChatTitle = "Designer - Sales Coordination",
+            ChatStatus = ProjectChatStatus.OPEN,
+            ChatStaffId = designerId,
+            AssignedSalesId = salesId,
+            AssignedDesignerId = designerId,
+            CurrentUserName = "Sales User",
+            RoleName = "SALES"
+        };
+        var designerAccess = CopyAccess(
+            salesAccess,
+            currentUserName: "Designer User",
+            roleName: "DESIGNER");
+
+        Assert.Equal(201, (await CreateService(new FakeProjectChatMessageRepository(salesAccess))
+            .SendTextMessageAsync(chatId, salesId, ValidSendRequest())).Status);
+        Assert.Equal(201, (await CreateService(new FakeProjectChatMessageRepository(designerAccess))
+            .SendTextMessageAsync(chatId, designerId, ValidSendRequest())).Status);
+    }
+
+    [Fact]
+    public async Task SendTextMessageAsync_WithDesignerSalesChat_RejectsCustomerAndProduction()
+    {
+        var chatId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var access = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ChatType = ProjectChatType.DESIGNER_SALES,
+            ChatStatus = ProjectChatStatus.OPEN,
+            ChatStaffId = designerId,
+            AssignedSalesId = Guid.NewGuid(),
+            AssignedDesignerId = designerId,
+            RoleName = "CUSTOMER",
+            CustomerId = customerId
+        };
+
+        var customerResult = await CreateService(new FakeProjectChatMessageRepository(access))
+            .SendTextMessageAsync(chatId, customerId, ValidSendRequest());
+        var productionResult = await CreateService(new FakeProjectChatMessageRepository(
+            CopyAccess(access, roleName: "PRODUCTION")))
+            .SendTextMessageAsync(chatId, Guid.NewGuid(), ValidSendRequest());
+
+        Assert.Equal(403, customerResult.Status);
+        Assert.Equal(403, productionResult.Status);
+    }
+
+    [Theory]
+    [InlineData("CUSTOMER", ProjectChatType.SALES)]
+    [InlineData("CUSTOMER", ProjectChatType.DESIGNER)]
+    [InlineData("SALES", ProjectChatType.SALES)]
+    [InlineData("SALES", ProjectChatType.DESIGNER)]
+    [InlineData("DESIGNER", ProjectChatType.DESIGNER)]
+    public async Task GetMessagesAsync_WithAuthorizedParticipant_ReturnsSuccess(
+        string roleName,
+        ProjectChatType chatType)
+    {
+        var chatId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var repository = new FakeProjectChatMessageRepository(
+            CreateAccess(chatId, currentUserId, roleName, chatType));
+        var service = CreateService(repository);
+
+        var result = await service.GetMessagesAsync(
+            chatId,
+            currentUserId,
+            new ProjectChatMessageQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, repository.GetMessagesCallCount);
+    }
+
+    [Theory]
+    [InlineData("CUSTOMER", ProjectChatType.INTERNAL)]
+    [InlineData("CUSTOMER", ProjectChatType.SALES)]
+    [InlineData("SALES", ProjectChatType.GENERAL)]
+    [InlineData("SALES", ProjectChatType.SALES)]
+    [InlineData("DESIGNER", ProjectChatType.SALES)]
+    [InlineData("DESIGNER", ProjectChatType.DESIGNER)]
+    [InlineData("UNKNOWN", ProjectChatType.DESIGNER)]
+    [InlineData(null, ProjectChatType.DESIGNER)]
+    public async Task GetMessagesAsync_WithoutChatAccess_ReturnsForbidden(
+        string? roleName,
+        ProjectChatType chatType)
+    {
+        var chatId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var access = CreateAccess(chatId, currentUserId, roleName, chatType);
+        access = new ProjectChatMessageAccessReadModel
+        {
+            ChatId = access.ChatId,
+            ProjectId = access.ProjectId,
+            ChatType = access.ChatType,
+            CustomerId = roleName == "CUSTOMER" && chatType == ProjectChatType.INTERNAL
+                ? currentUserId
+                : Guid.NewGuid(),
+            AssignedSalesId = roleName == "SALES" && chatType == ProjectChatType.GENERAL
+                ? currentUserId
+                : Guid.NewGuid(),
+            AssignedDesignerId = roleName == "DESIGNER" && chatType == ProjectChatType.SALES
+                ? currentUserId
+                : Guid.NewGuid(),
+            RoleName = roleName
+        };
+        var repository = new FakeProjectChatMessageRepository(access);
+        var service = CreateService(repository);
+
+        var result = await service.GetMessagesAsync(
+            chatId,
+            currentUserId,
+            new ProjectChatMessageQueryDto());
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You do not have access to this project chat.", result.Message);
+        Assert.Equal(0, repository.GetMessagesCallCount);
+    }
+
+    [Fact]
+    public async Task GetMessagesAsync_WhenChatDoesNotExist_ReturnsNotFound()
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetMessagesAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new ProjectChatMessageQueryDto());
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project chat not found.", result.Message);
+        Assert.Equal(0, repository.GetMessagesCallCount);
+    }
+
+    [Fact]
+    public async Task GetMessagesAsync_WithEmptyChatId_ReturnsBadRequest()
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetMessagesAsync(
+            Guid.Empty,
+            Guid.NewGuid(),
+            new ProjectChatMessageQueryDto());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Chat id is required.", result.Message);
+        Assert.Equal(0, repository.GetAccessCallCount);
+    }
+
+    [Fact]
+    public async Task GetMessagesAsync_WithEmptyCurrentUser_ReturnsUnauthorized()
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetMessagesAsync(
+            Guid.NewGuid(),
+            Guid.Empty,
+            new ProjectChatMessageQueryDto());
+
+        Assert.Equal(401, result.Status);
+        Assert.Equal("Authenticated account id is required.", result.Message);
+        Assert.Equal(0, repository.GetAccessCallCount);
+    }
+
+    [Theory]
+    [InlineData(0, 30, "Page must be greater than zero.")]
+    [InlineData(1, 0, "Limit must be between 1 and 100.")]
+    [InlineData(1, 101, "Limit must be between 1 and 100.")]
+    public async Task GetMessagesAsync_WithInvalidPagination_ReturnsBadRequest(
+        int page,
+        int limit,
+        string expectedMessage)
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetMessagesAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new ProjectChatMessageQueryDto { Page = page, Limit = limit });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedMessage, result.Message);
+        Assert.Equal(0, repository.GetAccessCallCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("newest")]
+    public async Task GetMessagesAsync_WithInvalidSort_ReturnsBadRequest(string? sort)
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.GetMessagesAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new ProjectChatMessageQueryDto { Sort = sort! });
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Sort must be ASC or DESC.", result.Message);
+        Assert.Equal(0, repository.GetAccessCallCount);
+    }
+
+    [Fact]
+    public async Task SearchProjectMessagesAsync_WithRepositoryFallback_ReturnsContentMessages()
+    {
+        var projectId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var chatId = Guid.NewGuid();
+        var messageId = Guid.NewGuid();
+        var createdAt = new DateTime(2026, 6, 22, 9, 30, 0, DateTimeKind.Utc);
+        var repository = new FakeProjectChatMessageRepository(
+            searchItems:
+            [
+                new ChatMessageSearchIndexItemReadModel
+                {
+                    MessageId = messageId,
+                    ChatId = chatId,
+                    ProjectId = projectId,
+                    SenderId = customerId,
+                    SenderName = "Customer",
+                    MessageType = ProjectChatMessageType.TEXT,
+                    Content = "Need revised floor plan",
+                    CreatedAt = createdAt
+                },
+                new ChatMessageSearchIndexItemReadModel
+                {
+                    MessageId = Guid.NewGuid(),
+                    ChatId = chatId,
+                    ProjectId = projectId,
+                    SenderId = customerId,
+                    SenderName = "Customer",
+                    MessageType = ProjectChatMessageType.TEXT,
+                    Content = null,
+                    CreatedAt = createdAt.AddMinutes(1)
+                }
+            ],
+            searchTotal: 2);
+        var projectFiles = new FakeCatalogProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = customerId
+            }
+        };
+        var service = CreateService(repository, projectFiles: projectFiles);
+
+        var result = await service.SearchProjectMessagesAsync(projectId, customerId, "floor", page: 2, limit: 5);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Project chat messages search completed successfully.", result.Message);
+        Assert.NotNull(result.Data);
+        Assert.Equal(2, result.Data.Page);
+        Assert.Equal(5, result.Data.Limit);
+        Assert.Equal(2, result.Data.Total);
+        var item = Assert.Single(result.Data.Items);
+        Assert.Equal(messageId, item.MessageId);
+        Assert.Equal(chatId, item.ChatId);
+        Assert.Equal(projectId, item.ProjectId);
+        Assert.Equal(customerId, item.SenderId);
+        Assert.Equal("Customer", item.SenderName);
+        Assert.Equal(nameof(ProjectChatMessageType.TEXT), item.MessageType);
+        Assert.Equal("Need revised floor plan", item.Content);
+        Assert.Equal(createdAt, item.CreatedAt);
+        Assert.Equal(projectId, repository.LastSearchProjectId);
+        Assert.Equal("floor", repository.LastSearchQuery);
+        Assert.Equal(2, repository.LastSearchPage);
+        Assert.Equal(5, repository.LastSearchLimit);
+    }
+
+    [Fact]
+    public async Task SearchProjectMessagesAsync_WithMissingProject_ReturnsNotFound()
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.SearchProjectMessagesAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "floor",
+            page: 1,
+            limit: 10);
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal("Project not found.", result.Message);
+        Assert.Null(repository.LastSearchQuery);
+    }
+
+    [Fact]
+    public async Task SearchProjectMessagesAsync_WithoutProjectAccess_ReturnsForbidden()
+    {
+        var projectId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var repository = new FakeProjectChatMessageRepository();
+        var projectFiles = new FakeCatalogProjectFileRepository
+        {
+            RoleName = "CUSTOMER",
+            ProjectAccess = new ProjectFileAccessReadModel
+            {
+                ProjectId = projectId,
+                CustomerId = Guid.NewGuid()
+            }
+        };
+        var service = CreateService(repository, projectFiles: projectFiles);
+
+        var result = await service.SearchProjectMessagesAsync(projectId, currentUserId, "floor", page: 1, limit: 10);
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You do not have access to search messages for this project.", result.Message);
+        Assert.Null(repository.LastSearchQuery);
+    }
+
+    [Theory]
+    [InlineData("", 1, 10, "Search query is required.")]
+    [InlineData("   ", 1, 10, "Search query is required.")]
+    [InlineData("floor", 0, 10, "Page must be >= 1 and limit must be between 1 and 50.")]
+    [InlineData("floor", 1, 0, "Page must be >= 1 and limit must be between 1 and 50.")]
+    [InlineData("floor", 1, 51, "Page must be >= 1 and limit must be between 1 and 50.")]
+    public async Task SearchProjectMessagesAsync_WithInvalidInput_ReturnsBadRequest(
+        string query,
+        int page,
+        int limit,
+        string expectedMessage)
+    {
+        var repository = new FakeProjectChatMessageRepository();
+        var service = CreateService(repository);
+
+        var result = await service.SearchProjectMessagesAsync(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            query,
+            page,
+            limit);
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal(expectedMessage, result.Message);
+        Assert.Null(repository.LastSearchQuery);
+    }
+
+    private static ProjectChatMessageService CreateService(
+        IProjectChatMessageRepository repository,
+        IProjectChatRealtimeService? realtime = null,
+        IUnitOfWork? unitOfWork = null,
+        IProjectFileRepository? projectFiles = null,
+        IFileStorageService? storage = null,
+        FileUploadSettings? uploadSettings = null,
+        INotificationDispatcher? notifications = null)
+    {
+        return new ProjectChatMessageService(
+            repository,
+            projectFiles ?? new FakeCatalogProjectFileRepository(),
+            new ProjectChatMessageServiceDependencies(
+                realtime ?? new FakeProjectChatRealtimeService(),
+                unitOfWork ?? TestUnitOfWork.Instance,
+                new ProjectChatFileUploadDependencies(
+                    storage ?? new FakeFileStorageService(),
+                    new FileUploadValidator(
+                        Options.Create(uploadSettings ?? new FileUploadSettings()),
+                        Options.Create(new FirebaseStorageSettings())),
+                    new FirebaseStorageSettings()),
+                NullLogger<ProjectChatMessageServiceDependencies>.Instance,
+                Search: null,
+                ChatMessageSearchIndexer: null,
+                Notifications: notifications));
+    }
+
+    private static SendTextChatMessageRequestDto ValidSendRequest()
+    {
+        return new SendTextChatMessageRequestDto
+        {
+            MessageType = ProjectChatMessageType.TEXT,
+            Content = "Project chat message"
+        };
+    }
+
+    private static ProjectChatMessageAccessReadModel CreateAccess(
+        Guid chatId,
+        Guid currentUserId,
+        string? roleName,
+        ProjectChatType chatType)
+    {
+        return new ProjectChatMessageAccessReadModel
+        {
+            ChatId = chatId,
+            ProjectId = Guid.NewGuid(),
+            ProjectName = "Project",
+            ChatType = chatType,
+            ChatTitle = chatType.ToString(),
+            ChatStatus = ProjectChatStatus.OPEN,
+            CustomerId = roleName == "CUSTOMER" ? currentUserId : Guid.NewGuid(),
+            AssignedSalesId = roleName == "SALES" ? currentUserId : Guid.NewGuid(),
+            AssignedDesignerId = roleName == "DESIGNER" ? currentUserId : Guid.NewGuid(),
+            CurrentUserName = "Project participant",
+            RoleName = roleName
+        };
+    }
+
+    private static ProjectChatMessageAccessReadModel CopyAccess(
+        ProjectChatMessageAccessReadModel source,
+        Guid? projectId = null,
+        ProjectChatStatus? chatStatus = ProjectChatStatus.OPEN,
+        string? currentUserName = null,
+        Guid? chatStaffId = null,
+        Guid? productionRequestId = null,
+        string? roleName = null)
+    {
+        return new ProjectChatMessageAccessReadModel
+        {
+            ChatId = source.ChatId,
+            ProjectId = projectId ?? source.ProjectId,
+            ProjectName = source.ProjectName,
+            ChatType = source.ChatType,
+            ChatTitle = source.ChatTitle,
+            ChatStaffId = chatStaffId ?? source.ChatStaffId,
+            ChatStatus = chatStatus,
+            CustomerId = source.CustomerId,
+            AssignedSalesId = source.AssignedSalesId,
+            AssignedDesignerId = source.AssignedDesignerId,
+            ProductionRequestId = productionRequestId ?? source.ProductionRequestId,
+            CurrentUserName = currentUserName ?? source.CurrentUserName,
+            RoleName = roleName ?? source.RoleName
+        };
+    }
+
+    private static ProjectChatMessageReadModel CreateMessage(Guid chatId)
+    {
+        return new ProjectChatMessageReadModel
+        {
+            MessageId = Guid.NewGuid(),
+            ChatId = chatId,
+            SenderId = Guid.NewGuid(),
+            SenderName = "Nguyen Van A",
+            SenderRole = "SALES",
+            MessageType = ProjectChatMessageType.TEXT,
+            Content = "Please provide the floor plan.",
+            CreatedAt = DateTime.UtcNow
+        };
+    }
+
+    private static ProjectChatMessageReadModel CopyMessage(
+        ProjectChatMessageReadModel source,
+        string? content = null,
+        ProjectChatMessageAttachmentReadModel? attachment = null,
+        DateTime? deletedAt = null,
+        ProjectChatMessageType? messageType = ProjectChatMessageType.TEXT)
+    {
+        return new ProjectChatMessageReadModel
+        {
+            MessageId = source.MessageId,
+            ChatId = source.ChatId,
+            SenderId = source.SenderId,
+            SenderName = source.SenderName,
+            SenderRole = source.SenderRole,
+            MessageType = messageType,
+            Content = content ?? source.Content,
+            Attachment = attachment,
+            CreatedAt = source.CreatedAt,
+            EditedAt = source.EditedAt,
+            DeletedAt = deletedAt,
+            ReadAt = source.ReadAt
+        };
+    }
+
+    private sealed class FakeProjectChatMessageRepository : IProjectChatMessageRepository
+    {
+        private readonly ProjectChatMessageAccessReadModel? _access;
+        private readonly IReadOnlyList<ProjectChatMessageReadModel> _items;
+        private readonly IReadOnlyList<ChatMessageSearchIndexItemReadModel> _searchItems;
+        private readonly int _searchTotal;
+
+        public FakeProjectChatMessageRepository(
+            ProjectChatMessageAccessReadModel? access = null,
+            IReadOnlyList<ProjectChatMessageReadModel>? items = null,
+            IReadOnlyList<ChatMessageSearchIndexItemReadModel>? searchItems = null,
+            int searchTotal = 0)
+        {
+            _access = access;
+            _items = items ?? [];
+            _searchItems = searchItems ?? [];
+            _searchTotal = searchTotal;
+        }
+
+        public int GetAccessCallCount { get; private set; }
+        public int GetMessagesCallCount { get; private set; }
+        public int AddCallCount { get; private set; }
+        public Guid LastChatId { get; private set; }
+        public ProjectChatMessageQueryReadModel? LastQuery { get; private set; }
+        public Guid LastSearchProjectId { get; private set; }
+        public string? LastSearchQuery { get; private set; }
+        public int LastSearchPage { get; private set; }
+        public int LastSearchLimit { get; private set; }
+        public ProjectChatMessage? AddedMessage { get; private set; }
+        public ProjectChatMessage? LastAddedEntity { get; private set; }
+
+        public Task<ProjectChatMessageAccessReadModel?> GetAccessAsync(
+            Guid chatId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
+        {
+            GetAccessCallCount++;
+            return Task.FromResult(_access?.ChatId == chatId ? _access : null);
+        }
+
+        public Task<(IReadOnlyList<ProjectChatMessageReadModel> Items, int Total)> GetMessagesAsync(
+            Guid chatId,
+            ProjectChatMessageQueryReadModel query,
+            CancellationToken cancellationToken = default)
+        {
+            GetMessagesCallCount++;
+            LastChatId = chatId;
+            LastQuery = query;
+            var ordered = query.SortDescending
+                ? _items.OrderByDescending(item => item.CreatedAt).ThenByDescending(item => item.MessageId)
+                : _items.OrderBy(item => item.CreatedAt).ThenBy(item => item.MessageId);
+            var page = ordered.Skip((query.Page - 1) * query.Limit).Take(query.Limit).ToList();
+            return Task.FromResult<(IReadOnlyList<ProjectChatMessageReadModel>, int)>((page, _items.Count));
+        }
+
+        public IQueryable<ProjectChatMessage> Query() => Array.Empty<ProjectChatMessage>().AsQueryable();
+        public Task<ProjectChatMessage?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult<ProjectChatMessage?>(null);
+        public Task<IReadOnlyList<ProjectChatMessage>> ListAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ProjectChatMessage>>([]);
+        public Task AddAsync(ProjectChatMessage entity, CancellationToken cancellationToken = default)
+        {
+            AddCallCount++;
+            AddedMessage = entity;
+            LastAddedEntity = entity;
+            return Task.CompletedTask;
+        }
+        public Task AddRangeAsync(IEnumerable<ProjectChatMessage> entities, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+        public void Update(ProjectChatMessage entity) { }
+        public void Remove(ProjectChatMessage entity) { }
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+
+        public Task<ChatMessageSearchIndexItemReadModel?> GetSearchIndexItemAsync(
+            Guid messageId,
+            CancellationToken cancellationToken = default)
+            => ProjectChatMessageRepositorySearchStubs.GetSearchIndexItemAsync(messageId, cancellationToken);
+
+        public Task<IReadOnlyList<ChatMessageSearchIndexItemReadModel>> GetSearchIndexPageAsync(
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+            => ProjectChatMessageRepositorySearchStubs.GetSearchIndexPageAsync(page, limit, cancellationToken);
+
+        public Task<IReadOnlyList<ChatMessageSearchIndexItemReadModel>> SearchByProjectAsync(
+            Guid projectId,
+            string query,
+            int page,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            LastSearchProjectId = projectId;
+            LastSearchQuery = query;
+            LastSearchPage = page;
+            LastSearchLimit = limit;
+            return Task.FromResult(_searchItems);
+        }
+
+        public Task<int> CountSearchByProjectAsync(
+            Guid projectId,
+            string query,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(_searchTotal);
+    }
+
+    private sealed class FakeProjectChatRealtimeService : IProjectChatRealtimeService
+    {
+        private readonly Func<Guid, Guid, ProjectChatMessageDto, Task>? _send;
+
+        public FakeProjectChatRealtimeService(
+            Func<Guid, Guid, ProjectChatMessageDto, Task>? send = null)
+        {
+            _send = send;
+        }
+
+        public int CallCount { get; private set; }
+
+        public Task SendMessageSentAsync(
+            Guid projectId,
+            Guid chatId,
+            ProjectChatMessageDto message,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return _send?.Invoke(projectId, chatId, message) ?? Task.CompletedTask;
+        }
+    }
+
+    private sealed class FakeNotificationDispatcher : INotificationDispatcher
+    {
+        public bool ThrowOnDispatch { get; init; }
+        public List<NotificationDispatchCall> Requests { get; } = [];
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add(new NotificationDispatchCall(
+                type,
+                parameters,
+                receiverIds.ToList(),
+                request));
+
+            return ThrowOnDispatch
+                ? Task.FromException(new InvalidOperationException("Notification unavailable."))
+                : Task.CompletedTask;
+        }
+    }
+
+    private sealed record NotificationDispatchCall(
+        NotificationType Type,
+        IReadOnlyDictionary<string, string> Parameters,
+        IReadOnlyList<Guid> ReceiverIds,
+        NotificationDispatchRequest? Request);
+
+    private sealed class FakeFileStorageService : IFileStorageService
+    {
+        public StorageUploadRequest? UploadRequest { get; private set; }
+        public int DeleteCallCount { get; private set; }
+
+        public Task<StorageUploadResult> UploadAsync(
+            StorageUploadRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            UploadRequest = request;
+            return Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+                Bucket = "test-bucket"
+            });
+        }
+
+        public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default)
+        {
+            DeleteCallCount++;
+            return Task.CompletedTask;
+        }
+    }
+}

@@ -1,0 +1,2036 @@
+using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.Common.Payments;
+using FurniSpace.Application.Constants.Common;
+using FurniSpace.Application.Constants.ProjectChats;
+using static FurniSpace.Application.Constants.Accounts.AccountServiceConstants;
+using static FurniSpace.Application.Constants.Projects.ProjectServiceConstants;
+using FurniSpace.Application.DTOs.Orders;
+using FurniSpace.Application.DTOs.ProjectChats;
+using FurniSpace.Application.DTOs.Projects;
+using FurniSpace.Application.DTOs.Payments;
+using FurniSpace.Application.Interfaces.Notifications;
+using FurniSpace.Application.Interfaces.ProjectChats;
+using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.Search;
+using FurniSpace.Application.Services.Search;
+using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Search.Documents;
+using FurniSpace.Infrastructure.Common.Accounts;
+using FurniSpace.Infrastructure.ReadModels.Projects;
+using FurniSpace.Infrastructure.Interfaces;
+using FurniSpace.Infrastructure.Common.Search;
+using FurniSpace.Infrastructure.Persistence;
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using Mapster;
+using Microsoft.Extensions.Logging;
+
+namespace FurniSpace.Application.Services.Projects;
+
+public sealed class ProjectService : IProjectService
+{
+    private readonly IProjectRepository _projects;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ISearchIndexService? _search;
+    private readonly IProjectSearchIndexer? _projectSearchIndexer;
+    private readonly ProjectStatusTransitionEvaluator _transitionEvaluator;
+    private readonly INotificationDispatcher? _notifications;
+    private readonly ILogger<ProjectService>? _logger;
+    private readonly IProjectChatService? _projectChats;
+    private readonly IPaymentRepository _payments;
+    private readonly IOrderRepository _orders;
+    private readonly IQuotationRepository _quotations;
+    private readonly IProposalRepository _proposals;
+    private readonly IProductionRequestRepository _productionRequests;
+    private readonly IProjectScheduleRepository _schedules;
+    private readonly IDeliveryRepository _deliveries;
+    private readonly IProjectPhaseDeadlineService _phaseDeadlines;
+
+    public ProjectService(
+        IProjectRepository projects,
+        ProjectServiceDependencies dependencies)
+    {
+        _projects = projects;
+        _unitOfWork = dependencies.UnitOfWork;
+        _transitionEvaluator = dependencies.TransitionEvaluator;
+        _notifications = dependencies.Notifications;
+        _logger = dependencies.Logger;
+        _projectChats = dependencies.ProjectChats;
+        _search = dependencies.Search;
+        _projectSearchIndexer = dependencies.ProjectSearchIndexer;
+        _payments = dependencies.Payments;
+        _orders = dependencies.Orders;
+        _quotations = dependencies.Quotations;
+        _proposals = dependencies.Proposals;
+        _productionRequests = dependencies.ProductionRequests;
+        _schedules = dependencies.Schedules;
+        _deliveries = dependencies.Deliveries;
+        _phaseDeadlines = dependencies.PhaseDeadlines;
+    }
+
+    public async Task<ServiceResult<ProjectDto>> CreateAsync(
+        Guid currentUserId,
+        CreateProjectRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var errors = ValidateRequest(request);
+        if (errors.Count > 0)
+        {
+            return ServiceResult<ProjectDto>.BadRequest(errors);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!IsCustomer(roleName))
+        {
+            return ServiceResult<ProjectDto>.Forbidden("Only customer accounts can submit project requests.");
+        }
+
+        var now = DateTime.UtcNow;
+        var year = now.Year;
+        var project = new Project
+        {
+            ProjectId = Guid.NewGuid(),
+            CustomerId = currentUserId,
+            ProjectCode = await GenerateProjectCodeAsync(year, cancellationToken),
+            ProjectName = request.ProjectName.Trim(),
+            BusinessType = request.BusinessType.Trim(),
+            ProjectAddress = NormalizeOptional(request.ProjectAddress),
+            BusinessPurpose = NormalizeOptional(request.BusinessPurpose),
+            FurnitureRequirement = request.FurnitureRequirement.Trim(),
+            Description = NormalizeOptional(request.Description),
+            TotalAreaSqm = request.TotalAreaSqm,
+            NumberOfFloors = request.NumberOfFloors,
+            BudgetMin = request.BudgetMin,
+            BudgetMax = request.BudgetMax,
+            TargetCompletionDate = request.TargetCompletionDate,
+            Status = ProjectStatus.SUBMITTED,
+            SubmittedAt = now,
+            AssignedSalesId = null,
+            AssignedDesignerId = null
+        };
+
+        await _projects.AddAsync(project, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+        await DispatchProjectSubmittedNotificationAsync(project, cancellationToken);
+
+        return ServiceResult<ProjectDto>.Created(
+            project.Adapt<ProjectDto>(),
+            "Project request submitted successfully.");
+    }
+
+    private async Task DispatchProjectSubmittedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var receiverIds = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+                ProjectSubmittedReceiverRoles,
+                cancellationToken);
+            if (receiverIds.Count == 0)
+            {
+                return;
+            }
+
+            var customerName = await _projects.GetAccountFullNameAsync(project.CustomerId, cancellationToken) ?? "Customer";
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectRequestSubmitted,
+                new Dictionary<string, string>
+                {
+                    ["CustomerName"] = customerName,
+                    [ProjectNameNotificationKey] = project.ProjectName
+                },
+                receiverIds,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project request submitted notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectAcceptedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectRequestAccepted,
+                new Dictionary<string, string>
+                {
+                    [ProjectNameNotificationKey] = project.ProjectName
+                },
+                [project.CustomerId],
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project request accepted notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectMoreInformationRequestedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectMoreInformationRequested,
+                new Dictionary<string, string>
+                {
+                    [ProjectNameNotificationKey] = project.ProjectName
+                },
+                [project.CustomerId],
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project more information requested notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectBasicInformationUpdatedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null || !project.AssignedSalesId.HasValue)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectBasicInformationUpdated,
+                new Dictionary<string, string>
+                {
+                    [ProjectNameNotificationKey] = project.ProjectName
+                },
+                [project.AssignedSalesId.Value],
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project basic information updated notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectRequestRejectedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectRequestRejected,
+                new Dictionary<string, string>
+                {
+                    [ProjectNameNotificationKey] = project.ProjectName,
+                    ["Reason"] = project.RejectionReason ?? string.Empty
+                },
+                [project.CustomerId],
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project request rejected notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectStatusChangedNotificationAsync(
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var receiverIds = GetProjectParticipantIds(project);
+        if (receiverIds.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectStatusChanged,
+                new Dictionary<string, string>
+                {
+                    [ProjectNameNotificationKey] = project.ProjectName,
+                    ["Status"] = project.Status?.ToString() ?? string.Empty
+                },
+                receiverIds,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["newProjectStatus"] = project.Status?.ToString()
+                    }),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project status changed notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    private async Task DispatchProjectDesignerAssignedNotificationAsync(
+        Project project,
+        Guid designerId,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectDesignerAssigned,
+                new Dictionary<string, string>
+                {
+                    [ProjectNameNotificationKey] = project.ProjectName
+                },
+                [designerId],
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project designer assigned notification for project {ProjectId}",
+                project.ProjectId);
+        }
+    }
+
+    public async Task<ServiceResult<ProjectListResponseDto>> GetListAsync(
+        Guid currentUserId,
+        ProjectListQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectListResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var validationError = ValidatePagination(query.Page, query.Limit);
+        if (validationError is not null)
+        {
+            return ServiceResult<ProjectListResponseDto>.BadRequest(validationError);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanViewProjects(roleName))
+        {
+            return ServiceResult<ProjectListResponseDto>.Forbidden("You do not have access to view project requests.");
+        }
+
+        var repositoryQuery = query.Adapt<ProjectListQueryReadModel>();
+        if (IsCustomer(roleName))
+        {
+            repositoryQuery.CustomerId = currentUserId;
+        }
+        else if (IsDesigner(roleName))
+        {
+            repositoryQuery.AssignedDesignerId = currentUserId;
+        }
+
+        ProjectListResponseDto response;
+        if (!string.IsNullOrWhiteSpace(repositoryQuery.Search) && _search is not null)
+        {
+            try
+            {
+                var searchResult = await _search.SearchAsync<ProjectSearchDocument>(
+                    ProjectIndexName,
+                    ProjectElasticsearchQueryFactory.Build(repositoryQuery),
+                    cancellationToken);
+
+                response = new ProjectListResponseDto
+                {
+                    Items = searchResult.Documents
+                        .Select(document => ProjectSearchDocumentMapper.ToListItem(document).Adapt<ProjectListItemDto>())
+                        .ToList(),
+                    Page = query.Page,
+                    Limit = query.Limit,
+                    Total = (int)Math.Min(searchResult.Total, int.MaxValue)
+                };
+            }
+            catch
+            {
+                response = await GetProjectListFromRepositoryAsync(repositoryQuery, query, cancellationToken);
+            }
+        }
+        else
+        {
+            response = await GetProjectListFromRepositoryAsync(repositoryQuery, query, cancellationToken);
+        }
+
+        return ServiceResult<ProjectListResponseDto>.Success(
+            response,
+            "Project request queue retrieved successfully.");
+    }
+
+    private async Task<ProjectListResponseDto> GetProjectListFromRepositoryAsync(
+        ProjectListQueryReadModel repositoryQuery,
+        ProjectListQueryDto query,
+        CancellationToken cancellationToken)
+    {
+        var projects = await _projects.GetListAsync(repositoryQuery, cancellationToken);
+        var total = await _projects.CountAsync(repositoryQuery, cancellationToken);
+
+        return new ProjectListResponseDto
+        {
+            Items = projects.Adapt<List<ProjectListItemDto>>(),
+            Page = query.Page,
+            Limit = query.Limit,
+            Total = total
+        };
+    }
+
+    private Task SyncProjectIndexAsync(Guid projectId, CancellationToken cancellationToken)
+    {
+        return _projectSearchIndexer?.SyncProjectAsync(projectId, cancellationToken) ?? Task.CompletedTask;
+    }
+
+    public async Task<ServiceResult<ProjectsByUserResponseDto>> GetByUserAsync(
+        Guid userId,
+        Guid currentUserId,
+        GetProjectsByUserQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty)
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.BadRequest("User id is required.");
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var paginationError = ValidateProjectsByUserPagination(query.Page, query.PageSize);
+        if (paginationError is not null)
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.BadRequest(paginationError);
+        }
+
+        var requesterRole = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        var targetRole = await _projects.GetAccountRoleNameAsync(userId, cancellationToken);
+        if (targetRole is null)
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.Failure(Error.NotFound(
+                "USER_NOT_FOUND",
+                "User not found."));
+        }
+
+        if (!CanRequesterViewProjectsByUser(currentUserId, userId, requesterRole))
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.Forbidden(
+                "You do not have access to view projects for this user.");
+        }
+
+        var roleScope = NormalizeRoleScope(query.RoleScope) ?? NormalizeRoleScope(targetRole);
+        if (!IsSupportedProjectsByUserRoleScope(roleScope))
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.BadRequest(
+                "Role scope must be CUSTOMER, SALES, DESIGNER, or ADMIN.");
+        }
+
+        if (!string.Equals(roleScope, NormalizeRoleScope(targetRole), StringComparison.Ordinal) &&
+            !IsAdmin(requesterRole))
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.Forbidden(
+                "You do not have access to view projects for this role scope.");
+        }
+
+        if (!string.Equals(roleScope, NormalizeRoleScope(targetRole), StringComparison.Ordinal) &&
+            IsAdmin(requesterRole))
+        {
+            return ServiceResult<ProjectsByUserResponseDto>.BadRequest(
+                "Role scope does not match the requested user's role.");
+        }
+
+        var repositoryQuery = new ProjectByUserQueryReadModel
+        {
+            UserId = userId,
+            RoleScope = roleScope!,
+            Status = query.Status,
+            Keyword = NormalizeOptional(query.Keyword),
+            Page = query.Page,
+            PageSize = query.PageSize
+        };
+        var projects = await _projects.GetByUserAsync(repositoryQuery, cancellationToken);
+        var totalItems = await _projects.CountByUserAsync(repositoryQuery, cancellationToken);
+        var totalPages = totalItems == 0
+            ? 0
+            : (int)Math.Ceiling(totalItems / (double)query.PageSize);
+
+        return ServiceResult<ProjectsByUserResponseDto>.Success(
+            new ProjectsByUserResponseDto
+            {
+                Items = projects.Adapt<List<ProjectByUserItemDto>>(),
+                Page = query.Page,
+                PageSize = query.PageSize,
+                TotalItems = totalItems,
+                TotalPages = totalPages
+            },
+            "Projects retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectDto>> GetByIdAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var project = await _projects.GetDetailAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!await CanViewProjectDetailAsync(project, currentUserId, roleName, cancellationToken))
+        {
+            return ServiceResult<ProjectDto>.Forbidden("You do not have access to view this project.");
+        }
+
+        var dto = project.Adapt<ProjectDto>();
+        var phasePlan = await _phaseDeadlines.GetAsync(projectId, currentUserId, cancellationToken);
+        if (phasePlan.Status == 200 && phasePlan.Data is not null)
+        {
+            dto.PhaseDeadlines = phasePlan.Data.Deadlines;
+        }
+
+        var deliverySummary = await _deliveries.GetProjectDeliverySummaryAsync(projectId, cancellationToken);
+        if (deliverySummary is not null)
+        {
+            dto.DeliverySummary = deliverySummary.Adapt<ProjectDeliverySummaryDto>();
+        }
+
+        return ServiceResult<ProjectDto>.Success(
+            dto,
+            "Project detail retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectSalesAssignmentDto>> AssignSalesAsync(
+        Guid projectId,
+        Guid currentUserId,
+        AssignProjectSalesRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectSalesAssignmentDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectSalesAssignmentDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        if (NormalizeOptional(request.Note)?.Length > MaxNoteLength)
+        {
+            return ServiceResult<ProjectSalesAssignmentDto>.BadRequest("Assignment note must not exceed 1000 characters.");
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanAssignSales(roleName))
+        {
+            return ServiceResult<ProjectSalesAssignmentDto>.Forbidden("Only sales or admin accounts can accept project requests.");
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectSalesAssignmentDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        if (!IsPreConsultationStatus(project.Status))
+        {
+            return ServiceResult<ProjectSalesAssignmentDto>.BadRequest("Project cannot be accepted from its current status.");
+        }
+
+        if (project.AssignedSalesId.HasValue &&
+            project.AssignedSalesId.Value != currentUserId &&
+            !IsAdmin(roleName))
+        {
+            return ServiceResult<ProjectSalesAssignmentDto>.Conflict("Project is already assigned to another sales account.");
+        }
+
+        var projectChats = _projectChats ?? throw new InvalidOperationException(
+            "Project chat service is not configured.");
+        ProjectChatSummaryDto salesChat;
+
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            project.AssignedSalesId = currentUserId;
+            project.Status = ProjectStatus.IN_CONSULTATION;
+            project.SalesAssignedAt = DateTime.UtcNow;
+
+            salesChat = await projectChats.UpsertProjectChatAsync(
+                project.ProjectId,
+                ProjectChatType.SALES,
+                currentUserId,
+                "Sales Consultation",
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+        await DispatchProjectAcceptedNotificationAsync(project, cancellationToken);
+
+        var response = project.Adapt<ProjectSalesAssignmentDto>();
+        response.SalesChat = salesChat;
+
+        return ServiceResult<ProjectSalesAssignmentDto>.Success(
+            response,
+            "Project request accepted successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectInformationRequestDto>> RequestInformationAsync(
+        Guid projectId,
+        Guid currentUserId,
+        RequestProjectInformationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectInformationRequestDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectInformationRequestDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Message))
+        {
+            return ServiceResult<ProjectInformationRequestDto>.BadRequest("Request message is required.");
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanAssignSales(roleName))
+        {
+            return ServiceResult<ProjectInformationRequestDto>.Forbidden("Only assigned sales or admin accounts can request more information.");
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectInformationRequestDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        if (!IsAdmin(roleName) && project.AssignedSalesId != currentUserId)
+        {
+            return ServiceResult<ProjectInformationRequestDto>.Forbidden("You do not have access to request more information for this project.");
+        }
+
+        var requestedAt = DateTime.UtcNow;
+        project.Status = ProjectStatus.NEED_BASIC_INFORMATION;
+        project.UpdatedAt = requestedAt;
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+        await DispatchProjectMoreInformationRequestedNotificationAsync(project, cancellationToken);
+
+        return ServiceResult<ProjectInformationRequestDto>.Success(
+            project.Adapt<ProjectInformationRequestDto>(),
+            "More information requested successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectBasicInformationDto>> UpdateBasicInformationAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpdateProjectBasicInformationRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectBasicInformationDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectBasicInformationDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var errors = ValidateBasicInformation(request);
+        if (errors.Count > 0)
+        {
+            return ServiceResult<ProjectBasicInformationDto>.BadRequest(errors);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectBasicInformationDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var targetConflictError = await ProjectTimelineDateValidator.ValidateTargetNotBeforeCommittedDatesAsync(
+            projectId,
+            request.TargetCompletionDate,
+            _schedules,
+            _productionRequests,
+            cancellationToken);
+        if (targetConflictError is not null)
+        {
+            return ServiceResult<ProjectBasicInformationDto>.Failure(targetConflictError);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanUpdateBasicInformation(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectBasicInformationDto>.Forbidden("You do not have access to update this project.");
+        }
+
+        if (!IsBasicInformationEditableStatus(project.Status))
+        {
+            return ServiceResult<ProjectBasicInformationDto>.BadRequest("Project basic information cannot be updated from its current status.");
+        }
+
+        var shouldNotifyAssignedSales = project.Status == ProjectStatus.NEED_BASIC_INFORMATION;
+        ApplyBasicInformation(project, request);
+        project.UpdatedAt = DateTime.UtcNow;
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+        if (shouldNotifyAssignedSales)
+        {
+            await DispatchProjectBasicInformationUpdatedNotificationAsync(project, cancellationToken);
+        }
+
+        return ServiceResult<ProjectBasicInformationDto>.Success(
+            project.Adapt<ProjectBasicInformationDto>(),
+            "Project basic information updated successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectTargetCompletionDateDto>> UpdateTargetCompletionDateAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpdateProjectTargetCompletionDateRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var pastTargetError = ProjectTimelineDateValidator.ValidateTargetNotInPast(
+            request.TargetCompletionDate,
+            DateOnly.FromDateTime(DateTime.UtcNow.Date));
+        if (pastTargetError is not null)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Failure(pastTargetError);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanUpdateBasicInformation(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Forbidden("You do not have access to update this project.");
+        }
+
+        if (!IsTargetCompletionDateEditableStatus(project.Status))
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Failure(
+                Error.Validation(
+                    ProjectErrorCodes.TargetCompletionDateNotEditable,
+                    "Project target completion date cannot be updated from its current status."));
+        }
+
+        var targetConflictError = await ProjectTimelineDateValidator.ValidateTargetNotBeforeCommittedDatesAsync(
+            projectId,
+            request.TargetCompletionDate,
+            _schedules,
+            _productionRequests,
+            cancellationToken);
+        if (targetConflictError is not null)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Failure(targetConflictError);
+        }
+
+        var projectStartFeePayment = await _payments.GetByProjectAndTypeAsync(
+            projectId,
+            PaymentType.PROJECT_START_FEE,
+            cancellationToken);
+        var startFeeConflictError = ProjectStartFeeTargetValidator.ValidateTargetUpdateAgainstActiveStartFee(
+            request.TargetCompletionDate,
+            projectStartFeePayment,
+            DateTime.UtcNow);
+        if (startFeeConflictError is not null)
+        {
+            return ServiceResult<ProjectTargetCompletionDateDto>.Failure(startFeeConflictError);
+        }
+
+        project.TargetCompletionDate = request.TargetCompletionDate;
+        var updatedAt = DateTime.UtcNow;
+        project.UpdatedAt = updatedAt;
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+
+        return ServiceResult<ProjectTargetCompletionDateDto>.Success(
+            new ProjectTargetCompletionDateDto
+            {
+                ProjectId = project.ProjectId,
+                TargetCompletionDate = project.TargetCompletionDate,
+                UpdatedAt = updatedAt
+            },
+            "Project target completion date updated successfully.");
+    }
+
+    public async Task<ServiceResult<ProjectStatusUpdateDto>> UpdateStatusAsync(
+        Guid projectId,
+        Guid currentUserId,
+        UpdateProjectStatusRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectStatusUpdateDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectStatusUpdateDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        if (request.Status is null)
+        {
+            return ServiceResult<ProjectStatusUpdateDto>.BadRequest("Project status is required.");
+        }
+
+        var validationError = ValidateStatusUpdateNote(request.Note);
+        if (validationError is not null)
+        {
+            return ServiceResult<ProjectStatusUpdateDto>.BadRequest(validationError);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectStatusUpdateDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (IsCustomer(roleName))
+        {
+            return ServiceResult<ProjectStatusUpdateDto>.Forbidden("You do not have access to update this project status.");
+        }
+
+        if (project.Status == ProjectStatus.IN_CONSULTATION &&
+            request.Status == ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT)
+        {
+            var missingInformation = GetMissingBasicInformation(project);
+            if (missingInformation.Count > 0)
+            {
+                return ServiceResult<ProjectStatusUpdateDto>.BadRequest(
+                    missingInformation,
+                    "Project basic information is incomplete.");
+            }
+        }
+
+        var transitionError = await _transitionEvaluator.EvaluateAsync(
+            project,
+            request.Status.Value,
+            request.Note,
+            currentUserId,
+            roleName,
+            cancellationToken);
+        if (transitionError is not null)
+        {
+            return ServiceResult<ProjectStatusUpdateDto>.Failure(transitionError);
+        }
+
+        var oldStatus = project.Status;
+        var newStatus = request.Status.Value;
+        var now = DateTime.UtcNow;
+        project.Status = newStatus;
+        project.UpdatedAt = now;
+
+        if (newStatus == ProjectStatus.PROPOSAL_CONSULTING && oldStatus != ProjectStatus.PROPOSAL_CONSULTING)
+        {
+            await _phaseDeadlines.MarkStartedOnceAsync(
+                project.ProjectId,
+                ProjectPhaseType.PROPOSAL,
+                now,
+                cancellationToken);
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+        await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
+
+        var message = newStatus == ProjectStatus.PROPOSAL_SELECTED
+            ? "Project moved to proposal selected successfully."
+            : "Project status updated successfully.";
+
+        return ServiceResult<ProjectStatusUpdateDto>.Success(
+            new ProjectStatusUpdateDto
+            {
+                ProjectId = project.ProjectId,
+                Status = newStatus,
+                OldStatus = oldStatus,
+                NewStatus = newStatus,
+                Note = NormalizeOptional(request.Note),
+                UpdatedAt = project.UpdatedAt
+            },
+            message);
+    }
+
+    public async Task<ServiceResult<ProjectRejectionDto>> RejectAsync(
+        Guid projectId,
+        Guid currentUserId,
+        RejectProjectRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectRejectionDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectRejectionDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var rejectionReason = NormalizeOptional(request.RejectionReason);
+        var reasonValidationError = ValidateRejectionReason(rejectionReason);
+        if (reasonValidationError is not null)
+        {
+            return ServiceResult<ProjectRejectionDto>.BadRequest(reasonValidationError);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectRejectionDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanRejectProject(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectRejectionDto>.Forbidden("You do not have access to reject this project.");
+        }
+
+        if (!CanRejectFromStatus(project.Status))
+        {
+            return ServiceResult<ProjectRejectionDto>.BadRequest("Project cannot be rejected from its current status.");
+        }
+
+        project.Status = ProjectStatus.REJECTED;
+        project.RejectionReason = rejectionReason;
+        project.RejectedAt = DateTime.UtcNow;
+        project.UpdatedAt = project.RejectedAt;
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+        await DispatchProjectRequestRejectedNotificationAsync(project, cancellationToken);
+
+        return ServiceResult<ProjectRejectionDto>.Success(
+            project.Adapt<ProjectRejectionDto>(),
+            "Project request rejected.");
+    }
+
+    public async Task<ServiceResult<ProjectCompletionDto>> CompleteAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectCompletionDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectCompletionDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectCompletionDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!ProjectAssignmentAccessEvaluator.CanManageAsAssignedSales(
+                roleName,
+                project.AssignedSalesId,
+                currentUserId))
+        {
+            return ServiceResult<ProjectCompletionDto>.Forbidden(
+                "You do not have permission to complete this project.");
+        }
+
+        if (project.Status == ProjectStatus.COMPLETED)
+        {
+            return ServiceResult<ProjectCompletionDto>.Success(
+                ToProjectCompletionDto(project, project.CompletedAt ?? project.UpdatedAt ?? DateTime.UtcNow),
+                "Project completed successfully.");
+        }
+
+        if (project.Status != ProjectStatus.DELIVERED)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.ProjectNotDelivered,
+                "Project must be DELIVERED before completion.");
+        }
+
+        var validationError = await ValidateProjectCompletionOrderReadinessAsync(projectId, cancellationToken);
+        if (validationError is not null)
+        {
+            return validationError;
+        }
+
+        var now = DateTime.UtcNow;
+        project.Status = ProjectStatus.COMPLETED;
+        project.CompletedAt = now;
+        project.UpdatedAt = now;
+        _projects.Update(project);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+        await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
+
+        return ServiceResult<ProjectCompletionDto>.Success(
+            ToProjectCompletionDto(project, now),
+            "Project completed successfully.");
+    }
+
+    public async Task<ServiceResult<ReopenProposalResponseDto>> ReopenProposalAsync(
+        Guid projectId,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ReopenProposalResponseDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ReopenProposalResponseDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ReopenProposalResponseDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanReopenProposal(project, currentUserId, roleName))
+        {
+            return ServiceResult<ReopenProposalResponseDto>.Forbidden(
+                "You do not have access to reopen proposals for this project.");
+        }
+
+        if (project.Status == ProjectStatus.PROPOSAL_CONSULTING)
+        {
+            return ServiceResult<ReopenProposalResponseDto>.Success(
+                BuildIdempotentReopenResponse(project),
+                "Proposal consultation is already reopened.");
+        }
+
+        if (!CanReopenFromProjectStatus(project.Status))
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project cannot reopen proposal consultation from its current status.");
+        }
+
+        var selectedProposal = await _proposals.GetSelectedProposalByProjectAsync(projectId, cancellationToken);
+        if (selectedProposal is null)
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.SelectedProposalNotFound,
+                "Project does not have a selected proposal to reopen.");
+        }
+
+        var order = await _orders.GetLatestByProjectInStatusesAsync(
+            projectId,
+            ReopenEligibleOrderStatuses,
+            cancellationToken);
+
+        var orderGuardError = await ValidateReopenOrderGuardsAsync(order, cancellationToken);
+        if (orderGuardError is not null)
+        {
+            return orderGuardError;
+        }
+
+        var quotationResolution = await ResolveReopenQuotationAsync(
+            project,
+            selectedProposal,
+            order,
+            cancellationToken);
+        if (quotationResolution.Error is not null)
+        {
+            return quotationResolution.Error;
+        }
+
+        var quotation = quotationResolution.Quotation!;
+        return await CommitReopenProposalAsync(
+            project,
+            selectedProposal,
+            order,
+            quotation,
+            cancellationToken);
+    }
+
+    private async Task<ServiceResult<ReopenProposalResponseDto>> CommitReopenProposalAsync(
+        Project project,
+        Proposal selectedProposal,
+        Order? order,
+        Quotation quotation,
+        CancellationToken cancellationToken)
+    {
+        var oldStatus = project.Status;
+        var autoRejectedAt = selectedProposal.SelectedAt;
+        var now = DateTime.UtcNow;
+
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            if (order is not null)
+            {
+                var paymentCancellationError = await ProjectReopenDepositPaymentSupport.TryCancelOrExpireActiveDepositPaymentsAsync(
+                    _payments,
+                    order.OrderId,
+                    now,
+                    cancellationToken);
+                if (paymentCancellationError is not null)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                    return ReopenProposalFailure(
+                        paymentCancellationError,
+                        MapReopenPaymentCancellationMessage(paymentCancellationError));
+                }
+
+                order.Status = OrderStatus.CANCELLED;
+                order.CancelledAt = now;
+                order.UpdatedAt = now;
+                _orders.Update(order);
+            }
+
+            ProjectReopenQuotationSupport.CancelForReopen(quotation, now);
+            _quotations.Update(quotation);
+
+            selectedProposal.Status = ProposalStatus.PUBLISHED;
+            selectedProposal.SelectedAt = null;
+            selectedProposal.UpdatedAt = now;
+            _proposals.Update(selectedProposal);
+
+            var restoredProposalCount = autoRejectedAt.HasValue
+                ? await _proposals.RestoreAutoRejectedProposalsAsync(
+                    project.ProjectId,
+                    autoRejectedAt.Value,
+                    now,
+                    cancellationToken)
+                : 0;
+
+            project.Status = ProjectStatus.PROPOSAL_CONSULTING;
+            project.UpdatedAt = now;
+            _projects.Update(project);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+            await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+
+            return ServiceResult<ReopenProposalResponseDto>.Success(
+                BuildReopenSuccessResponse(
+                    project,
+                    oldStatus,
+                    order,
+                    quotation,
+                    selectedProposal,
+                    restoredProposalCount),
+                "Proposal consultation reopened successfully.");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static string MapReopenPaymentCancellationMessage(string paymentCancellationError)
+    {
+        return paymentCancellationError switch
+        {
+            ProjectReopenProposalErrorCodes.DepositAlreadyPaid =>
+                "Deposit payment has already been paid for this project.",
+            ProjectReopenProposalErrorCodes.ActiveDepositCannotBeCancelled =>
+                "Active deposit payment cannot be cancelled.",
+            _ => "Project cannot reopen proposal consultation."
+        };
+    }
+
+    public async Task<ServiceResult<ProjectDesignerAssignmentDto>> AssignDesignerAsync(
+        Guid projectId,
+        Guid currentUserId,
+        AssignProjectDesignerRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (projectId == Guid.Empty)
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest(ProjectIdRequiredMessage);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.Unauthorized(AuthenticatedAccountIdRequiredMessage);
+        }
+
+        var validationError = ValidateDesignerAssignmentRequest(request);
+        if (validationError is not null)
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest(validationError);
+        }
+
+        var project = await _projects.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.NotFound(ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!CanAssignDesigner(project, currentUserId, roleName))
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.Forbidden("You do not have access to assign a designer to this project.");
+        }
+
+        if (!project.AssignedSalesId.HasValue)
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest("Project must have assigned sales before designer assignment.");
+        }
+
+        var projectStartFee = await _payments.GetByProjectAndTypeAsync(
+            projectId,
+            PaymentType.PROJECT_START_FEE,
+            cancellationToken);
+        if (!ProjectStartFeeRules.IsEligibleForDesignerAssignment(projectStartFee))
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.Failure(
+                Error.BadRequest(
+                    PaymentErrorCodes.ProjectStartFeeRequired,
+                    "Project start fee must be paid before assigning a designer."));
+        }
+
+        if (project.Status != ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT)
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest("Project must be waiting for designer assignment.");
+        }
+
+        var designer = await _projects.GetActiveDesignerAsync(request.DesignerId, cancellationToken);
+        if (designer is null)
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.BadRequest("Designer account is not active or does not have Designer role.");
+        }
+
+        if (!HasDesignerAvailableCapacity(designer.AccountId, project.ProjectId))
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.Conflict("Designer has reached maximum active project capacity.");
+        }
+
+        if (!request.ProposalDeadline.HasValue)
+        {
+            return ServiceResult<ProjectDesignerAssignmentDto>.Failure(Error.BadRequest(
+                ProjectPhaseDeadlineErrorCodes.ProposalDeadlineRequired,
+                "Proposal deadline is required."));
+        }
+
+        var projectChats = _projectChats ?? throw new InvalidOperationException(
+            "Project chat service is not configured.");
+
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var deadlineResult = await _phaseDeadlines.StageProposalDeadlineForDesignerAssignmentAsync(
+                projectId,
+                currentUserId,
+                request.ProposalDeadline.Value,
+                project.TargetCompletionDate,
+                cancellationToken);
+            if (deadlineResult.Status != 200)
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                return ServiceResult<ProjectDesignerAssignmentDto>.Failure(
+                    Error.BadRequest(
+                        deadlineResult.ErrorCode ?? ProjectPhaseDeadlineErrorCodes.ProposalDeadlineInvalid,
+                        deadlineResult.Message ?? "Proposal deadline is invalid."));
+            }
+
+            project.AssignedDesignerId = designer.AccountId;
+            project.DesignerAssignedAt = DateTime.UtcNow;
+            project.Status = ResolveDesignerAssignmentStatus(request.SpaceDataStatus!.Value);
+            project.UpdatedAt = project.DesignerAssignedAt;
+
+            await projectChats.UpsertProjectChatAsync(
+                project.ProjectId,
+                ProjectChatType.DESIGNER,
+                designer.AccountId,
+                "Design Discussion",
+                cancellationToken);
+
+            await projectChats.UpsertProjectChatAsync(
+                project.ProjectId,
+                ProjectChatType.DESIGNER_SALES,
+                designer.AccountId,
+                ProjectChatServiceConstants.DesignerSalesCoordinationChatTitle,
+                cancellationToken);
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+
+        await SyncProjectIndexAsync(project.ProjectId, cancellationToken);
+        await DispatchProjectDesignerAssignedNotificationAsync(project, designer.AccountId, cancellationToken);
+
+        return ServiceResult<ProjectDesignerAssignmentDto>.Success(
+            new ProjectDesignerAssignmentDto
+            {
+                ProjectId = project.ProjectId,
+                AssignedDesigner = designer.Adapt<AssignedDesignerDto>(),
+                Status = project.Status,
+                DesignerAssignedAt = project.DesignerAssignedAt,
+                ProposalDeadline = request.ProposalDeadline.Value
+            },
+            "Designer assigned successfully.");
+    }
+
+    private async Task<string> GenerateProjectCodeAsync(
+        int year,
+        CancellationToken cancellationToken)
+    {
+        var sequence = await _projects.CountSubmittedInYearAsync(year, cancellationToken) + 1;
+        return $"PRJ-{year}-{sequence:0000}";
+    }
+
+    private static List<string> ValidateRequest(CreateProjectRequestDto request)
+    {
+        return ValidateBasicInformation(request.Adapt<UpdateProjectBasicInformationRequestDto>());
+    }
+
+    private bool HasDesignerAvailableCapacity(Guid designerId, Guid currentProjectId)
+    {
+        var designActiveStatuses = DesignerWorkloadStatusSets.DesignActive;
+        var activeAssignmentCount = _projects.Query().Count(project =>
+            project.ProjectId != currentProjectId &&
+            project.AssignedDesignerId == designerId &&
+            project.Status.HasValue &&
+            designActiveStatuses.Contains(project.Status.Value));
+
+        return activeAssignmentCount < MaxActiveDesignerProjects;
+    }
+
+    private static List<string> ValidateBasicInformation(UpdateProjectBasicInformationRequestDto request)
+    {
+        var errors = new List<string>();
+        AddRequiredStringError(errors, request.ProjectName, "Project name is required.");
+        AddRequiredStringError(errors, request.BusinessType, "Business type is required.");
+        AddRequiredStringError(errors, request.FurnitureRequirement, "Furniture requirement is required.");
+
+        if (!string.IsNullOrWhiteSpace(request.ProjectName) &&
+            request.ProjectName.Trim().Length > 150)
+        {
+            errors.Add("Project name must not exceed 150 characters.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.BusinessType) &&
+            request.BusinessType.Trim().Length > 100)
+        {
+            errors.Add("Business type must not exceed 100 characters.");
+        }
+
+        if (request.TotalAreaSqm is < 0)
+        {
+            errors.Add("Total area must be greater than or equal to zero.");
+        }
+
+        if (request.NumberOfFloors is < 0)
+        {
+            errors.Add("Number of floors must be greater than or equal to zero.");
+        }
+
+        if (request.BudgetMin is < 0)
+        {
+            errors.Add("Minimum budget must be greater than or equal to zero.");
+        }
+
+        if (request.BudgetMax is < 0)
+        {
+            errors.Add("Maximum budget must be greater than or equal to zero.");
+        }
+
+        if (request.BudgetMin.HasValue &&
+            request.BudgetMax.HasValue &&
+            request.BudgetMin.Value > request.BudgetMax.Value)
+        {
+            errors.Add("Minimum budget must be less than or equal to maximum budget.");
+        }
+
+        var pastTargetError = ProjectTimelineDateValidator.ValidateTargetNotInPast(
+            request.TargetCompletionDate,
+            DateOnly.FromDateTime(DateTime.UtcNow.Date));
+        if (pastTargetError is not null)
+        {
+            errors.Add(pastTargetError.Message);
+        }
+
+        return errors;
+    }
+
+    private static void ApplyBasicInformation(Project project, UpdateProjectBasicInformationRequestDto request)
+    {
+        project.ProjectName = request.ProjectName.Trim();
+        project.BusinessType = request.BusinessType.Trim();
+        project.ProjectAddress = NormalizeOptional(request.ProjectAddress);
+        project.BusinessPurpose = NormalizeOptional(request.BusinessPurpose);
+        project.FurnitureRequirement = request.FurnitureRequirement.Trim();
+        project.Description = NormalizeOptional(request.Description);
+        project.TotalAreaSqm = request.TotalAreaSqm;
+        project.NumberOfFloors = request.NumberOfFloors;
+        project.BudgetMin = request.BudgetMin;
+        project.BudgetMax = request.BudgetMax;
+        project.TargetCompletionDate = request.TargetCompletionDate;
+    }
+
+    private static void AddRequiredStringError(List<string> errors, string? value, string message)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            errors.Add(message);
+        }
+    }
+
+    private static string? ValidatePagination(int page, int limit)
+    {
+        if (page < 1)
+        {
+            return "Page must be greater than zero.";
+        }
+
+        if (limit is < 1 or > 100)
+        {
+            return "Limit must be between 1 and 100.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateProjectsByUserPagination(int page, int pageSize)
+    {
+        if (page < 1)
+        {
+            return "Page must be greater than zero.";
+        }
+
+        if (pageSize is < 1 or > MaxProjectsByUserPageSize)
+        {
+            return "Page size must be between 1 and 100.";
+        }
+
+        return null;
+    }
+
+    private static bool CanRequesterViewProjectsByUser(
+        Guid currentUserId,
+        Guid userId,
+        string? requesterRole)
+    {
+        if (IsAdmin(requesterRole))
+        {
+            return true;
+        }
+
+        if (currentUserId != userId)
+        {
+            return false;
+        }
+
+        return IsCustomer(requesterRole) ||
+            IsDesigner(requesterRole) ||
+            string.Equals(requesterRole, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSupportedProjectsByUserRoleScope(string? roleScope)
+    {
+        return string.Equals(roleScope, ApplicationRoles.Customer, StringComparison.Ordinal) ||
+            string.Equals(roleScope, ApplicationRoles.Sales, StringComparison.Ordinal) ||
+            string.Equals(roleScope, ApplicationRoles.Designer, StringComparison.Ordinal) ||
+            string.Equals(roleScope, ApplicationRoles.Admin, StringComparison.Ordinal);
+    }
+
+    private static string? NormalizeRoleScope(string? roleScope)
+    {
+        return string.IsNullOrWhiteSpace(roleScope)
+            ? null
+            : roleScope.Trim().ToUpperInvariant();
+    }
+
+    private static bool CanViewProjects(string? roleName)
+    {
+        return IsCustomer(roleName) ||
+            IsDesigner(roleName) ||
+            IsAdmin(roleName) ||
+            string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<bool> CanViewProjectDetailAsync(
+        ProjectDetailReadModel project,
+        Guid currentUserId,
+        string? roleName,
+        CancellationToken cancellationToken)
+    {
+        if (IsAdmin(roleName))
+        {
+            return true;
+        }
+
+        if (IsCustomer(roleName))
+        {
+            return project.CustomerId == currentUserId;
+        }
+
+        if (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!project.AssignedSalesId.HasValue && !project.AssignedDesignerId.HasValue)
+            {
+                return true;
+            }
+
+            return project.AssignedSalesId == currentUserId;
+        }
+
+        if (string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase))
+        {
+            return project.AssignedDesignerId == currentUserId;
+        }
+
+        if (string.Equals(roleName, ApplicationRoles.Production, StringComparison.OrdinalIgnoreCase))
+        {
+            return await _productionRequests.HasViewableAssignedRequestAsync(
+                project.ProjectId,
+                currentUserId,
+                cancellationToken);
+        }
+
+        return false;
+    }
+
+
+    private static string? ValidateStatusUpdateNote(string? note)
+    {
+        if (NormalizeOptional(note)?.Length > MaxNoteLength)
+        {
+            return "Status update note must not exceed 1000 characters.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateRejectionReason(string? rejectionReason)
+    {
+        if (string.IsNullOrWhiteSpace(rejectionReason))
+        {
+            return "Rejection reason is required.";
+        }
+
+        if (rejectionReason.Length > MaxRejectionReasonLength)
+        {
+            return "Rejection reason must not exceed 1000 characters.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateDesignerAssignmentRequest(AssignProjectDesignerRequestDto request)
+    {
+        if (request.DesignerId == Guid.Empty)
+        {
+            return "Designer id is required.";
+        }
+
+        if (request.SpaceDataStatus is null)
+        {
+            return "Space data status is required.";
+        }
+
+        if (NormalizeOptional(request.Note)?.Length > MaxNoteLength)
+        {
+            return "Designer assignment note must not exceed 1000 characters.";
+        }
+
+        return null;
+    }
+
+    private static List<string> GetMissingBasicInformation(Project project)
+    {
+        var missing = new List<string>();
+        AddMissingField(missing, project.ProjectName, "Project name is required.");
+        AddMissingField(missing, project.BusinessType, "Business type is required.");
+        AddMissingField(missing, project.FurnitureRequirement, "Furniture requirement is required.");
+
+        return missing;
+    }
+
+    private static void AddMissingField(List<string> missing, string? value, string message)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            missing.Add(message);
+        }
+    }
+
+    private static List<Guid> GetProjectParticipantIds(Project project)
+    {
+        var receiverIds = new List<Guid> { project.CustomerId };
+
+        if (project.AssignedSalesId.HasValue)
+        {
+            receiverIds.Add(project.AssignedSalesId.Value);
+        }
+
+        if (project.AssignedDesignerId.HasValue)
+        {
+            receiverIds.Add(project.AssignedDesignerId.Value);
+        }
+
+        return receiverIds.Distinct().ToList();
+    }
+
+    private static bool CanUpdateBasicInformation(Project project, Guid currentUserId, string? roleName)
+    {
+        if (IsAdmin(roleName))
+        {
+            return true;
+        }
+
+        if (IsCustomer(roleName))
+        {
+            return project.CustomerId == currentUserId;
+        }
+
+        if (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase))
+        {
+            return project.AssignedSalesId == currentUserId;
+        }
+
+        return false;
+    }
+
+    private static bool CanRejectProject(Project project, Guid currentUserId, string? roleName)
+    {
+        return IsAdmin(roleName) ||
+            (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase) &&
+                project.AssignedSalesId == currentUserId);
+    }
+
+    private static bool CanAssignDesigner(Project project, Guid currentUserId, string? roleName)
+    {
+        return IsAdmin(roleName) ||
+            (string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase) &&
+                project.AssignedSalesId == currentUserId);
+    }
+
+    private static bool CanAssignSales(string? roleName)
+    {
+        return IsAdmin(roleName) ||
+            string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPreConsultationStatus(ProjectStatus? status)
+    {
+        return status is ProjectStatus.SUBMITTED or ProjectStatus.NEED_BASIC_INFORMATION;
+    }
+
+    private static bool IsBasicInformationEditableStatus(ProjectStatus? status)
+    {
+        return status is ProjectStatus.SUBMITTED
+            or ProjectStatus.NEED_BASIC_INFORMATION
+            or ProjectStatus.IN_CONSULTATION;
+    }
+
+    private static bool CanRejectFromStatus(ProjectStatus? status)
+    {
+        return status is ProjectStatus.SUBMITTED
+            or ProjectStatus.IN_CONSULTATION
+            or ProjectStatus.NEED_BASIC_INFORMATION
+            or ProjectStatus.WAITING_FOR_DESIGNER_ASSIGNMENT
+            or ProjectStatus.MEASUREMENT_REQUIRED
+            or ProjectStatus.SPACE_VERIFIED;
+    }
+
+    private static bool IsTargetCompletionDateEditableStatus(ProjectStatus? status)
+    {
+        return status.HasValue &&
+            status is not ProjectStatus.COMPLETED and not ProjectStatus.REJECTED;
+    }
+
+    private static bool CanReopenFromProjectStatus(ProjectStatus? status)
+    {
+        return status.HasValue && ReopenEligibleProjectStatuses.Contains(status.Value);
+    }
+
+    private async Task<ServiceResult<ReopenProposalResponseDto>?> ValidateReopenOrderGuardsAsync(
+        Order? order,
+        CancellationToken cancellationToken)
+    {
+        if (order is null)
+        {
+            return null;
+        }
+
+        if (order.Status == OrderStatus.DEPOSIT_PAID)
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.DepositAlreadyPaid,
+                "Deposit payment has already been paid for this project.");
+        }
+
+        var depositPayments = await _payments.GetAllByOrderAndTypeAsync(
+            order.OrderId,
+            PaymentType.DEPOSIT,
+            cancellationToken);
+        if (depositPayments.Any(payment => payment.Status == PaymentStatus.PAID))
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.DepositAlreadyPaid,
+                "Deposit payment has already been paid for this project.");
+        }
+
+        if (await _productionRequests.ExistsForOrderAsync(order.OrderId, cancellationToken))
+        {
+            return ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ProductionAlreadyCreated,
+                "Production has already been created for this project order.");
+        }
+
+        return null;
+    }
+
+    private async Task<(Quotation? Quotation, ServiceResult<ReopenProposalResponseDto>? Error)> ResolveReopenQuotationAsync(
+        Project project,
+        Proposal selectedProposal,
+        Order? order,
+        CancellationToken cancellationToken)
+    {
+        return project.Status switch
+        {
+            ProjectStatus.PROPOSAL_SELECTED => await ResolvePreOrderQuotationAsync(
+                project.ProjectId,
+                selectedProposal.ProposalId,
+                [QuotationStatus.DRAFT],
+                cancellationToken),
+            ProjectStatus.QUOTATION_SENT => await ResolvePreOrderQuotationAsync(
+                project.ProjectId,
+                selectedProposal.ProposalId,
+                [QuotationStatus.SENT],
+                cancellationToken),
+            ProjectStatus.ORDER_CONFIRMED => await ResolveOrderConfirmedQuotationAsync(order, cancellationToken),
+            _ => (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project cannot reopen proposal consultation from its current status."))
+        };
+    }
+
+    private async Task<(Quotation? Quotation, ServiceResult<ReopenProposalResponseDto>? Error)> ResolvePreOrderQuotationAsync(
+        Guid projectId,
+        Guid proposalId,
+        IReadOnlyCollection<QuotationStatus> expectedStatuses,
+        CancellationToken cancellationToken)
+    {
+        var quotation = await _quotations.GetLatestByProjectAndProposalInStatusesAsync(
+            projectId,
+            proposalId,
+            expectedStatuses,
+            cancellationToken);
+        if (quotation is null)
+        {
+            return (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ActiveQuotationNotFound,
+                "Project does not have an active quotation eligible for reopening."));
+        }
+
+        if (!ProjectReopenQuotationSupport.CanCancelForReopen(quotation.Status))
+        {
+            return (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project does not have an active quotation eligible for reopening."));
+        }
+
+        return (quotation, null);
+    }
+
+    private async Task<(Quotation? Quotation, ServiceResult<ReopenProposalResponseDto>? Error)> ResolveOrderConfirmedQuotationAsync(
+        Order? order,
+        CancellationToken cancellationToken)
+    {
+        if (order is null)
+        {
+            return (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.NoAcceptedOrder,
+                "Project does not have an accepted order eligible for reopening."));
+        }
+
+        var quotation = await _quotations.GetByIdAsync(order.QuotationId, cancellationToken);
+        if (quotation is null || quotation.Status != QuotationStatus.ACCEPTED)
+        {
+            return (null, ReopenProposalFailure(
+                ProjectReopenProposalErrorCodes.ReopenNotAllowed,
+                "Project does not have an accepted quotation eligible for reopening."));
+        }
+
+        return (quotation, null);
+    }
+
+    private static ReopenProposalResponseDto BuildReopenSuccessResponse(
+        Project project,
+        ProjectStatus? oldStatus,
+        Order? order,
+        Quotation quotation,
+        Proposal selectedProposal,
+        int restoredProposalCount)
+    {
+        return new ReopenProposalResponseDto
+        {
+            ProjectId = project.ProjectId,
+            OldStatus = oldStatus,
+            NewStatus = project.Status,
+            OrderId = order?.OrderId,
+            OrderStatus = order?.Status,
+            QuotationId = quotation.QuotationId,
+            QuotationStatus = quotation.Status,
+            SelectedProposalId = selectedProposal.ProposalId,
+            SelectedProposalStatus = selectedProposal.Status,
+            RestoredProposalCount = restoredProposalCount,
+            UpdatedAt = project.UpdatedAt
+        };
+    }
+
+    private static ReopenProposalResponseDto BuildIdempotentReopenResponse(Project project)
+    {
+        return new ReopenProposalResponseDto
+        {
+            ProjectId = project.ProjectId,
+            OldStatus = project.Status,
+            NewStatus = project.Status,
+            UpdatedAt = project.UpdatedAt
+        };
+    }
+
+    private static bool CanReopenProposal(Project project, Guid currentUserId, string? roleName)
+    {
+        return OrderAccessEvaluator.CanManageDepositPayment(
+            roleName,
+            project.CustomerId,
+            project.AssignedSalesId,
+            currentUserId);
+    }
+
+    private static ServiceResult<ReopenProposalResponseDto> ReopenProposalFailure(string code, string message)
+    {
+        return ServiceResult<ReopenProposalResponseDto>.Failure(Error.BadRequest(code, message));
+    }
+
+    private static ServiceResult<ProjectCompletionDto> ProjectCompletionFailure(string code, string message)
+    {
+        return ServiceResult<ProjectCompletionDto>.Failure(Error.BadRequest(code, message));
+    }
+
+    private static ProjectStatus ResolveDesignerAssignmentStatus(ProjectSpaceDataStatus spaceDataStatus)
+    {
+        return spaceDataStatus == ProjectSpaceDataStatus.SUFFICIENT
+            ? ProjectStatus.SPACE_VERIFIED
+            : ProjectStatus.MEASUREMENT_REQUIRED;
+    }
+
+    private static bool IsAdmin(string? roleName)
+    {
+        return string.Equals(roleName, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCustomer(string? roleName)
+    {
+        return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsDesigner(string? roleName)
+    {
+        return string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private async Task<ServiceResult<ProjectCompletionDto>?> ValidateProjectCompletionOrderReadinessAsync(
+        Guid projectId,
+        CancellationToken cancellationToken)
+    {
+        var projectOrders = await _orders.GetByProjectAsync(projectId, cancellationToken);
+        var relatedOrder = projectOrders
+            .FirstOrDefault(order => order.Status != OrderStatus.CANCELLED);
+        if (relatedOrder is null)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.RelatedOrderNotFound,
+                "Project must have a related order before completion.");
+        }
+
+        if (relatedOrder.Status != OrderStatus.COMPLETED)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.RelatedOrderNotCompleted,
+                "Related order must be completed before project completion.");
+        }
+
+        var order = await _orders.GetByIdAsync(relatedOrder.OrderId, cancellationToken);
+        if (order is null)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.RelatedOrderNotFound,
+                "Project must have a related order before completion.");
+        }
+
+        if (!order.CustomerConfirmedDeliveryAt.HasValue)
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.DeliveryNotConfirmed,
+                "Customer delivery confirmation is required before project completion.");
+        }
+
+        var items = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
+        if (!OrderFinancialCompletionEvaluator.AreDeliverableItemsDelivered(items))
+        {
+            return ProjectCompletionFailure(
+                ProjectErrorCodes.DeliveryNotConfirmed,
+                "Customer delivery confirmation is required before project completion.");
+        }
+
+        return null;
+    }
+
+    private static ProjectCompletionDto ToProjectCompletionDto(Project project, DateTime completedAt)
+    {
+        return new ProjectCompletionDto
+        {
+            ProjectId = project.ProjectId,
+            ProjectStatus = project.Status?.ToString() ?? string.Empty,
+            CompletedAt = completedAt
+        };
+    }
+
+}

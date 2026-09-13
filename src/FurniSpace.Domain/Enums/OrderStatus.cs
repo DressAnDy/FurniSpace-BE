@@ -1,0 +1,16 @@
+namespace FurniSpace.Domain.Enums;
+
+public enum OrderStatus
+{
+    CREATED,
+    DEPOSIT_PENDING,
+    DEPOSIT_PAID,
+    IN_PRODUCTION,
+    READY_FOR_DELIVERY,
+    DELIVERING,
+    AWAITING_CUSTOMER_CONFIRMATION,
+    DELIVERED,
+    FINAL_PAYMENT_PENDING,
+    COMPLETED,
+    CANCELLED
+}

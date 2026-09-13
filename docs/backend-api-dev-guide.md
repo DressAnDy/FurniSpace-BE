@@ -1,763 +1,616 @@
 # FurniSpace Backend API Developer Guide
 
-This document summarizes the `src/` backend structure and provides a practical API implementation workflow for backend developers. The repository is currently a .NET 8 Web API following a Clean Architecture direction, but many classes are still empty scaffolds. When adding a new API, developers need to implement the feature and wire the required pipeline pieces at the same time.
+Source of truth for backend structure and implementation. Prefer this document over generic clean-architecture templates when the two disagree.
 
-## 1. Architecture Overview
+Related guides (deeper topics):
 
-The backend lives under `src/` and contains 5 projects:
+| Doc | When to use |
+| --- | --- |
+| `docs/api-reference.md` | Full REST + SignalR API reference (request / response) |
+| `docs/integration-test-build-guide.md` | Testcontainers, Core suite, fixtures |
+| `docs/integration-test-remaining-suites.md` | Handoff for Suites E–J + Mongo external work |
+| `docs/payment-service-guide.md` | Deposit / PayOS / SePay flows |
+| `docs/redis-cache-guide.md` | Cache keys and TTL details |
+| `docs/signalr-notification-guide.md` | Realtime hubs and groups |
+| `docs/firebase-storage-service-guide.md` | File upload / Firebase |
+| `docs/mongodb-room-planner-guide.md` | Room planner scenes |
+| `docs/elasticsearch-docker-guide.md` | Search / reindex locally |
 
-| Project | Responsibility | Should contain |
-| --- | --- | --- |
-| `FurniSpace.API` | HTTP entrypoint layer | `Program.cs`, controllers, middleware, filters, Swagger extensions |
-| `FurniSpace.Application` | Use case layer | Commands, queries, handlers, DTOs, validation, service interfaces |
-| `FurniSpace.Domain` | Core business layer | Entities, value objects, domain events, specifications, domain exceptions |
-| `FurniSpace.Infrastructure` | Infrastructure and persistence layer | EF Core `AppDbContext`, repositories, Unit of Work, auth, cache, logging |
-| `FurniSpace.Shared` | Shared utilities | Constants, extensions, environment loader, date/time helpers |
+---
 
-Current dependency direction:
+## 1. Architecture
+
+Layered backend with **Application depending on Infrastructure** (intentional; not strict clean architecture).
 
 ```text
-API -> Application
-API -> Infrastructure
-API -> Shared
-Application -> Domain
-Infrastructure -> Domain
-Shared -> independent
+API
+  -> Application
+  -> Infrastructure   (startup / migration composition only)
+  -> Shared
+
+Application
+  -> Domain
+  -> Infrastructure
+  -> Shared
+
+Infrastructure
+  -> Domain
+  -> Shared
+
+Domain
+  -> no project dependencies
 ```
 
-Rules when adding APIs:
+| Project | References |
+| --- | --- |
+| `FurniSpace.API` | Application, Infrastructure, Shared |
+| `FurniSpace.Application` | Domain, Infrastructure, Shared |
+| `FurniSpace.Infrastructure` | Domain, Shared |
+| `FurniSpace.Domain` | none |
+| `FurniSpace.Shared` | none (`EnvLoader`, shared helpers) |
 
-- `Domain` must not depend on any other project.
-- `Application` declares use cases and required interfaces, but should not call EF Core directly.
-- `Infrastructure` implements database, cache, auth, email, repository, and external service details.
-- `API` only handles HTTP concerns: routes, auth policies, status codes, and request/response mapping.
+Rules:
 
-## 2. Current Important Status
+- `Domain` must not reference Application, Infrastructure, or API.
+- **Repository contracts and implementations live in Infrastructure** (not Domain).
+- Application owns use-case orchestration, DTOs, mapping (Mapster), validation helpers, JWT/session orchestration.
+- Infrastructure owns EF Core, PostgreSQL, migrations, repositories, Redis, Elasticsearch, Mongo, Gmail, Firebase.
+- API stays thin: bind HTTP, authorize, call Application services, map `ServiceResult` → HTTP. Controllers must not use EF, Redis, or repositories.
 
-Already available:
+There is **no MediatR / FluentValidation pipeline**. Validation is Application-side checks plus API `ValidationFilter`.
 
-- Serilog logging in `FurniSpace.API/Program.cs`.
-- Docker Compose services for `api`, `postgres`, and `redis`.
-- Sample entities: `User`, `RefreshToken`, `Role`.
-- Sample value objects: `Email`, `Address`, `Money`.
-- Sample specification: `ActiveUserByEmailSpec`.
-- Command/query folder structure for `Users`.
-- `BaseApiController` already has `[ApiController]` and route `api/[controller]`.
+---
 
-Items that must be completed before the API can run fully:
-
-- `Program.cs` currently only maps `/`; it does not call `AddControllers()` or `MapControllers()`.
-- `DependencyInjection` classes in Application and Infrastructure are empty.
-- `UsersController` and `AuthController` are empty.
-- Application commands, queries, handlers, and validators are empty.
-- Repository, UnitOfWork, Cache, AuthService, and JwtTokenService classes are empty.
-- `AppDbContext` does not have `DbSet` properties and does not apply entity configurations.
-- `UserConfiguration` currently configures `object`; it should be changed to `IEntityTypeConfiguration<User>`.
-- `UserMappingConfig` exists but is empty. The recommended mapper for this project is Mapster.
-- MediatR, FluentValidation, Swagger, and JWT packages are not yet added to `.csproj` files if the project will use the full CQRS + validation + OpenAPI pattern.
-
-Because of this, when implementing a new feature, developers should follow the full workflow in section 5 instead of only creating a controller.
-
-## 3. Folder Convention for a New API Module
-
-Example structure for a `Products` module:
+## 2. Solution map
 
 ```text
 src/
-  FurniSpace.Domain/
-    Entities/Product.cs
-    ValueObjects/...
-    Specifications/ProductBySkuSpec.cs
-
-  FurniSpace.Application/
-    DTOs/ProductDto.cs
-    Features/Products/
-      Commands/CreateProduct/
-        CreateProductCommand.cs
-        CreateProductHandler.cs
-        CreateProductValidator.cs
-      Commands/UpdateProduct/
-      Queries/GetProductById/
-      Queries/GetProductsPaged/
-
-  FurniSpace.Infrastructure/
-    Persistence/Configurations/ProductConfiguration.cs
-    Repositories/IRepository/IProductRepository.cs
-    Repositories/Repository/ProductRepository.cs
-
   FurniSpace.API/
-    Controllers/ProductsController.cs
+  FurniSpace.Application/
+  FurniSpace.Domain/
+  FurniSpace.Infrastructure/
+  FurniSpace.Shared/
+tests/
+  UnitTests/
+    FurniSpace.UnitTests.sln
+    FurniSpace.*.Tests/
+  IntegrationTests/
+    FurniSpace.IntegrationTests.sln
+    FurniSpace.*.IntegrationTests/    # Testcontainers / WebApplicationFactory
+    FurniSpace.Testing/               # shared fixtures, fakes, seeders
+docs/
 ```
 
-Routes should use plural resource names:
+Solutions:
+
+- `tests/UnitTests/FurniSpace.UnitTests.sln`: source projects + four `*.Tests` projects; no Docker required.
+- `tests/IntegrationTests/FurniSpace.IntegrationTests.sln`: source projects + `FurniSpace.Testing` + three `*.IntegrationTests` projects; Docker required.
+- `FurniSpace.sln`: full meta-solution for IDE navigation and full builds.
+
+| Project | Responsibility |
+| --- | --- |
+| `FurniSpace.API` | Controllers, middleware, hubs, Swagger, JWT pipeline, startup |
+| `FurniSpace.Application` | Services, interfaces, DTOs, Mapster, auth/JWT stores orchestration |
+| `FurniSpace.Domain` | Entities, enums, domain primitives under `Common/` |
+| `FurniSpace.Infrastructure` | `AppDbContext`, migrations, repositories, Redis/ES/Mongo/email/storage |
+| `FurniSpace.Shared` | Cross-cutting helpers without business ownership |
+| `FurniSpace.Testing` | Postgres Testcontainer, Respawn, scenario seeders, API fakes |
+
+---
+
+## 3. Folder conventions
+
+### API
 
 ```text
-GET    /api/products
-GET    /api/products/{id}
-POST   /api/products
-PUT    /api/products/{id}
-DELETE /api/products/{id}
+FurniSpace.API/
+  Controllers/
+    Admin/          AccountsController
+    Auth/           AuthController  (route: auth)
+    Catalog/        BusinessTypes, Categories, Products, ProductVersions, preview files
+    Chat/           ProjectChats, ProjectChatMessages, status
+    Payments/       Payments, webhooks (PayOS/SePay), admin/test helpers
+    Production/     ProductionRequests, Items, Staff, customization
+    Projects/       Projects, Proposals, Quotations, Orders, Areas, Schedules,
+                    Files, Payments, CustomizationRequests, RoomPlannerScenes
+    Shared/         Files, Notifications
+  Middleware/       CorrelationId, RequestLogging, ExceptionHandling
+  Filters/          ValidationFilter
+  Hubs/             NotificationsHub, ProjectChatHub, PaymentHub
+  Base/             BaseApiController
+  Program.cs
 ```
 
-## 4. Expected Request Flow
+Inject Application interfaces only:
 
-The processing flow should follow this chain:
+```csharp
+private readonly IProjectService _projects;
+private readonly IAuthService _auth;
+```
+
+Do **not** inject `AppDbContext`, repositories, Redis, or Elasticsearch into controllers.
+
+### Application
 
 ```text
-HTTP Request
+FurniSpace.Application/
+  Common/           Auth, Results, Payments, Orders, Projects, Realtime, ...
+  Constants/
+  DTOs/{Module}/
+  Interfaces/{Module}/
+  Services/{Module}/
+  Mappings/
+  DependencyInjection.cs
+```
+
+Module folders are mirrored (`Interfaces/Projects` ↔ `Services/Projects` ↔ `DTOs/Projects`).
+
+There is **no** `Features/` folder and **no** `ValidationBehavior.cs`.
+
+Application may use Infrastructure contracts:
+
+```csharp
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Interfaces; // ICacheService, IEmailService, ...
+```
+
+Application must not contain EF queries, Redis commands, SQL, Elasticsearch client calls, or HTTP SDK bodies for external providers (those stay in Infrastructure or thin Application adapters that call Infrastructure interfaces).
+
+### Infrastructure
+
+```text
+FurniSpace.Infrastructure/
+  Data/                 AppDbContext, DataSeeder, Mongo/
+  Repositories/
+    Base/               IGenericRepository, GenericRepository
+    IRepository/        I{Entity}Repository
+    Repository/         {Entity}Repository
+  Persistence/          IUnitOfWork, UnitOfWork  (+ sparse Configurations/)
+  ReadModels/           query/read shapes per module
+  Caching/              RedisCacheService, RedisKeyBuilder
+  Common/
+    Caching/            RedisSettings
+    Search/Elasticsearch/
+    Email/
+    Storage/            Firebase
+    Mongo/
+  Logging/              SerilogConfiguration
+  Migrations/
+  DependencyInjection.cs
+```
+
+Most EF mapping is **inline in `AppDbContext`**. `DbSet`s use `*Set` naming (`ProjectSet`, `OrderSet`, …).
+
+### Domain
+
+```text
+FurniSpace.Domain/
+  Entities/
+  Enums/
+  Exceptions/
+  Specifications/
+  Common/               BaseEntity, Result, Error, IDomainEvent, ValueObject, ...
+```
+
+Do not put repository interfaces in Domain.
+
+---
+
+## 4. Request pipeline and flow
+
+### HTTP pipeline (`Program.cs`)
+
+```text
+ForwardedHeaders
+  -> HTTPS redirection
+  -> CorrelationIdMiddleware
+  -> RateLimiter          (auth-public: 10/min/IP on public auth routes)
+  -> CORS
+  -> Authentication
+  -> RequestLoggingMiddleware
+  -> ExceptionHandlingMiddleware
+  -> Authorization
+  -> Controllers
+  -> SignalR hubs
+```
+
+### Use-case flow
+
+```text
+HTTP
   -> Controller
-  -> Command/Query
-  -> Handler
-  -> Domain Entity/Value Object
-  -> Repository/UnitOfWork
-  -> AppDbContext/PostgreSQL
-  -> DTO/ServiceResult
-  -> HTTP Response
+  -> Application service
+  -> Domain entity / enum rules
+  -> Infrastructure repository or provider
+  -> PostgreSQL / Redis / Elasticsearch / Mongo / Firebase / Gmail / PayOS|SePay
+  -> DTO
+  -> ServiceResult<T>
+  -> BaseApiController.ToActionResult(...)
 ```
 
-Controllers should not contain business logic. Business logic should live in:
-
-- Entity/value object classes for core domain rules.
-- Handlers for use case workflows.
-- Infrastructure services for JWT, email, cache, storage, or external API concerns.
-
-## 5. Steps to Implement a New API
-
-### Step 1: Define the Use Case and Contract
-
-Write the endpoint contract first:
-
-```text
-POST /api/products
-Input: name, sku, price, dimensions, material
-Output: id, name, sku, price, createdAt
-Status: 201, 400, 409, 500
-```
-
-Clarify:
-
-- Who is allowed to call this API?
-- Which fields are required?
-- Which business errors can happen?
-- Does the API need a transaction?
-- Does the response need paging, filtering, or sorting?
-
-### Step 2: Add the Domain Model
-
-Create the entity in `FurniSpace.Domain/Entities`.
-
-Entities should hide setters and expose meaningful methods:
-
-```csharp
-public sealed class Product : AggregateRoot
-{
-    public string Name { get; private set; } = default!;
-    public string Sku { get; private set; } = default!;
-    public Money Price { get; private set; } = default!;
-    public bool IsActive { get; private set; }
-
-    private Product() { }
-
-    public static Product Create(string name, string sku, Money price)
-    {
-        return new Product
-        {
-            Name = name.Trim(),
-            Sku = sku.Trim().ToUpperInvariant(),
-            Price = price,
-            IsActive = true
-        };
-    }
-
-    public void ChangePrice(Money price)
-    {
-        Price = price;
-        SetUpdatedAt();
-    }
-}
-```
-
-If a field has its own rules, prefer a value object. For example, `Email.Create(...)` currently returns `Result<Email>` instead of throwing an exception.
-
-### Step 3: Add DTOs and Commands/Queries
-
-Place DTOs in `FurniSpace.Application/DTOs`.
-
-Place commands and queries under the feature folder:
-
-```text
-Features/Products/Commands/CreateProduct/CreateProductCommand.cs
-Features/Products/Queries/GetProductById/GetProductByIdQuery.cs
-```
-
-Using records is recommended because request contracts become clear:
-
-```csharp
-public sealed record CreateProductCommand(
-    string Name,
-    string Sku,
-    decimal PriceAmount,
-    string Currency);
-```
-
-If MediatR is installed, commands and queries should implement:
-
-```csharp
-IRequest<ServiceResult<ProductDto>>
-```
-
-### Step 3.1: Add Mapping with Mapster
-
-FurniSpace should use Mapster as the default mapper. It is lightweight, simple to configure, and fits the current Clean Architecture structure without adding much ceremony.
-
-Install Mapster in the Application project:
-
-```powershell
-dotnet add src/FurniSpace.Application package Mapster
-```
-
-If API or Infrastructure also needs to call `.Adapt<T>()` directly, install Mapster in that project too. Prefer keeping mapping in Application handlers whenever possible.
-
-Create one mapping config per module in `FurniSpace.Application/Mappings`.
-
-Example:
-
-```csharp
-using FurniSpace.Application.DTOs;
-using FurniSpace.Domain.Entities;
-using Mapster;
-
-namespace FurniSpace.Application.Mappings;
-
-public static class ProductMappingConfig
-{
-    public static void Register()
-    {
-        TypeAdapterConfig<Product, ProductDto>
-            .NewConfig()
-            .Map(dest => dest.Id, src => src.Id)
-            .Map(dest => dest.Name, src => src.Name)
-            .Map(dest => dest.Sku, src => src.Sku)
-            .Map(dest => dest.PriceAmount, src => src.Price.Amount)
-            .Map(dest => dest.Currency, src => src.Price.Currency)
-            .Map(dest => dest.CreatedAt, src => src.CreatedAt);
-    }
-}
-```
-
-Register all mapping configs from `AddApplication`:
-
-```csharp
-public static IServiceCollection AddApplication(this IServiceCollection services)
-{
-    UserMappingConfig.Register();
-    ProductMappingConfig.Register();
-
-    services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly));
-    services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
-    services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
-
-    return services;
-}
-```
-
-Use Mapster in handlers:
-
-```csharp
-using Mapster;
-
-var dto = product.Adapt<ProductDto>();
-return ServiceResult<ProductDto>.Success(dto);
-```
-
-Mapping rules:
-
-- Keep Mapster configuration in `FurniSpace.Application/Mappings`.
-- Do not put mapping configuration in controllers.
-- Use explicit config for value objects, nested objects, computed fields, and renamed properties.
-- For very simple mappings with identical property names, `.Adapt<T>()` can be used without extra config.
-- Do not expose domain entities directly from API responses; always return DTOs.
-
-### Step 4: Add Validation
-
-Place validators in the same folder as the related command/query:
-
-```csharp
-public sealed class CreateProductValidator : AbstractValidator<CreateProductCommand>
-{
-    public CreateProductValidator()
-    {
-        RuleFor(x => x.Name).NotEmpty().MaximumLength(200);
-        RuleFor(x => x.Sku).NotEmpty().MaximumLength(64);
-        RuleFor(x => x.PriceAmount).GreaterThan(0);
-        RuleFor(x => x.Currency).NotEmpty().Length(3);
-    }
-}
-```
-
-If FluentValidation is not used yet, there are 2 options:
-
-- Add the package and implement `ValidationBehavior<TRequest,TResponse>`.
-- Validate manually in the handler/controller as a temporary step.
-
-Recommendation: use FluentValidation so validation stays centralized in the Application layer.
-
-### Step 5: Add Repository and Unit of Work
-
-Repository interfaces should live in `Infrastructure/Repositories/IRepository`.
-
-```csharp
-public interface IProductRepository : IGenericRepository<Product>
-{
-    Task<Product?> GetBySkuAsync(string sku, CancellationToken cancellationToken = default);
-}
-```
-
-Implementations should live in `Infrastructure/Repositories/Repository`.
-
-```csharp
-public sealed class ProductRepository : GenericRepository<Product>, IProductRepository
-{
-    private readonly AppDbContext _dbContext;
-
-    public ProductRepository(AppDbContext dbContext) : base(dbContext)
-    {
-        _dbContext = dbContext;
-    }
-
-    public Task<Product?> GetBySkuAsync(string sku, CancellationToken cancellationToken = default)
-    {
-        return _dbContext.Set<Product>()
-            .FirstOrDefaultAsync(x => x.Sku == sku && !x.IsDeleted, cancellationToken);
-    }
-}
-```
-
-`IGenericRepository<T>` is currently empty, so it should include basic methods:
-
-```csharp
-Task<T?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
-Task AddAsync(T entity, CancellationToken cancellationToken = default);
-void Update(T entity);
-void Remove(T entity);
-```
-
-`IUnitOfWork` should include:
-
-```csharp
-Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
-```
-
-### Step 6: Configure EF Core
-
-Add a `DbSet` to `AppDbContext`:
-
-```csharp
-public DbSet<Product> Products => Set<Product>();
-```
-
-Override model creation:
-
-```csharp
-protected override void OnModelCreating(ModelBuilder modelBuilder)
-{
-    base.OnModelCreating(modelBuilder);
-    modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
-}
-```
-
-Create the entity configuration:
-
-```csharp
-public sealed class ProductConfiguration : IEntityTypeConfiguration<Product>
-{
-    public void Configure(EntityTypeBuilder<Product> builder)
-    {
-        builder.ToTable("products");
-        builder.HasKey(x => x.Id);
-        builder.Property(x => x.Name).HasMaxLength(200).IsRequired();
-        builder.Property(x => x.Sku).HasMaxLength(64).IsRequired();
-        builder.HasIndex(x => x.Sku).IsUnique();
-        builder.OwnsOne(x => x.Price);
-        builder.Property(x => x.RowVersion).IsRowVersion();
-    }
-}
-```
-
-Note: `UserConfiguration` is currently `IEntityTypeConfiguration<object>`. It should be changed to `IEntityTypeConfiguration<User>` when implementing the User API.
-
-### Step 7: Implement the Handler
-
-The handler coordinates the use case:
-
-```csharp
-using Mapster;
-
-public sealed class CreateProductHandler : IRequestHandler<CreateProductCommand, ServiceResult<ProductDto>>
-{
-    private readonly IProductRepository _products;
-    private readonly IUnitOfWork _unitOfWork;
-
-    public CreateProductHandler(IProductRepository products, IUnitOfWork unitOfWork)
-    {
-        _products = products;
-        _unitOfWork = unitOfWork;
-    }
-
-    public async Task<ServiceResult<ProductDto>> Handle(CreateProductCommand request, CancellationToken cancellationToken)
-    {
-        var existing = await _products.GetBySkuAsync(request.Sku, cancellationToken);
-        if (existing is not null)
-        {
-            return ServiceResult<ProductDto>.Failure(Error.Conflict("Product.SkuExists", "SKU already exists"));
-        }
-
-        var money = Money.Create(request.PriceAmount, request.Currency);
-        if (!money.IsSuccess)
-        {
-            return ServiceResult<ProductDto>.BadRequest(money.Error!.Message);
-        }
-
-        var product = Product.Create(request.Name, request.Sku, money.Value!);
-        await _products.AddAsync(product, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<ProductDto>.Created(product.Adapt<ProductDto>());
-    }
-}
-```
-
-The Application layer provides `ServiceResult<T>`, `Error`, and `PagedResult<T>` models under `Common/Results`. Use them consistently:
-
-- Use `ServiceResult<T>` for handler output and API response envelopes.
-- Use `PagedResult<T>` as the data payload for paged endpoints.
-- Domain value objects may keep using `Domain.Common.Result<T>`.
-- Map Domain validation failures to `ServiceResult<T>.BadRequest(...)`, or convert them to an Application `Error`.
-
-### Step 8: Register Dependency Injection
-
-In `FurniSpace.Application/DependencyInjection.cs`:
-
-```csharp
-public static IServiceCollection AddApplication(this IServiceCollection services)
-{
-    UserMappingConfig.Register();
-    ProductMappingConfig.Register();
-
-    services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(DependencyInjection).Assembly));
-    services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
-    services.AddTransient(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));
-    return services;
-}
-```
-
-In `FurniSpace.Infrastructure/DependencyInjection.cs`:
-
-```csharp
-public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
-{
-    services.AddDbContext<AppDbContext>(options =>
-        options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
-
-    services.AddScoped<IUnitOfWork, UnitOfWork>();
-    services.AddScoped<IProductRepository, ProductRepository>();
-    services.AddScoped<IUserRepository, UserRepository>();
-    services.AddScoped<IAuthService, AuthService>();
-    services.AddScoped<ICacheService, RedisCacheService>();
-
-    return services;
-}
-```
-
-Add the required NuGet packages to the relevant projects if they are not installed yet.
-
-### Step 9: Wire the Pipeline in Program.cs
-
-`Program.cs` does not map controllers yet. When implementing real APIs, it should have at least:
-
-```csharp
-builder.Services.AddControllers();
-builder.Services.AddApplication();
-builder.Services.AddInfrastructure(builder.Configuration);
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-var app = builder.Build();
-
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-app.UseMiddleware<CorrelationIdMiddleware>();
-app.UseMiddleware<ExceptionHandlingMiddleware>();
-app.UseMiddleware<RequestLoggingMiddleware>();
-
-app.MapControllers();
-app.MapGet("/", () => "FurniSpace API");
-app.Run();
-```
-
-If authentication is added:
-
-```csharp
-app.UseAuthentication();
-app.UseAuthorization();
-```
-
-Recommended middleware order:
-
-```text
-Exception handling
-Correlation id
-Request logging
-Authentication
-Authorization
-Controllers
-```
-
-### Step 10: Create the Controller
-
-The controller should only receive the request and call Mediator/service:
-
-```csharp
-public sealed class ProductsController : BaseApiController
-{
-    private readonly ISender _sender;
-
-    public ProductsController(ISender sender)
-    {
-        _sender = sender;
-    }
-
-    [HttpPost]
-    public async Task<IActionResult> Create(CreateProductCommand command, CancellationToken cancellationToken)
-    {
-        var result = await _sender.Send(command, cancellationToken);
-
-        if (result.Status >= 400)
-        {
-            return StatusCode(result.Status, result);
-        }
-
-        return CreatedAtAction(nameof(GetById), new { id = result.Data!.Id }, result);
-    }
-
-    [HttpGet("{id:guid}")]
-    public async Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken)
-    {
-        var result = await _sender.Send(new GetProductByIdQuery(id), cancellationToken);
-        return StatusCode(result.Status, result);
-    }
-}
-```
-
-Later, add a helper in `BaseApiController` to map `IServiceResult` to `IActionResult`, so every controller does not repeat status-code handling.
-
-### Step 11: Add Migration and Update the Database
-
-After EF configuration is stable:
-
-```powershell
-dotnet ef migrations add AddProducts `
-  --project src/FurniSpace.Infrastructure `
-  --startup-project src/FurniSpace.API
-
-dotnet ef database update `
-  --project src/FurniSpace.Infrastructure `
-  --startup-project src/FurniSpace.API
-```
-
-If EF CLI is not installed:
-
-```powershell
-dotnet tool install --global dotnet-ef
-```
-
-### Step 12: Test the API
-
-Minimum test checklist:
-
-- Build the solution: `dotnet build FurniSpace.sln`
-- Run the local API: `dotnet run --project src/FurniSpace.API`
-- Open Swagger if enabled.
-- Test the happy path.
-- Test validation errors.
-- Test conflict/duplicate cases.
-- Test not found cases.
-- Test auth/authorization if the endpoint requires a role.
-- Test database transactions if multiple write operations are involved.
-
-## 6. Checklist for Adding an Endpoint
-
-Use this checklist for every API:
-
-- [ ] Define route, request, response, and status codes.
-- [ ] Create/update entity or value object in Domain.
-- [ ] Create DTO in Application.
-- [ ] Create/update Mapster mapping config if properties are renamed, nested, computed, or value-object based.
-- [ ] Create command/query.
-- [ ] Create validator.
-- [ ] Create handler.
-- [ ] Create the required repository method.
-- [ ] Create/update EF configuration.
-- [ ] Add `DbSet` if this is a new entity.
-- [ ] Register DI for repository/service.
-- [ ] Create controller action.
-- [ ] Add migration if the database schema changes.
-- [ ] Build the solution.
-- [ ] Test the endpoint using Swagger/Postman/curl.
-- [ ] Update API docs if the response contract changes.
-
-## 7. Recommended Backend Completion Order
-
-Starting from the current repository state, the recommended order is:
-
-1. Complete the API pipeline:
-   - Add `AddControllers` and `MapControllers`.
-   - Add Swagger.
-   - Enable existing middleware once their implementation is ready.
-
-2. Complete Application infrastructure:
-   - Choose MediatR + FluentValidation or a service-based pattern.
-   - Add Mapster and register mapping configs.
-   - Implement `ServiceResult<T>`, `Error`, and `PagedResult<T>`.
-   - Implement `ValidationBehavior`.
-
-3. Complete EF Core setup:
-   - Add connection string.
-   - Register `AppDbContext`.
-   - Add `DbSet<User>`.
-   - Fix `UserConfiguration`.
-   - Add the first migration.
-
-4. Complete repository/unit of work:
-   - `IGenericRepository<T>`.
-   - `GenericRepository<T>`.
-   - `IUnitOfWork`.
-   - `UnitOfWork`.
-   - `IUserRepository` and `UserRepository`.
-
-5. Complete Auth/User API:
-   - Register/login/refresh token.
-   - Create user.
-   - Get user by id.
-   - Get users paged.
-   - Update user.
-
-6. Add business modules:
-   - Project management.
-   - Furniture catalog.
-   - 3D design data.
-   - Quotation/order.
-   - Production/delivery.
-
-## 8. Suggested APIs for the FurniSpace Domain
-
-Priority API groups:
-
-| Module | Sample endpoints |
+| Concern | Layer |
 | --- | --- |
-| Auth | `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/refresh-token` |
-| Users | `GET /api/users`, `GET /api/users/{id}`, `PUT /api/users/{id}` |
-| Projects | `POST /api/projects`, `GET /api/projects/{id}`, `PUT /api/projects/{id}/dimensions` |
-| Design | `POST /api/projects/{id}/designs`, `PUT /api/designs/{id}/scene`, `GET /api/designs/{id}` |
-| Furniture | `GET /api/furniture`, `GET /api/furniture/{id}`, `POST /api/furniture` |
-| Quotes | `POST /api/projects/{id}/quotes`, `GET /api/quotes/{id}`, `POST /api/quotes/{id}/approve` |
-| Orders | `POST /api/orders`, `GET /api/orders/{id}`, `PUT /api/orders/{id}/status` |
-| Production | `GET /api/production-jobs`, `PUT /api/production-jobs/{id}/status` |
-| Delivery | `GET /api/deliveries`, `PUT /api/deliveries/{id}/status` |
+| Route binding, auth middleware, HTTP status mapping | API |
+| Use-case orchestration, DTO mapping, business validation | Application |
+| Entity invariants / enums | Domain |
+| EF queries/writes, Redis, ES, Mongo, email, storage | Infrastructure |
 
-## 9. Response and Error Conventions
+---
 
-Use a consistent success response:
+## 5. Core business flows (technical)
 
-```json
-{
-  "id": "6fa459ea-ee8a-3ca4-894e-db77e160355e",
-  "name": "Display Shelf",
-  "createdAt": "2026-05-22T10:00:00Z"
-}
-```
+These are the main end-to-end paths developers touch most often.
 
-Paging response:
+### 5.1 Project lifecycle
 
-```json
-{
-  "items": [],
-  "page": 1,
-  "pageSize": 20,
-  "totalItems": 0,
-  "totalPages": 0
-}
-```
-
-Error response:
-
-```json
-{
-  "code": "Product.SkuExists",
-  "message": "SKU already exists",
-  "traceId": "..."
-}
-```
-
-Recommended status code mapping:
-
-| Error type | HTTP |
-| --- | --- |
-| Validation | `400 Bad Request` |
-| Authentication | `401 Unauthorized` |
-| Authorization | `403 Forbidden` |
-| Not found | `404 Not Found` |
-| Conflict/duplicate | `409 Conflict` |
-| Unexpected exception | `500 Internal Server Error` |
-
-## 10. Repository-Specific Notes
-
-- `bin/` and `obj/` currently exist under `src/`; ignore them when scanning code.
-- `.env` is loaded through `EnvLoader.LoadEnv(required: false)`.
-- Docker exposes the API through host port `5000` to container port `8080`.
-- PostgreSQL in Docker exposes host port `5433` to container port `5432`.
-- Redis uses a password from `.env`.
-- Update `.gitignore` or repository hygiene if `bin/obj` were already tracked.
-- If new packages are added, rebuild the solution to confirm all project references are correct.
-
-## 11. Quick Template for a New API
-
-Copy this checklist into an issue/task:
+Primary types: `ProjectService`, `ProjectStatusTransitionEvaluator`, enum `ProjectStatus`.
 
 ```text
-Feature:
-Route:
-Request:
-Response:
-Permission:
+SUBMITTED
+  -> IN_CONSULTATION / NEED_BASIC_INFORMATION
+  -> WAITING_FOR_DESIGNER_ASSIGNMENT
+  -> MEASUREMENT_REQUIRED / SPACE_VERIFIED
+  -> PROPOSAL_CONSULTING -> PROPOSAL_SELECTED
+  -> QUOTATION_SENT / QUOTATION_REVISION_REQUESTED
+  -> ORDER_CONFIRMED
+  -> IN_PRODUCTION / PRODUCTION_BLOCKED
+  -> READY_FOR_DELIVERY -> DELIVERING -> DELIVERED -> COMPLETED
+  (or REJECTED)
+```
+
+Roles (`ADMIN`, `CUSTOMER`, `DESIGNER`, `SALES`, `PRODUCTION`) gate who may transition. Customers do not update project status via the status API; designers have a restricted target set (see `ProjectStatusTransitionEvaluator`).
+
+Related modules on the same project: proposals, room planner (Mongo), quotations, orders, payments, chat, files, customization / production.
+
+### 5.2 Quotation → order
+
+1. Quotation accepted (`QuotationService`) creates an `Order` with deposit/remaining amounts.
+2. Defaults: `OrderWorkflow:DepositPercent` = **30** (override `ORDER_DEPOSIT_PERCENT`).
+3. Order status starts around `DEPOSIT_PENDING` then progresses (`OrderStatus`).
+
+`PaidAmount` / `RemainingAmount` live on **Order**, not on `Payment`.
+
+### 5.3 Payments
+
+Primary types: `PaymentService`, `PaymentBusinessEffectService`, PayOS/SePay webhook handlers.
+
+- Payment entity tracks one collectable amount + `PaymentStatus` (`PENDING`, `PROCESSING`, `PAID`, `CANCELLED`, `EXPIRED`, `REFUNDED`).
+- Types include `PROJECT_START_FEE`, `DEPOSIT`, `REMAINING_PAYMENT`, `FULL_PAYMENT`, …
+- Project start fee default: `ProjectWorkflow:DefaultProjectStartFeeAmount` = **2_000_000** (override `PROJECT_START_FEE_AMOUNT`).
+- Successful payment side effects recalculate order paid/remaining and may advance project/order state.
+
+See `docs/payment-service-guide.md` for provider details.
+
+### 5.4 Auth / identity
+
+| Type | Owns |
+| --- | --- |
+| `IIdentityService` / `IdentityService` | Register, login, email OTP, forgot/reset password |
+| `IAuthService` / `AuthService` | Session create/rotate, refresh validation, access-token blacklist |
+| `IJwtTokenService` | Access token creation |
+| Redis stores | Refresh tokens, OTP, password reset, blacklist |
+
+Token delivery:
+
+- HTTP: Authorization Bearer and/or cookies `access_token` / `refresh_token` (HttpOnly, Secure, SameSite=None).
+- SignalR: query `access_token` allowed for hub paths under `/hubs/notifications` and `/hubs/project-chat`.
+
+---
+
+## 6. Results and HTTP responses
+
+Use `ServiceResult<T>` (`FurniSpace.Application.Common`):
+
+```csharp
+ServiceResult<T>.Success(data)
+ServiceResult<T>.Created(data)
+ServiceResult<T>.BadRequest(message)          // optional field errors
+ServiceResult<T>.NotFound(message)
+ServiceResult<T>.Unauthorized(message)
+ServiceResult<T>.Forbidden(message)
+ServiceResult<T>.Conflict(message)
+ServiceResult<T>.TooManyRequests(message)
+ServiceResult<T>.PayloadTooLarge(message)
+ServiceResult<T>.UnsupportedMediaType(message)
+ServiceResult<T>.InternalServerError(message)
+ServiceResult<T>.Failure(error)               // sets ErrorCode
+```
+
+Use `PagedResult<T>` for paged lists.
+
+Controllers return through `BaseApiController.ToActionResult(...)`.
+
+JSON enums use `JsonStringEnumConverter` (SCREAMING_SNAKE values in payloads).
+
+API model validation failures go through `ValidationFilter` → `400` with `ServiceResult` shape (default ASP.NET model-state filter is suppressed).
+
+---
+
+## 7. Authentication and JWT
+
+```text
+Application/Common/Auth/JwtSettings.cs
+Application/Interfaces/Identity/
+Application/Services/Identity/
+  AuthService.cs, JwtTokenService.cs, RefreshTokenStore.cs,
+  EmailOtpStore.cs, PasswordResetStore.cs, IdentityService.cs
+```
+
+Rules:
+
+- Access tokens: HS256; must include `jti`, subject, `iat`.
+- Secret from `JwtSettings:SecretKey` / `JWT_SECRET` / `JwtSettings__SecretKey` (≥ 32 bytes after base64 or UTF-8).
+- `OnTokenValidated` rejects revoked access tokens via `IAuthService.IsAccessTokenRevokedAsync`.
+- Refresh tokens: secure random; stored hashed in Redis via `ICacheService` — never store raw refresh tokens as keys/values.
+- Public auth endpoints are rate-limited (`auth-public`).
+
+### Email (Gmail API)
+
+```text
+Infrastructure/Interfaces/IEmailService.cs
+Infrastructure/Common/Email/...
+```
+
+Required env (typical):
+
+```text
+GmailApi__ClientId
+GmailApi__ClientSecret
+GmailApi__RefreshToken
+GmailApi__SenderEmail
+GmailApi__SenderName
+GmailApi__ResetPasswordUrl
+```
+
+- Scope: `https://www.googleapis.com/auth/gmail.send` only.
+- Never commit OAuth secrets; never log OTP, reset tokens, or email bodies.
+- If register persists the account but email fails, return `201` with failed email delivery status and allow resend OTP.
+- Resend OTP / forgot-password responses stay neutral (no account enumeration).
+
+---
+
+## 8. Redis and cache
+
+```text
+Infrastructure/Interfaces/ICacheService.cs
+Infrastructure/Caching/RedisCacheService.cs
+Infrastructure/Caching/RedisKeyBuilder.cs
+Infrastructure/Common/Caching/.../RedisSettings.cs
+```
+
+Used for: refresh/session, JWT blacklist, login attempts, OTP, password reset, short-lived caches.
+
+Rules:
+
+- PostgreSQL is source of truth.
+- Always set TTL unless there is a strong reason not to.
+- Cache DTOs/read models, not tracked EF entities.
+- Do not store raw passwords, refresh tokens, OTPs, or reset tokens.
+- Prefer `noeviction` on Redis instances holding auth security keys.
+
+Auth key patterns (see `docs/redis-cache-guide.md` for full list):
+
+```text
+furnispace:auth:refresh-token:{userId}:{refreshTokenHash}
+furnispace:auth:blacklist:{jti}
+furnispace:auth:login-attempt:{email}
+furnispace:auth:otp:{email}
+furnispace:auth:password-reset:{userId}:{tokenId}
+```
+
+---
+
+## 9. Other infrastructure providers
+
+Registered in `Infrastructure/DependencyInjection.cs` (called from `Application.AddApplication`):
+
+| Provider | Config keys (examples) | Notes |
+| --- | --- | --- |
+| PostgreSQL | `ConnectionStrings:DefaultConnection` / `MigrationConnection`, env `__` forms | Npgsql enum mapping |
+| Redis | `Redis:ConnectionString`, `REDIS_CONNECTION`, optional `REDIS_PASSWORD` | |
+| Elasticsearch | `Elasticsearch:Url`, `ELASTICSEARCH_URL`, `InitializeIndices` | Indexers in Application/Search |
+| MongoDB | `MongoDb:*`, `MONGODB_CONNECTION_STRING` | Room planner scenes |
+| Firebase Storage | `FIREBASE_STORAGE_BUCKET`, credentials path | Project/product files |
+| Gmail API | `GmailApi__*` | Transactional email |
+| PayOS / SePay | Application options + env overrides | Webhooks under Payments controllers |
+
+Reindex CLI (exits after run):
+
+```powershell
+dotnet run --project src/FurniSpace.API -- reindex products
+# modules: accounts | products | projects | chat-messages | project-files
+```
+
+---
+
+## 10. SignalR
+
+| Hub | Path |
+| --- | --- |
+| `NotificationsHub` | `/hubs/notifications` |
+| `ProjectChatHub` | `/hubs/project-chat` |
+| `PaymentHub` | `/hubs/payments` |
+
+API registers SignalR adapters that implement Application realtime interfaces. Prefer those interfaces from services; do not push hub logic into controllers. Details: `docs/signalr-notification-guide.md`.
+
+---
+
+## 11. Database and migrations
+
+```text
+Infrastructure/Data/AppDbContext.cs
+Infrastructure/Migrations/
+```
+
+Startup (`Program.cs`):
+
+- `StartupTasks:RunMigrations` (default **true**) → `MigrateAsync`
+- `StartupTasks:SeedDemoData` (default **true**) → `DataSeeder.SeedAsync`
+- Failures are logged; in **`IntegrationTest`** they **rethrow** (fail fast)
+
+Commands:
+
+```powershell
+dotnet ef migrations list --project src\FurniSpace.Infrastructure\FurniSpace.Infrastructure.csproj --startup-project src\FurniSpace.API\FurniSpace.API.csproj
+dotnet ef database update --project src\FurniSpace.Infrastructure\FurniSpace.Infrastructure.csproj --startup-project src\FurniSpace.API\FurniSpace.API.csproj
+```
+
+Controllers must still avoid `AppDbContext`.
+
+---
+
+## 12. Configuration and environments
+
+- Prefer **section + env override** (`JwtSettings:SecretKey` / `JWT_SECRET`).
+- Nested env uses `__` (`ConnectionStrings__DefaultConnection`).
+- Root `.env` is loaded by `EnvLoader` unless environment is **`IntegrationTest`**.
+- `appsettings.json` mainly holds logging; connection secrets come from env / `.env`.
+- There is **no** `appsettings.IntegrationTest.json`. Integration fixtures set process env + in-memory config before host start.
+
+Local day-to-day: keep `ASPNETCORE_ENVIRONMENT=Development`. Do not switch your personal `.env` to `IntegrationTest` to “run tests” — the test fixture sets that only inside the test process.
+
+---
+
+## 13. Adding a feature
+
+1. Define contract: route, roles/policies, request/response, status codes, failure cases.
+2. Domain entity/enum changes if state changes.
+3. DTOs under `Application/DTOs/{Module}/`.
+4. `Interfaces/{Module}/I{Module}Service.cs` + `Services/{Module}/{Module}Service.cs`.
+5. Repository under `Infrastructure/Repositories/IRepository` + `Repository` if persistence is needed.
+6. EF `DbSet` / mapping / migration if schema changes.
+7. Register in `Infrastructure/DependencyInjection.cs` and/or `Application/DependencyInjection.cs`.
+8. Thin controller action → `ToActionResult(...)`.
+9. Tests: unit for service rules; Core integration for HTTP + Postgres when the path is P0.
+
+Verify:
+
+```powershell
+dotnet restore tests/UnitTests/FurniSpace.UnitTests.sln
+dotnet build tests/UnitTests/FurniSpace.UnitTests.sln --no-restore
+dotnet test tests/UnitTests/FurniSpace.UnitTests.sln --no-build
+
+# Docker required
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --filter "Category=Core"
+```
+
+---
+
+## 14. Feature checklist
+
+Planning:
+
+- [ ] Route, request, response, status codes
+- [ ] Roles/policies and failure cases
+- [ ] Cache / realtime / search impact decided
 
 Domain:
-- Entity/value object:
-- Business rules:
+
+- [ ] Entity/enum changes only where needed
+- [ ] Invariants stay in Domain (or clearly owned by Application if transitional)
 
 Application:
-- DTO:
-- Mapster mapping:
-- Command/query:
-- Validator:
-- Handler:
+
+- [ ] DTOs + service interface/implementation under module folders
+- [ ] Mapster mapping updated
+- [ ] Results use `ServiceResult<T>` / error codes
+- [ ] Auth/session logic stays in Identity services
 
 Infrastructure:
-- Repository:
-- EF configuration:
-- Migration:
+
+- [ ] Repository contract + implementation if needed
+- [ ] Migration if schema changes
+- [ ] Provider code (Redis/ES/Mongo/Firebase/email) stays in Infrastructure
 
 API:
-- Controller/action:
-- Status code mapping:
+
+- [ ] Thin controller, Application services only
+- [ ] `ToActionResult(...)`
+- [ ] `[Authorize]` / roles where required
 
 Tests:
-- Happy path:
-- Validation:
-- Not found/conflict:
-- Auth:
+
+- [ ] Unit coverage for business rules and validation failures
+- [ ] Core integration for critical HTTP + persistence paths when stable
+
+---
+
+## 15. Catalog Business Type
+
+Business Type describes **where** a product is intended (cafe, restaurant, …). Category describes **what** it is (table, chair, …).
+
+- `projects.business_type` remains free-text on project requests and is **not** linked to catalog Business Types.
+- Products store `business_type_ids` as nullable PostgreSQL `integer[]` (no join table, no FK on array elements). GIN index for lookup.
+- `ProductService` validates IDs: positive, exist, active; duplicates normalized.
+
+| Route | Access | Description |
+| --- | --- | --- |
+| `GET /business-types` | Public | List with pagination/filtering |
+| `GET /business-types/{id}` | Public | Detail |
+| `POST /business-types` | Admin | Create |
+| `PATCH /business-types/{id}` | Admin | Update |
+| `PATCH /business-types/{id}/status` | Admin | Active/inactive |
+
+Product create/update may include `"businessTypeIds": [1, 2]`.
+
+- `null` = no assignment stored; `[]` = explicitly none.
+- Filters on `GET /products` and `GET /products/search` use **ANY** semantics (`&&` array overlap). Invalid IDs (≤ 0) → `400 INVALID_BUSINESS_TYPE_FILTER`.
+
+`ProductSearchDocument` includes `businessTypeIds`. After mapping changes:
+
+```powershell
+dotnet run --project src/FurniSpace.API -- reindex products
 ```
+
+---
+
+## 16. Testing (quick reference)
+
+| Suite | Projects | Notes |
+| --- | --- | --- |
+| Unit | `tests/UnitTests/FurniSpace.UnitTests.sln` → `*.Tests` | No Docker; CI + Sonar |
+| Core integration | `*.IntegrationTests` + trait `Category=Core` | Postgres Testcontainers; Redis/ES/email/storage faked in API factory |
+| Shared harness | `FurniSpace.Testing` | Excluded from Sonar coverage (test infra) |
+
+```powershell
+# All unit tests
+dotnet test tests/UnitTests/FurniSpace.UnitTests.sln
+
+# All Core integration tests (Docker required)
+dotnet test tests/IntegrationTests/FurniSpace.IntegrationTests.sln --filter "Category=Core"
+```
+
+API integration uses `WebApplicationFactory`, test auth headers (`X-Test-User-Id`, `X-Test-Role`), Respawn reset before each test. Full details: `docs/integration-test-build-guide.md`.
+
+CI (`.github/workflows/ci.yml`): build/test the unit solution, then build/test the Core integration solution. Sonar (`.github/workflows/build.yml`) builds and collects coverage from the unit solution only.
+
+---
+
+## 17. Logging
+
+```text
+Infrastructure/Logging/SerilogConfiguration.cs
+API/Middleware/CorrelationIdMiddleware.cs
+API/Middleware/RequestLoggingMiddleware.cs
+API/Middleware/ExceptionHandlingMiddleware.cs
+```
+
+- Development: readable console + `logs/furnispace-YYYYMMDD.log`
+- Other envs: structured JSON console + `.json` log file
+- Enrich with `Application`, `CorrelationId`, `TraceId`; authenticated requests include `UserId`
+- `4xx` / slow (≥1s) → Warning; `5xx` → Error
+- Use structured templates; never interpolate secrets into messages
+- Never log passwords, tokens, OTPs, connection strings, or sensitive bodies
+
+---
+
+## 18. Agent / contributor rules
+
+- Read existing files before editing; keep changes scoped.
+- Follow current folders and namespaces (no inventing `Features/` or Domain repositories).
+- Do not move repository interfaces into Domain.
+- Do not put EF/Redis/Elasticsearch client code in Application services.
+- Do not put business rules in controllers.
+- Use DTOs + `ServiceResult<T>` for Application outputs.
+- Update this guide when architecture or conventions change.
+- Prefer `rg` for searching; run build/tests after meaningful code changes.

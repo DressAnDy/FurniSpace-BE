@@ -1,0 +1,43 @@
+{
+  "mappings": {
+    "properties": {
+      "projectId": { "type": "keyword" },
+      "projectCode": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "projectName": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "businessType": { "type": "keyword" },
+      "status": { "type": "keyword" },
+      "customerId": { "type": "keyword" },
+      "customerName": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "customerEmail": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "customerPhone": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "assignedSalesId": { "type": "keyword" },
+      "assignedDesignerId": { "type": "keyword" },
+      "submittedAt": { "type": "date" }
+    }
+  }
+}

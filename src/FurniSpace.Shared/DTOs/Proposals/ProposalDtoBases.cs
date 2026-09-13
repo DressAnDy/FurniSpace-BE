@@ -1,0 +1,51 @@
+#nullable enable
+
+namespace FurniSpace.Shared.DTOs.Proposals;
+
+public abstract class ProposalBaseDto<TStatus>
+{
+    public Guid ProposalId { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid? ParentProposalId { get; set; }
+    public string ProposalName { get; set; } = string.Empty;
+    public string? Description { get; set; }
+    public int? VersionNo { get; set; }
+    public TStatus Status { get; set; } = default!;
+    public DateTime? PublishedAt { get; set; }
+    public DateTime? SelectedAt { get; set; }
+    public DateTime? RejectedAt { get; set; }
+    public string? RevisionNote { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+}
+
+public abstract class ProposalSceneBaseDto<TSceneType>
+{
+    public Guid SceneId { get; set; }
+    public Guid ProposalId { get; set; }
+    public List<ProposalSceneAreaDto> Areas { get; set; } = [];
+    public string? SceneName { get; set; }
+    public TSceneType SceneType { get; set; } = default!;
+    public string? MongoSceneId { get; set; }
+    public Guid? PreviewFileId { get; set; }
+    public string? PreviewFileUrl { get; set; }
+    public int? VersionNo { get; set; }
+    public bool? IsActive { get; set; }
+    public DateTime? CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
+}
+
+public sealed class ProposalSceneAreaDto
+{
+    public Guid ProjectAreaId { get; set; }
+    public string AreaName { get; set; } = string.Empty;
+    public string? AreaType { get; set; }
+    public int? FloorNumber { get; set; }
+    public bool IsSpecialLayout { get; set; }
+    public decimal? AreaSqm { get; set; }
+    public decimal? Width { get; set; }
+    public decimal? Length { get; set; }
+    public decimal? Height { get; set; }
+    public int SortOrder { get; set; }
+    public string? Status { get; set; }
+}

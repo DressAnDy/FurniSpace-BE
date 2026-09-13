@@ -1,0 +1,31 @@
+{
+  "mappings": {
+    "properties": {
+      "accountId": { "type": "keyword" },
+      "roleId": { "type": "keyword" },
+      "email": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "fullName": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "phone": {
+        "type": "text",
+        "fields": {
+          "keyword": { "type": "keyword" }
+        }
+      },
+      "avatarUrl": { "type": "keyword", "index": false },
+      "status": { "type": "keyword" },
+      "createdAt": { "type": "date" },
+      "updatedAt": { "type": "date" },
+      "deletedAt": { "type": "date" }
+    }
+  }
+}

@@ -1,0 +1,55 @@
+using System;
+using FurniSpace.Domain.Enums;
+
+namespace FurniSpace.Domain.Common;
+
+public abstract class OrderItemShape
+{
+    public Guid OrderItemId { get; set; }
+    public string? ProductNameSnapshot { get; set; }
+    public string? ItemName { get; set; }
+    public int? Quantity { get; set; }
+    public int DeliveredQuantity { get; set; }
+    public OrderItemStatus? Status { get; set; }
+    public DateTime? DeliveredAt { get; set; }
+    public Guid? DeliveredBy { get; set; }
+    public decimal? UnitPrice { get; set; }
+    public decimal? DiscountAmount { get; set; }
+    public decimal? SubtotalAmount { get; set; }
+    public bool? IsCustomized { get; set; }
+}
+
+public abstract class OrderListItemShape
+{
+    public Guid OrderId { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid QuotationId { get; set; }
+    public string OrderCode { get; set; } = string.Empty;
+    public decimal TotalAmount { get; set; }
+    public decimal? DepositAmount { get; set; }
+    public decimal? PaidAmount { get; set; }
+    public decimal? RemainingAmount { get; set; }
+    public OrderStatus? Status { get; set; }
+    public DateTime? CreatedAt { get; set; }
+}
+
+public abstract class OrderDetailShape
+{
+    public Guid OrderId { get; set; }
+    public Guid ProjectId { get; set; }
+    public Guid? ProposalId { get; set; }
+    public Guid QuotationId { get; set; }
+    public string OrderCode { get; set; } = string.Empty;
+    public Guid CustomerId { get; set; }
+    public Guid? SalesId { get; set; }
+    public decimal VatRate { get; set; }
+    public decimal VatAmount { get; set; }
+    public decimal ItemsGrossAmount { get; set; }
+    public decimal TotalItemDiscountAmount { get; set; }
+    public decimal PreVatAmount { get; set; }
+    public decimal TotalAmount { get; set; }
+    public decimal? DepositAmount { get; set; }
+    public decimal? PaidAmount { get; set; }
+    public decimal? RemainingAmount { get; set; }
+    public OrderStatus? Status { get; set; }
+}

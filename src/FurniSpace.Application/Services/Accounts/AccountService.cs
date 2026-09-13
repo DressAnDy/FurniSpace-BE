@@ -1,0 +1,1172 @@
+using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Identity;
+using static FurniSpace.Application.Constants.Accounts.AccountServiceConstants;
+using FurniSpace.Application.DTOs.Accounts;
+using FurniSpace.Application.DTOs.Search;
+using FurniSpace.Application.Interfaces.Accounts;
+using FurniSpace.Application.Interfaces.Identity;
+using FurniSpace.Application.Services.Search;
+using FurniSpace.Domain.Entities;
+using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Accounts;
+using FurniSpace.Infrastructure.ReadModels.Accounts;
+using FurniSpace.Infrastructure.Repositories.IRepository;
+using FurniSpace.Infrastructure.Persistence;
+using Mapster;
+using Microsoft.AspNetCore.Identity;
+using System.Security.Cryptography;
+using System.Text;
+using InfrastructureCacheService = FurniSpace.Infrastructure.Interfaces.ICacheService;
+using InfrastructureSearchIndexService = FurniSpace.Infrastructure.Interfaces.ISearchIndexService;
+
+namespace FurniSpace.Application.Services.Accounts;
+
+public sealed class AccountService : IAccountService
+{
+    private readonly IAccountRepository _accounts;
+    private readonly IAuthService _auth;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly InfrastructureCacheService _cache;
+    private readonly InfrastructureSearchIndexService _search;
+    private readonly IPasswordHasher<Account> _passwordHasher;
+
+    public AccountService(
+        IAccountRepository accounts,
+        IAuthService auth,
+        InfrastructureCacheService cache,
+        InfrastructureSearchIndexService search,
+        IUnitOfWork unitOfWork,
+        IPasswordHasher<Account> passwordHasher)
+    {
+        _accounts = accounts;
+        _auth = auth;
+        _unitOfWork = unitOfWork;
+        _cache = cache;
+        _search = search;
+        _passwordHasher = passwordHasher;
+    }
+
+    public async Task<ServiceResult<AccountDto>> CreateAsync(CreateAccountRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var validationErrors = ValidateCreateRequest(request);
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<AccountDto>.BadRequest(validationErrors);
+        }
+
+        var email = NormalizeEmail(request.Email);
+        if (!await _accounts.RoleExistsAsync(request.RoleId, cancellationToken))
+        {
+            return ServiceResult<AccountDto>.BadRequest("Role does not exist.");
+        }
+
+        if (await _accounts.EmailExistsAsync(email, cancellationToken: cancellationToken))
+        {
+            return ServiceResult<AccountDto>.Conflict("Email already exists.");
+        }
+
+        var account = new Account
+        {
+            AccountId = Guid.NewGuid(),
+            RoleId = request.RoleId,
+            Email = email,
+            FullName = request.FullName.Trim(),
+            Phone = NormalizeOptional(request.Phone),
+            AvatarUrl = NormalizeOptional(request.AvatarUrl),
+            Status = NormalizeStatus(request.Status)
+        };
+        account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
+
+        await _accounts.AddAsync(account, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var dto = account.Adapt<AccountDto>();
+        await CacheAccountAsync(dto, cancellationToken);
+        await InvalidateAccountListsAsync(cancellationToken);
+        await IndexAccountAsync(dto, cancellationToken);
+
+        return ServiceResult<AccountDto>.Created(dto);
+    }
+
+    public async Task<ServiceResult<AccountDto>> GetByIdAsync(Guid accountId, CancellationToken cancellationToken = default)
+    {
+        var cacheKey = AccountItemCacheKey(accountId);
+        var cached = await TryGetCacheAsync<AccountDto>(cacheKey, cancellationToken);
+        if (cached is not null && cached.DeletedAt is null)
+        {
+            return ServiceResult<AccountDto>.Success(cached);
+        }
+
+        var account = await _accounts.GetByIdAsync(accountId, cancellationToken);
+        if (account is null || account.DeletedAt is not null)
+        {
+            return ServiceResult<AccountDto>.NotFound(AccountNotFoundMessage);
+        }
+
+        var dto = account.Adapt<AccountDto>();
+        await CacheAccountAsync(dto, cancellationToken);
+
+        return ServiceResult<AccountDto>.Success(dto);
+    }
+
+    public async Task<ServiceResult<AccountDetailDto>> GetAdminDetailAsync(Guid accountId, CancellationToken cancellationToken = default)
+    {
+        if (accountId == Guid.Empty)
+        {
+            return ServiceResult<AccountDetailDto>.BadRequest("Account id is required.");
+        }
+
+        var account = await _accounts.GetDetailAsync(accountId, cancellationToken);
+        return account is null
+            ? ServiceResult<AccountDetailDto>.NotFound(AccountNotFoundCode)
+            : ServiceResult<AccountDetailDto>.Success(account.Adapt<AccountDetailDto>(), AccountDetailRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<MyProfileDto>> UpdateMyProfileAsync(
+        Guid currentUserId,
+        UpdateMyProfileRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<MyProfileDto>.BadRequest("Account id is required.");
+        }
+
+        var validationErrors = ValidateProfileUpdateRequest(request);
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<MyProfileDto>.BadRequest(validationErrors);
+        }
+
+        var account = await _accounts.GetByIdAsync(currentUserId, cancellationToken);
+        if (account is null || account.DeletedAt is not null)
+        {
+            return ServiceResult<MyProfileDto>.NotFound(AccountNotFoundMessage);
+        }
+
+        account.FullName = request.FullName.Trim();
+        account.Phone = NormalizeOptional(request.Phone);
+        account.UpdatedAt = DateTime.UtcNow;
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var accountDto = account.Adapt<AccountDto>();
+        await CacheAccountAsync(accountDto, cancellationToken);
+        await InvalidateAccountListsAsync(cancellationToken);
+        await IndexAccountAsync(accountDto, cancellationToken);
+
+        var dto = account.Adapt<MyProfileDto>();
+        dto.Role = await _accounts.GetRoleNameAsync(account.RoleId, cancellationToken) ?? string.Empty;
+        return ServiceResult<MyProfileDto>.Success(dto, ProfileUpdatedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<AvailableDesignerDto>>> GetAvailableDesignersAsync(
+        AvailableDesignerQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(PageMustBeGreaterThanZero);
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(PageSizeMustBeBetween1And100);
+        }
+
+        var normalizedSearch = NormalizeOptional(query.Search);
+        var designers = await _accounts.GetAvailableDesignersAsync(
+            query.Page,
+            query.PageSize,
+            MaxActiveDesignerProjects,
+            normalizedSearch,
+            cancellationToken);
+        var totalItems = await _accounts.CountAvailableDesignersAsync(
+            MaxActiveDesignerProjects,
+            normalizedSearch,
+            cancellationToken);
+        var data = PagedResult<AvailableDesignerDto>.Create(
+            designers.Adapt<List<AvailableDesignerDto>>(),
+            query.Page,
+            query.PageSize,
+            totalItems);
+
+        return ServiceResult<PagedResult<AvailableDesignerDto>>.Success(data, AvailableDesignersRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<AvailableDesignerDto>>> GetDesignerWorkloadAsync(
+        DesignerWorkloadQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(PageMustBeGreaterThanZero);
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(PageSizeMustBeBetween1And100);
+        }
+
+        var capacityStateError = ValidateCapacityState(query.CapacityState);
+        if (capacityStateError is not null)
+        {
+            return ServiceResult<PagedResult<AvailableDesignerDto>>.BadRequest(capacityStateError);
+        }
+
+        var sortBy = NormalizeSortBy(query.SortBy);
+        var normalizedSearch = NormalizeOptional(query.Search);
+        var normalizedCapacityState = NormalizeOptional(query.CapacityState)?.ToUpperInvariant();
+
+        var designers = await _accounts.GetDesignerWorkloadAsync(
+            query.Page,
+            query.PageSize,
+            MaxActiveDesignerProjects,
+            normalizedSearch,
+            normalizedCapacityState,
+            sortBy,
+            cancellationToken);
+        var totalItems = await _accounts.CountDesignerWorkloadAsync(
+            MaxActiveDesignerProjects,
+            normalizedSearch,
+            normalizedCapacityState,
+            cancellationToken);
+        var data = PagedResult<AvailableDesignerDto>.Create(
+            designers.Adapt<List<AvailableDesignerDto>>(),
+            query.Page,
+            query.PageSize,
+            totalItems);
+
+        return ServiceResult<PagedResult<AvailableDesignerDto>>.Success(data, DesignerWorkloadRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<DesignerWorkloadSummaryDto>> GetDesignerWorkloadSummaryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var summary = await _accounts.GetDesignerWorkloadSummaryAsync(
+            MaxActiveDesignerProjects,
+            cancellationToken);
+
+        return ServiceResult<DesignerWorkloadSummaryDto>.Success(
+            new DesignerWorkloadSummaryDto
+            {
+                TotalActiveDesigners = summary.TotalActiveDesigners,
+                AvailableCount = summary.AvailableCount,
+                FullCount = summary.FullCount,
+                OverCount = summary.OverCount,
+                TotalDesignActiveProjects = summary.TotalDesignActiveProjects,
+                MaxActiveProjects = MaxActiveDesignerProjects
+            },
+            DesignerWorkloadSummaryRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<DesignerAssignedProjectDto>>> GetDesignerAssignedProjectsAsync(
+        Guid designerId,
+        DesignerAssignedProjectQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (designerId == Guid.Empty)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest("Designer id is required.");
+        }
+
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest(PageMustBeGreaterThanZero);
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest(PageSizeMustBeBetween1And100);
+        }
+
+        var bucketError = ValidateBucket(query.Bucket);
+        if (bucketError is not null)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.BadRequest(bucketError);
+        }
+
+        var isDesigner = await _accounts.IsActiveDesignerAsync(designerId, cancellationToken);
+        if (!isDesigner)
+        {
+            return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.NotFound("Active designer account not found.");
+        }
+
+        var normalizedBucket = NormalizeOptional(query.Bucket)?.ToUpperInvariant();
+        var projects = await _accounts.GetDesignerAssignedProjectsAsync(
+            designerId,
+            query.Page,
+            query.PageSize,
+            normalizedBucket,
+            cancellationToken);
+        var totalItems = await _accounts.CountDesignerAssignedProjectsAsync(
+            designerId,
+            normalizedBucket,
+            cancellationToken);
+
+        var items = projects
+            .Select(project => new DesignerAssignedProjectDto
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                Status = project.Status?.ToString(),
+                DesignerAssignedAt = project.DesignerAssignedAt,
+                CustomerId = project.CustomerId,
+                CustomerName = project.CustomerName,
+                AssignedSalesId = project.AssignedSalesId,
+                SalesName = project.SalesName,
+                Bucket = FurniSpace.Infrastructure.Common.Accounts.DesignerWorkloadStatusSets.ResolveBucket(project.Status)
+            })
+            .ToList();
+
+        var data = PagedResult<DesignerAssignedProjectDto>.Create(
+            items,
+            query.Page,
+            query.PageSize,
+            totalItems);
+
+        return ServiceResult<PagedResult<DesignerAssignedProjectDto>>.Success(
+            data,
+            DesignerAssignedProjectsRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<SalesWorkloadItemDto>>> GetSalesWorkloadAsync(
+        SalesWorkloadQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest(PageMustBeGreaterThanZero);
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest(PageSizeMustBeBetween1And100);
+        }
+
+        var capacityStateError = ValidateSalesCapacityState(query.CapacityState);
+        if (capacityStateError is not null)
+        {
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest(capacityStateError);
+        }
+
+        var pressureStateError = ValidateFuturePressureState(query.FuturePressureState);
+        if (pressureStateError is not null)
+        {
+            return ServiceResult<PagedResult<SalesWorkloadItemDto>>.BadRequest(pressureStateError);
+        }
+
+        var sortBy = NormalizeSalesSortBy(query.SortBy);
+        var normalizedSearch = NormalizeOptional(query.Search);
+        var normalizedCapacityState = NormalizeOptional(query.CapacityState)?.ToUpperInvariant();
+        var normalizedPressureState = NormalizeOptional(query.FuturePressureState)?.ToUpperInvariant();
+
+        var sales = await _accounts.GetSalesWorkloadAsync(
+            new SalesWorkloadListQuery
+            {
+                Page = query.Page,
+                PageSize = query.PageSize,
+                MaxActiveProjects = MaxActiveSalesProjects,
+                Search = normalizedSearch,
+                CapacityState = normalizedCapacityState,
+                FuturePressureState = normalizedPressureState,
+                SortBy = sortBy
+            },
+            cancellationToken);
+        var totalItems = await _accounts.CountSalesWorkloadAsync(
+            MaxActiveSalesProjects,
+            normalizedSearch,
+            normalizedCapacityState,
+            normalizedPressureState,
+            cancellationToken);
+
+        var items = sales.Select(MapSalesWorkloadItem).ToList();
+        var data = PagedResult<SalesWorkloadItemDto>.Create(items, query.Page, query.PageSize, totalItems);
+        return ServiceResult<PagedResult<SalesWorkloadItemDto>>.Success(data, SalesWorkloadRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<SalesWorkloadSummaryDto>> GetSalesWorkloadSummaryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        var summary = await _accounts.GetSalesWorkloadSummaryAsync(MaxActiveSalesProjects, cancellationToken);
+        return ServiceResult<SalesWorkloadSummaryDto>.Success(
+            new SalesWorkloadSummaryDto
+            {
+                TotalActiveSales = summary.TotalActiveSales,
+                AvailableNowCount = summary.AvailableNowCount,
+                FullNowCount = summary.FullNowCount,
+                OverNowCount = summary.OverNowCount,
+                HighFuturePressureCount = summary.HighFuturePressureCount,
+                TotalSalesActiveProjects = summary.TotalSalesActiveProjects,
+                UnassignedIntakeCount = summary.UnassignedIntakeCount,
+                MaxActiveProjects = MaxActiveSalesProjects
+            },
+            SalesWorkloadSummaryRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<SalesAssignedProjectDto>>> GetSalesAssignedProjectsAsync(
+        Guid salesId,
+        SalesAssignedProjectQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (salesId == Guid.Empty)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest("Sales id is required.");
+        }
+
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest(PageMustBeGreaterThanZero);
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest(PageSizeMustBeBetween1And100);
+        }
+
+        var bucketError = ValidateSalesBucket(query.Bucket);
+        if (bucketError is not null)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.BadRequest(bucketError);
+        }
+
+        var isSales = await _accounts.IsActiveSalesAsync(salesId, cancellationToken);
+        if (!isSales)
+        {
+            return ServiceResult<PagedResult<SalesAssignedProjectDto>>.NotFound("Active sales account not found.");
+        }
+
+        var normalizedBucket = NormalizeOptional(query.Bucket)?.ToUpperInvariant();
+        var projects = await _accounts.GetSalesAssignedProjectsAsync(
+            salesId,
+            query.Page,
+            query.PageSize,
+            normalizedBucket,
+            cancellationToken);
+        var totalItems = await _accounts.CountSalesAssignedProjectsAsync(
+            salesId,
+            normalizedBucket,
+            cancellationToken);
+
+        var items = projects
+            .Select(project => new SalesAssignedProjectDto
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                Status = project.Status?.ToString(),
+                SalesAssignedAt = project.SalesAssignedAt,
+                CustomerId = project.CustomerId,
+                CustomerName = project.CustomerName,
+                AssignedDesignerId = project.AssignedDesignerId,
+                DesignerName = project.DesignerName,
+                Bucket = SalesWorkloadPressurePolicy.ResolveBucket(project.Status),
+                PressureWeight = SalesWorkloadPressurePolicy.ResolvePressureWeight(project.Status)
+            })
+            .ToList();
+
+        var data = PagedResult<SalesAssignedProjectDto>.Create(items, query.Page, query.PageSize, totalItems);
+        return ServiceResult<PagedResult<SalesAssignedProjectDto>>.Success(data, SalesAssignedProjectsRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<UnassignedIntakeProjectDto>>> GetUnassignedIntakeProjectsAsync(
+        UnassignedIntakeProjectQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (query.Page < 1)
+        {
+            return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.BadRequest(PageMustBeGreaterThanZero);
+        }
+
+        if (query.PageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.BadRequest(PageSizeMustBeBetween1And100);
+        }
+
+        var projects = await _accounts.GetUnassignedIntakeProjectsAsync(query.Page, query.PageSize, cancellationToken);
+        var totalItems = await _accounts.CountUnassignedIntakeProjectsAsync(cancellationToken);
+        var items = projects
+            .Select(project => new UnassignedIntakeProjectDto
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                BusinessType = project.BusinessType,
+                SubmittedAt = project.SubmittedAt,
+                CustomerId = project.CustomerId,
+                CustomerName = project.CustomerName
+            })
+            .ToList();
+
+        var data = PagedResult<UnassignedIntakeProjectDto>.Create(items, query.Page, query.PageSize, totalItems);
+        return ServiceResult<PagedResult<UnassignedIntakeProjectDto>>.Success(
+            data,
+            UnassignedIntakeProjectsRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<PagedResult<AccountDto>>> GetPagedAsync(
+        int page,
+        int pageSize,
+        string? search,
+        string? status,
+        bool includeDeleted,
+        CancellationToken cancellationToken = default)
+    {
+        if (page < 1)
+        {
+            return ServiceResult<PagedResult<AccountDto>>.BadRequest(PageMustBeGreaterThanZero);
+        }
+
+        if (pageSize is < 1 or > 100)
+        {
+            return ServiceResult<PagedResult<AccountDto>>.BadRequest(PageSizeMustBeBetween1And100);
+        }
+
+        if (!TryNormalizeStatus(status, out var normalizedStatus))
+        {
+            return ServiceResult<PagedResult<AccountDto>>.BadRequest("Status is invalid.");
+        }
+
+        var normalizedSearch = NormalizeOptional(search);
+        var cacheKey = AccountListCacheKey(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted);
+
+        var cached = await TryGetCacheAsync<PagedResult<AccountDto>>(cacheKey, cancellationToken);
+        if (cached is not null)
+        {
+            return ServiceResult<PagedResult<AccountDto>>.Success(cached);
+        }
+
+        PagedResult<AccountDto> result;
+
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            result = await SearchAccountsAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+        }
+        else
+        {
+            result = await GetPagedAccountsFromDatabaseAsync(
+                page, pageSize, normalizedSearch, normalizedStatus, includeDeleted,
+                cancellationToken);
+        }
+
+        await TrySetCacheAsync(cacheKey, result, AccountListCacheTtl, cancellationToken);
+
+        return ServiceResult<PagedResult<AccountDto>>.Success(result);
+    }
+
+    public async Task<ServiceResult<AccountSearchStatsDto>> GetSearchStatsAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var aggregation = await _search.AggregateAsync(
+                AccountIndexName,
+                AccountElasticsearchQueryFactory.BuildStatsAggregation(includeDeleted),
+                cancellationToken);
+
+            var roleCounts = await EnrichRoleFacetLabelsAsync(
+                SearchFacetMapper.ToDto(
+                    aggregation.Facets.GetValueOrDefault(AccountElasticsearchQueryFactory.RoleIdField) ?? []),
+                cancellationToken);
+
+            return ServiceResult<AccountSearchStatsDto>.Success(
+                new AccountSearchStatsDto
+                {
+                    StatusCounts = SearchFacetMapper.ToDto(
+                        aggregation.Facets.GetValueOrDefault(AccountElasticsearchQueryFactory.StatusField) ?? []),
+                    RoleCounts = roleCounts
+                },
+                "Account search stats retrieved successfully.");
+        }
+        catch
+        {
+            return ServiceResult<AccountSearchStatsDto>.Success(
+                await GetSearchStatsFromDatabaseAsync(includeDeleted, cancellationToken),
+                "Account search stats retrieved successfully.");
+        }
+    }
+
+    public async Task<ServiceResult<AccountSuggestResponseDto>> SuggestAsync(
+        string query,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return ServiceResult<AccountSuggestResponseDto>.BadRequest("Query is required.");
+        }
+
+        if (limit is < 1 or > 20)
+        {
+            return ServiceResult<AccountSuggestResponseDto>.BadRequest("Limit must be between 1 and 20.");
+        }
+
+        IReadOnlyList<AccountSuggestItemDto> items;
+        try
+        {
+            var searchResult = await _search.SearchAsync<AccountDto>(
+                AccountIndexName,
+                AccountElasticsearchQueryFactory.BuildSuggest(query, limit),
+                cancellationToken);
+
+            items = searchResult.Documents
+                .Select(account => new AccountSuggestItemDto
+                {
+                    AccountId = account.AccountId,
+                    FullName = account.FullName,
+                    Email = account.Email
+                })
+                .ToList();
+        }
+        catch
+        {
+            var fallbackResult = await GetPagedAccountsFromDatabaseAsync(1, limit, query.Trim(), null, includeDeleted: false, cancellationToken);
+            items = fallbackResult.Items
+                .Select(account => new AccountSuggestItemDto
+                {
+                    AccountId = account.AccountId,
+                    FullName = account.FullName,
+                    Email = account.Email
+                })
+                .ToList();
+        }
+
+        return ServiceResult<AccountSuggestResponseDto>.Success(
+            new AccountSuggestResponseDto { Items = items },
+            string.Empty);
+    }
+
+    public async Task<ServiceResult<AccountDto>> UpdateAsync(Guid accountId, UpdateAccountRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var validationErrors = ValidateUpdateRequest(request);
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<AccountDto>.BadRequest(validationErrors);
+        }
+
+        var account = await _accounts.GetByIdAsync(accountId, cancellationToken);
+        if (account is null || account.DeletedAt is not null)
+        {
+            return ServiceResult<AccountDto>.NotFound(AccountNotFoundMessage);
+        }
+
+        var email = NormalizeEmail(request.Email);
+        if (!await _accounts.RoleExistsAsync(request.RoleId, cancellationToken))
+        {
+            return ServiceResult<AccountDto>.BadRequest("Role does not exist.");
+        }
+
+        if (await _accounts.EmailExistsAsync(email, accountId, cancellationToken))
+        {
+            return ServiceResult<AccountDto>.Conflict("Email already exists.");
+        }
+
+        var wasActive = account.Status == AccountStatus.ACTIVE;
+        account.RoleId = request.RoleId;
+        account.Email = email;
+        account.FullName = request.FullName.Trim();
+        account.Phone = NormalizeOptional(request.Phone);
+        account.AvatarUrl = NormalizeOptional(request.AvatarUrl);
+        account.Status = NormalizeStatus(request.Status);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var dto = account.Adapt<AccountDto>();
+        await CacheAccountAsync(dto, cancellationToken);
+        await InvalidateAccountListsAsync(cancellationToken);
+        await IndexAccountAsync(dto, cancellationToken);
+        if (wasActive && account.Status != AccountStatus.ACTIVE)
+        {
+            await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
+        }
+
+        return ServiceResult<AccountDto>.Success(dto);
+    }
+
+    public async Task<ServiceResult> DeleteAsync(Guid accountId, CancellationToken cancellationToken = default)
+    {
+        var account = await _accounts.GetByIdAsync(accountId, cancellationToken);
+        if (account is null || account.DeletedAt is not null)
+        {
+            return ServiceResult.NotFound(AccountNotFoundMessage);
+        }
+
+        account.DeletedAt = DateTime.UtcNow;
+        account.Status = AccountStatus.INACTIVE;
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        await TryRemoveCacheAsync(AccountItemCacheKey(accountId), cancellationToken);
+        await InvalidateAccountListsAsync(cancellationToken);
+        await TryDeleteIndexAsync(accountId, cancellationToken);
+        await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
+
+        return ServiceResult.Success("Account deleted successfully.");
+    }
+
+    private async Task<PagedResult<AccountDto>> GetPagedAccountsFromDatabaseAsync(
+        int page,
+        int pageSize,
+        string? normalizedSearch,
+        string? normalizedStatus,
+        bool includeDeleted,
+        CancellationToken cancellationToken)
+    {
+        var accounts = await _accounts.GetPagedAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+        var totalItems = await _accounts.CountAsync(normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+        return PagedResult<AccountDto>.Create(accounts.Adapt<List<AccountDto>>(), page, pageSize, totalItems);
+    }
+
+    private async Task<PagedResult<AccountDto>> SearchAccountsAsync(
+        int page,
+        int pageSize,
+        string normalizedSearch,
+        string? normalizedStatus,
+        bool includeDeleted,
+        CancellationToken cancellationToken)
+    {
+        var request = AccountElasticsearchQueryFactory.BuildSearch(
+            page,
+            pageSize,
+            normalizedSearch,
+            normalizedStatus,
+            includeDeleted);
+
+        try
+        {
+            var searchResult = await _search.SearchAsync<AccountDto>(AccountIndexName, request, cancellationToken);
+
+            return PagedResult<AccountDto>.Create(
+                searchResult.Documents.ToList(),
+                page,
+                pageSize,
+                (int)Math.Min(searchResult.Total, int.MaxValue));
+        }
+        catch
+        {
+            var fallback = await GetPagedAccountsFromDatabaseAsync(page, pageSize, normalizedSearch, normalizedStatus, includeDeleted, cancellationToken);
+            return fallback;
+        }
+    }
+
+    private async Task<AccountSearchStatsDto> GetSearchStatsFromDatabaseAsync(
+        bool includeDeleted,
+        CancellationToken cancellationToken)
+    {
+        var statusCounts = (await _accounts.CountGroupedByStatusAsync(includeDeleted, cancellationToken))
+            .Select(item => new SearchFacetItemDto
+            {
+                Key = item.Key,
+                Count = item.Count
+            })
+            .OrderByDescending(item => item.Count)
+            .ThenBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var roleCounts = await EnrichRoleFacetLabelsAsync(
+            (await _accounts.CountGroupedByRoleIdAsync(includeDeleted, cancellationToken))
+                .Select(item => new SearchFacetItemDto
+                {
+                    Key = item.Key,
+                    Count = item.Count
+                })
+                .ToList(),
+            cancellationToken);
+
+        return new AccountSearchStatsDto
+        {
+            StatusCounts = statusCounts,
+            RoleCounts = roleCounts
+        };
+    }
+
+    private async Task<IReadOnlyList<SearchFacetItemDto>> EnrichRoleFacetLabelsAsync(
+        IReadOnlyList<SearchFacetItemDto> roleCounts,
+        CancellationToken cancellationToken)
+    {
+        var enriched = new List<SearchFacetItemDto>(roleCounts.Count);
+        foreach (var roleCount in roleCounts)
+        {
+            string? label = null;
+            if (Guid.TryParse(roleCount.Key, out var roleId))
+            {
+                label = await _accounts.GetRoleNameAsync(roleId, cancellationToken);
+            }
+
+            enriched.Add(new SearchFacetItemDto
+            {
+                Key = roleCount.Key,
+                Count = roleCount.Count,
+                Label = label
+            });
+        }
+
+        return enriched;
+    }
+
+    private async Task CacheAccountAsync(AccountDto account, CancellationToken cancellationToken)
+    {
+        await TrySetCacheAsync(AccountItemCacheKey(account.AccountId), account, AccountItemCacheTtl, cancellationToken);
+    }
+
+    private async Task InvalidateAccountListsAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _cache.RemoveByPrefixAsync(AccountListCachePrefix, cancellationToken);
+        }
+        catch
+        {
+            // Cache invalidation should not fail the database-backed account workflow.
+        }
+    }
+
+    private async Task IndexAccountAsync(AccountDto account, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (account.DeletedAt is not null)
+            {
+                await _search.DeleteAsync(AccountIndexName, account.AccountId.ToString(), cancellationToken);
+                return;
+            }
+
+            await _search.IndexAsync(AccountIndexName, account.AccountId.ToString(), account, cancellationToken);
+        }
+        catch
+        {
+            // Search indexing is eventually consistent and should not fail the database write.
+        }
+    }
+
+    private async Task TryDeleteIndexAsync(Guid accountId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _search.DeleteAsync(AccountIndexName, accountId.ToString(), cancellationToken);
+        }
+        catch
+        {
+            // Search indexing is eventually consistent and should not fail the database write.
+        }
+    }
+
+    private async Task<T?> TryGetCacheAsync<T>(string key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _cache.GetAsync<T>(key, cancellationToken);
+        }
+        catch
+        {
+            return default;
+        }
+    }
+
+    private async Task TrySetCacheAsync<T>(string key, T value, TimeSpan expiration, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _cache.SetAsync(key, value, expiration, cancellationToken);
+        }
+        catch
+        {
+            // Cache writes are best-effort.
+        }
+    }
+
+    private async Task TryRemoveCacheAsync(string key, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _cache.RemoveAsync(key, cancellationToken);
+        }
+        catch
+        {
+            // Cache removals are best-effort.
+        }
+    }
+
+    private static string AccountItemCacheKey(Guid accountId)
+    {
+        return $"{AccountItemCachePrefix}{accountId}";
+    }
+
+    private static string AccountListCacheKey(int page, int pageSize, string? search, string? status, bool includeDeleted)
+    {
+        var value = $"{page}|{pageSize}|{search}|{status}|{includeDeleted}";
+        return $"{AccountListCachePrefix}{Sha256(value)}";
+    }
+
+    private static string Sha256(string value)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private static List<string> ValidateCreateRequest(CreateAccountRequestDto request)
+    {
+        var errors = ValidateCommon(request.RoleId, request.Email, request.FullName, request.Status);
+        var passwordError = PasswordPolicy.Validate(request.Password);
+        if (passwordError is not null)
+        {
+            errors.Add(passwordError);
+        }
+
+        return errors;
+    }
+
+    private static List<string> ValidateUpdateRequest(UpdateAccountRequestDto request)
+    {
+        return ValidateCommon(request.RoleId, request.Email, request.FullName, request.Status);
+    }
+
+    private static List<string> ValidateProfileUpdateRequest(UpdateMyProfileRequestDto request)
+    {
+        var errors = new List<string>();
+        if (string.IsNullOrWhiteSpace(request.FullName))
+        {
+            errors.Add("Full name is required.");
+        }
+        else if (request.FullName.Trim().Length > 100)
+        {
+            errors.Add("Full name must not exceed 100 characters.");
+        }
+
+        if (request.Phone?.Trim().Length > 20)
+        {
+            errors.Add("Phone must not exceed 20 characters.");
+        }
+
+        return errors;
+    }
+
+    private static List<string> ValidateCommon(Guid roleId, string email, string fullName, string? status)
+    {
+        var errors = new List<string>();
+        if (roleId == Guid.Empty)
+        {
+            errors.Add("Role id is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            errors.Add("Email is required.");
+        }
+        else if (email.Length > 100)
+        {
+            errors.Add("Email must not exceed 100 characters.");
+        }
+        else if (!email.Contains('@', StringComparison.Ordinal))
+        {
+            errors.Add("Email is invalid.");
+        }
+
+        if (string.IsNullOrWhiteSpace(fullName))
+        {
+            errors.Add("Full name is required.");
+        }
+        else if (fullName.Length > 100)
+        {
+            errors.Add("Full name must not exceed 100 characters.");
+        }
+
+        if (!TryNormalizeStatus(status, out _))
+        {
+            errors.Add("Status is invalid.");
+        }
+
+        return errors;
+    }
+
+    private static string NormalizeEmail(string email)
+    {
+        return email.Trim().ToLowerInvariant();
+    }
+
+    private static AccountStatus NormalizeStatus(string? status)
+    {
+        return TryNormalizeStatus(status, out var normalizedStatus)
+            ? Enum.Parse<AccountStatus>(normalizedStatus ?? AccountStatus.ACTIVE.ToString())
+            : AccountStatus.ACTIVE;
+    }
+
+    private static bool TryNormalizeStatus(string? status, out string? normalizedStatus)
+    {
+        var value = NormalizeOptional(status);
+        if (value is null)
+        {
+            normalizedStatus = null;
+            return true;
+        }
+
+        if (!Enum.TryParse<AccountStatus>(value, ignoreCase: true, out var accountStatus))
+        {
+            normalizedStatus = null;
+            return false;
+        }
+
+        normalizedStatus = accountStatus.ToString();
+        return true;
+    }
+
+    private static string? ValidateCapacityState(string? capacityState)
+    {
+        var normalized = NormalizeOptional(capacityState);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "AVAILABLE" or "FULL" or "OVER" => null,
+            _ => "Capacity state must be AVAILABLE, FULL, or OVER."
+        };
+    }
+
+    private static string? ValidateBucket(string? bucket)
+    {
+        var normalized = NormalizeOptional(bucket);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "DESIGN_ACTIVE" or "POST_DESIGN" or "TERMINAL" or "OTHER" => null,
+            _ => "Bucket must be DESIGN_ACTIVE, POST_DESIGN, TERMINAL, or OTHER."
+        };
+    }
+
+    private static string NormalizeSortBy(string? sortBy)
+    {
+        var normalized = NormalizeOptional(sortBy);
+        if (normalized is null)
+        {
+            return SortDesignActiveCountDesc;
+        }
+
+        if (string.Equals(normalized, SortAvailableSlotDesc, StringComparison.OrdinalIgnoreCase))
+        {
+            return SortAvailableSlotDesc;
+        }
+
+        return SortDesignActiveCountDesc;
+    }
+
+    private static SalesWorkloadItemDto MapSalesWorkloadItem(SalesWorkloadItemReadModel sales)
+    {
+        return new SalesWorkloadItemDto
+        {
+            AccountId = sales.AccountId,
+            Email = sales.Email,
+            FullName = sales.FullName,
+            Phone = sales.Phone,
+            AvatarUrl = sales.AvatarUrl,
+            Status = sales.Status?.ToString(),
+            IntakeCount = sales.IntakeCount,
+            CommercialCount = sales.CommercialCount,
+            DesignMonitorCount = sales.DesignMonitorCount,
+            FulfillmentCount = sales.FulfillmentCount,
+            SalesActiveCount = sales.SalesActiveCount,
+            LifecycleAssignedCount = sales.LifecycleAssignedCount,
+            MaxActiveProjects = sales.MaxActiveProjects,
+            AvailableSlot = sales.AvailableSlot,
+            CapacityState = sales.CapacityState,
+            FuturePressureScore = sales.FuturePressureScore,
+            FuturePressureState = sales.FuturePressureState,
+            ApproachingCommercialCount = sales.ProposalConsultingCount,
+            ProductionAttentionCount = sales.ProductionBlockedCount,
+            DeliveryAttentionCount =
+                sales.ReadyForDeliveryCount + sales.DeliveringCount + sales.DeliveredCount,
+            FuturePressureBreakdown = new SalesFuturePressureBreakdownDto
+            {
+                MeasurementRequiredCount = sales.MeasurementRequiredCount,
+                SpaceVerifiedCount = sales.SpaceVerifiedCount,
+                ProposalConsultingCount = sales.ProposalConsultingCount,
+                InProductionCount = sales.InProductionCount,
+                ProductionBlockedCount = sales.ProductionBlockedCount,
+                ReadyForDeliveryCount = sales.ReadyForDeliveryCount,
+                DeliveringCount = sales.DeliveringCount,
+                DeliveredCount = sales.DeliveredCount
+            },
+            CreatedAt = sales.CreatedAt,
+            UpdatedAt = sales.UpdatedAt
+        };
+    }
+
+    private static string? ValidateSalesCapacityState(string? capacityState)
+    {
+        var normalized = NormalizeOptional(capacityState);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "AVAILABLE_NOW" or "FULL_NOW" or "OVER_NOW" => null,
+            _ => "Capacity state must be AVAILABLE_NOW, FULL_NOW, or OVER_NOW."
+        };
+    }
+
+    private static string? ValidateFuturePressureState(string? futurePressureState)
+    {
+        var normalized = NormalizeOptional(futurePressureState);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "LOW" or "MEDIUM" or "HIGH" => null,
+            _ => "Future pressure state must be LOW, MEDIUM, or HIGH."
+        };
+    }
+
+    private static string? ValidateSalesBucket(string? bucket)
+    {
+        var normalized = NormalizeOptional(bucket);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        return normalized.ToUpperInvariant() switch
+        {
+            "CURRENT_ACTIVE" or "INTAKE" or "COMMERCIAL" or "DESIGN_MONITOR" or "FULFILLMENT"
+                or "TERMINAL" or "OTHER" or "HIGH_PRESSURE_SOURCE" => null,
+            _ => "Bucket must be CURRENT_ACTIVE, INTAKE, COMMERCIAL, DESIGN_MONITOR, FULFILLMENT, TERMINAL, OTHER, or HIGH_PRESSURE_SOURCE."
+        };
+    }
+
+    private static string NormalizeSalesSortBy(string? sortBy)
+    {
+        var normalized = NormalizeOptional(sortBy);
+        if (normalized is null)
+        {
+            return SortFuturePressureScoreDesc;
+        }
+
+        if (string.Equals(normalized, SortSalesActiveCountDesc, StringComparison.OrdinalIgnoreCase))
+        {
+            return SortSalesActiveCountDesc;
+        }
+
+        if (string.Equals(normalized, SortAvailableSlotAsc, StringComparison.OrdinalIgnoreCase))
+        {
+            return SortAvailableSlotAsc;
+        }
+
+        return SortFuturePressureScoreDesc;
+    }
+
+    private static string? NormalizeOptional(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+}

@@ -1,0 +1,125 @@
+#nullable enable
+
+using FurniSpace.Domain.Entities;
+using FurniSpace.Infrastructure.ReadModels.Production;
+using FurniSpace.Infrastructure.Repositories.Base;
+
+namespace FurniSpace.Infrastructure.Repositories.IRepository;
+
+public interface IProductionRequestRepository : IGenericRepository<ProductionRequest>
+{
+    Task<bool> HasActiveRequestForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> ExistsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
+    Task<bool> IsOrderProductionCompletedAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
+    Task<int> CountCreatedOnAsync(
+        DateOnly date,
+        CancellationToken cancellationToken = default);
+
+    Task<List<OrderItem>> GetProductOrderItemsAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default);
+
+    Task AddItemsAsync(
+        List<ProductionItem> items,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> IsActiveProductionStaffAsync(
+        Guid accountId,
+        CancellationToken cancellationToken = default);
+
+    Task<ProductionAssigneeReadModel?> GetAssigneeAsync(
+        Guid accountId,
+        CancellationToken cancellationToken = default);
+
+    Task<List<AvailableProductionStaffReadModel>> GetAvailableStaffAsync(
+        string? search,
+        CancellationToken cancellationToken = default);
+
+    Task<List<ProductionRequestListItemReadModel>> GetQueueAsync(
+        ProductionRequestQueueReadModel query,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> HasViewableAssignedRequestAsync(
+        Guid projectId,
+        Guid productionAccountId,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForProjectAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<Guid>>([]);
+    }
+
+    Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForOrderAsync(
+        Guid orderId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<Guid>>([]);
+    }
+
+    Task<bool> HasAssignedCompletedProductionForProjectAsync(
+        Guid projectId,
+        Guid productionAccountId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(false);
+    }
+
+    Task<ProductionRequestDetailReadModel?> GetDetailAsync(
+        Guid productionRequestId,
+        CancellationToken cancellationToken = default);
+
+    Task<ProductionItem?> GetItemByIdAsync(
+        Guid productionItemId,
+        CancellationToken cancellationToken = default);
+
+    Task<List<ProductionItem>> GetItemsByRequestIdAsync(
+        Guid productionRequestId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(new List<ProductionItem>());
+    }
+
+    Task<ProductionRequestDetailReadModel?> GetDetailByItemIdAsync(
+        Guid productionItemId,
+        CancellationToken cancellationToken = default);
+
+    Task<DateOnly?> GetMaxOperationalProductionDateAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<DateOnly?>(null);
+    }
+
+    Task<IReadOnlyList<ProductionUnavailableItemReadModel>> GetUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<ProductionUnavailableItemReadModel>>([]);
+    }
+
+    Task<int> CountUnavailableItemsAsync(
+        ProductionUnavailableItemsQueryReadModel query,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(0);
+    }
+
+    void UpdateItem(ProductionItem item);
+}

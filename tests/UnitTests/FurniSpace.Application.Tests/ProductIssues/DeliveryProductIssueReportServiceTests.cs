@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common.ProductIssues;
 using FurniSpace.Application.Common.Storage;
+using DirectFileUploadErrorCodes = FurniSpace.Application.Common.Storage.DirectFileUploadErrorCodes;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Application.DTOs.ProductIssues;
 using FurniSpace.Application.Services.ProductIssues;
@@ -160,6 +161,138 @@ public sealed class DeliveryProductIssueReportServiceTests
     }
 
     [Fact]
+    public async Task PrepareEvidenceUploadAsync_WithValidRequest_CreatesPendingEvidence()
+    {
+        var ids = CreateIds();
+        var files = new FakeProductIssueFileRepository();
+        var storage = new FakeProductIssueDirectUploadStorage();
+        var service = CreateService(
+            new FakeProductIssueRepository(),
+            files,
+            storage,
+            roleName: "CUSTOMER",
+            project: CreateProject(ids),
+            order: CreateOrder(ids));
+
+        var result = await service.PrepareEvidenceUploadAsync(
+            ids.OrderId,
+            ids.CustomerId,
+            new PrepareProductIssueEvidenceUploadRequestDto
+            {
+                OriginalFileName = "damage.jpg",
+                ContentType = "image/jpeg",
+                FileSizeBytes = 1024
+            });
+
+        Assert.Equal(201, result.Status);
+        Assert.Equal(ids.OrderId, result.Data!.OrderId);
+        Assert.NotEmpty(result.Data.UploadUrl);
+        Assert.Single(files.StoredFiles);
+        Assert.Equal(FileStatus.PENDING, files.StoredFiles[0].Status);
+        Assert.Single(files.FileLinks);
+        Assert.Equal(FileType.PRODUCT_ISSUE_EVIDENCE, files.FileLinks[0].FileType);
+        Assert.Equal("ORDER", files.FileLinks[0].ReferenceType);
+    }
+
+    [Fact]
+    public async Task CompleteEvidenceUploadAsync_WithPendingFile_ActivatesEvidence()
+    {
+        var ids = CreateIds();
+        var fileId = Guid.NewGuid();
+        var files = new FakeProductIssueFileRepository();
+        files.SeedPendingEvidence(fileId, ids.OrderId, ids.CustomerId);
+        var storage = new FakeProductIssueDirectUploadStorage();
+        var service = CreateService(
+            new FakeProductIssueRepository(),
+            files,
+            storage,
+            roleName: "CUSTOMER",
+            project: CreateProject(ids),
+            order: CreateOrder(ids));
+
+        var result = await service.CompleteEvidenceUploadAsync(
+            ids.OrderId,
+            ids.CustomerId,
+            new CompleteProductIssueEvidenceUploadRequestDto { FileId = fileId });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(fileId, result.Data!.FileId);
+        Assert.Equal(FileStatus.ACTIVE, files.StoredFiles[0].Status);
+        Assert.NotEmpty(files.StoredFiles[0].FileUrl);
+    }
+
+    [Fact]
+    public async Task CompleteEvidenceUploadAsync_WhenFileNotFound_ReturnsNotFound()
+    {
+        var ids = CreateIds();
+        var service = CreateService(
+            new FakeProductIssueRepository(),
+            new FakeProductIssueFileRepository(),
+            new FakeProductIssueDirectUploadStorage(),
+            roleName: "CUSTOMER",
+            project: CreateProject(ids),
+            order: CreateOrder(ids));
+
+        var result = await service.CompleteEvidenceUploadAsync(
+            ids.OrderId,
+            ids.CustomerId,
+            new CompleteProductIssueEvidenceUploadRequestDto { FileId = Guid.NewGuid() });
+
+        Assert.Equal(404, result.Status);
+        Assert.Equal(DirectFileUploadErrorCodes.UploadNotFound, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteEvidenceUploadAsync_WhenNotPending_ReturnsConflict()
+    {
+        var ids = CreateIds();
+        var fileId = Guid.NewGuid();
+        var files = new FakeProductIssueFileRepository();
+        files.SeedPendingEvidence(fileId, ids.OrderId, ids.CustomerId);
+        files.StoredFiles[0].Status = FileStatus.ARCHIVED;
+        var service = CreateService(
+            new FakeProductIssueRepository(),
+            files,
+            new FakeProductIssueDirectUploadStorage(),
+            roleName: "CUSTOMER",
+            project: CreateProject(ids),
+            order: CreateOrder(ids));
+
+        var result = await service.CompleteEvidenceUploadAsync(
+            ids.OrderId,
+            ids.CustomerId,
+            new CompleteProductIssueEvidenceUploadRequestDto { FileId = fileId });
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(DirectFileUploadErrorCodes.UploadNotPending, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteEvidenceUploadAsync_WhenWrongUser_ReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var fileId = Guid.NewGuid();
+        var otherUserId = Guid.NewGuid();
+        var files = new FakeProductIssueFileRepository();
+        files.SeedPendingEvidence(fileId, ids.OrderId, otherUserId);
+        var service = CreateService(
+            new FakeProductIssueRepository(),
+            files,
+            new FakeProductIssueDirectUploadStorage(),
+            roleName: "CUSTOMER",
+            project: CreateProject(ids),
+            order: CreateOrder(ids));
+
+        var result = await service.CompleteEvidenceUploadAsync(
+            ids.OrderId,
+            ids.CustomerId,
+            new CompleteProductIssueEvidenceUploadRequestDto { FileId = fileId });
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal(DirectFileUploadErrorCodes.UploadForbidden, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task PrepareEvidenceUploadAsync_WhenEvidenceFileTooLarge_ReturnsPayloadTooLarge()
     {
         var ids = CreateIds();
@@ -265,7 +398,7 @@ public sealed class DeliveryProductIssueReportServiceTests
     private static DeliveryProductIssueReportService CreateService(
         FakeProductIssueRepository issues,
         FakeProductIssueFileRepository files,
-        FakeProductIssueStorageService storage,
+        IFileStorageService storage,
         string roleName,
         Project? project = null,
         Order? order = null,
@@ -601,6 +734,35 @@ public sealed class DeliveryProductIssueReportServiceTests
         public List<StoredFile> StoredFiles { get; } = [];
         public List<FileLink> FileLinks { get; } = [];
 
+        public void SeedPendingEvidence(Guid fileId, Guid orderId, Guid uploadedBy)
+        {
+            StoredFiles.Add(new StoredFile
+            {
+                FileId = fileId,
+                UploadedBy = uploadedBy,
+                OriginalFileName = "damage.jpg",
+                StoredFileName = $"{fileId}-damage.jpg",
+                FileUrl = string.Empty,
+                StoragePath = $"projects/{orderId:D}/{fileId}-damage.jpg",
+                MimeType = "image/jpeg",
+                FileExtension = ".jpg",
+                FileSizeBytes = 100,
+                Status = FileStatus.PENDING,
+                UploadedAt = DateTime.UtcNow
+            });
+            FileLinks.Add(new FileLink
+            {
+                FileLinkId = Guid.NewGuid(),
+                FileId = fileId,
+                ReferenceType = "ORDER",
+                ReferenceId = orderId,
+                FileType = FileType.PRODUCT_ISSUE_EVIDENCE,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                CreatedBy = uploadedBy,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
         public void SeedDraftEvidence(Guid fileId, Guid orderId, Guid uploadedBy)
         {
             StoredFiles.Add(new StoredFile
@@ -683,6 +845,38 @@ public sealed class DeliveryProductIssueReportServiceTests
                 PublicUrl = $"https://files.example/{request.ObjectName}"
             });
         }
+
+        public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeProductIssueDirectUploadStorage : IFileStorageService, IDirectFileUploadStorageService
+    {
+        public Task<StorageSignedUploadResult> CreateSignedUploadUrlAsync(
+            StorageSignedUploadRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new StorageSignedUploadResult
+            {
+                UploadUrl = $"https://storage.example.com/upload/{request.ObjectName}",
+                ContentType = request.ContentType,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+            });
+
+        public Task<StorageUploadResult> FinalizeDirectUploadAsync(
+            StorageDirectUploadFinalizeRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+                Bucket = "test-bucket"
+            });
+
+        public Task<StorageUploadResult> UploadAsync(StorageUploadRequest request, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://files.example/{request.ObjectName}"
+            });
 
         public Task DeleteAsync(string objectName, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }

@@ -134,6 +134,72 @@ public sealed class ProjectChatMessagesControllerTests
     }
 
     [Fact]
+    public void PrepareFileMessageUpload_UsesFilesUploadUrlEndpoint()
+    {
+        var httpPost = typeof(ProjectChatMessagesController)
+            .GetMethod(nameof(ProjectChatMessagesController.PrepareFileMessageUpload))!
+            .GetCustomAttributes(typeof(HttpPostAttribute), inherit: false)
+            .Cast<HttpPostAttribute>()
+            .Single();
+
+        Assert.Equal("files/upload-url", httpPost.Template);
+    }
+
+    [Fact]
+    public async Task PrepareFileMessageUpload_ReturnsCreatedAndPassesAuthenticatedUser()
+    {
+        var chatId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var service = new FakeProjectChatMessageService(
+            ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()))
+        {
+            PrepareFileResult = ServiceResult<PrepareProjectChatFileUploadResponseDto>.Created(
+                new PrepareProjectChatFileUploadResponseDto
+                {
+                    FileId = fileId,
+                    ChatId = chatId,
+                    UploadUrl = "https://storage.example.com/upload",
+                    ContentType = "application/pdf",
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+                },
+                "Project chat file upload URL created successfully.")
+        };
+        var controller = BuildController(service, currentUserId);
+
+        var actionResult = await controller.PrepareFileMessageUpload(
+            chatId,
+            new PrepareProjectChatFileUploadRequestDto
+            {
+                OriginalFileName = "floor-plan.pdf",
+                ContentType = "application/pdf",
+                FileSizeBytes = 2048
+            });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(chatId, service.ChatId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Equal("floor-plan.pdf", service.PrepareFileRequest?.OriginalFileName);
+        Assert.Equal(1, service.PrepareFileCallCount);
+    }
+
+    [Fact]
+    public async Task PrepareFileMessageUpload_WithoutUserIdClaim_ReturnsUnauthorized()
+    {
+        var service = new FakeProjectChatMessageService(
+            ServiceResult<ProjectChatMessageDto>.Created(new ProjectChatMessageDto()));
+        var controller = BuildController(service);
+
+        var actionResult = await controller.PrepareFileMessageUpload(
+            Guid.NewGuid(),
+            new PrepareProjectChatFileUploadRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+        Assert.Equal(0, service.PrepareFileCallCount);
+    }
+
+    [Fact]
     public void CompleteFileMessageUpload_UsesFilesCompleteEndpoint()
     {
         var httpPost = typeof(ProjectChatMessagesController)
@@ -248,9 +314,13 @@ public sealed class ProjectChatMessagesControllerTests
             _completeFileResult = result;
         }
 
+        public ServiceResult<PrepareProjectChatFileUploadResponseDto>? PrepareFileResult { get; init; }
+
         public int CallCount { get; private set; }
         public int SendCallCount { get; private set; }
+        public int PrepareFileCallCount { get; private set; }
         public int CompleteFileCallCount { get; private set; }
+        public PrepareProjectChatFileUploadRequestDto? PrepareFileRequest { get; private set; }
         public CompleteProjectChatFileUploadRequestDto? CompleteFileRequest { get; private set; }
         public Guid ChatId { get; private set; }
         public Guid CurrentUserId { get; private set; }
@@ -295,10 +365,16 @@ public sealed class ProjectChatMessagesControllerTests
             Guid chatId,
             Guid currentUserId,
             PrepareProjectChatFileUploadRequestDto request,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(ServiceResult<PrepareProjectChatFileUploadResponseDto>.Created(
+            CancellationToken cancellationToken = default)
+        {
+            PrepareFileCallCount++;
+            ChatId = chatId;
+            CurrentUserId = currentUserId;
+            PrepareFileRequest = request;
+            return Task.FromResult(PrepareFileResult ?? ServiceResult<PrepareProjectChatFileUploadResponseDto>.Created(
                 new PrepareProjectChatFileUploadResponseDto(),
                 "Project chat file upload URL created successfully."));
+        }
 
         public Task<ServiceResult<ProjectChatMessageDto>> CompleteFileMessageUploadAsync(
             Guid chatId,

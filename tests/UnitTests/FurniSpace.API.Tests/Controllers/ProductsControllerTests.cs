@@ -424,6 +424,60 @@ public sealed class ProductsControllerTests
         Assert.Equal(1, previewService.PrepareUploadRequest.DisplayOrder);
     }
 
+    [Fact]
+    public async Task CompleteFileUpload_PassesRequestToProductService()
+    {
+        var userId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var service = new FakeProductService(
+            ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty),
+            completeFileUploadResult: ServiceResult<CatalogFileUploadResponseDto>.Created(
+                new CatalogFileUploadResponseDto { FileId = fileId, ReferenceId = productId },
+                "Product file uploaded successfully."));
+        var controller = CreateController(service, userId);
+
+        var actionResult = await controller.CompleteFileUpload(
+            productId,
+            new CompleteDirectUploadRequestDto { FileId = fileId });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(productId, service.ProductId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.Equal(fileId, service.CompleteFileUploadRequest!.FileId);
+    }
+
+    [Fact]
+    public async Task CompletePreviewFileUpload_PassesRequestToPreviewService()
+    {
+        var userId = Guid.NewGuid();
+        var productId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var previewService = new FakeProductPreviewImageService
+        {
+            CompleteUploadResult = ServiceResult<ProductPreviewImageUploadResponseDto>.Created(
+                new ProductPreviewImageUploadResponseDto
+                {
+                    FileId = fileId,
+                    Url = "https://storage.example.com/preview.jpg",
+                    DisplayOrder = 1,
+                    FileType = FileType.PRODUCT_PREVIEW
+                },
+                "Product preview image uploaded successfully.")
+        };
+        var controller = CreateController(CreateDefaultProductService(), previewService, userId);
+
+        var actionResult = await controller.CompletePreviewFileUpload(
+            productId,
+            new CompleteDirectUploadRequestDto { FileId = fileId });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(productId, previewService.ProductId);
+        Assert.Equal(fileId, previewService.CompleteUploadRequest!.FileId);
+    }
+
     [Theory]
     [InlineData(nameof(ProductsController.Activate))]
     [InlineData(nameof(ProductsController.Deactivate))]

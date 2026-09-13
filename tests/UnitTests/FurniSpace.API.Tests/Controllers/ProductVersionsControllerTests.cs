@@ -264,6 +264,34 @@ public sealed class ProductVersionsControllerTests
     }
 
     [Fact]
+    public async Task CompleteFileUpload_PassesRequestToService()
+    {
+        var currentUserId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var service = new FakeProductVersionService(
+            completeFileUploadResult: ServiceResult<CatalogFileUploadResponseDto>.Created(
+                new CatalogFileUploadResponseDto
+                {
+                    FileId = fileId,
+                    ReferenceType = "PRODUCT_VERSION",
+                    ReferenceId = productVersionId
+                },
+                "Product version file uploaded successfully."));
+        var controller = CreateController(service, currentUserId);
+
+        var actionResult = await controller.CompleteFileUpload(
+            productVersionId,
+            new CompleteDirectUploadRequestDto { FileId = fileId });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(productVersionId, service.ProductVersionId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
+        Assert.Equal(fileId, service.CompleteFileUploadRequest!.FileId);
+    }
+
+    [Fact]
     public async Task GetById_ReturnsServiceResultThroughBaseController()
     {
         var productVersionId = Guid.NewGuid();

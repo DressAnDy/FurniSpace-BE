@@ -113,6 +113,36 @@ public sealed class ProjectAreaFilesControllerTests
     }
 
     [Fact]
+    public async Task CompleteProjectAreaFileUpload_PassesRequestToService()
+    {
+        var userId = Guid.NewGuid();
+        var areaId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var service = new FakeProjectFileService
+        {
+            CompleteAreaResult = ServiceResult<ProjectFileUploadResponseDto>.Created(
+                new ProjectFileUploadResponseDto
+                {
+                    FileId = fileId,
+                    ReferenceType = "PROJECT_AREA",
+                    ReferenceId = areaId
+                },
+                "Project area file uploaded successfully.")
+        };
+        var controller = CreateController(service, userId);
+
+        var actionResult = await controller.CompleteProjectAreaFileUpload(
+            areaId,
+            new CompleteProjectFileUploadRequestDto { FileId = fileId });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(areaId, service.ProjectAreaId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.Equal(fileId, service.CompleteAreaRequest!.FileId);
+    }
+
+    [Fact]
     public async Task PrepareProjectAreaFileUpload_ReturnsUnauthorized_WhenClaimMissing()
     {
         var controller = CreateController(new FakeProjectFileService(), userId: null);
@@ -162,9 +192,12 @@ public sealed class ProjectAreaFilesControllerTests
         public Guid CurrentUserId { get; private set; }
         public Guid FileId { get; private set; }
         public PrepareProjectFileUploadRequestDto? PrepareAreaRequest { get; private set; }
+        public CompleteProjectFileUploadRequestDto? CompleteAreaRequest { get; private set; }
         public ProjectFilesQueryDto? AreaFilesQuery { get; private set; }
         public ServiceResult<PrepareProjectAreaFileUploadResponseDto> PrepareAreaResult { get; init; } =
             ServiceResult<PrepareProjectAreaFileUploadResponseDto>.Created(new PrepareProjectAreaFileUploadResponseDto());
+        public ServiceResult<ProjectFileUploadResponseDto> CompleteAreaResult { get; init; } =
+            ServiceResult<ProjectFileUploadResponseDto>.Created(new ProjectFileUploadResponseDto());
         public ServiceResult<ProjectFilesResponseDto> AreaFilesResult { get; init; } =
             ServiceResult<ProjectFilesResponseDto>.Success(new ProjectFilesResponseDto());
         public ServiceResult<ProjectAreaFilePrimaryResponseDto> PrimaryResult { get; init; } =
@@ -186,7 +219,13 @@ public sealed class ProjectAreaFilesControllerTests
             Guid projectAreaId,
             Guid currentUserId,
             CompleteProjectFileUploadRequestDto request,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            ProjectAreaId = projectAreaId;
+            CurrentUserId = currentUserId;
+            CompleteAreaRequest = request;
+            return Task.FromResult(CompleteAreaResult);
+        }
 
         public Task<ServiceResult<ProjectFilesResponseDto>> GetProjectAreaFilesAsync(
             Guid projectAreaId,

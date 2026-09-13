@@ -2,9 +2,10 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
-using FurniSpace.API.DTOs.Products;
 using FurniSpace.Application.DTOs.Catalog;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.ProductVersions;
+using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.ProductVersions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -13,8 +14,6 @@ namespace FurniSpace.API.Controllers.Catalog;
 
 public sealed class ProductVersionsController : BaseApiController
 {
-    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
-
     private readonly IProductVersionService _productVersions;
 
     public ProductVersionsController(IProductVersionService productVersions)
@@ -118,12 +117,10 @@ public sealed class ProductVersionsController : BaseApiController
     }
 
     [Authorize(Roles = "DESIGNER,ADMIN")]
-    [HttpPost("product-versions/{productVersionId:guid}/files")]
-    [Consumes("multipart/form-data")]
-    [RequestSizeLimit(MultipartRequestLimitBytes)]
-    public async Task<IActionResult> UploadFile(
+    [HttpPost("product-versions/{productVersionId:guid}/files/upload-url")]
+    public async Task<IActionResult> PrepareFileUpload(
         Guid productVersionId,
-        [FromForm] UploadCatalogFileFormRequest request,
+        [FromBody] UploadCatalogFileRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -131,10 +128,31 @@ public sealed class ProductVersionsController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _productVersions.UploadFileAsync(
+        var result = await _productVersions.PrepareFileUploadAsync(
             productVersionId,
             currentUserId,
-            request.ToRequestDto(),
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpPost("product-versions/{productVersionId:guid}/files/complete")]
+    public async Task<IActionResult> CompleteFileUpload(
+        Guid productVersionId,
+        [FromBody] CompleteDirectUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _productVersions.CompleteFileUploadAsync(
+            productVersionId,
+            currentUserId,
+            request,
             cancellationToken);
 
         return ToActionResult(result);

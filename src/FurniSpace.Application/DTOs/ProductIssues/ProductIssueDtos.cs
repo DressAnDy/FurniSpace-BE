@@ -15,15 +15,8 @@ public static class ProductIssueErrorCodes
     public const string Forbidden = "PRODUCT_ISSUE_FORBIDDEN";
     public const string InvalidRequest = "PRODUCT_ISSUE_INVALID_REQUEST";
     public const string FileUploadFailed = "PRODUCT_ISSUE_FILE_UPLOAD_FAILED";
+    public const string EvidenceFileInvalid = "PRODUCT_ISSUE_EVIDENCE_FILE_INVALID";
     public const string ResolutionNoteTooLong = "PRODUCT_ISSUE_RESOLUTION_NOTE_TOO_LONG";
-}
-
-public sealed class ProductIssueEvidenceUploadDto
-{
-    public Stream Content { get; set; } = Stream.Null;
-    public string OriginalFileName { get; set; } = string.Empty;
-    public string? ContentType { get; set; }
-    public long FileSizeBytes { get; set; }
 }
 
 public sealed class CreateProductIssueRequestDto
@@ -33,7 +26,7 @@ public sealed class CreateProductIssueRequestDto
     public DeliveryProductIssueType IssueType { get; set; }
     public string Description { get; set; } = string.Empty;
     public int? AffectedQuantity { get; set; }
-    public IReadOnlyList<ProductIssueEvidenceUploadDto> EvidenceFiles { get; set; } = [];
+    public IReadOnlyList<Guid> EvidenceFileIds { get; set; } = [];
 }
 
 public sealed class ProductIssueEvidenceFileDto

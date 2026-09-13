@@ -156,10 +156,17 @@ public sealed class ProjectAreaMeasurementImagesControllerTests
 
         public MeasurementImageGalleryQueryDto? LastQuery { get; private set; }
 
-        public Task<ServiceResult<MeasurementImageUploadResponseDto>> UploadMeasurementImageAsync(
+        public Task<ServiceResult<PrepareMeasurementImageUploadResponseDto>> PrepareMeasurementImageUploadAsync(
             Guid scheduleId,
             Guid currentUserId,
-            UploadMeasurementImageRequestDto request,
+            PrepareMeasurementImageUploadRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<PrepareMeasurementImageUploadResponseDto>.Unauthorized());
+
+        public Task<ServiceResult<MeasurementImageUploadResponseDto>> CompleteMeasurementImageUploadAsync(
+            Guid scheduleId,
+            Guid currentUserId,
+            CompleteMeasurementImageUploadRequestDto request,
             CancellationToken cancellationToken = default)
             => Task.FromResult(ServiceResult<MeasurementImageUploadResponseDto>.Unauthorized());
 

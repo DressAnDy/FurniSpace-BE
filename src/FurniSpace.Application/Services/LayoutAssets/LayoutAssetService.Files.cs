@@ -1,9 +1,10 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.LayoutAssets;
+using FurniSpace.Application.Common.Storage;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.LayoutAssets;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.Common.Storage;
 using Microsoft.EntityFrameworkCore;
 using static FurniSpace.Application.Constants.LayoutAssets.LayoutAssetServiceConstants;
 
@@ -11,7 +12,7 @@ namespace FurniSpace.Application.Services.LayoutAssets;
 
 public sealed partial class LayoutAssetService
 {
-    public async Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+    public async Task<ServiceResult<PrepareDirectUploadResponseDto>> PrepareFileUploadAsync(
         Guid layoutAssetId,
         Guid currentUserId,
         UploadCatalogFileRequestDto request,
@@ -19,17 +20,17 @@ public sealed partial class LayoutAssetService
     {
         if (layoutAssetId == Guid.Empty)
         {
-            return ServiceResult<CatalogFileUploadResponseDto>.NotFound(LayoutAssetErrorCodes.NotFound);
+            return ServiceResult<PrepareDirectUploadResponseDto>.NotFound(LayoutAssetErrorCodes.NotFound);
         }
 
         if (currentUserId == Guid.Empty)
         {
-            return ServiceResult<CatalogFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
+            return ServiceResult<PrepareDirectUploadResponseDto>.Unauthorized("Authenticated account id is required.");
         }
 
         if (!LayoutAssetFileSummaryHelper.IsAllowedUploadFileType(request.FileType))
         {
-            return ServiceResult<CatalogFileUploadResponseDto>.Failure(
+            return ServiceResult<PrepareDirectUploadResponseDto>.Failure(
                 Error.BadRequest(
                     LayoutAssetErrorCodes.InvalidFileType,
                     "File type is not allowed for layout asset uploads."));
@@ -42,7 +43,54 @@ public sealed partial class LayoutAssetService
             AllowedLayoutAssetFileTypes);
         if (validationErrors.Count > 0)
         {
-            return ServiceResult<CatalogFileUploadResponseDto>.BadRequest(validationErrors);
+            return ServiceResult<PrepareDirectUploadResponseDto>.BadRequest(validationErrors);
+        }
+
+        if (await _layoutAssets.GetByIdAsync(layoutAssetId, cancellationToken) is null)
+        {
+            return ServiceResult<PrepareDirectUploadResponseDto>.NotFound(LayoutAssetErrorCodes.NotFound);
+        }
+
+        var existingLinks = await _files.GetFileLinkEntitiesByReferenceAsync(
+            CatalogFileReferenceTypes.LayoutAsset,
+            layoutAssetId,
+            cancellationToken);
+        var shouldSetPrimary = !existingLinks.Any(link =>
+            SharesPrimaryGroup(link.FileType, request.FileType) && link.IsPrimary == true);
+        var visibility = request.Visibility ?? FileVisibility.CUSTOMER_VISIBLE;
+
+        return await _catalogDirectUpload.PrepareAsync(
+            new CatalogDirectUploadPrepareRequest(
+                currentUserId,
+                request,
+                CatalogFileReferenceTypes.LayoutAsset,
+                layoutAssetId,
+                (_, generatedFileName) => CatalogFileStorageHelpers.BuildStorageObjectName(
+                    "layout-assets",
+                    _firebaseSettings.LayoutAssetFilesPrefix,
+                    layoutAssetId,
+                    generatedFileName),
+                request.FileType,
+                visibility,
+                request.DisplayOrder,
+                shouldSetPrimary),
+            cancellationToken);
+    }
+
+    public async Task<ServiceResult<CatalogFileUploadResponseDto>> CompleteFileUploadAsync(
+        Guid layoutAssetId,
+        Guid currentUserId,
+        CompleteDirectUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (layoutAssetId == Guid.Empty)
+        {
+            return ServiceResult<CatalogFileUploadResponseDto>.NotFound(LayoutAssetErrorCodes.NotFound);
+        }
+
+        if (currentUserId == Guid.Empty)
+        {
+            return ServiceResult<CatalogFileUploadResponseDto>.Unauthorized("Authenticated account id is required.");
         }
 
         if (await _layoutAssets.GetByIdAsync(layoutAssetId, cancellationToken) is null)
@@ -50,7 +98,25 @@ public sealed partial class LayoutAssetService
             return ServiceResult<CatalogFileUploadResponseDto>.NotFound(LayoutAssetErrorCodes.NotFound);
         }
 
-        return await PersistUploadedFileAsync(layoutAssetId, currentUserId, request, cancellationToken);
+        try
+        {
+            return await _catalogDirectUpload.CompleteAsync(
+                new CatalogDirectUploadCompleteRequest(
+                    currentUserId,
+                    request.FileId,
+                    CatalogFileReferenceTypes.LayoutAsset,
+                    layoutAssetId,
+                    FileUploadedMessage),
+                postCompleteAsync: null,
+                cancellationToken);
+        }
+        catch (DbUpdateException exception) when (DatabaseExceptionMapper.IsFileLinkUniqueViolation(exception))
+        {
+            return ServiceResult<CatalogFileUploadResponseDto>.Failure(
+                Error.Conflict(
+                    LayoutAssetErrorCodes.InvalidFileType,
+                    "Layout asset file link already exists."));
+        }
     }
 
     public async Task<ServiceResult<IReadOnlyList<LayoutAssetFileDto>>> GetFilesAsync(
@@ -210,98 +276,6 @@ public sealed partial class LayoutAssetService
         await _storage.DeleteAsync(storagePath, cancellationToken);
 
         return ServiceResult<LayoutAssetFileDto>.Success(deletedDto, FileDeletedMessage);
-    }
-
-    private async Task<ServiceResult<CatalogFileUploadResponseDto>> PersistUploadedFileAsync(
-        Guid layoutAssetId,
-        Guid currentUserId,
-        UploadCatalogFileRequestDto request,
-        CancellationToken cancellationToken)
-    {
-        var now = DateTime.UtcNow;
-        var fileId = Guid.NewGuid();
-        var fileLinkId = Guid.NewGuid();
-        var originalFileName = CatalogFileStorageHelpers.NormalizeOriginalFileName(request.OriginalFileName);
-        var generatedFileName = CatalogFileStorageHelpers.BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = CatalogFileStorageHelpers.BuildStorageObjectName(
-            "layout-assets",
-            _firebaseSettings.LayoutAssetFilesPrefix,
-            layoutAssetId,
-            generatedFileName);
-        var visibility = request.Visibility ?? FileVisibility.CUSTOMER_VISIBLE;
-
-        var uploadResult = await _storage.UploadAsync(
-            new StorageUploadRequest
-            {
-                Content = request.Content,
-                ObjectName = objectName,
-                ContentType = CatalogFileStorageHelpers.NormalizeContentType(request.ContentType)
-            },
-            cancellationToken);
-
-        var storedFile = CatalogFileEntityFactory.CreateStoredFile(
-            fileId,
-            currentUserId,
-            originalFileName,
-            generatedFileName,
-            uploadResult,
-            request,
-            now);
-
-        var existingLinks = await _files.GetFileLinkEntitiesByReferenceAsync(
-            CatalogFileReferenceTypes.LayoutAsset,
-            layoutAssetId,
-            cancellationToken);
-        var shouldSetPrimary = !existingLinks.Any(link => SharesPrimaryGroup(link.FileType, request.FileType) && link.IsPrimary == true);
-
-        var fileLink = CatalogFileEntityFactory.CreateFileLink(new CatalogFileLinkCreationContext
-        {
-            FileLinkId = fileLinkId,
-            FileId = fileId,
-            ReferenceType = CatalogFileReferenceTypes.LayoutAsset,
-            ReferenceId = layoutAssetId,
-            FileType = request.FileType,
-            Visibility = visibility,
-            CreatedBy = currentUserId,
-            CreatedAt = now,
-            Description = request.Description,
-            DisplayOrder = request.DisplayOrder
-        });
-        fileLink.IsPrimary = shouldSetPrimary;
-
-        await _files.AddAsync(storedFile, cancellationToken);
-        await _files.AddFileLinkAsync(fileLink, cancellationToken);
-
-        try
-        {
-            await _unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        catch (DbUpdateException exception) when (DatabaseExceptionMapper.IsFileLinkUniqueViolation(exception))
-        {
-            await _storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
-            return ServiceResult<CatalogFileUploadResponseDto>.Failure(
-                Error.Conflict(
-                    LayoutAssetErrorCodes.InvalidFileType,
-                    "Layout asset file link already exists."));
-        }
-
-        return ServiceResult<CatalogFileUploadResponseDto>.Created(
-            CatalogFileUploadResponseMapper.FromUpload(new CatalogFileUploadResponseContext
-            {
-                FileId = fileId,
-                FileLinkId = fileLinkId,
-                ReferenceType = CatalogFileReferenceTypes.LayoutAsset,
-                ReferenceId = layoutAssetId,
-                OriginalFileName = originalFileName,
-                Request = request,
-                UploadResult = uploadResult,
-                StoredFile = storedFile,
-                FileLink = fileLink,
-                Visibility = visibility,
-                CurrentUserId = currentUserId,
-                UploadedAt = now
-            }),
-            FileUploadedMessage);
     }
 
     private static bool SharesPrimaryGroup(FileType? left, FileType right)

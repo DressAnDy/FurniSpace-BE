@@ -5,14 +5,13 @@ namespace FurniSpace.Application.Common;
 
 internal static class CatalogPreviewUploadValidation
 {
-    public static Error? ValidateFileContent(
+    public static Error? ValidateMetadata(
         UploadCatalogFileRequestDto request,
         ProductPreviewImageSettings settings,
         string invalidFileTypeCode,
         string fileTooLargeCode)
     {
-        return CatalogPreviewFileValidation.ValidateFileContent(
-            request.Content,
+        return CatalogPreviewFileValidation.ValidateMetadata(
             request.OriginalFileName,
             request.ContentType,
             request.FileSizeBytes,
@@ -21,14 +20,13 @@ internal static class CatalogPreviewUploadValidation
             fileTooLargeCode);
     }
 
-    public static Error? ValidateFileContent(
+    public static Error? ValidateMetadata(
         UploadProductPreviewImageRequestDto request,
         ProductPreviewImageSettings settings,
         string invalidFileTypeCode,
         string fileTooLargeCode)
     {
-        return CatalogPreviewFileValidation.ValidateFileContent(
-            request.Content,
+        return CatalogPreviewFileValidation.ValidateMetadata(
             request.OriginalFileName,
             request.ContentType,
             request.FileSizeBytes,

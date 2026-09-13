@@ -7,4 +7,6 @@ public sealed record ProductVersionFileUploadDependencies(
     IFileStorageService Storage,
     FileUploadSettings UploadSettings,
     ProductPreviewImageSettings PreviewSettings,
-    FirebaseStorageSettings FirebaseSettings);
+    FirebaseStorageSettings FirebaseSettings,
+    DirectFileUploadCoordinator DirectUploadCoordinator,
+    CatalogDirectFileUploadService CatalogDirectUpload);

@@ -10,17 +10,15 @@ using FurniSpace.Application.Interfaces.ProductIssues;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
-using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.ReadModels.ProductIssues;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using static FurniSpace.Application.Constants.ProductIssues.ProductIssueServiceConstants;
 
 namespace FurniSpace.Application.Services.ProductIssues;
 
-public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueReportService
+public sealed partial class DeliveryProductIssueReportService : IDeliveryProductIssueReportService
 {
     private const string OrderNotFoundMessage = "Order not found.";
     private const string IssueNotFoundMessage = "Product issue report not found.";
@@ -34,8 +32,8 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
     private readonly IDeliveryRepository _deliveries;
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
-    private readonly IFileStorageService _storage;
     private readonly IFileUploadValidator _fileUploadValidator;
+    private readonly DirectFileUploadCoordinator _directUploadCoordinator;
     private readonly FirebaseStorageSettings _firebaseSettings;
     private readonly INotificationDispatcher? _notifications;
     private readonly ILogger<DeliveryProductIssueReportService>? _logger;
@@ -47,10 +45,7 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
         IProductionRequestRepository productionRequests,
         IDeliveryRepository deliveries,
         IProjectFileRepository files,
-        IUnitOfWork unitOfWork,
-        IFileStorageService storage,
-        IFileUploadValidator fileUploadValidator,
-        IOptions<FirebaseStorageSettings> firebaseSettings,
+        ProductIssueServiceDependencies dependencies,
         INotificationDispatcher? notifications = null,
         ILogger<DeliveryProductIssueReportService>? logger = null)
     {
@@ -60,10 +55,10 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
         _productionRequests = productionRequests;
         _deliveries = deliveries;
         _files = files;
-        _unitOfWork = unitOfWork;
-        _storage = storage;
-        _fileUploadValidator = fileUploadValidator;
-        _firebaseSettings = firebaseSettings.Value;
+        _unitOfWork = dependencies.UnitOfWork;
+        _fileUploadValidator = dependencies.FileUploadValidator;
+        _directUploadCoordinator = dependencies.DirectUploadCoordinator;
+        _firebaseSettings = dependencies.FirebaseSettings;
         _notifications = notifications;
         _logger = logger;
     }
@@ -132,8 +127,11 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
             }
         }
 
-        var uploadedObjects = new List<string>();
-        var evidenceValidationError = ValidateEvidenceFiles(request.EvidenceFiles);
+        var evidenceValidationError = await ValidateDraftEvidenceFilesAsync(
+            orderId,
+            currentUserId,
+            request.EvidenceFileIds,
+            cancellationToken);
         if (evidenceValidationError is not null)
         {
             return evidenceValidationError;
@@ -161,27 +159,13 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
         {
             await _unitOfWork.BeginTransactionAsync(cancellationToken);
             await _issues.AddAsync(issue, cancellationToken);
-
-            foreach (var evidence in request.EvidenceFiles)
-            {
-                var stored = await UploadEvidenceAsync(
-                    issueId,
-                    order.ProjectId,
-                    currentUserId,
-                    evidence,
-                    uploadedObjects,
-                    cancellationToken);
-                await _files.AddAsync(stored.StoredFile, cancellationToken);
-                await _files.AddFileLinkAsync(stored.FileLink, cancellationToken);
-            }
-
+            await RelinkEvidenceFilesToIssueAsync(issueId, request.EvidenceFileIds, cancellationToken);
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
         }
         catch
         {
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
-            await DeleteUploadedObjectsAsync(uploadedObjects, cancellationToken);
             throw;
         }
 
@@ -345,81 +329,6 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
             "Product issue report resolved successfully.");
     }
 
-    private async Task<(StoredFile StoredFile, FileLink FileLink)> UploadEvidenceAsync(
-        Guid issueId,
-        Guid projectId,
-        Guid currentUserId,
-        ProductIssueEvidenceUploadDto evidence,
-        List<string> uploadedObjects,
-        CancellationToken cancellationToken)
-    {
-        var fileId = Guid.NewGuid();
-        var fileLinkId = Guid.NewGuid();
-        var now = DateTime.UtcNow;
-        var originalFileName = Path.GetFileName(evidence.OriginalFileName.Trim());
-        var generatedFileName = ProjectFileUploadSupport.BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = ProjectFileUploadSupport.BuildProjectObjectName(
-            _firebaseSettings,
-            projectId,
-            generatedFileName);
-
-        var uploadResult = await _storage.UploadAsync(
-            new StorageUploadRequest
-            {
-                Content = evidence.Content,
-                ObjectName = objectName,
-                ContentType = ProjectFileUploadSupport.NormalizeContentType(evidence.ContentType)
-            },
-            cancellationToken);
-        uploadedObjects.Add(uploadResult.ObjectName);
-
-        var storedFile = new StoredFile
-        {
-            FileId = fileId,
-            UploadedBy = currentUserId,
-            OriginalFileName = originalFileName,
-            StoredFileName = generatedFileName,
-            FileUrl = uploadResult.PublicUrl,
-            StoragePath = uploadResult.ObjectName,
-            MimeType = ProjectFileUploadSupport.NormalizeContentType(evidence.ContentType),
-            FileExtension = ProjectFileUploadSupport.NormalizeExtension(originalFileName),
-            FileSizeBytes = evidence.FileSizeBytes,
-            Status = FileStatus.ACTIVE,
-            UploadedAt = now
-        };
-
-        var fileLink = new FileLink
-        {
-            FileLinkId = fileLinkId,
-            FileId = fileId,
-            ReferenceType = IssueReportReferenceType,
-            ReferenceId = issueId,
-            FileType = FileType.PRODUCT_ISSUE_EVIDENCE,
-            Visibility = FileVisibility.CUSTOMER_VISIBLE,
-            CreatedBy = currentUserId,
-            CreatedAt = now
-        };
-
-        return (storedFile, fileLink);
-    }
-
-    private async Task DeleteUploadedObjectsAsync(
-        IReadOnlyList<string> uploadedObjects,
-        CancellationToken cancellationToken)
-    {
-        foreach (var objectName in uploadedObjects)
-        {
-            try
-            {
-                await _storage.DeleteAsync(objectName, cancellationToken);
-            }
-            catch
-            {
-                // Best-effort cleanup after failed transaction.
-            }
-        }
-    }
-
     private async Task<ServiceResult<ProductIssueReportDto>?> ValidateDeliveryItemAsync(
         Guid deliveryItemId,
         Guid orderId,
@@ -507,34 +416,6 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
         }
 
         return await CanViewAsync(projectId, customerId, roleName, currentUserId, cancellationToken);
-    }
-
-    private ServiceResult<ProductIssueReportDto>? ValidateEvidenceFiles(
-        IReadOnlyList<ProductIssueEvidenceUploadDto> files)
-    {
-        foreach (var file in files)
-        {
-            var validation = _fileUploadValidator.Validate(new ProductIssueEvidenceUploadPayload(file));
-            if (!validation.IsValid)
-            {
-                return MapFileValidationResult(validation);
-            }
-        }
-
-        return null;
-    }
-
-    private static ServiceResult<ProductIssueReportDto> MapFileValidationResult(
-        FileUploadValidationResult validation)
-    {
-        return validation.FailureKind switch
-        {
-            FileUploadValidationFailureKind.FileTooLarge =>
-                ServiceResult<ProductIssueReportDto>.PayloadTooLarge(validation.Message),
-            FileUploadValidationFailureKind.InvalidExtension or FileUploadValidationFailureKind.InvalidMimeType =>
-                ServiceResult<ProductIssueReportDto>.UnsupportedMediaType(validation.Message),
-            _ => BadRequest(ProductIssueErrorCodes.InvalidRequest, validation.Message)
-        };
     }
 
     private static ServiceResult<ProductIssueReportDto>? ValidateCreateRequest(
@@ -704,20 +585,4 @@ public sealed class DeliveryProductIssueReportService : IDeliveryProductIssueRep
 
     private static ServiceResult<ProductIssueReportListResponseDto> BadRequestList(string code, string message) =>
         ServiceResult<ProductIssueReportListResponseDto>.Failure(Error.Validation(code, message));
-}
-
-internal sealed class ProductIssueEvidenceUploadPayload : IFileUploadPayload
-{
-    public ProductIssueEvidenceUploadPayload(ProductIssueEvidenceUploadDto source)
-    {
-        Content = source.Content;
-        OriginalFileName = source.OriginalFileName;
-        ContentType = source.ContentType ?? string.Empty;
-        FileSizeBytes = source.FileSizeBytes;
-    }
-
-    public Stream Content { get; }
-    public string OriginalFileName { get; }
-    public string ContentType { get; }
-    public long FileSizeBytes { get; }
 }

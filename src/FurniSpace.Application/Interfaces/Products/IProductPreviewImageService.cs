@@ -1,14 +1,21 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.Products;
 
 namespace FurniSpace.Application.Interfaces.Products;
 
 public interface IProductPreviewImageService
 {
-    Task<ServiceResult<ProductPreviewImageUploadResponseDto>> UploadAsync(
+    Task<ServiceResult<PrepareDirectUploadResponseDto>> PreparePreviewUploadAsync(
         Guid productId,
         Guid currentUserId,
         UploadProductPreviewImageRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductPreviewImageUploadResponseDto>> CompletePreviewUploadAsync(
+        Guid productId,
+        Guid currentUserId,
+        CompleteDirectUploadRequestDto request,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<ProductPreviewImageListResponseDto>> GetListAsync(

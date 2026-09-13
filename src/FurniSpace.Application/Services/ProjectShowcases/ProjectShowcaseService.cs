@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.Constants.ProjectShowcases;
 using FurniSpace.Application.DTOs.ProjectShowcases;
@@ -42,6 +43,7 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
+    private readonly DirectFileUploadCoordinator _directUploadCoordinator;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
 
@@ -59,6 +61,7 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
         _files = files;
         _unitOfWork = unitOfWork;
         _storage = dependencies.Storage;
+        _directUploadCoordinator = dependencies.DirectUploadCoordinator;
         _uploadSettings = dependencies.UploadSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
     }

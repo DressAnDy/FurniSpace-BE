@@ -39,18 +39,6 @@ public sealed class AddProjectShowcaseMediaRequestDto
     public bool SetAsCover { get; set; }
 }
 
-public sealed class UploadProjectShowcaseMediaRequestDto
-{
-    public Stream Content { get; init; } = Stream.Null;
-    public string OriginalFileName { get; init; } = string.Empty;
-    public string ContentType { get; init; } = "application/octet-stream";
-    public long FileSizeBytes { get; init; }
-    public ProjectShowcaseMediaType MediaType { get; init; } = ProjectShowcaseMediaType.FINAL;
-    public string? Title { get; set; }
-    public string? Caption { get; set; }
-    public bool SetAsCover { get; set; }
-}
-
 public sealed class ReorderProjectShowcaseMediaRequestDto
 {
     public List<Guid> MediaIds { get; set; } = [];

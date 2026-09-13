@@ -2,8 +2,9 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
-using FurniSpace.API.DTOs.Products;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.LayoutAssets;
+using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.LayoutAssets;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -13,8 +14,6 @@ namespace FurniSpace.API.Controllers.Catalog;
 [Route("layout-assets")]
 public sealed class LayoutAssetsController : BaseApiController
 {
-    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
-
     private readonly ILayoutAssetService _layoutAssets;
 
     public LayoutAssetsController(ILayoutAssetService layoutAssets)
@@ -81,12 +80,10 @@ public sealed class LayoutAssetsController : BaseApiController
     }
 
     [Authorize(Roles = "ADMIN")]
-    [HttpPost("{layoutAssetId:guid}/files")]
-    [Consumes("multipart/form-data")]
-    [RequestSizeLimit(MultipartRequestLimitBytes)]
-    public async Task<IActionResult> UploadFile(
+    [HttpPost("{layoutAssetId:guid}/files/upload-url")]
+    public async Task<IActionResult> PrepareFileUpload(
         Guid layoutAssetId,
-        [FromForm] UploadCatalogFileFormRequest request,
+        [FromBody] UploadCatalogFileRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -94,10 +91,31 @@ public sealed class LayoutAssetsController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _layoutAssets.UploadFileAsync(
+        var result = await _layoutAssets.PrepareFileUploadAsync(
             layoutAssetId,
             currentUserId,
-            request.ToRequestDto(),
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "ADMIN")]
+    [HttpPost("{layoutAssetId:guid}/files/complete")]
+    public async Task<IActionResult> CompleteFileUpload(
+        Guid layoutAssetId,
+        [FromBody] CompleteDirectUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _layoutAssets.CompleteFileUploadAsync(
+            layoutAssetId,
+            currentUserId,
+            request,
             cancellationToken);
 
         return ToActionResult(result);

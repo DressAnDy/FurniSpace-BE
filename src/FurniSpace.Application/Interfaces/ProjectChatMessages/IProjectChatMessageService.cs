@@ -22,10 +22,16 @@ public interface IProjectChatMessageService
         SendTextChatMessageRequestDto request,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<ProjectChatMessageDto>> SendFileMessageAsync(
+    Task<ServiceResult<PrepareProjectChatFileUploadResponseDto>> PrepareFileMessageUploadAsync(
         Guid chatId,
         Guid currentUserId,
-        SendFileChatMessageRequestDto request,
+        PrepareProjectChatFileUploadRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProjectChatMessageDto>> CompleteFileMessageUploadAsync(
+        Guid chatId,
+        Guid currentUserId,
+        CompleteProjectChatFileUploadRequestDto request,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<ProjectChatMessageSearchResponseDto>> SearchProjectMessagesAsync(

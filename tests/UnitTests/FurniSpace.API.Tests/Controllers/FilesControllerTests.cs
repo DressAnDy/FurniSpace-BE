@@ -227,7 +227,6 @@ public sealed class FilesControllerTests
 
     private sealed class FakeProjectFileService : IProjectFileService
     {
-        private readonly ServiceResult<ProjectFileUploadResponseDto> _uploadResult;
         private readonly ServiceResult<FileDetailResponseDto> _fileDetailResult;
         private readonly ServiceResult<ProjectFilesResponseDto> _projectFilesResult;
         private readonly ServiceResult<FilesByReferenceResponseDto> _byReferenceResult;
@@ -235,14 +234,12 @@ public sealed class FilesControllerTests
         private readonly ServiceResult<ArchiveFileResponseDto> _archiveResult;
 
         public FakeProjectFileService(
-            ServiceResult<ProjectFileUploadResponseDto>? uploadResult = null,
             ServiceResult<FileDetailResponseDto>? fileDetailResult = null,
             ServiceResult<ProjectFilesResponseDto>? projectFilesResult = null,
             ServiceResult<FilesByReferenceResponseDto>? byReferenceResult = null,
             ServiceResult<DeleteFileResponseDto>? deleteResult = null,
             ServiceResult<ArchiveFileResponseDto>? archiveResult = null)
         {
-            _uploadResult = uploadResult ?? ServiceResult<ProjectFileUploadResponseDto>.Created(new ProjectFileUploadResponseDto());
             _fileDetailResult = fileDetailResult ?? ServiceResult<FileDetailResponseDto>.Success(new FileDetailResponseDto());
             _projectFilesResult = projectFilesResult ?? ServiceResult<ProjectFilesResponseDto>.Success(new ProjectFilesResponseDto());
             _byReferenceResult = byReferenceResult ?? ServiceResult<FilesByReferenceResponseDto>.Success(new FilesByReferenceResponseDto());
@@ -253,22 +250,9 @@ public sealed class FilesControllerTests
         public Guid ProjectId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public Guid FileId { get; private set; }
-        public UploadProjectFileRequestDto? UploadRequest { get; private set; }
         public ProjectFilesQueryDto? ProjectFilesQuery { get; private set; }
         public FilesByReferenceQueryDto? FilesByReferenceQuery { get; private set; }
         public ArchiveFileRequestDto? ArchiveRequest { get; private set; }
-
-        public Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectFileAsync(
-            Guid projectId,
-            Guid currentUserId,
-            UploadProjectFileRequestDto request,
-            CancellationToken cancellationToken = default)
-        {
-            ProjectId = projectId;
-            CurrentUserId = currentUserId;
-            UploadRequest = request;
-            return Task.FromResult(_uploadResult);
-        }
 
         public Task<ServiceResult<PrepareProjectFileUploadResponseDto>> PrepareProjectFileUploadAsync(
             Guid projectId,
@@ -343,6 +327,34 @@ public sealed class FilesControllerTests
             CurrentUserId = currentUserId;
             return Task.FromResult(_deleteResult);
         }
+
+        public Task<ServiceResult<PrepareProjectAreaFileUploadResponseDto>> PrepareProjectAreaFileUploadAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            PrepareProjectFileUploadRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<PrepareProjectAreaFileUploadResponseDto>.Created(new PrepareProjectAreaFileUploadResponseDto()));
+
+        public Task<ServiceResult<ProjectFileUploadResponseDto>> CompleteProjectAreaFileUploadAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            CompleteProjectFileUploadRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectFileUploadResponseDto>.Success(new ProjectFileUploadResponseDto()));
+
+        public Task<ServiceResult<ProjectFilesResponseDto>> GetProjectAreaFilesAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            ProjectFilesQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectFilesResponseDto>.Success(new ProjectFilesResponseDto()));
+
+        public Task<ServiceResult<ProjectAreaFilePrimaryResponseDto>> SetProjectAreaPrimaryFileAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectAreaFilePrimaryResponseDto>.Success(new ProjectAreaFilePrimaryResponseDto()));
 
         public Task<ServiceResult<ArchiveFileResponseDto>> ArchiveFileAsync(
             Guid fileId,

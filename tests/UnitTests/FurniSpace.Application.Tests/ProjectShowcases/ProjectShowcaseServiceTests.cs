@@ -333,24 +333,29 @@ public sealed class ProjectShowcaseServiceTests
     }
 
     [Fact]
-    public async Task UploadMediaAsync_CreatesStoredFileFileLinkAndShowcaseMedia()
+    public async Task CompleteMediaUploadAsync_CreatesStoredFileFileLinkAndShowcaseMedia()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
-        var storage = new ShowcaseFileStorageFake();
-        var service = CreateShowcaseService(context, storage);
+        var service = CreateShowcaseService(context, new ShowcaseFileStorageFake());
         var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
+        var showcaseId = createResult.Data!.ProjectShowcaseId;
 
-        await using var content = new MemoryStream([0xFF, 0xD8, 0xFF]);
-        var result = await service.UploadMediaAsync(
-            createResult.Data!.ProjectShowcaseId,
+        var prepareResult = await service.PrepareMediaUploadAsync(
+            showcaseId,
             SalesId,
-            new UploadProjectShowcaseMediaRequestDto
+            new PrepareProjectShowcaseMediaUploadRequestDto
             {
-                Content = content,
                 OriginalFileName = "showcase.jpg",
                 ContentType = "image/jpeg",
-                FileSizeBytes = content.Length,
+                FileSizeBytes = 3
+            });
+        var result = await service.CompleteMediaUploadAsync(
+            showcaseId,
+            SalesId,
+            new CompleteProjectShowcaseMediaUploadRequestDto
+            {
+                FileId = prepareResult.Data!.FileId,
                 MediaType = ProjectShowcaseMediaType.FINAL,
                 SetAsCover = true
             });
@@ -360,27 +365,24 @@ public sealed class ProjectShowcaseServiceTests
         Assert.Single(await context.StoredFileSet.ToListAsync());
         Assert.Single(await context.FileLinkSet.Where(link => link.FileType == FileType.PORTFOLIO_IMAGE).ToListAsync());
         Assert.Single(await context.ProjectShowcaseMediaSet.ToListAsync());
-        Assert.NotNull(storage.UploadRequest);
     }
 
     [Fact]
-    public async Task UploadMediaAsync_InvalidMime_ReturnsBadRequest()
+    public async Task PrepareMediaUploadAsync_InvalidMime_ReturnsBadRequest()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
         var service = CreateShowcaseService(context, new ShowcaseFileStorageFake());
         var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
 
-        await using var content = new MemoryStream([0x25, 0x50, 0x44, 0x46]);
-        var result = await service.UploadMediaAsync(
+        var result = await service.PrepareMediaUploadAsync(
             createResult.Data!.ProjectShowcaseId,
             SalesId,
-            new UploadProjectShowcaseMediaRequestDto
+            new PrepareProjectShowcaseMediaUploadRequestDto
             {
-                Content = content,
                 OriginalFileName = "showcase.pdf",
                 ContentType = "application/pdf",
-                FileSizeBytes = content.Length
+                FileSizeBytes = 4
             });
 
         Assert.Equal(400, result.Status);
@@ -688,29 +690,28 @@ public sealed class ProjectShowcaseServiceTests
     }
 
     [Fact]
-    public async Task UploadMediaAsync_WhenFileMissing_ReturnsBadRequest()
+    public async Task PrepareMediaUploadAsync_WhenMetadataMissing_ReturnsBadRequest()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
         var service = CreateShowcaseService(context, new ShowcaseFileStorageFake());
         var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
 
-        var result = await service.UploadMediaAsync(
+        var result = await service.PrepareMediaUploadAsync(
             createResult.Data!.ProjectShowcaseId,
             SalesId,
-            new UploadProjectShowcaseMediaRequestDto
+            new PrepareProjectShowcaseMediaUploadRequestDto
             {
-                Content = Stream.Null,
                 OriginalFileName = string.Empty,
                 FileSizeBytes = 0
             });
 
         Assert.Equal(400, result.Status);
-        Assert.Contains(result.Errors!, error => error.Contains("File is required.", StringComparison.Ordinal));
+        Assert.Contains(result.Errors!, error => error.Contains("Original file name is required.", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task UploadMediaAsync_WhenFileTooLarge_ReturnsBadRequest()
+    public async Task PrepareMediaUploadAsync_WhenFileTooLarge_ReturnsBadRequest()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
@@ -720,16 +721,14 @@ public sealed class ProjectShowcaseServiceTests
             uploadSettings: new FileUploadSettings { MaxFileSizeBytes = 8 });
         var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
 
-        await using var content = new MemoryStream([0xFF, 0xD8, 0xFF, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
-        var result = await service.UploadMediaAsync(
+        var result = await service.PrepareMediaUploadAsync(
             createResult.Data!.ProjectShowcaseId,
             SalesId,
-            new UploadProjectShowcaseMediaRequestDto
+            new PrepareProjectShowcaseMediaUploadRequestDto
             {
-                Content = content,
                 OriginalFileName = "showcase.jpg",
                 ContentType = "image/jpeg",
-                FileSizeBytes = content.Length
+                FileSizeBytes = 9
             });
 
         Assert.Equal(400, result.Status);
@@ -737,23 +736,21 @@ public sealed class ProjectShowcaseServiceTests
     }
 
     [Fact]
-    public async Task UploadMediaAsync_WhenExtensionMissing_ReturnsBadRequest()
+    public async Task PrepareMediaUploadAsync_WhenExtensionMissing_ReturnsBadRequest()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
         var service = CreateShowcaseService(context, new ShowcaseFileStorageFake());
         var createResult = await service.CreateAsync(project.ProjectId, SalesId, null);
 
-        await using var content = new MemoryStream([0xFF, 0xD8, 0xFF]);
-        var result = await service.UploadMediaAsync(
+        var result = await service.PrepareMediaUploadAsync(
             createResult.Data!.ProjectShowcaseId,
             SalesId,
-            new UploadProjectShowcaseMediaRequestDto
+            new PrepareProjectShowcaseMediaUploadRequestDto
             {
-                Content = content,
                 OriginalFileName = "showcase",
                 ContentType = "image/jpeg",
-                FileSizeBytes = content.Length
+                FileSizeBytes = 3
             });
 
         Assert.Equal(400, result.Status);
@@ -761,67 +758,74 @@ public sealed class ProjectShowcaseServiceTests
     }
 
     [Fact]
-    public async Task UploadMediaAsync_WhenCoverConflict_ReturnsConflictAndDeletesUpload()
+    public async Task CompleteMediaUploadAsync_WhenCoverConflict_ReturnsConflict()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
-        var storage = new ShowcaseFileStorageFake();
-        var setupService = CreateShowcaseService(context, storage);
+        var setupService = CreateShowcaseService(context, new ShowcaseFileStorageFake());
         var createResult = await setupService.CreateAsync(project.ProjectId, SalesId, null);
+        var showcaseId = createResult.Data!.ProjectShowcaseId;
+        var prepareResult = await setupService.PrepareMediaUploadAsync(
+            showcaseId,
+            SalesId,
+            new PrepareProjectShowcaseMediaUploadRequestDto
+            {
+                OriginalFileName = "showcase.jpg",
+                ContentType = "image/jpeg",
+                FileSizeBytes = 3
+            });
         var unitOfWork = TestUnitOfWork.ForTransaction(
             _ => Task.CompletedTask,
             _ => throw CreateShowcaseCoverUniqueViolationException(),
             _ => Task.CompletedTask,
             _ => Task.CompletedTask);
-        var service = CreateShowcaseService(context, storage, unitOfWork);
+        var service = CreateShowcaseService(context, new ShowcaseFileStorageFake(), unitOfWork);
 
-        await using var content = new MemoryStream([0xFF, 0xD8, 0xFF]);
-        var result = await service.UploadMediaAsync(
-            createResult.Data!.ProjectShowcaseId,
+        var result = await service.CompleteMediaUploadAsync(
+            showcaseId,
             SalesId,
-            new UploadProjectShowcaseMediaRequestDto
+            new CompleteProjectShowcaseMediaUploadRequestDto
             {
-                Content = content,
-                OriginalFileName = "showcase.jpg",
-                ContentType = "image/jpeg",
-                FileSizeBytes = content.Length,
+                FileId = prepareResult.Data!.FileId,
                 SetAsCover = true
             });
 
         Assert.Equal(409, result.Status);
         Assert.Equal(ProjectShowcaseErrorCodes.CoverConflict, result.ErrorCode);
-        Assert.NotNull(storage.DeletedObjectName);
     }
 
     [Fact]
-    public async Task UploadMediaAsync_WhenDbSaveFails_DeletesUploadAndRethrows()
+    public async Task CompleteMediaUploadAsync_WhenDbSaveFails_Rethrows()
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
-        var storage = new ShowcaseFileStorageFake();
-        var setupService = CreateShowcaseService(context, storage);
+        var setupService = CreateShowcaseService(context, new ShowcaseFileStorageFake());
         var createResult = await setupService.CreateAsync(project.ProjectId, SalesId, null);
+        var showcaseId = createResult.Data!.ProjectShowcaseId;
+        var prepareResult = await setupService.PrepareMediaUploadAsync(
+            showcaseId,
+            SalesId,
+            new PrepareProjectShowcaseMediaUploadRequestDto
+            {
+                OriginalFileName = "showcase.jpg",
+                ContentType = "image/jpeg",
+                FileSizeBytes = 3
+            });
         var unitOfWork = TestUnitOfWork.ForTransaction(
             _ => Task.CompletedTask,
             _ => throw new InvalidOperationException("save failed"),
             _ => Task.CompletedTask,
             _ => Task.CompletedTask);
-        var service = CreateShowcaseService(context, storage, unitOfWork);
+        var service = CreateShowcaseService(context, new ShowcaseFileStorageFake(), unitOfWork);
 
-        await using var content = new MemoryStream([0xFF, 0xD8, 0xFF]);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.UploadMediaAsync(
-                createResult.Data!.ProjectShowcaseId,
+            service.CompleteMediaUploadAsync(
+                showcaseId,
                 SalesId,
-                new UploadProjectShowcaseMediaRequestDto
+                new CompleteProjectShowcaseMediaUploadRequestDto
                 {
-                    Content = content,
-                    OriginalFileName = "showcase.jpg",
-                    ContentType = "image/jpeg",
-                    FileSizeBytes = content.Length
+                    FileId = prepareResult.Data!.FileId
                 }));
-
-        Assert.NotNull(storage.DeletedObjectName);
     }
 
     [Fact]
@@ -1131,8 +1135,11 @@ public sealed class ProjectShowcaseServiceTests
     {
         var uploadOptions = Options.Create(uploadSettings ?? new FileUploadSettings());
         var firebaseSettings = Options.Create(new FirebaseStorageSettings());
+        var resolvedStorage = storage ?? new ShowcaseFileStorageFake();
+        var resolvedFirebaseSettings = firebaseSettings.Value;
         var dependencies = new ProjectShowcaseServiceDependencies(
-            storage ?? new ShowcaseFileStorageFake(),
+            resolvedStorage,
+            DirectUploadTestDoubles.CreateCoordinator(resolvedStorage, resolvedFirebaseSettings),
             uploadOptions,
             firebaseSettings);
 

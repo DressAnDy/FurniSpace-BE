@@ -8,5 +8,6 @@ public sealed record ProjectFileServiceDependencies(
     IUnitOfWork UnitOfWork,
     IFileStorageService Storage,
     IDirectFileUploadStorageService DirectUploadStorage,
+    DirectFileUploadCoordinator DirectUploadCoordinator,
     FileUploadSettings UploadSettings,
     FirebaseStorageSettings FirebaseSettings);

@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using FurniSpace.API.IntegrationTests.Fixtures;
 using FurniSpace.API.IntegrationTests.Support;
 using FurniSpace.Application.Common.Notifications;
@@ -74,20 +72,47 @@ public sealed class CrossCuttingApiIntegrationTests : IAsyncLifetime
     public async Task ProjectFileUpload_UsesFakeStorageAndPersistsMetadata()
     {
         var scenario = await SeedProjectScenarioAsync();
-        using var request = BuildProjectFileUploadRequest(scenario);
+        using var prepareRequest = IntegrationHttp.AuthenticatedJson(
+            HttpMethod.Post,
+            $"/projects/{scenario.ProjectId}/files/upload-url",
+            scenario.CustomerAccountId,
+            CoreRoles.Customer,
+            new PrepareProjectFileUploadRequestDto
+            {
+                OriginalFileName = "floor-plan.png",
+                ContentType = "image/png",
+                FileSizeBytes = 15,
+                FileType = FileType.FLOOR_PLAN,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                Note = "Initial measured floor plan"
+            });
 
-        var response = await _fixture.Client.SendAsync(request);
-        var uploaded = await IntegrationHttp.ReadDataAsync<ProjectFileUploadResponseDto>(
-            response,
+        var prepareResponse = await _fixture.Client.SendAsync(prepareRequest);
+        var prepared = await IntegrationHttp.ReadDataAsync<PrepareProjectFileUploadResponseDto>(
+            prepareResponse,
             HttpStatusCode.Created);
+
+        Assert.Equal(scenario.ProjectId, prepared.ProjectId);
+        Assert.StartsWith("https://storage.integration.test/upload/projects/", prepared.UploadUrl, StringComparison.Ordinal);
+
+        using var completeRequest = IntegrationHttp.AuthenticatedJson(
+            HttpMethod.Post,
+            $"/projects/{scenario.ProjectId}/files/complete",
+            scenario.CustomerAccountId,
+            CoreRoles.Customer,
+            new CompleteProjectFileUploadRequestDto { FileId = prepared.FileId });
+        var completeResponse = await _fixture.Client.SendAsync(completeRequest);
+        var uploaded = await IntegrationHttp.ReadDataAsync<ProjectFileUploadResponseDto>(
+            completeResponse,
+            HttpStatusCode.OK);
 
         Assert.Equal(scenario.ProjectId, uploaded.ProjectId);
         Assert.Equal(scenario.CustomerAccountId, uploaded.UploadedBy);
         Assert.Equal("floor-plan.png", uploaded.OriginalFileName);
         Assert.Equal(FileType.FLOOR_PLAN, uploaded.FileType);
         Assert.Equal(FileVisibility.CUSTOMER_VISIBLE, uploaded.Visibility);
-        Assert.StartsWith("integration/", uploaded.StoragePath, StringComparison.Ordinal);
-        Assert.StartsWith("https://storage.integration.test/integration/", uploaded.PublicUrl, StringComparison.Ordinal);
+        Assert.StartsWith($"projects/{scenario.ProjectId:D}/", uploaded.StoragePath, StringComparison.Ordinal);
+        Assert.StartsWith("https://storage.integration.test/projects/", uploaded.PublicUrl, StringComparison.Ordinal);
 
         using var listRequest = IntegrationHttp.Authenticated(
             HttpMethod.Get,
@@ -224,24 +249,6 @@ public sealed class CrossCuttingApiIntegrationTests : IAsyncLifetime
         await context.SaveChangesAsync();
 
         return (delivery, otherCustomer.AccountId);
-    }
-
-    private static HttpRequestMessage BuildProjectFileUploadRequest(ProjectConsultationScenario scenario)
-    {
-        var content = new MultipartFormDataContent();
-        var file = new ByteArrayContent(Encoding.UTF8.GetBytes("fake floor plan"));
-        file.Headers.ContentType = MediaTypeHeaderValue.Parse("image/png");
-        content.Add(file, "File", "floor-plan.png");
-        content.Add(new StringContent(nameof(FileType.FLOOR_PLAN)), "FileType");
-        content.Add(new StringContent(nameof(FileVisibility.CUSTOMER_VISIBLE)), "Visibility");
-        content.Add(new StringContent("Initial measured floor plan"), "Note");
-
-        return IntegrationHttp.Authenticated(
-            HttpMethod.Post,
-            $"/projects/{scenario.ProjectId}/files",
-            scenario.CustomerAccountId,
-            CoreRoles.Customer,
-            content);
     }
 
     private async Task<OrderFinalPaymentPreparationDto> PrepareFinalPaymentAsync(

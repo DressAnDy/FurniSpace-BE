@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.OperationalDelayReports;
+using FurniSpace.Application.Common.Reports;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.DTOs.OperationalDelayReports;
 using FurniSpace.Application.Interfaces.Notifications;
@@ -299,6 +300,60 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             "Operational delay report retrieved successfully.");
     }
 
+    public async Task<ServiceResult<OperationalDelayReportDto>> ResolveAsync(
+        Guid reportId,
+        Guid currentUserId,
+        ResolveReportRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (reportId == Guid.Empty || currentUserId == Guid.Empty)
+        {
+            return BadRequest(OperationalDelayReportErrorCodes.InvalidRequest, "Report id is required.");
+        }
+
+        var noteError = ValidateResolutionNote(request.ResolutionNote);
+        if (noteError is not null)
+        {
+            return noteError;
+        }
+
+        var report = await _reports.GetByIdAsync(reportId, cancellationToken);
+        if (report is null)
+        {
+            return NotFound(OperationalDelayReportErrorCodes.ReportNotFound, ReportNotFoundMessage);
+        }
+
+        var project = await _projects.GetByIdAsync(report.ProjectId, cancellationToken);
+        if (project is null)
+        {
+            return NotFound(OperationalDelayReportErrorCodes.ProjectNotFound, ProjectNotFoundMessage);
+        }
+
+        var roleName = await _projects.GetAccountRoleNameAsync(currentUserId, cancellationToken);
+        if (!await CanResolveReportAsync(report, project, roleName, currentUserId, cancellationToken))
+        {
+            return Forbidden();
+        }
+
+        var normalizedNote = ReportResolutionSupport.NormalizeResolutionNote(request.ResolutionNote);
+        ReportResolutionSupport.ApplyResolveTransition(
+            report.Status,
+            () =>
+            {
+                report.Status = ReportResolutionStatus.RESOLVED;
+                report.ResolvedAt = DateTime.UtcNow;
+                report.ResolutionNote = normalizedNote;
+            });
+
+        _reports.Update(report);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var detail = await _reports.GetDetailAsync(reportId, cancellationToken);
+        return ServiceResult<OperationalDelayReportDto>.Success(
+            ToDto(detail!),
+            "Operational delay report resolved successfully.");
+    }
+
     private static OperationalDelayReport BuildProductionReport(
         Guid projectId,
         OperationalDelayPhase phase,
@@ -330,7 +385,8 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             ReasonDetail = reasonDetail.Trim(),
             ReportedBy = reportedBy,
             ReportedAt = reportedAt,
-            CreatedAt = reportedAt
+            CreatedAt = reportedAt,
+            Status = ReportResolutionStatus.OPEN
         };
     }
 
@@ -364,7 +420,35 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             ReasonDetail = reasonDetail.Trim(),
             ReportedBy = reportedBy,
             ReportedAt = reportedAt,
-            CreatedAt = reportedAt
+            CreatedAt = reportedAt,
+            Status = ReportResolutionStatus.OPEN
+        };
+    }
+
+    private async Task<bool> CanResolveReportAsync(
+        OperationalDelayReport report,
+        Project project,
+        string? roleName,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        return report.ReportPhase switch
+        {
+            OperationalDelayPhase.PRODUCTION when report.ProductionRequestId.HasValue =>
+                await CanManageProductionReportAsync(
+                    project,
+                    roleName,
+                    currentUserId,
+                    report.ProductionRequestId.Value,
+                    cancellationToken),
+            OperationalDelayPhase.DELIVERY =>
+                await CanViewStaffReportsAsync(
+                    project.ProjectId,
+                    project.AssignedSalesId,
+                    roleName,
+                    currentUserId,
+                    cancellationToken),
+            _ => false
         };
     }
 
@@ -522,7 +606,10 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             ReportedBy = report.ReportedBy,
             ReporterName = reporterName,
             ReportedAt = report.ReportedAt,
-            CreatedAt = report.CreatedAt
+            CreatedAt = report.CreatedAt,
+            Status = report.Status.ToString(),
+            ResolvedAt = report.ResolvedAt,
+            ResolutionNote = report.ResolutionNote
         };
     }
 
@@ -544,7 +631,10 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
             ReportedBy = item.ReportedBy,
             ReporterName = item.ReporterName,
             ReportedAt = item.ReportedAt,
-            CreatedAt = item.CreatedAt
+            CreatedAt = item.CreatedAt,
+            Status = item.Status.ToString(),
+            ResolvedAt = item.ResolvedAt,
+            ResolutionNote = item.ResolutionNote
         };
     }
 
@@ -575,4 +665,17 @@ public sealed class OperationalDelayReportService : IOperationalDelayReportServi
 
     private static ServiceResult<OperationalDelayReportListResponseDto> BadRequestList(string code, string message) =>
         ServiceResult<OperationalDelayReportListResponseDto>.Failure(Error.Validation(code, message));
+
+    private static ServiceResult<OperationalDelayReportDto>? ValidateResolutionNote(string? note)
+    {
+        var normalized = ReportResolutionSupport.NormalizeResolutionNote(note);
+        if (normalized?.Length > ReportResolutionSupport.MaxResolutionNoteLength)
+        {
+            return BadRequest(
+                OperationalDelayReportErrorCodes.ResolutionNoteTooLong,
+                $"Resolution note must not exceed {ReportResolutionSupport.MaxResolutionNoteLength} characters.");
+        }
+
+        return null;
+    }
 }

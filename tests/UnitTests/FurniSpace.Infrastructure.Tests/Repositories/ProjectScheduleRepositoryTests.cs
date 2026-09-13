@@ -560,6 +560,66 @@ public sealed class ProjectScheduleRepositoryTests
     }
 
     [Fact]
+    public async Task GetActiveMeasurementSchedulesForCleanupAsync_ReturnsPendingAndConfirmedOnly()
+    {
+        await using var context = CreateContext();
+        var projectId = Guid.NewGuid();
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = projectId,
+            CustomerId = Guid.NewGuid(),
+            ProjectName = "Measurement cleanup project",
+            BusinessType = "Cafe",
+            FurnitureRequirement = "Tables",
+            Status = ProjectStatus.MEASUREMENT_REQUIRED
+        });
+        var pendingId = Guid.NewGuid();
+        var confirmedId = Guid.NewGuid();
+        var completedId = Guid.NewGuid();
+        context.ProjectScheduleSet.AddRange(
+            new ProjectSchedule
+            {
+                ScheduleId = pendingId,
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Pending",
+                ScheduledStart = DateTime.UtcNow.AddDays(1),
+                Status = ProjectScheduleStatus.PENDING_CONFIRMATION,
+                CreatedAt = DateTime.UtcNow
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = confirmedId,
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Confirmed",
+                ScheduledStart = DateTime.UtcNow.AddDays(2),
+                Status = ProjectScheduleStatus.CONFIRMED,
+                CreatedAt = DateTime.UtcNow
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = completedId,
+                ProjectId = projectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Completed",
+                ScheduledStart = DateTime.UtcNow.AddDays(-1),
+                Status = ProjectScheduleStatus.COMPLETED,
+                CompletedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+        await context.SaveChangesAsync();
+        var repository = new ProjectScheduleRepository(context);
+
+        var schedules = await repository.GetActiveMeasurementSchedulesForCleanupAsync(projectId);
+
+        Assert.Equal(2, schedules.Count);
+        Assert.Contains(schedules, schedule => schedule.ScheduleId == pendingId);
+        Assert.Contains(schedules, schedule => schedule.ScheduleId == confirmedId);
+        Assert.DoesNotContain(schedules, schedule => schedule.ScheduleId == completedId);
+    }
+
+    [Fact]
     public async Task ProjectScheduleRepositoryInterfaceDefaults_ReturnConfiguredFallbacks()
     {
         IProjectScheduleRepository repository = new MinimalProjectScheduleRepository();
@@ -572,6 +632,7 @@ public sealed class ProjectScheduleRepositoryTests
         Assert.Null(await repository.GetMaxOperationalScheduleDateAsync(Guid.NewGuid()));
         Assert.False(await repository.HasLinkedInProgressDeliveryAsync(Guid.NewGuid()));
         Assert.Empty(await repository.GetUnusedFutureDeliverySchedulesAsync(Guid.NewGuid()));
+        Assert.Empty(await repository.GetActiveMeasurementSchedulesForCleanupAsync(Guid.NewGuid()));
         Assert.False(await repository.HasUnresolvedConfirmedDeliveryScheduleAsync(Guid.NewGuid()));
     }
 

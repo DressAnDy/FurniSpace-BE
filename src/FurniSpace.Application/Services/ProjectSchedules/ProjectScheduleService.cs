@@ -1536,6 +1536,19 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         };
     }
 
+    private static Dictionary<string, object?> BuildScheduleNotificationMetadata(ProjectSchedule schedule)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["scheduleId"] = schedule.ScheduleId,
+            ["projectId"] = schedule.ProjectId,
+            ["scheduleType"] = schedule.ScheduleType?.ToString(),
+            ["status"] = schedule.Status?.ToString(),
+            ["scheduledStart"] = schedule.ScheduledStart,
+            ["scheduledEnd"] = schedule.ScheduledEnd
+        };
+    }
+
     private async Task DispatchScheduleCreatedAsync(
         ProjectSchedule schedule,
         FurniSpace.Infrastructure.ReadModels.Projects.ProjectDetailReadModel project,
@@ -1551,7 +1564,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             new NotificationDispatchRequest(
                 schedule.ProjectId,
                 ProjectScheduleReferenceType,
-                schedule.ScheduleId),
+                schedule.ScheduleId,
+                BuildScheduleNotificationMetadata(schedule)),
             cancellationToken);
     }
 
@@ -1609,7 +1623,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     new NotificationDispatchRequest(
                         schedule.ProjectId,
                         ProjectScheduleReferenceType,
-                        schedule.ScheduleId),
+                        schedule.ScheduleId,
+                        BuildScheduleNotificationMetadata(schedule)),
                     cancellationToken);
                 break;
             }

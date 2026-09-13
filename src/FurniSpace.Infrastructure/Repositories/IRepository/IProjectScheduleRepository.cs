@@ -93,6 +93,13 @@ public interface IProjectScheduleRepository : IGenericRepository<ProjectSchedule
         return Task.FromResult(StaffScheduleConflictKind.None);
     }
 
+    Task<IReadOnlyList<ProjectSchedule>> GetActiveMeasurementSchedulesForCleanupAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult<IReadOnlyList<ProjectSchedule>>([]);
+    }
+
     Task<IReadOnlyList<ProjectSchedule>> GetUnusedFutureDeliverySchedulesAsync(
         Guid projectId,
         CancellationToken cancellationToken = default)

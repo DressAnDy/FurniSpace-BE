@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.ProjectSchedules;
 using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Constants.Common;
@@ -907,19 +908,40 @@ public sealed class ProjectService : IProjectService
         var oldStatus = project.Status;
         var newStatus = request.Status.Value;
         var now = DateTime.UtcNow;
-        project.Status = newStatus;
-        project.UpdatedAt = now;
 
-        if (newStatus == ProjectStatus.PROPOSAL_CONSULTING && oldStatus != ProjectStatus.PROPOSAL_CONSULTING)
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
         {
-            await _phaseDeadlines.MarkStartedOnceAsync(
-                project.ProjectId,
-                ProjectPhaseType.PROPOSAL,
-                now,
-                cancellationToken);
-        }
+            project.Status = newStatus;
+            project.UpdatedAt = now;
 
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
+            if (newStatus == ProjectStatus.PROPOSAL_CONSULTING && oldStatus != ProjectStatus.PROPOSAL_CONSULTING)
+            {
+                await _phaseDeadlines.MarkStartedOnceAsync(
+                    project.ProjectId,
+                    ProjectPhaseType.PROPOSAL,
+                    now,
+                    cancellationToken);
+            }
+
+            if (ShouldCancelObsoleteMeasurementSchedules(newStatus))
+            {
+                await ProjectScheduleCleanupSupport.CancelObsoleteMeasurementSchedulesAsync(
+                    _schedules,
+                    project.ProjectId,
+                    now,
+                    cancellationToken);
+            }
+
+            _projects.Update(project);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
         await DispatchProjectStatusChangedNotificationAsync(project, cancellationToken);
 
         var message = newStatus == ProjectStatus.PROPOSAL_SELECTED
@@ -1322,6 +1344,15 @@ public sealed class ProjectService : IProjectService
             project.DesignerAssignedAt = DateTime.UtcNow;
             project.Status = ResolveDesignerAssignmentStatus(request.SpaceDataStatus!.Value);
             project.UpdatedAt = project.DesignerAssignedAt;
+
+            if (project.Status == ProjectStatus.SPACE_VERIFIED)
+            {
+                await ProjectScheduleCleanupSupport.CancelObsoleteMeasurementSchedulesAsync(
+                    _schedules,
+                    project.ProjectId,
+                    project.DesignerAssignedAt ?? DateTime.UtcNow,
+                    cancellationToken);
+            }
 
             await projectChats.UpsertProjectChatAsync(
                 project.ProjectId,
@@ -1910,6 +1941,11 @@ public sealed class ProjectService : IProjectService
     private static bool IsAdmin(string? roleName)
     {
         return string.Equals(roleName, ApplicationRoles.Admin, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ShouldCancelObsoleteMeasurementSchedules(ProjectStatus newStatus)
+    {
+        return newStatus is ProjectStatus.SPACE_VERIFIED or ProjectStatus.PROPOSAL_CONSULTING;
     }
 
     private static bool IsCustomer(string? roleName)

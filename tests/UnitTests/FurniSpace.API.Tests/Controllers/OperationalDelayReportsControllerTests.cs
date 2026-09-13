@@ -165,5 +165,18 @@ public sealed class OperationalDelayReportsControllerTests
                 new OperationalDelayReportDto(),
                 "Operational delay report retrieved successfully."));
         }
+
+        public Task<ServiceResult<OperationalDelayReportDto>> ResolveAsync(
+            Guid reportId,
+            Guid currentUserId,
+            ResolveReportRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ReportId = reportId;
+            CurrentUserId = currentUserId;
+            return Task.FromResult(ServiceResult<OperationalDelayReportDto>.Success(
+                new OperationalDelayReportDto(),
+                "Operational delay report resolved successfully."));
+        }
     }
 }

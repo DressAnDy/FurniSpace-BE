@@ -357,6 +357,19 @@ public sealed class ProjectScheduleRepository : GenericRepository<ProjectSchedul
             : current;
     }
 
+    public async Task<IReadOnlyList<ProjectSchedule>> GetActiveMeasurementSchedulesForCleanupAsync(
+        Guid projectId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.ProjectScheduleSet
+            .Where(schedule =>
+                schedule.ProjectId == projectId &&
+                schedule.ScheduleType == ProjectScheduleType.MEASUREMENT &&
+                (schedule.Status == ProjectScheduleStatus.PENDING_CONFIRMATION ||
+                 schedule.Status == ProjectScheduleStatus.CONFIRMED))
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ProjectSchedule>> GetUnusedFutureDeliverySchedulesAsync(
         Guid projectId,
         CancellationToken cancellationToken = default)

@@ -142,12 +142,21 @@ public sealed class NotificationTemplateProviderTests
     }
 
     [Fact]
-    public void Get_ProjectScheduleCreated_ReturnsRealtimeOnlyEventName()
+    public void Get_ProjectScheduleCreated_ReturnsInAppRealtimeEventName()
     {
         var template = NotificationTemplateProvider.Get(NotificationType.ProjectScheduleCreated);
 
-        Assert.Equal(NotificationDeliveryLevel.RealtimeOnly, template.DeliveryLevel);
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
         Assert.Equal("project_schedule.created", template.SignalREventName);
+    }
+
+    [Fact]
+    public void Get_ProjectScheduleConfirmed_ReturnsInAppRealtimeEventName()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProjectScheduleConfirmed);
+
+        Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
+        Assert.Equal("project_schedule.confirmed", template.SignalREventName);
     }
 
     [Fact]

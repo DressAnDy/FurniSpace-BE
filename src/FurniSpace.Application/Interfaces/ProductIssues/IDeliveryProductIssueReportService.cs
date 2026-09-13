@@ -25,4 +25,10 @@ public interface IDeliveryProductIssueReportService
         Guid issueId,
         Guid currentUserId,
         CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<ProductIssueReportDto>> ResolveAsync(
+        Guid issueId,
+        Guid currentUserId,
+        ResolveProductIssueRequestDto request,
+        CancellationToken cancellationToken = default);
 }

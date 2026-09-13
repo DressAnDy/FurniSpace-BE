@@ -104,7 +104,7 @@ public sealed class CrossCuttingApiIntegrationTests : IAsyncLifetime
         var completeResponse = await _fixture.Client.SendAsync(completeRequest);
         var uploaded = await IntegrationHttp.ReadDataAsync<ProjectFileUploadResponseDto>(
             completeResponse,
-            HttpStatusCode.OK);
+            HttpStatusCode.Created);
 
         Assert.Equal(scenario.ProjectId, uploaded.ProjectId);
         Assert.Equal(scenario.CustomerAccountId, uploaded.UploadedBy);

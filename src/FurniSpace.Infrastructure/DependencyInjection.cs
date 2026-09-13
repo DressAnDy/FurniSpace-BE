@@ -1,10 +1,9 @@
-using Elastic.Clients.Elasticsearch;
 using FurniSpace.Infrastructure.Caching;
 using FurniSpace.Infrastructure.Common.Caching;
 using FurniSpace.Infrastructure.Common.Email;
 using FurniSpace.Infrastructure.Common.Mongo;
-using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Common.Storage;
+using Google.Cloud.Storage.V1;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Data.Mongo;
@@ -27,7 +26,6 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<RedisSettings>(configuration.GetSection(RedisSettings.SectionName));
-        services.Configure<ElasticsearchSettings>(configuration.GetSection(ElasticsearchSettings.SectionName));
         services.Configure<GmailApiSettings>(configuration.GetSection(GmailApiSettings.SectionName));
         services.Configure<MongoDbSettings>(settings =>
         {
@@ -63,7 +61,6 @@ public static class DependencyInjection
 
         services.AddPostgres(configuration);
         services.AddRedis(configuration);
-        services.AddElasticsearch(configuration);
         services.AddMongoRoomPlanner();
         services.AddScoped<IAccountRepository, AccountRepository>();
         services.AddScoped<IAdminReportRepository, AdminReportRepository>();
@@ -117,7 +114,23 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(baseUrl);
             client.Timeout = TimeSpan.FromSeconds(Math.Clamp(settings.TimeoutSeconds, 1, 60));
         });
-        services.AddScoped<IFileStorageService, FirebaseStorageService>();
+        services.AddSingleton(sp =>
+        {
+            var settings = sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value;
+            return FirebaseStorageClientFactory.Create(settings);
+        });
+        services.AddSingleton(sp =>
+        {
+            var settings = sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value;
+            return FirebaseStorageClientFactory.CreateUrlSigner(settings);
+        });
+        services.AddSingleton<IStorageObjectClient>(sp =>
+            new GoogleStorageObjectClient(sp.GetRequiredService<StorageClient>()));
+        services.AddSingleton<ISignedUploadUrlGenerator>(sp =>
+            new GoogleSignedUploadUrlGenerator(sp.GetRequiredService<UrlSigner>()));
+        services.AddScoped<FirebaseStorageService>();
+        services.AddScoped<IFileStorageService>(sp => sp.GetRequiredService<FirebaseStorageService>());
+        services.AddScoped<IDirectFileUploadStorageService>(sp => sp.GetRequiredService<FirebaseStorageService>());
 
         return services;
     }
@@ -188,6 +201,7 @@ public static class DependencyInjection
         builder.MapEnum<ProductionDelayReasonCode>("production_delay_reason_code", translator);
         builder.MapEnum<DeliveryDelayReasonCode>("delivery_delay_reason_code", translator);
         builder.MapEnum<DeliveryProductIssueType>("delivery_product_issue_type", translator);
+        builder.MapEnum<ReportResolutionStatus>("report_resolution_status", translator);
 
         builder.MapEnum<ProjectChatType>("project_chat_type", translator);
         builder.MapEnum<ProjectChatStatus>("project_chat_status", translator);
@@ -219,33 +233,6 @@ public static class DependencyInjection
             ConnectionMultiplexer.Connect(redisConnection));
 
         services.AddScoped<ICacheService, RedisCacheService>();
-    }
-
-    private static void AddElasticsearch(this IServiceCollection services, IConfiguration configuration)
-    {
-        var url = configuration.GetSection(ElasticsearchSettings.SectionName)["Url"]
-            ?? configuration["ELASTICSEARCH_URL"];
-
-        if (string.IsNullOrWhiteSpace(url))
-        {
-            throw new InvalidOperationException(
-                "Elasticsearch URL is missing. Set Elasticsearch__Url or ELASTICSEARCH_URL.");
-        }
-
-        var indexPrefix = configuration.GetSection(ElasticsearchSettings.SectionName)["IndexPrefix"]
-            ?? configuration["ELASTICSEARCH_INDEX_PREFIX"]
-            ?? "furnispace";
-
-        var settings = new ElasticsearchClientSettings(new Uri(url))
-            .DefaultIndex(indexPrefix);
-
-        services.AddSingleton(new ElasticsearchClient(settings));
-        services.AddScoped<ISearchIndexService, ElasticsearchIndexService>();
-        services.AddScoped<IIndexManager, ElasticsearchIndexManager>();
-        if (configuration.GetValue("Elasticsearch:InitializeIndices", true))
-        {
-            services.AddHostedService<ElasticsearchIndexInitializer>();
-        }
     }
 
     private static string AppendRedisPasswordIfNeeded(string connectionString)

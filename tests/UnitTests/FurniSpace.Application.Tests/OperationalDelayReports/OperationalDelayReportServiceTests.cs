@@ -597,6 +597,166 @@ public sealed class OperationalDelayReportServiceTests
         };
     }
 
+    [Fact]
+    public async Task CreateProductionReportAsync_StartsWithOpenStatus()
+    {
+        var ids = CreateIds();
+        var reports = new FakeOperationalDelayReportRepository();
+        var service = CreateService(
+            reports,
+            project: CreateProject(ids),
+            roleName: SalesRole,
+            productionRequest: CreateProductionRequest(ids),
+            productionDeadline: new DateOnly(2026, 9, 15));
+
+        var result = await service.CreateProductionReportAsync(
+            ids.ProjectId,
+            ids.SalesId,
+            new CreateProductionDelayReportRequestDto
+            {
+                ProductionRequestId = ids.ProductionRequestId,
+                ProductionReasonCode = "MATERIAL_DELAY",
+                ReasonDetail = "Supplier delay"
+            });
+
+        Assert.Equal("OPEN", result.Data!.Status);
+        Assert.Null(result.Data.ResolvedAt);
+        Assert.Null(result.Data.ResolutionNote);
+        Assert.Equal(ReportResolutionStatus.OPEN, reports.AddedReports.Single().Status);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_WhenOpen_TransitionsToResolved()
+    {
+        var ids = CreateIds();
+        var reportId = Guid.NewGuid();
+        var report = new OperationalDelayReport
+        {
+            OperationalDelayReportId = reportId,
+            ProjectId = ids.ProjectId,
+            ReportPhase = OperationalDelayPhase.PRODUCTION,
+            ProductionRequestId = ids.ProductionRequestId,
+            DeadlineSnapshot = new DateOnly(2026, 9, 15),
+            DelayState = OperationalDelayState.AT_RISK,
+            ProductionReasonCode = ProductionDelayReasonCode.MATERIAL_DELAY,
+            ReasonDetail = "Delay",
+            ReportedBy = ids.SalesId,
+            ReportedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            Status = ReportResolutionStatus.OPEN
+        };
+        var detail = CreateDetail(ids, reportId);
+        var reports = new FakeOperationalDelayReportRepository
+        {
+            ReportById = report,
+            Detail = detail
+        };
+        var service = CreateService(
+            reports,
+            project: CreateProject(ids),
+            roleName: SalesRole,
+            productionRequest: CreateProductionRequest(ids),
+            productionDeadline: new DateOnly(2026, 9, 15));
+
+        var result = await service.ResolveAsync(
+            reportId,
+            ids.SalesId,
+            new ResolveReportRequestDto { ResolutionNote = "  Handled  " });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("RESOLVED", result.Data!.Status);
+        Assert.NotNull(result.Data.ResolvedAt);
+        Assert.Equal("Handled", result.Data.ResolutionNote);
+        Assert.Equal(ReportResolutionStatus.RESOLVED, reports.UpdatedReport!.Status);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_WhenAlreadyResolved_IsIdempotent()
+    {
+        var ids = CreateIds();
+        var reportId = Guid.NewGuid();
+        var resolvedAt = new DateTime(2026, 9, 10, 8, 0, 0, DateTimeKind.Utc);
+        var report = new OperationalDelayReport
+        {
+            OperationalDelayReportId = reportId,
+            ProjectId = ids.ProjectId,
+            ReportPhase = OperationalDelayPhase.PRODUCTION,
+            ProductionRequestId = ids.ProductionRequestId,
+            DeadlineSnapshot = new DateOnly(2026, 9, 15),
+            DelayState = OperationalDelayState.AT_RISK,
+            ProductionReasonCode = ProductionDelayReasonCode.MATERIAL_DELAY,
+            ReasonDetail = "Delay",
+            ReportedBy = ids.SalesId,
+            ReportedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            Status = ReportResolutionStatus.RESOLVED,
+            ResolvedAt = resolvedAt,
+            ResolutionNote = "Original note"
+        };
+        var detail = CreateDetail(
+            ids,
+            reportId,
+            ReportResolutionStatus.RESOLVED,
+            resolvedAt,
+            "Original note");
+        var reports = new FakeOperationalDelayReportRepository
+        {
+            ReportById = report,
+            Detail = detail
+        };
+        var service = CreateService(
+            reports,
+            project: CreateProject(ids),
+            roleName: SalesRole,
+            productionRequest: CreateProductionRequest(ids),
+            productionDeadline: new DateOnly(2026, 9, 15));
+
+        var result = await service.ResolveAsync(
+            reportId,
+            ids.SalesId,
+            new ResolveReportRequestDto { ResolutionNote = "New note" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(resolvedAt, reports.UpdatedReport!.ResolvedAt);
+        Assert.Equal("Original note", reports.UpdatedReport.ResolutionNote);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_WhenCustomer_ReturnsForbidden()
+    {
+        var ids = CreateIds();
+        var reportId = Guid.NewGuid();
+        var report = new OperationalDelayReport
+        {
+            OperationalDelayReportId = reportId,
+            ProjectId = ids.ProjectId,
+            ReportPhase = OperationalDelayPhase.PRODUCTION,
+            ProductionRequestId = ids.ProductionRequestId,
+            DeadlineSnapshot = new DateOnly(2026, 9, 15),
+            DelayState = OperationalDelayState.AT_RISK,
+            ProductionReasonCode = ProductionDelayReasonCode.MATERIAL_DELAY,
+            ReasonDetail = "Delay",
+            ReportedBy = ids.SalesId,
+            ReportedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            Status = ReportResolutionStatus.OPEN
+        };
+        var reports = new FakeOperationalDelayReportRepository { ReportById = report };
+        var service = CreateService(
+            reports,
+            project: CreateProject(ids),
+            roleName: CustomerRole,
+            productionRequest: CreateProductionRequest(ids),
+            productionDeadline: new DateOnly(2026, 9, 15));
+
+        var result = await service.ResolveAsync(
+            reportId,
+            ids.CustomerId,
+            new ResolveReportRequestDto());
+
+        Assert.Equal(403, result.Status);
+    }
+
     private static OperationalDelayReportListItemReadModel CreateListItem(TestIds ids)
     {
         return new OperationalDelayReportListItemReadModel
@@ -612,15 +772,21 @@ public sealed class OperationalDelayReportServiceTests
             ReportedBy = ids.SalesId,
             ReporterName = "Sales User",
             ReportedAt = DateTime.UtcNow,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            Status = ReportResolutionStatus.OPEN
         };
     }
 
-    private static OperationalDelayReportDetailReadModel CreateDetail(TestIds ids)
+    private static OperationalDelayReportDetailReadModel CreateDetail(
+        TestIds ids,
+        Guid? reportId = null,
+        ReportResolutionStatus status = ReportResolutionStatus.OPEN,
+        DateTime? resolvedAt = null,
+        string? resolutionNote = null)
     {
         return new OperationalDelayReportDetailReadModel
         {
-            OperationalDelayReportId = Guid.NewGuid(),
+            OperationalDelayReportId = reportId ?? Guid.NewGuid(),
             ProjectId = ids.ProjectId,
             ProjectName = "Delay Project",
             ReportPhase = OperationalDelayPhase.PRODUCTION,
@@ -632,7 +798,10 @@ public sealed class OperationalDelayReportServiceTests
             ReportedBy = ids.SalesId,
             ReporterName = "Sales User",
             ReportedAt = DateTime.UtcNow,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            Status = status,
+            ResolvedAt = resolvedAt,
+            ResolutionNote = resolutionNote
         };
     }
 
@@ -648,6 +817,8 @@ public sealed class OperationalDelayReportServiceTests
     private sealed class FakeOperationalDelayReportRepository : IOperationalDelayReportRepository
     {
         public List<OperationalDelayReport> AddedReports { get; } = [];
+        public OperationalDelayReport? ReportById { get; init; }
+        public OperationalDelayReport? UpdatedReport { get; private set; }
         public OperationalDelayReportDetailReadModel? Detail { get; init; }
         public IReadOnlyList<OperationalDelayReportListItemReadModel> ListItems { get; init; } = [];
         public int SaveChangesCallCount { get; set; }
@@ -655,7 +826,35 @@ public sealed class OperationalDelayReportServiceTests
         public Task<OperationalDelayReportDetailReadModel?> GetDetailAsync(
             Guid reportId,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(Detail?.OperationalDelayReportId == reportId ? Detail : null);
+        {
+            if (UpdatedReport?.OperationalDelayReportId == reportId && Detail is not null)
+            {
+                return Task.FromResult<OperationalDelayReportDetailReadModel?>(new OperationalDelayReportDetailReadModel
+                {
+                    OperationalDelayReportId = Detail.OperationalDelayReportId,
+                    ProjectId = Detail.ProjectId,
+                    ProjectName = Detail.ProjectName,
+                    ReportPhase = Detail.ReportPhase,
+                    ProductionRequestId = Detail.ProductionRequestId,
+                    OrderId = Detail.OrderId,
+                    DeliveryId = Detail.DeliveryId,
+                    DeadlineSnapshot = Detail.DeadlineSnapshot,
+                    DelayState = Detail.DelayState,
+                    ProductionReasonCode = Detail.ProductionReasonCode,
+                    DeliveryReasonCode = Detail.DeliveryReasonCode,
+                    ReasonDetail = Detail.ReasonDetail,
+                    ReportedBy = Detail.ReportedBy,
+                    ReporterName = Detail.ReporterName,
+                    ReportedAt = Detail.ReportedAt,
+                    CreatedAt = Detail.CreatedAt,
+                    Status = UpdatedReport.Status,
+                    ResolvedAt = UpdatedReport.ResolvedAt,
+                    ResolutionNote = UpdatedReport.ResolutionNote
+                });
+            }
+
+            return Task.FromResult(Detail?.OperationalDelayReportId == reportId ? Detail : null);
+        }
 
         public Task<IReadOnlyList<OperationalDelayReportListItemReadModel>> GetByProjectAsync(
             Guid projectId,
@@ -670,10 +869,11 @@ public sealed class OperationalDelayReportServiceTests
         }
 
         public IQueryable<OperationalDelayReport> Query() => AddedReports.AsQueryable();
-        public Task<OperationalDelayReport?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<OperationalDelayReport?>(null);
+        public Task<OperationalDelayReport?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult(ReportById?.OperationalDelayReportId == id ? ReportById : null);
         public Task<IReadOnlyList<OperationalDelayReport>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<OperationalDelayReport>>(AddedReports);
         public Task AddRangeAsync(IEnumerable<OperationalDelayReport> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public void Update(OperationalDelayReport entity) { }
+        public void Update(OperationalDelayReport entity) => UpdatedReport = entity;
         public void Remove(OperationalDelayReport entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
     }

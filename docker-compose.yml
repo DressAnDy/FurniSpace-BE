@@ -13,8 +13,6 @@ services:
       ConnectionStrings__DefaultConnection: Host=postgres;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${DB_PASSWORD}
       ConnectionStrings__MigrationConnection: Host=postgres;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${DB_PASSWORD}
       Redis__ConnectionString: ${DOCKER_REDIS_CONNECTION}
-      ELASTICSEARCH_URL: ${DOCKER_ELASTICSEARCH_URL}
-      ELASTICSEARCH_INDEX_PREFIX: ${ELASTICSEARCH_INDEX_PREFIX}
       MONGODB_CONNECTION_STRING: ${DOCKER_MONGODB_CONNECTION_STRING}
       MONGODB_DATABASE_NAME: ${MONGODB_DATABASE_NAME}
       MONGODB_ROOM_PLANNER_SCENES_COLLECTION: ${MONGODB_ROOM_PLANNER_SCENES_COLLECTION}
@@ -22,8 +20,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      elasticsearch:
         condition: service_healthy
       mongodb:
         condition: service_healthy
@@ -68,26 +64,6 @@ services:
     networks:
       - furnispace-network
 
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.15
-    container_name: furnispace-elasticsearch
-    environment:
-      discovery.type: single-node
-      xpack.security.enabled: "false"
-      xpack.security.enrollment.enabled: "false"
-      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
-    ports:
-      - "${ELASTICSEARCH_HOST_PORT}:${ELASTICSEARCH_CONTAINER_PORT}"
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:${ELASTICSEARCH_CONTAINER_PORT}/_cluster/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    networks:
-      - furnispace-network
-
   mongodb:
     image: mongo:8.0
     container_name: furnispace-mongodb
@@ -103,23 +79,9 @@ services:
     networks:
       - furnispace-network
 
-  kibana:
-    image: docker.elastic.co/kibana/kibana:8.19.15
-    container_name: furnispace-kibana
-    environment:
-      ELASTICSEARCH_HOSTS: ${KIBANA_ELASTICSEARCH_HOSTS}
-    ports:
-      - "${KIBANA_HOST_PORT}:${KIBANA_CONTAINER_PORT}"
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
-    networks:
-      - furnispace-network
-
 volumes:
   postgres_data:
   redis_data:
-  elasticsearch_data:
   mongodb_data:
 
 networks:

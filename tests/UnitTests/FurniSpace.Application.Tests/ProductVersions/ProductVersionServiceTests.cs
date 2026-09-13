@@ -599,7 +599,8 @@ public sealed class ProductVersionServiceTests
             repository,
             storage);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             adminId,
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -607,7 +608,7 @@ public sealed class ProductVersionServiceTests
         Assert.Equal(201, result.Status);
         Assert.Equal("Product version file uploaded successfully.", result.Message);
         Assert.Equal("PRODUCT_VERSION", result.Data!.ReferenceType);
-        Assert.StartsWith($"product-versions/{productVersionId:D}/", storage.UploadRequest!.ObjectName, StringComparison.Ordinal);
+        Assert.Contains($"product-versions/{productVersionId:D}/", result.Data!.FileUrl, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -618,7 +619,8 @@ public sealed class ProductVersionServiceTests
             new FakeProductVersionRepository(),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             Guid.NewGuid(),
             Guid.NewGuid(),
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D));
@@ -650,7 +652,8 @@ public sealed class ProductVersionServiceTests
             repository,
             new VersionUploadFileStorage());
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             adminId,
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -693,7 +696,8 @@ public sealed class ProductVersionServiceTests
             repository,
             new VersionUploadFileStorage());
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             designerId,
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -735,7 +739,8 @@ public sealed class ProductVersionServiceTests
                 ]),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             designerId,
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -766,7 +771,8 @@ public sealed class ProductVersionServiceTests
                 ]),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             designerId,
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -783,7 +789,8 @@ public sealed class ProductVersionServiceTests
             new FakeProductVersionRepository(),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             Guid.NewGuid(),
             Guid.NewGuid(),
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -800,7 +807,8 @@ public sealed class ProductVersionServiceTests
             new FakeProductVersionRepository(),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             Guid.NewGuid(),
             Guid.NewGuid(),
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -818,7 +826,8 @@ public sealed class ProductVersionServiceTests
             new FakeProductVersionRepository(),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             Guid.NewGuid(),
             designerId,
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -850,7 +859,8 @@ public sealed class ProductVersionServiceTests
                 ]),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             designerId,
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -884,7 +894,8 @@ public sealed class ProductVersionServiceTests
                 ]),
             repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             designerId,
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
@@ -900,7 +911,9 @@ public sealed class ProductVersionServiceTests
         var productVersionId = Guid.NewGuid();
         var repository = new VersionUploadFileRepository { RoleName = "ADMIN" };
         var storage = new VersionUploadFileStorage();
-        var unitOfWork = TestUnitOfWork.ForSaveChanges(_ => throw CreateFileLinkDuplicateException());
+        var unitOfWork = TestUnitOfWork.ForSaveChangesFailsAfterSuccessCount(
+            1,
+            CreateFileLinkDuplicateException);
         var service = CatalogServiceTestHelper.CreateProductVersionService(
             new FakeProductVersionRepository(
                 versions:
@@ -918,15 +931,16 @@ public sealed class ProductVersionServiceTests
             storage,
             unitOfWork: unitOfWork);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             adminId,
             CreateVersionUploadRequest("lamp-white.glb", FileType.MODEL_3D, "model/gltf-binary"));
 
         Assert.Equal(409, result.Status);
         Assert.Equal(CustomizationRequestErrorCodes.ProductVersionFileLinkConflict, result.ErrorCode);
-        Assert.NotNull(storage.UploadRequest);
-        Assert.Contains(storage.UploadRequest.ObjectName, storage.DeletedObjectNames);
+        Assert.NotNull(storage.FinalizeRequest);
+        Assert.Contains(storage.FinalizeRequest.ObjectName, storage.DeletedObjectNames);
     }
 
     [Fact]
@@ -935,7 +949,9 @@ public sealed class ProductVersionServiceTests
         var productVersionId = Guid.NewGuid();
         var repository = new VersionUploadFileRepository { RoleName = "ADMIN" };
         var storage = new VersionUploadFileStorage();
-        var unitOfWork = TestUnitOfWork.ForSaveChanges(_ => throw CreateFileLinkDuplicateException());
+        var unitOfWork = TestUnitOfWork.ForSaveChangesFailsAfterSuccessCount(
+            1,
+            CreateFileLinkDuplicateException);
         var service = CatalogServiceTestHelper.CreateProductVersionService(
             new FakeProductVersionRepository(
                 versions:
@@ -953,15 +969,16 @@ public sealed class ProductVersionServiceTests
             storage,
             unitOfWork: unitOfWork);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             Guid.NewGuid(),
             CreateVersionUploadRequest("preview.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
 
         Assert.Equal(409, result.Status);
         Assert.Equal(CustomizationRequestErrorCodes.ProductVersionFileLinkConflict, result.ErrorCode);
-        Assert.NotNull(storage.UploadRequest);
-        Assert.Contains(storage.UploadRequest.ObjectName, storage.DeletedObjectNames);
+        Assert.NotNull(storage.FinalizeRequest);
+        Assert.Contains(storage.FinalizeRequest.ObjectName, storage.DeletedObjectNames);
     }
 
     [Fact]
@@ -972,7 +989,8 @@ public sealed class ProductVersionServiceTests
         repository.SeedPreview(productVersionId, 1);
         var service = CreateVersionUploadService(productVersionId, repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             Guid.NewGuid(),
             CreateVersionUploadRequest("brown.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
@@ -994,7 +1012,8 @@ public sealed class ProductVersionServiceTests
         repository.SeedPreview(productVersionId, 1, firstId);
         var service = CreateVersionUploadService(productVersionId, repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             Guid.NewGuid(),
             CreateVersionUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 1));
@@ -1018,7 +1037,8 @@ public sealed class ProductVersionServiceTests
 
         var service = CreateVersionUploadService(productVersionId, repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             Guid.NewGuid(),
             CreateVersionUploadRequest("extra.webp", FileType.PRODUCT_PREVIEW, "image/webp"));
@@ -1036,7 +1056,8 @@ public sealed class ProductVersionServiceTests
         repository.SeedPreview(productVersionId, 1, firstId);
         var service = CreateVersionUploadService(productVersionId, repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             Guid.NewGuid(),
             CreateVersionUploadRequest("tail.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 99));
@@ -1052,7 +1073,8 @@ public sealed class ProductVersionServiceTests
         var productVersionId = Guid.NewGuid();
         var service = CreateVersionUploadService(productVersionId, new VersionUploadFileRepository());
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             Guid.NewGuid(),
             CreateVersionUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", displayOrder: 0));
@@ -1068,7 +1090,8 @@ public sealed class ProductVersionServiceTests
         var repository = new VersionUploadFileRepository();
         var service = CreateVersionUploadService(productVersionId, repository);
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             Guid.NewGuid(),
             CreateVersionUploadRequest("catalog.pdf", FileType.PRODUCT_PREVIEW, "application/pdf"));
@@ -1106,7 +1129,8 @@ public sealed class ProductVersionServiceTests
                 AllowedMimeTypes = ["image/webp"]
             });
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             Guid.NewGuid(),
             CreateVersionUploadRequest("cover.webp", FileType.PRODUCT_PREVIEW, "image/webp", fileSizeBytes: 100));
@@ -1137,7 +1161,8 @@ public sealed class ProductVersionServiceTests
             repository,
             previewSettings: new ProductPreviewImageSettings { MaxFileSizeBytes = 8 });
 
-        var result = await service.UploadFileAsync(
+        var result = await DirectUploadTestDoubles.CompleteProductVersionFileUploadAsync(service,
+            
             productVersionId,
             Guid.NewGuid(),
             CreateVersionUploadRequest("lamp.glb", FileType.MODEL_3D, "model/gltf-binary", fileSizeBytes: 512));
@@ -1534,7 +1559,6 @@ public sealed class ProductVersionServiceTests
     {
         return new UploadCatalogFileRequestDto
         {
-            Content = new MemoryStream([1, 2, 3]),
             OriginalFileName = fileName,
             ContentType = contentType,
             FileSizeBytes = fileSizeBytes,
@@ -1543,9 +1567,10 @@ public sealed class ProductVersionServiceTests
         };
     }
 
-    private sealed class VersionUploadFileStorage : IFileStorageService
+    private sealed class VersionUploadFileStorage : IFileStorageService, IDirectFileUploadStorageService
     {
         public StorageUploadRequest? UploadRequest { get; private set; }
+        public StorageDirectUploadFinalizeRequest? FinalizeRequest { get; private set; }
         public List<string> DeletedObjectNames { get; } = [];
 
         public Task<StorageUploadResult> UploadAsync(
@@ -1553,6 +1578,31 @@ public sealed class ProductVersionServiceTests
             CancellationToken cancellationToken = default)
         {
             UploadRequest = request;
+            return Task.FromResult(new StorageUploadResult
+            {
+                ObjectName = request.ObjectName,
+                PublicUrl = $"https://storage.example.com/{request.ObjectName}",
+                Bucket = "test-bucket"
+            });
+        }
+
+        public Task<StorageSignedUploadResult> CreateSignedUploadUrlAsync(
+            StorageSignedUploadRequest request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new StorageSignedUploadResult
+            {
+                UploadUrl = $"https://storage.example.com/upload/{request.ObjectName}",
+                ObjectName = request.ObjectName,
+                Bucket = "test-bucket",
+                ContentType = request.ContentType,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+            });
+
+        public Task<StorageUploadResult> FinalizeDirectUploadAsync(
+            StorageDirectUploadFinalizeRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            FinalizeRequest = request;
             return Task.FromResult(new StorageUploadResult
             {
                 ObjectName = request.ObjectName,
@@ -1638,7 +1688,7 @@ public sealed class ProductVersionServiceTests
                 link.ReferenceId == productVersionId &&
                 link.ReferenceType == CatalogFileReferenceTypes.ProductVersion &&
                 link.FileType == FileType.PRODUCT_PREVIEW &&
-                StoredFiles.Any(file => file.FileId == link.FileId && file.Status != FileStatus.ARCHIVED))
+                StoredFiles.Any(file => file.FileId == link.FileId && file.Status == FileStatus.ACTIVE))
             .ToList();
 
         public Task<int> CountProductVersionPreviewFilesAsync(Guid productVersionId, CancellationToken cancellationToken = default)

@@ -1,9 +1,7 @@
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
 using FurniSpace.Application.Interfaces.Projects;
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Projects;
-using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.Extensions.Logging;
@@ -16,8 +14,6 @@ public sealed record ProjectServiceDependencies(
     INotificationDispatcher? Notifications,
     ILogger<ProjectService>? Logger,
     IProjectChatService? ProjectChats,
-    ISearchIndexService? Search,
-    IProjectSearchIndexer? ProjectSearchIndexer,
     IPaymentRepository Payments,
     IOrderRepository Orders,
     IQuotationRepository Quotations,

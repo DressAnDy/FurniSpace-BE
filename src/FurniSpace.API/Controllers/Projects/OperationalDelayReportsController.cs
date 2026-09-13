@@ -96,6 +96,22 @@ public sealed class OperationalDelayReportsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "SALES,PRODUCTION,ADMIN")]
+    [HttpPatch("delay-reports/{reportId:guid}/resolve")]
+    public async Task<IActionResult> Resolve(
+        Guid reportId,
+        [FromBody] ResolveReportRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _delayReports.ResolveAsync(reportId, currentUserId, request, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

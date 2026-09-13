@@ -15,14 +15,8 @@ public static class ProductIssueErrorCodes
     public const string Forbidden = "PRODUCT_ISSUE_FORBIDDEN";
     public const string InvalidRequest = "PRODUCT_ISSUE_INVALID_REQUEST";
     public const string FileUploadFailed = "PRODUCT_ISSUE_FILE_UPLOAD_FAILED";
-}
-
-public sealed class ProductIssueEvidenceUploadDto
-{
-    public Stream Content { get; set; } = Stream.Null;
-    public string OriginalFileName { get; set; } = string.Empty;
-    public string? ContentType { get; set; }
-    public long FileSizeBytes { get; set; }
+    public const string EvidenceFileInvalid = "PRODUCT_ISSUE_EVIDENCE_FILE_INVALID";
+    public const string ResolutionNoteTooLong = "PRODUCT_ISSUE_RESOLUTION_NOTE_TOO_LONG";
 }
 
 public sealed class CreateProductIssueRequestDto
@@ -32,7 +26,7 @@ public sealed class CreateProductIssueRequestDto
     public DeliveryProductIssueType IssueType { get; set; }
     public string Description { get; set; } = string.Empty;
     public int? AffectedQuantity { get; set; }
-    public IReadOnlyList<ProductIssueEvidenceUploadDto> EvidenceFiles { get; set; } = [];
+    public IReadOnlyList<Guid> EvidenceFileIds { get; set; } = [];
 }
 
 public sealed class ProductIssueEvidenceFileDto
@@ -61,7 +55,15 @@ public sealed class ProductIssueReportDto
     public string? ReporterName { get; set; }
     public DateTime ReportedAt { get; set; }
     public DateTime CreatedAt { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime? ResolvedAt { get; set; }
+    public string? ResolutionNote { get; set; }
     public IReadOnlyList<ProductIssueEvidenceFileDto> EvidenceFiles { get; set; } = [];
+}
+
+public sealed class ResolveProductIssueRequestDto
+{
+    public string? ResolutionNote { get; set; }
 }
 
 public sealed class ProductIssueReportListResponseDto

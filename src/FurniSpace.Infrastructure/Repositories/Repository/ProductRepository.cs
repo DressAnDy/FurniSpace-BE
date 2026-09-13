@@ -3,7 +3,6 @@ using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.Repositories.Base;
-using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
@@ -236,7 +235,7 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
             .ToListAsync(cancellationToken);
 
         var filtered = candidates
-            .Where(ProductSearchDocumentMapper.IsIndexable)
+            .Where(IsPubliclySearchable)
             .Where(item => MatchesSearchQuery(item, query))
             .ToList();
 
@@ -264,7 +263,7 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
 
         var normalizedQuery = query.Trim();
         return candidates
-            .Where(ProductSearchDocumentMapper.IsIndexable)
+            .Where(IsPubliclySearchable)
             .Where(item => item.ProductName.StartsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase) ||
                 ContainsIgnoreCase(item.ProductName, normalizedQuery))
             .OrderBy(item => item.ProductName, StringComparer.OrdinalIgnoreCase)
@@ -287,7 +286,7 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
             .ToListAsync(cancellationToken);
 
         return candidates
-            .Where(ProductSearchDocumentMapper.IsIndexable)
+            .Where(IsPubliclySearchable)
             .Where(item => item.ProductId != productId)
             .Select(item => new { Item = item, Score = CalculateSimilarityScore(source, item) })
             .Where(entry => entry.Score > 0)
@@ -296,6 +295,20 @@ public sealed class ProductRepository : GenericRepository<Product>, IProductRepo
             .Take(limit)
             .Select(entry => entry.Item)
             .ToList();
+    }
+
+    private static bool IsPubliclySearchable(ProductListItemReadModel item)
+    {
+        if (item.Status is not null and not ProductStatus.ACTIVE)
+        {
+            return false;
+        }
+
+        return item.DefaultVersion is
+        {
+            Status: ProductStatus.ACTIVE,
+            IsPublic: true
+        };
     }
 
     private static int CalculateSimilarityScore(

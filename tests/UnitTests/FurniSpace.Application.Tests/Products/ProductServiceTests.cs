@@ -7,13 +7,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.DTOs.Catalog;
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Products;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.Common.Search;
-using FurniSpace.Infrastructure.Common.Search.Documents;
 using FurniSpace.Infrastructure.ReadModels.Products;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -82,11 +79,9 @@ public sealed class ProductServiceTests
             CreateBusinessType(1, status: true),
             CreateBusinessType(3, status: true)
         ]);
-        var indexer = new RecordingProductSearchIndexer();
         var service = CatalogServiceTestHelper.CreateProductService(
             context.Repository,
             new FakeCatalogProjectFileRepository(),
-            productSearchIndexer: indexer,
             businessTypes: businessTypes);
 
         var result = await service.UpdateAsync(context.ProductId, new UpdateProductRequestDto
@@ -103,7 +98,6 @@ public sealed class ProductServiceTests
         Assert.Equal([1, 3], context.Product.BusinessTypeIds);
         Assert.Equal([1, 3], businessTypes.RequestedIds);
         Assert.Equal(1, context.Repository.SaveChangesCallCount);
-        Assert.Equal(context.ProductId, indexer.SyncedProductId);
     }
 
     [Fact]
@@ -403,11 +397,9 @@ public sealed class ProductServiceTests
             CreateBusinessType(1, "CAFE", status: true),
             CreateBusinessType(2, "RESTAURANT", status: true)
         ]);
-        var indexer = new RecordingProductSearchIndexer();
         var service = CatalogServiceTestHelper.CreateProductService(
             repository,
             new FakeCatalogProjectFileRepository(),
-            productSearchIndexer: indexer,
             businessTypes: businessTypes);
 
         var result = await service.CreateAsync(new CreateProductRequestDto
@@ -428,7 +420,6 @@ public sealed class ProductServiceTests
             result.Data.BusinessTypes,
             item => Assert.Equal("CAFE", item.Code),
             item => Assert.Equal("RESTAURANT", item.Code));
-        Assert.Equal(result.Data.ProductId, indexer.SyncedProductId);
     }
 
     [Fact]
@@ -1643,72 +1634,7 @@ public sealed class ProductServiceTests
     }
 
     [Fact]
-    public async Task SearchAsync_WithIndexedBusinessTypeIds_ReturnsResolvedBusinessTypes()
-    {
-        var productId = Guid.NewGuid();
-        var search = new ProductDocumentSearchIndexService(new ProductSearchDocument
-        {
-            ProductId = productId,
-            ProductName = "Oak Bar Stool",
-            Status = ProductStatus.ACTIVE.ToString(),
-            IsPublic = true,
-            BusinessTypeIds = [1],
-            Material = "Oak"
-        });
-        var repository = new FakeProductRepository([]);
-        var service = CatalogServiceTestHelper.CreateProductService(
-            repository,
-            new FakeCatalogProjectFileRepository(),
-            search: search,
-            businessTypes: new FakeBusinessTypeRepository([CreateBusinessType(1, "CAFE", status: true)]));
-
-        var result = await service.SearchAsync(new ProductSearchRequestDto
-        {
-            Query = "Oak",
-            Page = 1,
-            Limit = 20
-        });
-
-        Assert.Equal(200, result.Status);
-        Assert.NotNull(result.Data);
-        var item = Assert.Single(result.Data.Items);
-        Assert.Equal(productId, item.ProductId);
-        Assert.Equal([1], item.BusinessTypeIds);
-        Assert.Equal("CAFE", Assert.Single(item.BusinessTypes).Code);
-    }
-
-    [Fact]
-    public async Task SearchAsync_WithBusinessTypeFilter_AddsTermsFilterToElasticsearchRequest()
-    {
-        var search = new ProductDocumentSearchIndexService(new ProductSearchDocument
-        {
-            ProductId = Guid.NewGuid(),
-            ProductName = "Cafe Counter",
-            Status = ProductStatus.ACTIVE.ToString(),
-            IsPublic = true,
-            BusinessTypeIds = [2]
-        });
-        var service = CatalogServiceTestHelper.CreateProductService(
-            new FakeProductRepository([]),
-            new FakeCatalogProjectFileRepository(),
-            search: search);
-
-        await service.SearchAsync(new ProductSearchRequestDto
-        {
-            BusinessTypeIds = [2, 1, 2],
-            Page = 1,
-            Limit = 20
-        });
-
-        var filter = Assert.Single(
-            search.LastSearchRequest!.Filters,
-            item => item.Field == "businessTypeIds");
-        Assert.Equal(SearchFilterOperator.Terms, filter.Operator);
-        Assert.Equal([1, 2], filter.Values!.Cast<int>());
-    }
-
-    [Fact]
-    public async Task SearchAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    public async Task SearchAsync_UsesRepository()
     {
         var productId = Guid.NewGuid();
         var repository = new FakeProductRepository(
@@ -1729,11 +1655,9 @@ public sealed class ProductServiceTests
             }
         ]);
 
-        var search = new ThrowingSearchIndexService();
         var service = CatalogServiceTestHelper.CreateProductService(
             repository,
-            new FakeCatalogProjectFileRepository(),
-            search: search);
+            new FakeCatalogProjectFileRepository());
 
         var result = await service.SearchAsync(new ProductSearchRequestDto
         {
@@ -1749,7 +1673,7 @@ public sealed class ProductServiceTests
     }
 
     [Fact]
-    public async Task SearchAsync_WhenElasticsearchUnavailable_AppliesBusinessTypeFilterToFallback()
+    public async Task SearchAsync_AppliesBusinessTypeFilterToRepository()
     {
         var matchingId = Guid.NewGuid();
         var repository = new FakeProductRepository(
@@ -1759,8 +1683,7 @@ public sealed class ProductServiceTests
         ]);
         var service = CatalogServiceTestHelper.CreateProductService(
             repository,
-            new FakeCatalogProjectFileRepository(),
-            search: new ThrowingSearchIndexService());
+            new FakeCatalogProjectFileRepository());
 
         var result = await service.SearchAsync(new ProductSearchRequestDto
         {
@@ -1778,7 +1701,7 @@ public sealed class ProductServiceTests
     }
 
     [Fact]
-    public async Task SuggestAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    public async Task SuggestAsync_UsesRepository()
     {
         var productId = Guid.NewGuid();
         var repository = new FakeProductRepository(
@@ -1801,8 +1724,7 @@ public sealed class ProductServiceTests
 
         var service = CatalogServiceTestHelper.CreateProductService(
             repository,
-            new FakeCatalogProjectFileRepository(),
-            search: new ThrowingSearchIndexService());
+            new FakeCatalogProjectFileRepository());
 
         var result = await service.SuggestAsync("Oak", limit: 10);
 
@@ -1834,7 +1756,7 @@ public sealed class ProductServiceTests
     }
 
     [Fact]
-    public async Task GetSimilarAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    public async Task GetSimilarAsync_UsesRepository()
     {
         var categoryId = Guid.NewGuid();
         var sourceProductId = Guid.NewGuid();
@@ -1866,8 +1788,7 @@ public sealed class ProductServiceTests
         ]);
         var service = CatalogServiceTestHelper.CreateProductService(
             repository,
-            new FakeCatalogProjectFileRepository(),
-            search: new ThrowingSearchIndexService());
+            new FakeCatalogProjectFileRepository());
 
         var result = await service.GetSimilarAsync(sourceProductId, limit: 4);
 
@@ -1897,100 +1818,6 @@ public sealed class ProductServiceTests
         Assert.Equal(400, result.Status);
         Assert.Equal(expectedMessage, result.Message);
         Assert.Null(result.Data);
-    }
-
-    private sealed class ThrowingSearchIndexService : ISearchIndexService
-    {
-        public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(string indexName, SearchRequest request, CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-
-        public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(string indexName, string query, int size = 100, CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-
-        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
-            => Task.FromResult(new SuggestResult());
-
-        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
-            string indexName,
-            string documentId,
-            MoreLikeThisRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-
-        public Task<SearchAggregationResult> AggregateAsync(
-            string indexName,
-            SearchAggregationRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-    }
-
-    private sealed class ProductDocumentSearchIndexService : ISearchIndexService
-    {
-        private readonly ProductSearchDocument _document;
-
-        public ProductDocumentSearchIndexService(ProductSearchDocument document)
-        {
-            _document = document;
-        }
-
-        public SearchRequest? LastSearchRequest { get; private set; }
-
-        public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(
-            string indexName,
-            SearchRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            LastSearchRequest = request;
-            return Task.FromResult(new SearchResult<TDocument>
-            {
-                Documents = [(TDocument)(object)_document],
-                Total = 1,
-                Page = request.Page,
-                PageSize = request.PageSize
-            });
-        }
-
-        public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(
-            string indexName,
-            string query,
-            int size = 100,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<TDocument>>([(TDocument)(object)_document]);
-
-        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
-            => Task.FromResult(new SuggestResult());
-
-        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
-            string indexName,
-            string documentId,
-            MoreLikeThisRequest request,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(new SearchResult<TDocument>());
-
-        public Task<SearchAggregationResult> AggregateAsync(
-            string indexName,
-            SearchAggregationRequest request,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(new SearchAggregationResult());
-    }
-
-    private sealed class RecordingProductSearchIndexer : IProductSearchIndexer
-    {
-        public Guid SyncedProductId { get; private set; }
-
-        public Task SyncProductAsync(Guid productId, CancellationToken cancellationToken = default)
-        {
-            SyncedProductId = productId;
-            return Task.CompletedTask;
-        }
     }
 
     private sealed record ProductUpdateContext(

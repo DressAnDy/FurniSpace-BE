@@ -32,6 +32,31 @@ internal static class CatalogFileEntityFactory
         };
     }
 
+    public static StoredFile CreatePendingStoredFile(
+        Guid fileId,
+        Guid uploadedBy,
+        string originalFileName,
+        string generatedFileName,
+        string storagePath,
+        UploadCatalogFileRequestDto request,
+        DateTime uploadedAt)
+    {
+        return new StoredFile
+        {
+            FileId = fileId,
+            UploadedBy = uploadedBy,
+            OriginalFileName = originalFileName,
+            StoredFileName = generatedFileName,
+            FileUrl = string.Empty,
+            StoragePath = storagePath,
+            MimeType = CatalogFileStorageHelpers.NormalizeContentType(request.ContentType),
+            FileExtension = CatalogFileStorageHelpers.NormalizeExtension(originalFileName),
+            FileSizeBytes = request.FileSizeBytes,
+            Status = FileStatus.PENDING,
+            UploadedAt = uploadedAt
+        };
+    }
+
     public static FileLink CreateFileLink(CatalogFileLinkCreationContext context)
     {
         return new FileLink

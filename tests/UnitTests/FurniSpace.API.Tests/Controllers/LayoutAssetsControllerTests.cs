@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Catalog;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.LayoutAssets;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.LayoutAssets;
@@ -154,6 +155,88 @@ public sealed class LayoutAssetsControllerTests
     }
 
     [Fact]
+    public void PrepareFileUpload_AndCompleteFileUpload_RequireAdminRole()
+    {
+        Assert.Equal("ADMIN", GetMethodAuthorizeAttribute(nameof(LayoutAssetsController.PrepareFileUpload)).Roles);
+        Assert.Equal("ADMIN", GetMethodAuthorizeAttribute(nameof(LayoutAssetsController.CompleteFileUpload)).Roles);
+    }
+
+    [Fact]
+    public async Task PrepareFileUpload_PassesRequestToService()
+    {
+        var assetId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var service = new FakeLayoutAssetService(
+            prepareFileUploadResult: ServiceResult<PrepareDirectUploadResponseDto>.Created(
+                new PrepareDirectUploadResponseDto
+                {
+                    FileId = fileId,
+                    UploadUrl = "https://storage.example.com/upload",
+                    ContentType = "image/jpeg",
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+                },
+                "Catalog file upload URL created successfully."));
+        var controller = WithUser(new LayoutAssetsController(service), "ADMIN");
+        var request = new UploadCatalogFileRequestDto
+        {
+            OriginalFileName = "texture.jpg",
+            ContentType = "image/jpeg",
+            FileSizeBytes = 2048,
+            FileType = FileType.TEXTURE
+        };
+
+        var actionResult = await controller.PrepareFileUpload(assetId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(assetId, service.LastLayoutAssetId);
+        Assert.NotNull(service.PrepareFileUploadRequest);
+        Assert.Equal("texture.jpg", service.PrepareFileUploadRequest.OriginalFileName);
+    }
+
+    [Fact]
+    public async Task CompleteFileUpload_PassesRequestToService()
+    {
+        var assetId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var service = new FakeLayoutAssetService(
+            completeFileUploadResult: ServiceResult<CatalogFileUploadResponseDto>.Created(
+                new CatalogFileUploadResponseDto { FileId = fileId, ReferenceId = assetId },
+                "Catalog file uploaded successfully."));
+        var controller = WithUser(new LayoutAssetsController(service), "ADMIN");
+
+        var actionResult = await controller.CompleteFileUpload(
+            assetId,
+            new CompleteDirectUploadRequestDto { FileId = fileId });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(assetId, service.LastLayoutAssetId);
+        Assert.Equal(fileId, service.CompleteFileUploadRequest!.FileId);
+    }
+
+    [Fact]
+    public async Task PrepareFileUpload_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = new LayoutAssetsController(new FakeLayoutAssetService())
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity())
+                }
+            }
+        };
+
+        var actionResult = await controller.PrepareFileUpload(
+            Guid.NewGuid(),
+            new UploadCatalogFileRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
     public async Task Create_WithoutUser_ReturnsUnauthorized()
     {
         var controller = new LayoutAssetsController(new FakeLayoutAssetService())
@@ -214,6 +297,8 @@ public sealed class LayoutAssetsControllerTests
         private readonly ServiceResult<IReadOnlyList<LayoutAssetFileDto>>? _filesResult;
         private readonly ServiceResult<LayoutAssetFilePrimaryResponseDto>? _setPrimaryResult;
         private readonly ServiceResult<LayoutAssetFileDto>? _deleteFileResult;
+        private readonly ServiceResult<PrepareDirectUploadResponseDto>? _prepareFileUploadResult;
+        private readonly ServiceResult<CatalogFileUploadResponseDto>? _completeFileUploadResult;
 
         public FakeLayoutAssetService(
             ServiceResult<LayoutAssetDto>? createResult = null,
@@ -223,7 +308,9 @@ public sealed class LayoutAssetsControllerTests
             ServiceResult<LayoutAssetDto>? updateStatusResult = null,
             ServiceResult<IReadOnlyList<LayoutAssetFileDto>>? filesResult = null,
             ServiceResult<LayoutAssetFilePrimaryResponseDto>? setPrimaryResult = null,
-            ServiceResult<LayoutAssetFileDto>? deleteFileResult = null)
+            ServiceResult<LayoutAssetFileDto>? deleteFileResult = null,
+            ServiceResult<PrepareDirectUploadResponseDto>? prepareFileUploadResult = null,
+            ServiceResult<CatalogFileUploadResponseDto>? completeFileUploadResult = null)
         {
             _createResult = createResult;
             _listResult = listResult;
@@ -233,6 +320,8 @@ public sealed class LayoutAssetsControllerTests
             _filesResult = filesResult;
             _setPrimaryResult = setPrimaryResult;
             _deleteFileResult = deleteFileResult;
+            _prepareFileUploadResult = prepareFileUploadResult;
+            _completeFileUploadResult = completeFileUploadResult;
         }
 
         public CreateLayoutAssetRequestDto? CreateRequest { get; private set; }
@@ -240,6 +329,10 @@ public sealed class LayoutAssetsControllerTests
         public LayoutAssetQueryDto? LastQuery { get; private set; }
 
         public Guid LastLayoutAssetId { get; private set; }
+
+        public UploadCatalogFileRequestDto? PrepareFileUploadRequest { get; private set; }
+
+        public CompleteDirectUploadRequestDto? CompleteFileUploadRequest { get; private set; }
 
         public Task<ServiceResult<LayoutAssetDto>> CreateAsync(
             CreateLayoutAssetRequestDto request,
@@ -285,12 +378,27 @@ public sealed class LayoutAssetsControllerTests
             return Task.FromResult(_updateStatusResult ?? ServiceResult<LayoutAssetDto>.Unauthorized());
         }
 
-        public Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+        public Task<ServiceResult<PrepareDirectUploadResponseDto>> PrepareFileUploadAsync(
             Guid layoutAssetId,
             Guid currentUserId,
             UploadCatalogFileRequestDto request,
             CancellationToken cancellationToken = default)
-            => Task.FromResult(ServiceResult<CatalogFileUploadResponseDto>.Unauthorized());
+        {
+            LastLayoutAssetId = layoutAssetId;
+            PrepareFileUploadRequest = request;
+            return Task.FromResult(_prepareFileUploadResult ?? ServiceResult<PrepareDirectUploadResponseDto>.Unauthorized());
+        }
+
+        public Task<ServiceResult<CatalogFileUploadResponseDto>> CompleteFileUploadAsync(
+            Guid layoutAssetId,
+            Guid currentUserId,
+            CompleteDirectUploadRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            LastLayoutAssetId = layoutAssetId;
+            CompleteFileUploadRequest = request;
+            return Task.FromResult(_completeFileUploadResult ?? ServiceResult<CatalogFileUploadResponseDto>.Unauthorized());
+        }
 
         public Task<ServiceResult<IReadOnlyList<LayoutAssetFileDto>>> GetFilesAsync(
             Guid layoutAssetId,

@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.LayoutAssets;
+using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.Constants.LayoutAssets;
 using FurniSpace.Application.DTOs.LayoutAssets;
@@ -31,6 +32,7 @@ public sealed partial class LayoutAssetService : ILayoutAssetService
     private readonly IProjectFileRepository _files;
     private readonly IUnitOfWork _unitOfWork;
     private readonly IFileStorageService _storage;
+    private readonly CatalogDirectFileUploadService _catalogDirectUpload;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
 
@@ -44,6 +46,7 @@ public sealed partial class LayoutAssetService : ILayoutAssetService
         _files = files;
         _unitOfWork = unitOfWork;
         _storage = dependencies.Storage;
+        _catalogDirectUpload = dependencies.CatalogDirectUpload;
         _uploadSettings = dependencies.UploadSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
     }

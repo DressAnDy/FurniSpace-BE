@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Catalog;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.Products;
 
 namespace FurniSpace.Application.Interfaces.Products;
@@ -46,10 +47,16 @@ public interface IProductService
         bool includeDefaultVersion,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+    Task<ServiceResult<PrepareDirectUploadResponseDto>> PrepareFileUploadAsync(
         Guid productId,
         Guid currentUserId,
         UploadCatalogFileRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<CatalogFileUploadResponseDto>> CompleteFileUploadAsync(
+        Guid productId,
+        Guid currentUserId,
+        CompleteDirectUploadRequestDto request,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<ProductLifecycleStatusResponseDto>> ActivateAsync(

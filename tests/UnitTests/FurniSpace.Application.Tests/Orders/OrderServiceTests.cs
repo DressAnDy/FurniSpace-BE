@@ -1140,7 +1140,7 @@ public sealed class OrderServiceTests
         Assert.True(unitOfWork.BeganTransaction);
         Assert.True(unitOfWork.RolledBackTransaction);
         Assert.False(unitOfWork.CommittedTransaction);
-        Assert.Equal(0, unitOfWork.SaveChangesCount);
+        Assert.True(unitOfWork.SaveChangesCount > 0);
     }
 
     [Fact]
@@ -2946,7 +2946,7 @@ public sealed class OrderServiceTests
     }
 
     [Fact]
-    public async Task ConfirmDeliveryAsync_WhenUnresolvedSchedule_ReturnsConflict()
+    public async Task ConfirmDeliveryAsync_WhenActiveDeliveryScheduleRemainsAfterCleanup_ReturnsConflict()
     {
         var orderId = Guid.NewGuid();
         var service = BuildService(new OrderServiceTestOptions
@@ -2967,7 +2967,7 @@ public sealed class OrderServiceTests
                 Status = ProjectStatus.DELIVERING
             },
             OrderItems = [CreateDeliveredOrderItem(orderId)],
-            HasUnresolvedConfirmedDeliverySchedule = true
+            HasActiveDeliverySchedule = true
         });
 
         var result = await service.ConfirmDeliveryAsync(orderId, _customerId);
@@ -3079,6 +3079,7 @@ public sealed class OrderServiceTests
                     ScheduleDetail = options.ScheduleDetail,
                     ScheduleEntity = options.ScheduleEntity,
                     HasUnresolvedConfirmedDeliverySchedule = options.HasUnresolvedConfirmedDeliverySchedule,
+                    HasActiveDeliverySchedule = options.HasActiveDeliverySchedule,
                     UnusedFutureDeliverySchedules = options.UnusedFutureDeliverySchedules
                 },
                 options.Deliveries ?? new FakeDeliveryRepository(),
@@ -3219,6 +3220,8 @@ public sealed class OrderServiceTests
         public ProjectSchedule? ScheduleEntity { get; init; }
 
         public bool HasUnresolvedConfirmedDeliverySchedule { get; init; }
+
+        public bool HasActiveDeliverySchedule { get; init; }
 
         public bool HasAssignedCompletedProduction { get; init; } = true;
 

@@ -12,12 +12,10 @@ using FurniSpace.Application.DTOs.Projects;
 using FurniSpace.Application.DTOs.Payments;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChats;
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Projects;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
-using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.ReadModels.Orders;
 using FurniSpace.Infrastructure.ReadModels.Projects;
 using FurniSpace.Infrastructure.Interfaces;
@@ -2780,7 +2778,7 @@ public sealed class ProjectServiceTests
     }
 
     [Fact]
-    public async Task GetListAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    public async Task GetListAsync_UsesRepository()
     {
         var projectId = Guid.NewGuid();
         var repository = new FakeProjectRepository(
@@ -2799,8 +2797,7 @@ public sealed class ProjectServiceTests
             ]);
         var service = ProjectServiceTestFactory.Create(
             repository,
-            TestUnitOfWork.Instance,
-            new() { Search = new ThrowingSearchIndexService() });
+            TestUnitOfWork.Instance);
 
         var result = await service.GetListAsync(Guid.NewGuid(), new ProjectListQueryDto
         {
@@ -3377,35 +3374,6 @@ public sealed class ProjectServiceTests
         public DesignerAccountReadModel? Designer { get; init; }
         public IReadOnlyList<Guid>? ReceiverIds { get; init; }
         public string? AccountFullName { get; init; }
-    }
-
-    private sealed class ThrowingSearchIndexService : ISearchIndexService
-    {
-        public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(string indexName, SearchRequest request, CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-
-        public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(string indexName, string query, int size = 100, CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-
-        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
-            => Task.FromResult(new SuggestResult());
-
-        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
-            string indexName,
-            string documentId,
-            MoreLikeThisRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-
-        public Task<SearchAggregationResult> AggregateAsync(
-            string indexName,
-            SearchAggregationRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
     }
 
     internal sealed class FakeProjectRepository : IProjectRepository

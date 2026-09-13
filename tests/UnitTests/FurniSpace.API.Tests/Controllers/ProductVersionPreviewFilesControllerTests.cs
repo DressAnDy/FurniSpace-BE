@@ -1,3 +1,4 @@
+using FurniSpace.Application.DTOs.Common;
 #nullable enable
 
 using System;
@@ -143,10 +144,17 @@ public sealed class ProductVersionPreviewFilesControllerTests
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
-        public Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+        public Task<ServiceResult<PrepareDirectUploadResponseDto>> PrepareFileUploadAsync(
             Guid productVersionId,
             Guid currentUserId,
             UploadCatalogFileRequestDto request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<ServiceResult<CatalogFileUploadResponseDto>> CompleteFileUploadAsync(
+            Guid productVersionId,
+            Guid currentUserId,
+            CompleteDirectUploadRequestDto request,
             CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 

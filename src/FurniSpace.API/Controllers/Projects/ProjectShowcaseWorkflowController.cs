@@ -2,7 +2,6 @@
 
 using System.Security.Claims;
 using FurniSpace.API.Base;
-using FurniSpace.API.DTOs.ProjectShowcases;
 using FurniSpace.Application.DTOs.ProjectShowcases;
 using FurniSpace.Application.Interfaces.ProjectShowcases;
 using Microsoft.AspNetCore.Authorization;
@@ -107,8 +106,6 @@ public sealed class ProjectShowcaseWorkflowController : BaseApiController
 [Route("project-showcases/{showcaseId:guid}/media")]
 public sealed class ProjectShowcaseMediaController : BaseApiController
 {
-    private const long MultipartRequestLimitBytes = 100L * 1024L * 1024L;
-
     private readonly IProjectShowcaseService _showcases;
 
     public ProjectShowcaseMediaController(IProjectShowcaseService showcases)
@@ -117,13 +114,10 @@ public sealed class ProjectShowcaseMediaController : BaseApiController
     }
 
     [Authorize(Roles = "SALES,ADMIN")]
-    [HttpPost]
-    [HttpPost("upload")]
-    [Consumes("multipart/form-data")]
-    [RequestSizeLimit(MultipartRequestLimitBytes)]
-    public async Task<IActionResult> Upload(
+    [HttpPost("upload-url")]
+    public async Task<IActionResult> PrepareUpload(
         Guid showcaseId,
-        [FromForm] UploadProjectShowcaseMediaFormRequest request,
+        [FromBody] PrepareProjectShowcaseMediaUploadRequestDto request,
         CancellationToken cancellationToken = default)
     {
         if (!TryGetCurrentUserId(out var currentUserId))
@@ -131,10 +125,31 @@ public sealed class ProjectShowcaseMediaController : BaseApiController
             return Unauthorized();
         }
 
-        var result = await _showcases.UploadMediaAsync(
+        var result = await _showcases.PrepareMediaUploadAsync(
             showcaseId,
             currentUserId,
-            request.ToRequestDto(),
+            request,
+            cancellationToken);
+
+        return ToActionResult(result);
+    }
+
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpPost("complete")]
+    public async Task<IActionResult> CompleteUpload(
+        Guid showcaseId,
+        [FromBody] CompleteProjectShowcaseMediaUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _showcases.CompleteMediaUploadAsync(
+            showcaseId,
+            currentUserId,
+            request,
             cancellationToken);
 
         return ToActionResult(result);

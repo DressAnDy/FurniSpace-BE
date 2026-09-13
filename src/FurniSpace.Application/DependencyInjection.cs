@@ -9,6 +9,7 @@ using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Quotations;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Common.MeasurementImages;
+using FurniSpace.Application.Common.ProductIssues;
 using FurniSpace.Application.Common.ProjectShowcases;
 using FurniSpace.Application.Interfaces.Accounts;
 using FurniSpace.Application.Interfaces.BusinessTypes;
@@ -40,10 +41,8 @@ using FurniSpace.Application.Interfaces.ProductIssues;
 using FurniSpace.Application.Interfaces.Projects;
 using FurniSpace.Application.Interfaces.Reports;
 using FurniSpace.Application.Interfaces.RoomPlanner;
-using FurniSpace.Application.Interfaces.Search;
 using FurniSpace.Application.Services.Accounts;
 using FurniSpace.Application.Services.BusinessTypes;
-using FurniSpace.Application.Services.Search;
 using FurniSpace.Application.Services.Categories;
 using FurniSpace.Application.Services.Catalog;
 using FurniSpace.Application.Services.CustomizationRequests;
@@ -127,12 +126,25 @@ public static class DependencyInjection
         services.AddScoped<IAdminReportService, AdminReportService>();
         services.AddScoped<IAdminProjectReportService, AdminProjectReportService>();
         services.AddScoped<IBusinessTypeService, BusinessTypeService>();
+        services.AddScoped<DirectFileUploadCoordinator>(sp =>
+            new DirectFileUploadCoordinator(
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IDirectFileUploadStorageService>(),
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value));
+        services.AddScoped<CatalogDirectFileUploadService>(sp =>
+            new CatalogDirectFileUploadService(
+                sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IProjectFileRepository>(),
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<DirectFileUploadCoordinator>(),
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value));
         services.AddScoped<LayoutAssetServiceDependencies>(sp =>
         {
             return new LayoutAssetServiceDependencies(
                 sp.GetRequiredService<IFileStorageService>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
+                sp.GetRequiredService<DirectFileUploadCoordinator>(),
+                sp.GetRequiredService<CatalogDirectFileUploadService>());
         });
         services.AddScoped<ILayoutAssetService, LayoutAssetService>();
         services.AddScoped<IAdminFinancialService, AdminFinancialService>();
@@ -155,6 +167,13 @@ public static class DependencyInjection
         });
         services.AddScoped<IProductionRequestService, ProductionRequestService>();
         services.AddScoped<IOperationalDelayReportService, OperationalDelayReportService>();
+        services.AddScoped<ProductIssueServiceDependencies>(sp =>
+            new ProductIssueServiceDependencies(
+                sp.GetRequiredService<IUnitOfWork>(),
+                sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IFileUploadValidator>(),
+                sp.GetRequiredService<DirectFileUploadCoordinator>(),
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value));
         services.AddScoped<IDeliveryProductIssueReportService, DeliveryProductIssueReportService>();
         services.AddScoped<ProposalServiceDependencies>(sp =>
         {
@@ -196,6 +215,7 @@ public static class DependencyInjection
             return new ProjectChatFileUploadDependencies(
                 sp.GetRequiredService<IFileStorageService>(),
                 sp.GetRequiredService<IFileUploadValidator>(),
+                sp.GetRequiredService<DirectFileUploadCoordinator>(),
                 firebaseSettings);
         });
         services.AddScoped<ProjectChatMessageServiceDependencies>(sp =>
@@ -205,19 +225,17 @@ public static class DependencyInjection
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<ProjectChatFileUploadDependencies>(),
                 sp.GetRequiredService<ILogger<ProjectChatMessageServiceDependencies>>(),
-                sp.GetService<ISearchIndexService>(),
-                sp.GetService<IChatMessageSearchIndexer>(),
                 sp.GetService<INotificationDispatcher>());
         });
         services.AddScoped<ProductServiceDependencies>(sp =>
         {
             return new ProductServiceDependencies(
                 sp.GetRequiredService<IFileStorageService>(),
-                sp.GetRequiredService<ISearchIndexService>(),
-                sp.GetRequiredService<IProductSearchIndexer>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
                 sp.GetRequiredService<IOptions<ProductPreviewImageSettings>>().Value,
                 sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
+                sp.GetRequiredService<DirectFileUploadCoordinator>(),
+                sp.GetRequiredService<CatalogDirectFileUploadService>(),
                 sp.GetService<ILogger<ProductService>>());
         });
         services.AddScoped<ProjectFileServiceDependencies>(sp =>
@@ -225,10 +243,10 @@ public static class DependencyInjection
             return new ProjectFileServiceDependencies(
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<IDirectFileUploadStorageService>(),
+                sp.GetRequiredService<DirectFileUploadCoordinator>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
-                sp.GetService<ISearchIndexService>(),
-                sp.GetService<IProjectFileSearchIndexer>());
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
         });
         services.AddScoped<ProductVersionFileUploadDependencies>(sp =>
         {
@@ -236,16 +254,18 @@ public static class DependencyInjection
                 sp.GetRequiredService<IFileStorageService>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>().Value,
                 sp.GetRequiredService<IOptions<ProductPreviewImageSettings>>().Value,
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value);
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>().Value,
+                sp.GetRequiredService<DirectFileUploadCoordinator>(),
+                sp.GetRequiredService<CatalogDirectFileUploadService>());
         });
         services.AddScoped<IProjectFileService, ProjectFileService>();
         services.AddScoped<MeasurementImageServiceDependencies>(sp =>
             new MeasurementImageServiceDependencies(
                 sp.GetRequiredService<IUnitOfWork>(),
                 sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<DirectFileUploadCoordinator>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>(),
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>(),
-                sp.GetService<IProjectFileSearchIndexer>()));
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>()));
         services.AddScoped<IMeasurementImageService, MeasurementImageService>();
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
@@ -268,8 +288,6 @@ public static class DependencyInjection
                 sp.GetService<INotificationDispatcher>(),
                 sp.GetService<ILogger<ProjectService>>(),
                 sp.GetService<IProjectChatService>(),
-                sp.GetService<ISearchIndexService>(),
-                sp.GetService<IProjectSearchIndexer>(),
                 sp.GetRequiredService<PaymentRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IOrderRepository>(),
                 sp.GetRequiredService<FurniSpace.Infrastructure.Repositories.IRepository.IQuotationRepository>(),
@@ -297,6 +315,7 @@ public static class DependencyInjection
         services.AddScoped<ProjectShowcaseServiceDependencies>(sp =>
             new ProjectShowcaseServiceDependencies(
                 sp.GetRequiredService<IFileStorageService>(),
+                sp.GetRequiredService<DirectFileUploadCoordinator>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>(),
                 sp.GetRequiredService<IOptions<FirebaseStorageSettings>>()));
         services.AddScoped<IProjectReviewConsentService, ProjectReviewConsentService>();
@@ -305,11 +324,6 @@ public static class DependencyInjection
         services.AddScoped<IProjectAreaService, ProjectAreaService>();
         services.AddScoped<IRoomPlannerSceneRepository, RoomPlannerSceneRepositoryAdapter>();
         services.AddScoped<IRoomPlannerSceneService, RoomPlannerSceneService>();
-        services.AddScoped<ISearchReindexService, SearchReindexService>();
-        services.AddScoped<IProductSearchIndexer, ProductSearchIndexer>();
-        services.AddScoped<IProjectSearchIndexer, ProjectSearchIndexer>();
-        services.AddScoped<IChatMessageSearchIndexer, ChatMessageSearchIndexer>();
-        services.AddScoped<IProjectFileSearchIndexer, ProjectFileSearchIndexer>();
         services.AddScoped<IPaymentService, PaymentService>();
         services.AddScoped<PaymentServiceDependencies>(sp =>
         {

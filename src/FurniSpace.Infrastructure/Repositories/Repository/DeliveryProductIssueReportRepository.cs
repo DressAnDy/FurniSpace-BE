@@ -52,6 +52,9 @@ public sealed class DeliveryProductIssueReportRepository
                     .FirstOrDefault(),
                 ReportedAt = item.issue.ReportedAt,
                 CreatedAt = item.issue.CreatedAt,
+                Status = item.issue.Status,
+                ResolvedAt = item.issue.ResolvedAt,
+                ResolutionNote = item.issue.ResolutionNote,
                 ProductNameSnapshot = item.orderItem.ProductNameSnapshot
             })
             .FirstOrDefaultAsync(cancellationToken);
@@ -124,7 +127,10 @@ public sealed class DeliveryProductIssueReportRepository
                     .Select(account => account.FullName)
                     .FirstOrDefault(),
                 ReportedAt = issue.ReportedAt,
-                CreatedAt = issue.CreatedAt
+                CreatedAt = issue.CreatedAt,
+                Status = issue.Status,
+                ResolvedAt = issue.ResolvedAt,
+                ResolutionNote = issue.ResolutionNote
             })
             .ToListAsync(cancellationToken);
     }

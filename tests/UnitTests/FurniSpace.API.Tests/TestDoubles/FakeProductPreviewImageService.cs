@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 
@@ -12,7 +13,8 @@ namespace FurniSpace.API.Tests.TestDoubles;
 
 public sealed class FakeProductPreviewImageService : IProductPreviewImageService
 {
-    public ServiceResult<ProductPreviewImageUploadResponseDto>? UploadResult { get; init; }
+    public ServiceResult<PrepareDirectUploadResponseDto>? PrepareUploadResult { get; init; }
+    public ServiceResult<ProductPreviewImageUploadResponseDto>? CompleteUploadResult { get; init; }
     public ServiceResult<ProductPreviewImageListResponseDto>? GetListResult { get; init; }
     public ServiceResult<IReadOnlyList<ProductPreviewReorderItemDto>>? ReorderResult { get; init; }
     public ServiceResult<DeleteProductPreviewImageResponseDto>? DeleteResult { get; init; }
@@ -20,10 +22,11 @@ public sealed class FakeProductPreviewImageService : IProductPreviewImageService
     public Guid? ProductId { get; private set; }
     public Guid? CurrentUserId { get; private set; }
     public Guid? FileId { get; private set; }
-    public UploadProductPreviewImageRequestDto? UploadRequest { get; private set; }
+    public UploadProductPreviewImageRequestDto? PrepareUploadRequest { get; private set; }
+    public CompleteDirectUploadRequestDto? CompleteUploadRequest { get; private set; }
     public ReorderProductPreviewImagesRequestDto? ReorderRequest { get; private set; }
 
-    public Task<ServiceResult<ProductPreviewImageUploadResponseDto>> UploadAsync(
+    public Task<ServiceResult<PrepareDirectUploadResponseDto>> PreparePreviewUploadAsync(
         Guid productId,
         Guid currentUserId,
         UploadProductPreviewImageRequestDto request,
@@ -31,8 +34,20 @@ public sealed class FakeProductPreviewImageService : IProductPreviewImageService
     {
         ProductId = productId;
         CurrentUserId = currentUserId;
-        UploadRequest = request;
-        return Task.FromResult(UploadResult ?? ServiceResult<ProductPreviewImageUploadResponseDto>.BadRequest("Upload not configured."));
+        PrepareUploadRequest = request;
+        return Task.FromResult(PrepareUploadResult ?? ServiceResult<PrepareDirectUploadResponseDto>.BadRequest("Prepare upload not configured."));
+    }
+
+    public Task<ServiceResult<ProductPreviewImageUploadResponseDto>> CompletePreviewUploadAsync(
+        Guid productId,
+        Guid currentUserId,
+        CompleteDirectUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        ProductId = productId;
+        CurrentUserId = currentUserId;
+        CompleteUploadRequest = request;
+        return Task.FromResult(CompleteUploadResult ?? ServiceResult<ProductPreviewImageUploadResponseDto>.BadRequest("Complete upload not configured."));
     }
 
     public Task<ServiceResult<ProductPreviewImageListResponseDto>> GetListAsync(

@@ -235,6 +235,91 @@ public sealed class NotificationDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_ProjectScheduleCreated_PersistsAndPushesWithMetadata()
+    {
+        var receiverId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var scheduledStart = new DateTime(2026, 9, 13, 8, 0, 0, DateTimeKind.Utc);
+        var scheduledEnd = new DateTime(2026, 9, 13, 10, 0, 0, DateTimeKind.Utc);
+        var repository = new CapturingNotificationRepository();
+        var realtime = new CapturingRealtimeNotificationService();
+        var dispatcher = new NotificationDispatcher(
+            repository,
+            realtime,
+            NullLogger<NotificationDispatcher>.Instance,
+            TestUnitOfWork.Instance);
+        var metadata = new Dictionary<string, object?>
+        {
+            ["scheduleId"] = scheduleId,
+            ["projectId"] = projectId,
+            ["scheduleType"] = "MEASUREMENT",
+            ["status"] = "PENDING_CONFIRMATION",
+            ["scheduledStart"] = scheduledStart,
+            ["scheduledEnd"] = scheduledEnd
+        };
+
+        await dispatcher.DispatchAsync(
+            NotificationType.ProjectScheduleCreated,
+            new Dictionary<string, string>
+            {
+                ["ScheduleType"] = "MEASUREMENT",
+                ["ProjectName"] = "Cafe ABC",
+                ["ScheduledStart"] = scheduledStart.ToString("f")
+            },
+            [receiverId],
+            new NotificationDispatchRequest(projectId, "PROJECT_SCHEDULE", scheduleId, metadata));
+
+        var saved = Assert.Single(repository.Added);
+        Assert.Equal("ProjectScheduleCreated", saved.NotificationType);
+        Assert.Equal("PROJECT_SCHEDULE", saved.ReferenceType);
+        Assert.Equal(scheduleId, saved.ReferenceId);
+
+        var sent = Assert.Single(realtime.Sent);
+        Assert.Equal("project_schedule.created", sent.EventName);
+        var payload = Assert.IsType<RealtimeNotificationPayloadDto>(sent.Payload);
+        Assert.Equal(scheduleId, payload.Metadata!["scheduleId"]);
+        Assert.Equal("PENDING_CONFIRMATION", payload.Metadata["status"]);
+    }
+
+    [Fact]
+    public async Task DispatchAsync_ProjectScheduleConfirmed_WhenRealtimeFails_StillPersistsInApp()
+    {
+        var receiverId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var repository = new CapturingNotificationRepository();
+        var realtime = new CapturingRealtimeNotificationService { ThrowOnSend = true };
+        var dispatcher = new NotificationDispatcher(
+            repository,
+            realtime,
+            NullLogger<NotificationDispatcher>.Instance,
+            TestUnitOfWork.Instance);
+
+        var exception = await Record.ExceptionAsync(() => dispatcher.DispatchAsync(
+            NotificationType.ProjectScheduleConfirmed,
+            new Dictionary<string, string>
+            {
+                ["ScheduleType"] = "DELIVERY",
+                ["ProjectName"] = "Cafe ABC",
+                ["ScheduledStart"] = DateTime.UtcNow.ToString("f")
+            },
+            [receiverId],
+            new NotificationDispatchRequest(
+                Guid.NewGuid(),
+                "PROJECT_SCHEDULE",
+                scheduleId,
+                new Dictionary<string, object?>
+                {
+                    ["scheduleId"] = scheduleId,
+                    ["status"] = "CONFIRMED"
+                })));
+
+        Assert.Null(exception);
+        Assert.Single(repository.Added);
+        Assert.Empty(realtime.Sent);
+    }
+
+    [Fact]
     public async Task DispatchAsync_RealtimeOnly_WhenPushFails_DoesNotThrow()
     {
         var dispatcher = new NotificationDispatcher(

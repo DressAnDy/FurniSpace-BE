@@ -1,6 +1,7 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.Payments;
+using FurniSpace.Application.Common.ProjectSchedules;
 using FurniSpace.Application.Common.Projects;
 using static FurniSpace.Application.Constants.Orders.OrderServiceConstants;
 using FurniSpace.Application.Constants.Payments;
@@ -553,14 +554,6 @@ public sealed partial class OrderService : IOrderService
                     "Delivery confirmation is blocked while a delivery batch is in progress."));
         }
 
-        if (await _schedules.HasUnresolvedConfirmedDeliveryScheduleAsync(order.ProjectId, cancellationToken))
-        {
-            return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
-                Error.Conflict(
-                    OrderErrorCodes.UnresolvedDeliverySchedule,
-                    "Delivery confirmation is blocked while confirmed delivery schedules remain unresolved."));
-        }
-
         if (!await _orders.AllDeliverableItemsPhysicallyDeliveredAsync(order.OrderId, cancellationToken))
         {
             return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
@@ -572,44 +565,64 @@ public sealed partial class OrderService : IOrderService
         var orderItems = await _orders.GetItemsByOrderAsync(order.OrderId, cancellationToken);
         var now = DateTime.UtcNow;
         var remainingPaymentNotifications = new List<Payment>();
-        await UnitOfWorkTransactions.ExecuteAsync(
-            _unitOfWork,
-            async transactionCancellationToken =>
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            await ProjectScheduleCleanupSupport.CancelUnusedDeliverySchedulesAsync(
+                _schedules,
+                order.ProjectId,
+                now,
+                cancellationToken);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            if (await _schedules.HasActiveDeliveryScheduleAsync(order.ProjectId, cancellationToken))
             {
-                foreach (var item in orderItems.Where(item => item.Status == OrderItemStatus.PHYSICALLY_DELIVERED))
-                {
-                    var transitionError = OrderItemStatusTransitionService.Validate(
-                        item.Status,
-                        OrderItemStatus.DELIVERED,
-                        OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation);
-                    if (transitionError is not null)
-                    {
-                        throw new InvalidOperationException(transitionError.ErrorCode);
-                    }
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                return ServiceResult<OrderDeliveryConfirmationDto>.Failure(
+                    Error.Conflict(
+                        OrderErrorCodes.UnresolvedDeliverySchedule,
+                        "Delivery confirmation is blocked while active delivery schedules remain unresolved."));
+            }
 
-                    item.Status = OrderItemStatus.DELIVERED;
-                    _orders.UpdateItem(item);
+            foreach (var item in orderItems.Where(item => item.Status == OrderItemStatus.PHYSICALLY_DELIVERED))
+            {
+                var transitionError = OrderItemStatusTransitionService.Validate(
+                    item.Status,
+                    OrderItemStatus.DELIVERED,
+                    OrderItemStatusTransitionOwner.CustomerDeliveryConfirmation);
+                if (transitionError is not null)
+                {
+                    throw new InvalidOperationException(transitionError.ErrorCode);
                 }
 
-                order.CustomerConfirmedDeliveryAt = now;
-                order.UpdatedAt = now;
-                project.Status = ProjectStatus.DELIVERED;
-                project.UpdatedAt = now;
+                item.Status = OrderItemStatus.DELIVERED;
+                _orders.UpdateItem(item);
+            }
 
-                var remainingPayment = await ApplyPostDeliveryFinancialStateAsync(
-                    order,
-                    now,
-                    transactionCancellationToken);
-                if (remainingPayment is not null)
-                {
-                    remainingPaymentNotifications.Add(remainingPayment);
-                }
+            order.CustomerConfirmedDeliveryAt = now;
+            order.UpdatedAt = now;
+            project.Status = ProjectStatus.DELIVERED;
+            project.UpdatedAt = now;
 
-                _orders.Update(order);
-                _projects.Update(project);
-                await _unitOfWork.SaveChangesAsync(transactionCancellationToken);
-            },
-            cancellationToken);
+            var remainingPayment = await ApplyPostDeliveryFinancialStateAsync(
+                order,
+                now,
+                cancellationToken);
+            if (remainingPayment is not null)
+            {
+                remainingPaymentNotifications.Add(remainingPayment);
+            }
+
+            _orders.Update(order);
+            _projects.Update(project);
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
 
         await OrderNotificationSupport.TryDispatchDeliveredAsync(
             _notifications,

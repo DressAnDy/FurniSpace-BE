@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.LayoutAssets;
 using FurniSpace.Application.DTOs.Products;
 
@@ -35,10 +36,16 @@ public interface ILayoutAssetService
         string? roleName,
         CancellationToken cancellationToken = default);
 
-    Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+    Task<ServiceResult<PrepareDirectUploadResponseDto>> PrepareFileUploadAsync(
         Guid layoutAssetId,
         Guid currentUserId,
         UploadCatalogFileRequestDto request,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<CatalogFileUploadResponseDto>> CompleteFileUploadAsync(
+        Guid layoutAssetId,
+        Guid currentUserId,
+        CompleteDirectUploadRequestDto request,
         CancellationToken cancellationToken = default);
 
     Task<ServiceResult<IReadOnlyList<LayoutAssetFileDto>>> GetFilesAsync(

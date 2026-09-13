@@ -8,7 +8,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Projects;
-using FurniSpace.API.DTOs.ProjectFiles;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.ProjectFiles;
@@ -34,70 +33,6 @@ public sealed class ProjectFilesControllerTests
     }
 
     [Fact]
-    public async Task UploadProjectFile_ReturnsUnauthorized_WhenUserIdClaimMissing()
-    {
-        var controller = CreateController(new FakeProjectFileService(), userId: null);
-
-        var actionResult = await controller.UploadProjectFile(
-            Guid.NewGuid(),
-            new UploadProjectFileFormRequest());
-
-        Assert.IsType<UnauthorizedResult>(actionResult);
-    }
-
-    [Fact]
-    public async Task UploadProjectFile_PassesMultipartRequestToService()
-    {
-        var userId = Guid.NewGuid();
-        var projectId = Guid.NewGuid();
-        var fileId = Guid.NewGuid();
-        var fileLinkId = Guid.NewGuid();
-        var response = new ProjectFileUploadResponseDto
-        {
-            FileId = fileId,
-            FileLinkId = fileLinkId,
-            ProjectId = projectId,
-            OriginalFileName = "shop-reference.jpg",
-            FileName = "generated-storage-name.jpg",
-            FileType = FileType.REFERENCE_IMAGE,
-            MimeType = "image/jpeg",
-            FileSize = 12,
-            StoragePath = "projects/project-id/generated-storage-name.jpg",
-            PublicUrl = "https://storage.example.com/file.jpg",
-            Visibility = FileVisibility.CUSTOMER_VISIBLE,
-            UploadedBy = userId,
-            UploadedAt = DateTime.UtcNow
-        };
-        var service = new FakeProjectFileService(
-            uploadResult: ServiceResult<ProjectFileUploadResponseDto>.Created(response, "Project file uploaded successfully."));
-        var controller = CreateController(service, userId);
-        var request = new UploadProjectFileFormRequest
-        {
-            File = CreateFormFile("shop-reference.jpg", "image/jpeg", "file-content"),
-            FileType = FileType.REFERENCE_IMAGE,
-            Visibility = FileVisibility.CUSTOMER_VISIBLE,
-            Note = "Reference image"
-        };
-
-        var actionResult = await controller.UploadProjectFile(projectId, request);
-
-        var objectResult = Assert.IsType<ObjectResult>(actionResult);
-        Assert.Equal(201, objectResult.StatusCode);
-        var result = Assert.IsType<ServiceResult<ProjectFileUploadResponseDto>>(objectResult.Value);
-        Assert.Same(response, result.Data);
-        Assert.Equal(projectId, service.ProjectId);
-        Assert.Equal(userId, service.CurrentUserId);
-        Assert.NotNull(service.UploadRequest);
-        Assert.Equal("shop-reference.jpg", service.UploadRequest.OriginalFileName);
-        Assert.Equal("image/jpeg", service.UploadRequest.ContentType);
-        Assert.Equal(12, service.UploadRequest.FileSizeBytes);
-        Assert.Equal(FileType.REFERENCE_IMAGE, service.UploadRequest.FileType);
-        Assert.Equal(FileVisibility.CUSTOMER_VISIBLE, service.UploadRequest.Visibility);
-        Assert.Equal("Reference image", service.UploadRequest.Note);
-        Assert.True(service.UploadRequest.Content.CanRead);
-    }
-
-    [Fact]
     public async Task GetProjectFiles_PassesQueryToService()
     {
         var userId = Guid.NewGuid();
@@ -114,10 +49,13 @@ public sealed class ProjectFilesControllerTests
 
         var actionResult = await controller.GetProjectFiles(
             projectId,
-            FileType.ORDER_DOCUMENT,
-            FileVisibility.STAFF_ONLY,
-            page: 3,
-            limit: 5);
+            new ProjectFilesQueryDto
+            {
+                FileType = FileType.ORDER_DOCUMENT,
+                Visibility = FileVisibility.STAFF_ONLY,
+                Page = 3,
+                Limit = 5
+            });
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(200, objectResult.StatusCode);
@@ -138,7 +76,7 @@ public sealed class ProjectFilesControllerTests
         var service = new FakeProjectFileService();
         var controller = CreateController(service, userId: null);
 
-        var actionResult = await controller.GetProjectFiles(Guid.NewGuid());
+        var actionResult = await controller.GetProjectFiles(Guid.NewGuid(), new ProjectFilesQueryDto());
 
         Assert.IsType<UnauthorizedResult>(actionResult);
         Assert.Equal(Guid.Empty, service.ProjectId);
@@ -186,6 +124,112 @@ public sealed class ProjectFilesControllerTests
         Assert.Equal(Guid.Empty, service.ProjectId);
     }
 
+    [Fact]
+    public async Task PrepareProjectFileUpload_ReturnsUnauthorized_WhenUserIdClaimMissing()
+    {
+        var controller = CreateController(new FakeProjectFileService(), userId: null);
+
+        var actionResult = await controller.PrepareProjectFileUpload(
+            Guid.NewGuid(),
+            new PrepareProjectFileUploadRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
+    public async Task PrepareProjectFileUpload_PassesRequestToService()
+    {
+        var userId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var response = new PrepareProjectFileUploadResponseDto
+        {
+            FileId = fileId,
+            ProjectId = projectId,
+            UploadUrl = "https://storage.example.com/upload/object",
+            ContentType = "image/jpeg",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+        };
+        var service = new FakeProjectFileService(
+            prepareUploadResult: ServiceResult<PrepareProjectFileUploadResponseDto>.Created(
+                response,
+                "Project file upload URL created successfully."));
+        var controller = CreateController(service, userId);
+        var request = new PrepareProjectFileUploadRequestDto
+        {
+            OriginalFileName = "shop-reference.jpg",
+            ContentType = "image/jpeg",
+            FileSizeBytes = 204800,
+            FileType = FileType.REFERENCE_IMAGE,
+            Visibility = FileVisibility.CUSTOMER_VISIBLE,
+            Note = "Reference image"
+        };
+
+        var actionResult = await controller.PrepareProjectFileUpload(projectId, request);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<PrepareProjectFileUploadResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.NotNull(service.PrepareUploadRequest);
+        Assert.Equal("shop-reference.jpg", service.PrepareUploadRequest.OriginalFileName);
+        Assert.Equal(FileType.REFERENCE_IMAGE, service.PrepareUploadRequest.FileType);
+    }
+
+    [Fact]
+    public async Task CompleteProjectFileUpload_ReturnsUnauthorized_WhenUserIdClaimMissing()
+    {
+        var controller = CreateController(new FakeProjectFileService(), userId: null);
+
+        var actionResult = await controller.CompleteProjectFileUpload(
+            Guid.NewGuid(),
+            new CompleteProjectFileUploadRequestDto { FileId = Guid.NewGuid() });
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
+    public async Task CompleteProjectFileUpload_PassesRequestToService()
+    {
+        var userId = Guid.NewGuid();
+        var projectId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var response = new ProjectFileUploadResponseDto
+        {
+            FileId = fileId,
+            ProjectId = projectId,
+            OriginalFileName = "shop-reference.jpg",
+            FileName = $"{fileId:N}.jpg",
+            FileType = FileType.REFERENCE_IMAGE,
+            MimeType = "image/jpeg",
+            FileSize = 204800,
+            PublicUrl = "https://storage.example.com/file.jpg",
+            Visibility = FileVisibility.CUSTOMER_VISIBLE,
+            UploadedBy = userId,
+            UploadedAt = DateTime.UtcNow
+        };
+        var service = new FakeProjectFileService(
+            completeUploadResult: ServiceResult<ProjectFileUploadResponseDto>.Success(
+                response,
+                "Project file uploaded successfully."));
+        var controller = CreateController(service, userId);
+
+        var actionResult = await controller.CompleteProjectFileUpload(
+            projectId,
+            new CompleteProjectFileUploadRequestDto { FileId = fileId });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult<ProjectFileUploadResponseDto>>(objectResult.Value);
+        Assert.Same(response, result.Data);
+        Assert.Equal(projectId, service.ProjectId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.NotNull(service.CompleteUploadRequest);
+        Assert.Equal(fileId, service.CompleteUploadRequest.FileId);
+    }
+
     private static ProjectFilesController CreateController(FakeProjectFileService service, Guid? userId)
     {
         var controller = new ProjectFilesController(service);
@@ -225,7 +269,8 @@ public sealed class ProjectFilesControllerTests
 
     private sealed class FakeProjectFileService : IProjectFileService
     {
-        private readonly ServiceResult<ProjectFileUploadResponseDto> _uploadResult;
+        private readonly ServiceResult<PrepareProjectFileUploadResponseDto> _prepareUploadResult;
+        private readonly ServiceResult<ProjectFileUploadResponseDto> _completeUploadResult;
         private readonly ServiceResult<FileDetailResponseDto> _fileDetailResult;
         private readonly ServiceResult<ProjectFilesResponseDto> _projectFilesResult;
         private readonly ServiceResult<ProjectFileSearchResponseDto> _searchResult;
@@ -234,7 +279,8 @@ public sealed class ProjectFilesControllerTests
         private readonly ServiceResult<ArchiveFileResponseDto> _archiveResult;
 
         public FakeProjectFileService(
-            ServiceResult<ProjectFileUploadResponseDto>? uploadResult = null,
+            ServiceResult<PrepareProjectFileUploadResponseDto>? prepareUploadResult = null,
+            ServiceResult<ProjectFileUploadResponseDto>? completeUploadResult = null,
             ServiceResult<FileDetailResponseDto>? fileDetailResult = null,
             ServiceResult<ProjectFilesResponseDto>? projectFilesResult = null,
             ServiceResult<ProjectFileSearchResponseDto>? searchResult = null,
@@ -242,7 +288,8 @@ public sealed class ProjectFilesControllerTests
             ServiceResult<DeleteFileResponseDto>? deleteResult = null,
             ServiceResult<ArchiveFileResponseDto>? archiveResult = null)
         {
-            _uploadResult = uploadResult ?? ServiceResult<ProjectFileUploadResponseDto>.Created(new ProjectFileUploadResponseDto());
+            _prepareUploadResult = prepareUploadResult ?? ServiceResult<PrepareProjectFileUploadResponseDto>.Created(new PrepareProjectFileUploadResponseDto());
+            _completeUploadResult = completeUploadResult ?? ServiceResult<ProjectFileUploadResponseDto>.Success(new ProjectFileUploadResponseDto());
             _fileDetailResult = fileDetailResult ?? ServiceResult<FileDetailResponseDto>.Success(new FileDetailResponseDto());
             _projectFilesResult = projectFilesResult ?? ServiceResult<ProjectFilesResponseDto>.Success(new ProjectFilesResponseDto());
             _searchResult = searchResult ?? ServiceResult<ProjectFileSearchResponseDto>.Success(new ProjectFileSearchResponseDto());
@@ -254,7 +301,8 @@ public sealed class ProjectFilesControllerTests
         public Guid ProjectId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public Guid FileId { get; private set; }
-        public UploadProjectFileRequestDto? UploadRequest { get; private set; }
+        public PrepareProjectFileUploadRequestDto? PrepareUploadRequest { get; private set; }
+        public CompleteProjectFileUploadRequestDto? CompleteUploadRequest { get; private set; }
         public ProjectFilesQueryDto? ProjectFilesQuery { get; private set; }
         public string? SearchQuery { get; private set; }
         public int SearchPage { get; private set; }
@@ -262,16 +310,28 @@ public sealed class ProjectFilesControllerTests
         public FilesByReferenceQueryDto? FilesByReferenceQuery { get; private set; }
         public ArchiveFileRequestDto? ArchiveRequest { get; private set; }
 
-        public Task<ServiceResult<ProjectFileUploadResponseDto>> UploadProjectFileAsync(
+        public Task<ServiceResult<PrepareProjectFileUploadResponseDto>> PrepareProjectFileUploadAsync(
             Guid projectId,
             Guid currentUserId,
-            UploadProjectFileRequestDto request,
+            PrepareProjectFileUploadRequestDto request,
             CancellationToken cancellationToken = default)
         {
             ProjectId = projectId;
             CurrentUserId = currentUserId;
-            UploadRequest = request;
-            return Task.FromResult(_uploadResult);
+            PrepareUploadRequest = request;
+            return Task.FromResult(_prepareUploadResult);
+        }
+
+        public Task<ServiceResult<ProjectFileUploadResponseDto>> CompleteProjectFileUploadAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CompleteProjectFileUploadRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            ProjectId = projectId;
+            CurrentUserId = currentUserId;
+            CompleteUploadRequest = request;
+            return Task.FromResult(_completeUploadResult);
         }
 
         public Task<ServiceResult<FileDetailResponseDto>> GetFileDetailAsync(
@@ -331,6 +391,34 @@ public sealed class ProjectFilesControllerTests
             CurrentUserId = currentUserId;
             return Task.FromResult(_deleteResult);
         }
+
+        public Task<ServiceResult<PrepareProjectAreaFileUploadResponseDto>> PrepareProjectAreaFileUploadAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            PrepareProjectFileUploadRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<PrepareProjectAreaFileUploadResponseDto>.Created(new PrepareProjectAreaFileUploadResponseDto()));
+
+        public Task<ServiceResult<ProjectFileUploadResponseDto>> CompleteProjectAreaFileUploadAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            CompleteProjectFileUploadRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectFileUploadResponseDto>.Success(new ProjectFileUploadResponseDto()));
+
+        public Task<ServiceResult<ProjectFilesResponseDto>> GetProjectAreaFilesAsync(
+            Guid projectAreaId,
+            Guid currentUserId,
+            ProjectFilesQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectFilesResponseDto>.Success(new ProjectFilesResponseDto()));
+
+        public Task<ServiceResult<ProjectAreaFilePrimaryResponseDto>> SetProjectAreaPrimaryFileAsync(
+            Guid projectAreaId,
+            Guid fileId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult<ProjectAreaFilePrimaryResponseDto>.Success(new ProjectAreaFilePrimaryResponseDto()));
 
         public Task<ServiceResult<ArchiveFileResponseDto>> ArchiveFileAsync(
             Guid fileId,

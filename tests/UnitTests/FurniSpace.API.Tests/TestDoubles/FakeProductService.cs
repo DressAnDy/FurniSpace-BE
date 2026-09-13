@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.Catalog;
+using FurniSpace.Application.DTOs.Common;
 using FurniSpace.Application.DTOs.Products;
 using FurniSpace.Application.Interfaces.Products;
 
@@ -17,7 +18,8 @@ internal sealed class FakeProductService : IProductService
     private readonly ServiceResult<ProductDetailDto> _getByIdResult;
     private readonly ServiceResult<ProductDto> _createResult;
     private readonly ServiceResult<ProductDto> _updateResult;
-    private readonly ServiceResult<CatalogFileUploadResponseDto> _uploadFileResult;
+    private readonly ServiceResult<PrepareDirectUploadResponseDto> _prepareFileUploadResult;
+    private readonly ServiceResult<CatalogFileUploadResponseDto> _completeFileUploadResult;
 
     public FakeProductService(
         ServiceResult<ProductListResponseDto> getAllResult,
@@ -25,19 +27,26 @@ internal sealed class FakeProductService : IProductService
         ServiceResult<ProductDetailDto>? getByIdResult = null,
         ServiceResult<ProductDto>? createResult = null,
         ServiceResult<ProductDto>? updateResult = null,
-        ServiceResult<CatalogFileUploadResponseDto>? uploadFileResult = null)
+        ServiceResult<PrepareDirectUploadResponseDto>? prepareFileUploadResult = null,
+        ServiceResult<CatalogFileUploadResponseDto>? completeFileUploadResult = null)
     {
         _getAllResult = getAllResult;
         _getByCategoryResult = getByCategoryResult ?? ServiceResult<ProductByCategoryResponseDto>.Success(new ProductByCategoryResponseDto(), string.Empty);
         _getByIdResult = getByIdResult ?? ServiceResult<ProductDetailDto>.Success(new ProductDetailDto(), string.Empty);
         _createResult = createResult ?? ServiceResult<ProductDto>.Created(new ProductDto(), "Product master created successfully.");
         _updateResult = updateResult ?? ServiceResult<ProductDto>.Success(new ProductDto(), "Product master updated successfully.");
-        _uploadFileResult = uploadFileResult ?? ServiceResult<CatalogFileUploadResponseDto>.Created(new CatalogFileUploadResponseDto(), "Product file uploaded successfully.");
+        _prepareFileUploadResult = prepareFileUploadResult ?? ServiceResult<PrepareDirectUploadResponseDto>.Created(
+            new PrepareDirectUploadResponseDto(),
+            "Catalog file upload URL created successfully.");
+        _completeFileUploadResult = completeFileUploadResult ?? ServiceResult<CatalogFileUploadResponseDto>.Created(
+            new CatalogFileUploadResponseDto(),
+            "Product file uploaded successfully.");
     }
 
     public CreateProductRequestDto? CreateRequest { get; private set; }
     public UpdateProductRequestDto? UpdateRequest { get; private set; }
-    public UploadCatalogFileRequestDto? UploadFileRequest { get; private set; }
+    public UploadCatalogFileRequestDto? PrepareFileUploadRequest { get; private set; }
+    public CompleteDirectUploadRequestDto? CompleteFileUploadRequest { get; private set; }
     public Guid ProductId { get; private set; }
     public Guid CurrentUserId { get; private set; }
     public Guid CategoryId { get; private set; }
@@ -134,7 +143,7 @@ internal sealed class FakeProductService : IProductService
         return Task.FromResult(ServiceResult<ProductListResponseDto>.Success(new ProductListResponseDto(), string.Empty));
     }
 
-    public Task<ServiceResult<CatalogFileUploadResponseDto>> UploadFileAsync(
+    public Task<ServiceResult<PrepareDirectUploadResponseDto>> PrepareFileUploadAsync(
         Guid productId,
         Guid currentUserId,
         UploadCatalogFileRequestDto request,
@@ -143,8 +152,21 @@ internal sealed class FakeProductService : IProductService
         _ = cancellationToken;
         ProductId = productId;
         CurrentUserId = currentUserId;
-        UploadFileRequest = request;
-        return Task.FromResult(_uploadFileResult);
+        PrepareFileUploadRequest = request;
+        return Task.FromResult(_prepareFileUploadResult);
+    }
+
+    public Task<ServiceResult<CatalogFileUploadResponseDto>> CompleteFileUploadAsync(
+        Guid productId,
+        Guid currentUserId,
+        CompleteDirectUploadRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        _ = cancellationToken;
+        ProductId = productId;
+        CurrentUserId = currentUserId;
+        CompleteFileUploadRequest = request;
+        return Task.FromResult(_completeFileUploadResult);
     }
 
     public Task<ServiceResult<ProductLifecycleStatusResponseDto>> ActivateAsync(

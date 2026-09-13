@@ -1,14 +1,11 @@
 #nullable enable
 
 using System;
-using System.IO;
 using System.Linq;
 using System.Security.Claims;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.API.Controllers.Projects;
-using FurniSpace.API.DTOs.ProductIssues;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.DTOs.ProductIssues;
 using FurniSpace.Application.Interfaces.ProductIssues;
@@ -40,52 +37,137 @@ public sealed class ProductIssuesControllerTests
     }
 
     [Fact]
-    public async Task Create_ReturnsServiceResultAndMapsFormRequest()
+    public async Task Create_ReturnsServiceResultAndPassesJsonRequest()
     {
         var orderId = Guid.NewGuid();
         var userId = Guid.NewGuid();
         var orderItemId = Guid.NewGuid();
+        var evidenceFileId = Guid.NewGuid();
         var service = new FakeProductIssueService();
         var controller = BuildController(service, userId);
-        var form = new CreateProductIssueFormRequest
+        var request = new CreateProductIssueRequestDto
         {
             OrderItemId = orderItemId,
             IssueType = DeliveryProductIssueType.DAMAGED,
             Description = "Corner chipped",
-            Files = [CreateFormFile("damage.jpg", "photo")]
+            EvidenceFileIds = [evidenceFileId]
         };
 
-        var actionResult = await controller.Create(orderId, form);
+        var actionResult = await controller.Create(orderId, request);
 
         var objectResult = Assert.IsType<ObjectResult>(actionResult);
         Assert.Equal(201, objectResult.StatusCode);
         Assert.Equal(orderId, service.OrderId);
         Assert.Equal(userId, service.CurrentUserId);
         Assert.Equal(orderItemId, service.CreateRequest!.OrderItemId);
-        Assert.Single(service.CreateRequest.EvidenceFiles);
+        Assert.Single(service.CreateRequest.EvidenceFileIds);
+        Assert.Equal(evidenceFileId, service.CreateRequest.EvidenceFileIds[0]);
+    }
+
+    [Theory]
+    [InlineData(nameof(ProductIssuesController.PrepareEvidenceUpload), "CUSTOMER")]
+    [InlineData(nameof(ProductIssuesController.CompleteEvidenceUpload), "CUSTOMER")]
+    public void EvidenceUploadActions_RequireCustomerRole(string actionName, string expectedRoles)
+    {
+        var authorize = typeof(ProductIssuesController)
+            .GetMethods()
+            .Single(method => method.Name == actionName)
+            .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: false)
+            .Cast<AuthorizeAttribute>()
+            .Single();
+
+        Assert.Equal(expectedRoles, authorize.Roles);
     }
 
     [Fact]
-    public void CreateProductIssueFormRequest_ToRequestDto_SkipsEmptyFiles()
+    public async Task PrepareEvidenceUpload_PassesRequestToService()
     {
-        var request = new CreateProductIssueFormRequest
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var service = new FakeProductIssueService
         {
-            OrderItemId = Guid.NewGuid(),
-            IssueType = DeliveryProductIssueType.OTHER,
-            Description = "Issue",
-            Files =
-            [
-                CreateFormFile("valid.jpg", "photo"),
-                CreateFormFile("empty.jpg", "")
-            ]
+            PrepareEvidenceResult = ServiceResult<PrepareProductIssueEvidenceUploadResponseDto>.Created(
+                new PrepareProductIssueEvidenceUploadResponseDto
+                {
+                    FileId = fileId,
+                    OrderId = orderId,
+                    UploadUrl = "https://storage.example.com/upload",
+                    ContentType = "image/jpeg",
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(15)
+                },
+                "Product issue evidence upload URL created successfully.")
+        };
+        var controller = BuildController(service, userId);
+        var request = new PrepareProductIssueEvidenceUploadRequestDto
+        {
+            OriginalFileName = "damage.jpg",
+            ContentType = "image/jpeg",
+            FileSizeBytes = 1024
         };
 
-        var dto = request.ToRequestDto();
+        var actionResult = await controller.PrepareEvidenceUpload(orderId, request);
 
-        Assert.Equal(request.OrderItemId, dto.OrderItemId);
-        Assert.Equal(DeliveryProductIssueType.OTHER, dto.IssueType);
-        Assert.Single(dto.EvidenceFiles);
-        Assert.Equal("valid.jpg", dto.EvidenceFiles[0].OriginalFileName);
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(201, objectResult.StatusCode);
+        Assert.Equal(orderId, service.OrderId);
+        Assert.Equal(userId, service.CurrentUserId);
+        Assert.NotNull(service.PrepareEvidenceRequest);
+        Assert.Equal("damage.jpg", service.PrepareEvidenceRequest.OriginalFileName);
+    }
+
+    [Fact]
+    public async Task CompleteEvidenceUpload_PassesRequestToService()
+    {
+        var orderId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        var service = new FakeProductIssueService
+        {
+            CompleteEvidenceResult = ServiceResult<CompleteProductIssueEvidenceUploadResponseDto>.Success(
+                new CompleteProductIssueEvidenceUploadResponseDto
+                {
+                    FileId = fileId,
+                    OrderId = orderId,
+                    OriginalFileName = "damage.jpg",
+                    FileUrl = "https://storage.example.com/damage.jpg"
+                },
+                "Product issue evidence uploaded successfully.")
+        };
+        var controller = BuildController(service, userId);
+
+        var actionResult = await controller.CompleteEvidenceUpload(
+            orderId,
+            new CompleteProductIssueEvidenceUploadRequestDto { FileId = fileId });
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(orderId, service.OrderId);
+        Assert.Equal(fileId, service.CompleteEvidenceRequest!.FileId);
+    }
+
+    [Fact]
+    public async Task PrepareEvidenceUpload_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeProductIssueService(), userId: null);
+
+        var actionResult = await controller.PrepareEvidenceUpload(
+            Guid.NewGuid(),
+            new PrepareProductIssueEvidenceUploadRequestDto());
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
+    }
+
+    [Fact]
+    public async Task CompleteEvidenceUpload_WithoutUser_ReturnsUnauthorized()
+    {
+        var controller = BuildController(new FakeProductIssueService(), userId: null);
+
+        var actionResult = await controller.CompleteEvidenceUpload(
+            Guid.NewGuid(),
+            new CompleteProductIssueEvidenceUploadRequestDto { FileId = Guid.NewGuid() });
+
+        Assert.IsType<UnauthorizedResult>(actionResult);
     }
 
     [Fact]
@@ -96,17 +178,6 @@ public sealed class ProductIssuesControllerTests
         var actionResult = await controller.GetByOrder(Guid.NewGuid());
 
         Assert.IsType<UnauthorizedResult>(actionResult);
-    }
-
-    private static IFormFile CreateFormFile(string fileName, string content)
-    {
-        var bytes = Encoding.UTF8.GetBytes(content);
-        var stream = new MemoryStream(bytes);
-        return new FormFile(stream, 0, bytes.Length, "Files", fileName)
-        {
-            Headers = new HeaderDictionary(),
-            ContentType = "image/jpeg"
-        };
     }
 
     private static ProductIssuesController BuildController(
@@ -132,9 +203,14 @@ public sealed class ProductIssuesControllerTests
 
     private sealed class FakeProductIssueService : IDeliveryProductIssueReportService
     {
+        public ServiceResult<PrepareProductIssueEvidenceUploadResponseDto>? PrepareEvidenceResult { get; init; }
+        public ServiceResult<CompleteProductIssueEvidenceUploadResponseDto>? CompleteEvidenceResult { get; init; }
+
         public Guid OrderId { get; private set; }
         public Guid CurrentUserId { get; private set; }
         public CreateProductIssueRequestDto? CreateRequest { get; private set; }
+        public PrepareProductIssueEvidenceUploadRequestDto? PrepareEvidenceRequest { get; private set; }
+        public CompleteProductIssueEvidenceUploadRequestDto? CompleteEvidenceRequest { get; private set; }
 
         public Task<ServiceResult<ProductIssueReportDto>> CreateAsync(
             Guid orderId,
@@ -148,6 +224,34 @@ public sealed class ProductIssuesControllerTests
             return Task.FromResult(ServiceResult<ProductIssueReportDto>.Created(
                 new ProductIssueReportDto(),
                 "Product issue report submitted successfully."));
+        }
+
+        public Task<ServiceResult<PrepareProductIssueEvidenceUploadResponseDto>> PrepareEvidenceUploadAsync(
+            Guid orderId,
+            Guid currentUserId,
+            PrepareProductIssueEvidenceUploadRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            PrepareEvidenceRequest = request;
+            return Task.FromResult(PrepareEvidenceResult ?? ServiceResult<PrepareProductIssueEvidenceUploadResponseDto>.Created(
+                new PrepareProductIssueEvidenceUploadResponseDto(),
+                "Product issue evidence upload URL created successfully."));
+        }
+
+        public Task<ServiceResult<CompleteProductIssueEvidenceUploadResponseDto>> CompleteEvidenceUploadAsync(
+            Guid orderId,
+            Guid currentUserId,
+            CompleteProductIssueEvidenceUploadRequestDto request,
+            CancellationToken cancellationToken = default)
+        {
+            OrderId = orderId;
+            CurrentUserId = currentUserId;
+            CompleteEvidenceRequest = request;
+            return Task.FromResult(CompleteEvidenceResult ?? ServiceResult<CompleteProductIssueEvidenceUploadResponseDto>.Success(
+                new CompleteProductIssueEvidenceUploadResponseDto(),
+                "Product issue evidence uploaded successfully."));
         }
 
         public Task<ServiceResult<ProductIssueReportListResponseDto>> GetByOrderAsync(
@@ -173,5 +277,14 @@ public sealed class ProductIssuesControllerTests
             => Task.FromResult(ServiceResult<ProductIssueReportDto>.Success(
                 new ProductIssueReportDto(),
                 "Product issue report retrieved successfully."));
+
+        public Task<ServiceResult<ProductIssueReportDto>> ResolveAsync(
+            Guid issueId,
+            Guid currentUserId,
+            ResolveProductIssueRequestDto request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(ServiceResult<ProductIssueReportDto>.Success(
+                new ProductIssueReportDto(),
+                "Product issue report resolved successfully."));
     }
 }

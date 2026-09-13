@@ -47,7 +47,10 @@ public sealed class OperationalDelayReportRepository
                     .Select(account => account.FullName)
                     .FirstOrDefault(),
                 ReportedAt = item.report.ReportedAt,
-                CreatedAt = item.report.CreatedAt
+                CreatedAt = item.report.CreatedAt,
+                Status = item.report.Status,
+                ResolvedAt = item.report.ResolvedAt,
+                ResolutionNote = item.report.ResolutionNote
             })
             .FirstOrDefaultAsync(cancellationToken);
     }
@@ -80,7 +83,10 @@ public sealed class OperationalDelayReportRepository
                     .Select(account => account.FullName)
                     .FirstOrDefault(),
                 ReportedAt = report.ReportedAt,
-                CreatedAt = report.CreatedAt
+                CreatedAt = report.CreatedAt,
+                Status = report.Status,
+                ResolvedAt = report.ResolvedAt,
+                ResolutionNote = report.ResolutionNote
             })
             .ToListAsync(cancellationToken);
     }

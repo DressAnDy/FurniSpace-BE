@@ -324,7 +324,7 @@ Some modules use `pageSize` / `totalItems` / `totalPages` / `hasPreviousPage` / 
 | Enums | String values in **SCREAMING_SNAKE_CASE** (`JsonStringEnumConverter`, no naming policy) |
 | Dates | ISO-8601 (`DateTime` / `DateTimeOffset`); `DateOnly` as `YYYY-MM-DD` |
 | IDs | UUID (`guid`) unless noted (`businessTypeId` is `int`) |
-| Content-Type | `application/json` unless multipart upload |
+| Content-Type | `application/json` (file uploads use direct upload JSON prepare/complete, not multipart) |
 
 ### 1.4 Roles
 
@@ -345,7 +345,7 @@ Read each API contract in this order. If an item is not repeated under an endpoi
 | Contract part | Required documentation | Client implementation rule |
 | --- | --- | --- |
 | Access | Public, JWT, or exact roles; ownership/assignment scope | Handle `401` separately from `403` |
-| Request | Path, query, headers, body/multipart and required fields | Do not send server-owned/calculated fields |
+| Request | Path, query, headers, JSON body and required fields | Do not send server-owned/calculated fields |
 | Validation | Type/range/length/state/cross-field rules | Show field errors from `errors`; do not duplicate business rules as client truth |
 | Filters | Supported filters, sort, paging and defaults | Unknown/invalid filters may return `400`; paging names vary by DTO |
 | Enum | Exact SCREAMING_SNAKE_CASE values | Send strings exactly as documented |
@@ -859,7 +859,7 @@ Route: `products` (+ preview files controller)
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
 | GET | `/products/suggest` | Public | Autocomplete |
-| GET | `/products/search` | Public | Elasticsearch search |
+| GET | `/products/search` | Public | PostgreSQL product search |
 | GET | `/products` | Public | List |
 | GET | `/products/{productId}` | Public | Detail |
 | GET | `/products/{productId}/similar` | Public | Similar products |
@@ -871,8 +871,10 @@ Route: `products` (+ preview files controller)
 | PATCH | `/products/{productId}/deactivate` | ADMIN | Lifecycle → INACTIVE (from ACTIVE) |
 | PATCH | `/products/{productId}/archive` | ADMIN | Lifecycle → ARCHIVED (from ACTIVE/INACTIVE) |
 | PATCH | `/products/{productId}/restore` | ADMIN | Lifecycle → ACTIVE (from ARCHIVED) |
-| POST | `/products/{productId}/files` | ADMIN | Multipart catalog file |
-| POST | `/products/{productId}/preview-files` | ADMIN | Multipart preview image |
+| POST | `/products/{productId}/files/upload-url` | ADMIN | Prepare catalog file direct upload |
+| POST | `/products/{productId}/files/complete` | ADMIN | Complete catalog file direct upload |
+| POST | `/products/{productId}/preview-files/upload-url` | ADMIN | Prepare preview direct upload |
+| POST | `/products/{productId}/preview-files/complete` | ADMIN | Complete preview direct upload |
 | PATCH | `/products/{productId}/preview-files/reorder` | ADMIN | Reorder |
 | DELETE | `/products/{productId}/preview-files/{fileId}` | ADMIN | Delete preview |
 
@@ -934,25 +936,23 @@ Route: `products` (+ preview files controller)
 }
 ```
 
-### Multipart — catalog file
+### Direct upload — catalog file & preview
 
-`Content-Type: multipart/form-data`
+All catalog uploads use prepare → PUT GCS → complete. See [§17 Direct upload pattern](#17-project-files--shared-files) and [FE handoff](../fe-handoff/direct-upload-signed-url.md).
 
-| Field | Type |
-| --- | --- |
-| `file` | file |
-| `fileType` | `FileType` enum |
-| `visibility` | `FileVisibility?` |
-| `description` | string? |
-| `displayOrder` | int? |
+**Prepare JSON** (`POST .../files/upload-url` or `.../preview-files/upload-url`):
 
-### Multipart — preview image
+| Field | Type | Notes |
+| --- | --- | --- |
+| `originalFileName` | string | Required |
+| `contentType` | string | Required; must match PUT header |
+| `fileSizeBytes` | long | Required |
+| `fileType` | `FileType` | Catalog file only |
+| `visibility` | `FileVisibility?` | |
+| `description` | string? | |
+| `displayOrder` | int? | Preview only; applied on **complete** |
 
-| Field | Type |
-| --- | --- |
-| `file` | file |
-| `description` | string? |
-| `displayOrder` | int? |
+**Complete JSON:** `{ "fileId": "..." }`
 
 ### Reorder
 
@@ -1005,7 +1005,8 @@ Preview reorder/delete controller uses `[Route("ProductVersions")]` (no `/api` p
 | PATCH | `/api/ProductVersions/product-versions/{id}/deactivate` | ADMIN |
 | PATCH | `/api/ProductVersions/product-versions/{id}/archive` | ADMIN |
 | PATCH | `/api/ProductVersions/product-versions/{id}/restore` | ADMIN |
-| POST | `/api/ProductVersions/product-versions/{id}/files` | DESIGNER, ADMIN · multipart |
+| POST | `/api/ProductVersions/product-versions/{id}/files/upload-url` | DESIGNER, ADMIN · direct upload prepare |
+| POST | `/api/ProductVersions/product-versions/{id}/files/complete` | DESIGNER, ADMIN · direct upload complete |
 | PATCH | `/ProductVersions/product-versions/{id}/preview-files/reorder` | ADMIN |
 | DELETE | `/ProductVersions/product-versions/{id}/preview-files/{fileId}` | ADMIN |
 
@@ -1142,7 +1143,8 @@ Route: `layout-assets` (admin CRUD) · `room-planner/layout-assets` (designer ca
 | GET | `/layout-assets/{layoutAssetId}` | ADMIN, DESIGNER | Detail (designer: ACTIVE only) |
 | PATCH | `/layout-assets/{layoutAssetId}` | ADMIN | Update metadata |
 | PATCH | `/layout-assets/{layoutAssetId}/status` | ADMIN | `ACTIVE` / `INACTIVE` / `ARCHIVED` |
-| POST | `/layout-assets/{layoutAssetId}/files` | ADMIN | Multipart upload (`file`, `fileType`) |
+| POST | `/layout-assets/{layoutAssetId}/files/upload-url` | ADMIN | Prepare layout asset file direct upload |
+| POST | `/layout-assets/{layoutAssetId}/files/complete` | ADMIN | Complete layout asset file direct upload |
 | GET | `/layout-assets/{layoutAssetId}/files` | ADMIN | List linked files |
 | PATCH | `/layout-assets/{layoutAssetId}/files/{fileId}/primary` | ADMIN | Set primary model / texture / preview |
 | DELETE | `/layout-assets/{layoutAssetId}/files/{fileId}` | ADMIN | Remove file link (bytes stay in Firebase) |
@@ -1485,6 +1487,19 @@ All four ratings are required integers from 1 through 5. Only the owning Custome
 }
 ```
 
+### Measurement schedule auto-cancel (side effect)
+
+When project phase moves past measurement need, backend cancels stale **MEASUREMENT** schedules in the same transaction — no notification, no extra API.
+
+| Trigger | Condition |
+| --- | --- |
+| `PATCH /projects/{projectId}/status` | New status `SPACE_VERIFIED` or `PROPOSAL_CONSULTING` |
+| `PATCH /projects/{projectId}/designer-assignment` | Resolved status `SPACE_VERIFIED` after assign |
+
+Affected schedules: `MEASUREMENT` + (`PENDING_CONFIRMATION` \| `CONFIRMED`). Sets `status = CANCELLED`, `cancelledAt`, appends `internalNote` token `MEASUREMENT_PHASE_SUPERSEDED`. `COMPLETED` / already `CANCELLED` unchanged.
+
+FE: refetch project schedules after status/assign-designer success. See `docs/fe-handoff/measurement-schedule-phase-cleanup.md`.
+
 ### Project status lifecycle (summary)
 
 ```text
@@ -1790,7 +1805,7 @@ Planner catalog for placing assets: [§8c](#8c-catalog--layout-assets) · `GET /
 ```
 
 - **CUSTOMER** may call this on proposals in `PUBLISHED`, `REVISION_REQUESTED`, `SELECTED`, or `REJECTED` status (same visibility as `GET room-planner`).
-- Customer receives only `CUSTOMER_VISIBLE` files — set texture/model file visibility accordingly at upload (`POST /layout-assets/{id}/files`, default `CUSTOMER_VISIBLE`).
+- Customer receives only `CUSTOMER_VISIBLE` files — set texture/model file visibility accordingly at upload prepare (`POST /layout-assets/{id}/files/upload-url`, default `CUSTOMER_VISIBLE`).
 - File URLs are Firebase Storage download URLs (`PublicUrl` at upload). Browser CORS/403 on texture load is a **Firebase bucket CORS + Storage rules** concern, not the API auth layer; ensure the bucket allows read for those objects and CORS includes the FE origin.
 
 **PUT response** (`RoomPlannerSceneSaveResponseDto`): `sceneId`, `mongoSceneId`, `lastSavedAt`
@@ -1973,7 +1988,9 @@ Absolute routes on `OrdersController`.
 | POST | `/orders/{orderId}/deliveries` | PRODUCTION, ADMIN · create delivery batch |
 | PATCH | `/orders/{orderId}/deliveries/{deliveryId}/complete` | PRODUCTION, ADMIN · complete batch |
 | GET | `/orders/{orderId}/delivery-tracking` | CUSTOMER, SALES, PRODUCTION, ADMIN |
-| POST | `/orders/{orderId}/product-issues` | CUSTOMER · multipart evidence |
+| POST | `/orders/{orderId}/product-issues/evidence/upload-url` | CUSTOMER · prepare evidence |
+| POST | `/orders/{orderId}/product-issues/evidence/complete` | CUSTOMER · complete evidence |
+| POST | `/orders/{orderId}/product-issues` | CUSTOMER · JSON + `evidenceFileIds` |
 | GET | `/orders/{orderId}/product-issues` | CUSTOMER, SALES, PRODUCTION, ADMIN |
 | GET | `/projects/{projectId}/product-issues` | CUSTOMER, SALES, PRODUCTION, ADMIN |
 | GET | `/product-issues/{issueId}` | same |
@@ -2089,6 +2106,8 @@ Returns `DeliveryDetailDto` (`201`) with batch `deliveryId`, `status: IN_PROGRES
 
 No body. Marks batch `COMPLETED`, updates item delivered quantities/statuses. Response: `DeliveryBatchCompletionDto` with `updatedItemCount`.
 
+When all deliverable quantities for the order reach zero after this batch, backend auto-cancels unused `DELIVERY` schedules still in `PENDING_CONFIRMATION` or `CONFIRMED` (no linked batch / not completed). Cancelled rows append `internalNote` token `ALL_ITEMS_ALREADY_DELIVERED`. No notification.
+
 ### List / detail deliveries
 
 `DeliveryListResponseDto.items[]`: `deliveryId`, `orderId`, `status`, `itemCount`, `createdAt`, `completedAt?`
@@ -2119,7 +2138,15 @@ No request body. Admin-only obsolete compatibility path; creates and completes o
 
 ### Confirm delivery (customer)
 
-No request body. Requires all deliverable items fully delivered (`DELIVERED` or full quantity) and order `DELIVERING`.
+No request body. Requires all deliverable items fully delivered (`DELIVERED` or full quantity) and order `AWAITING_CUSTOMER_CONFIRMATION`.
+
+Pre-confirm backend cancels unused delivery schedules (same rules as batch-complete terminal cleanup), then blocks if any active delivery schedule remains — e.g. schedule linked to an in-progress batch.
+
+| `errorCode` | When |
+| --- | --- |
+| `DELIVERY_BATCH_IN_PROGRESS` | An `IN_PROGRESS` delivery batch exists |
+| `DELIVERABLE_ITEMS_NOT_PHYSICALLY_DELIVERED` | Quantities not fully delivered |
+| `UNRESOLVED_DELIVERY_SCHEDULE` | Active `PENDING_CONFIRMATION` / `CONFIRMED` delivery schedule still exists after cleanup |
 
 After `confirm-delivery`:
 
@@ -2194,7 +2221,9 @@ Business validation generally returns `400` or `409` depending on whether the re
 
 Customer may report an issue when `orderItem.deliveredQuantity > 0`. Does not block delivery confirmation, remaining payment, or project completion.
 
-`POST /orders/{orderId}/product-issues` — `multipart/form-data`
+**Evidence upload (before create):** `POST .../evidence/upload-url` → PUT GCS → `POST .../evidence/complete` per file.
+
+**Create report:** `POST /orders/{orderId}/product-issues` — `application/json`
 
 | Field | Required | Notes |
 | --- | --- | --- |
@@ -2203,17 +2232,33 @@ Customer may report an issue when `orderItem.deliveredQuantity > 0`. Does not bl
 | `issueType` | yes | See `DeliveryProductIssueType` |
 | `description` | yes | Human-readable explanation |
 | `affectedQuantity` | no | `> 0` and `<= deliveredQuantity` when supplied |
-| `files[]` | no | Evidence; `FileType=PRODUCT_ISSUE_EVIDENCE`, `ReferenceType=DELIVERY_PRODUCT_ISSUE_REPORT` |
+| `evidenceFileIds` | no | ACTIVE evidence files from draft upload on this order |
 
 `GET /projects/{projectId}/product-issues` — same read roles as order list.
 
 `DeliveryProductIssueType`: `DAMAGED`, `WRONG_ITEM`, `WRONG_SPECIFICATION`, `MISSING_PART`, `QUALITY_DEFECT`, `INSTALLATION_ISSUE`, `QUANTITY_MISMATCH`, `OTHER`
 
+List/detail DTO includes resolution lifecycle: `status` (`OPEN`, `RESOLVED`), `resolvedAt?`, `resolutionNote?`. New reports default to `OPEN`.
+
+### Resolve product issue
+
+`PATCH /product-issues/{issueId}/resolve` — SALES, PRODUCTION, ADMIN
+
+```json
+{
+  "resolutionNote": "Replaced damaged unit on next delivery round."
+}
+```
+
+`resolutionNote` optional, max 4000 chars. Idempotent when already `RESOLVED`. No notification on resolve.
+
+Errors: `PRODUCT_ISSUE_NOT_FOUND`, `PRODUCT_ISSUE_FORBIDDEN`, `PRODUCT_ISSUE_RESOLUTION_NOTE_TOO_LONG`, `REPORT_RESOLUTION_NOTE_TOO_LONG`
+
 ---
 
 ## 13a. Operational delay reports
 
-Record-only internal evidence. No resolve/update workflow. `CUSTOMER` and `DESIGNER` cannot access.
+Record-only internal evidence with **OPEN/RESOLVED** lifecycle. `CUSTOMER` and `DESIGNER` cannot access.
 
 | Method | Path | Roles |
 | --- | --- | --- |
@@ -2221,6 +2266,7 @@ Record-only internal evidence. No resolve/update workflow. `CUSTOMER` and `DESIG
 | POST | `/projects/{projectId}/delay-reports/delivery` | SALES, PRODUCTION, ADMIN |
 | GET | `/projects/{projectId}/delay-reports?phase=PRODUCTION\|DELIVERY` | same |
 | GET | `/delay-reports/{reportId}` | same |
+| PATCH | `/delay-reports/{reportId}/resolve` | SALES, PRODUCTION, ADMIN |
 
 Production deadline source: `ProjectPhaseTimeline(PRODUCTION).dueDate` (snapshotted at create).  
 Delivery deadline source: `Project.targetCompletionDate` (not delivery schedule `scheduledEnd`).
@@ -2252,6 +2298,20 @@ Backend derives `deadlineSnapshot`, `delayState` (`AT_RISK` on/before deadline, 
 `OperationalDelayState`: `AT_RISK`, `OVERDUE`  
 `ProductionDelayReasonCode`: `MATERIAL_DELAY`, `TECHNICAL_ISSUE`, `CUSTOMIZATION_ISSUE`, `CAPACITY_CONSTRAINT`, `QUALITY_REWORK`, `DEPENDENCY_DELAY`, `OTHER`  
 `DeliveryDelayReasonCode`: `CUSTOMER_RESCHEDULE`, `VEHICLE_ISSUE`, `PRODUCT_NOT_READY`, `SITE_NOT_READY`, `STAFF_UNAVAILABLE`, `WEATHER`, `ACCESS_RESTRICTION`, `OTHER`
+
+List/detail DTO includes `status` (`OPEN`, `RESOLVED`), `resolvedAt?`, `resolutionNote?`. `delayState` remains the snapshot at report time only — not a lifecycle status.
+
+### Resolve delay report
+
+`PATCH /delay-reports/{reportId}/resolve`
+
+```json
+{
+  "resolutionNote": "Customer agreed to new delivery window."
+}
+```
+
+Same resolve rules as product issues. Errors: `OPERATIONAL_DELAY_REPORT_NOT_FOUND`, `OPERATIONAL_DELAY_FORBIDDEN`, `OPERATIONAL_DELAY_RESOLUTION_NOTE_TOO_LONG`, `REPORT_RESOLUTION_NOTE_TOO_LONG`
 
 ---
 
@@ -2391,7 +2451,8 @@ Includes: `versionNo`, `versionTitle`, `status`, `feasibilityStatus`, production
 | GET | `/project-areas/{projectAreaId}` | same |
 | PATCH | `/project-areas/{id}` | SALES, DESIGNER, ADMIN |
 | PATCH | `/project-areas/{id}/cancel` | SALES, DESIGNER, ADMIN |
-| POST | `/project-areas/{projectAreaId}/files` | SALES, DESIGNER, ADMIN · multipart |
+| POST | `/project-areas/{projectAreaId}/files/upload-url` | SALES, DESIGNER, ADMIN · direct upload prepare |
+| POST | `/project-areas/{projectAreaId}/files/complete` | SALES, DESIGNER, ADMIN · direct upload complete |
 | GET | `/project-areas/{projectAreaId}/files` | CUSTOMER, SALES, DESIGNER, ADMIN |
 | PATCH | `/project-areas/{projectAreaId}/files/{fileId}/primary` | SALES, DESIGNER, ADMIN |
 | GET | `/project-areas/{projectAreaId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Area measurement gallery |
@@ -2422,7 +2483,7 @@ Includes: `versionNo`, `versionTitle`, `status`, `feasibilityStatus`, production
 
 ### Project-area files
 
-Upload uses `multipart/form-data` with the same `file`, `fileType`, `visibility?`, `note?` contract and 100 MiB request limit as project files. List filters are `fileType?`, `visibility?`, `page` (default 1), `limit` (default 20). Customer visibility is service-filtered; merely having the route role does not expose staff/private files. Setting primary has no body and requires the file to be linked to that area.
+Direct upload: `POST .../files/upload-url` then `POST .../files/complete`. Prepare JSON matches project files (`originalFileName`, `contentType`, `fileSizeBytes`, `fileType`, `visibility?`, `isPrimary?`, `displayOrder?`, `note?`). Area file types are restricted (e.g. `SPACE_IMAGE`, `FLOOR_PLAN`). List filters: `fileType?`, `visibility?`, `page` (default 1), `limit` (default 20). Customer visibility is service-filtered. Setting primary has no body and requires the file to be linked to that area.
 
 ### Measurement images (area assignment)
 
@@ -2430,7 +2491,7 @@ Measurement photos are captured on **MEASUREMENT** schedules (§16), then option
 
 **Link flow**
 
-1. Designer uploads image on a confirmed measurement schedule (`POST /project-schedules/{scheduleId}/measurement-images`, multipart).
+1. Designer uploads image on a confirmed measurement schedule (`POST /project-schedules/{scheduleId}/measurement-images/upload-url` → PUT GCS → `.../complete`).
 2. Staff links the same `fileId` to areas via `POST .../link` when area was not included at upload time.
 3. Unlink removes only the area `file_links` row; the underlying file and schedule link remain.
 
@@ -2456,7 +2517,8 @@ Route: `project-schedules` (+ absolute create alias)
 | PATCH | `/project-schedules/{id}/status` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | DELETE | `/project-schedules/{id}` | SALES, PRODUCTION, ADMIN |
 | POST | `/project-schedules/{scheduleId}/request-change` | CUSTOMER, ADMIN | Request delivery schedule change |
-| POST | `/project-schedules/{scheduleId}/measurement-images` | DESIGNER, ADMIN | Upload measurement photo (multipart) |
+| POST | `/project-schedules/{scheduleId}/measurement-images/upload-url` | DESIGNER, ADMIN | Prepare measurement photo upload |
+| POST | `/project-schedules/{scheduleId}/measurement-images/complete` | DESIGNER, ADMIN | Complete measurement photo upload |
 | GET | `/project-schedules/{scheduleId}/measurement-images` | CUSTOMER, SALES, DESIGNER, ADMIN | Schedule measurement gallery |
 
 ### Create
@@ -2574,18 +2636,50 @@ Rules:
 
 Errors: `SCHEDULE_CHANGE_NOTE_REQUIRED`, `INVALID_SCHEDULE_TYPE`, `INVALID_SCHEDULE_STATUS_TRANSITION`, `DELIVERY_IN_PROGRESS_BLOCKS_SCHEDULE_CANCEL`, `403`.
 
+### Notification side effects
+
+Schedule create and customer confirm dispatch **in-app + realtime** notifications after the schedule transaction commits successfully. Realtime push failure does not roll back the schedule change.
+
+| Trigger | `notificationType` | SignalR event | Recipients |
+| --- | --- | --- | --- |
+| Successful create (`POST …/schedules`) | `ProjectScheduleCreated` | `project_schedule.created` | Project **Customer**, **AssignedStaff**; plus **AssignedDesigner** when `scheduleType = MEASUREMENT` and designer is not already a receiver |
+| Customer confirm (`PATCH …/status` → `CONFIRMED`) | `ProjectScheduleConfirmed` | `project_schedule.confirmed` | **AssignedSales**, **AssignedStaff** (Customer who confirmed does **not** receive this notification) |
+
+Both use `referenceType = PROJECT_SCHEDULE`, `referenceId = scheduleId`, `projectId = projectId`.
+
+Realtime payload (§22) includes enriched `metadata` so FE can update schedule UI without an immediate refetch:
+
+```json
+{
+  "scheduleId": "uuid",
+  "projectId": "uuid",
+  "scheduleType": "MEASUREMENT",
+  "status": "PENDING_CONFIRMATION",
+  "scheduledStart": "2026-09-13T08:00:00Z",
+  "scheduledEnd": "2026-09-13T10:00:00Z"
+}
+```
+
+On confirm, `status` in metadata is `CONFIRMED`. Other schedule lifecycle events (`updated`, `completed`, `cancelled`) keep their existing delivery levels; only **created** and **confirmed** are persisted to notification history.
+
+Persisted rows appear in `GET /notifications/me` (§19). Dedupe key: `receiverId + notificationType + referenceType + referenceId`.
+
 ### Measurement image capture
 
-Upload via backend multipart (same pattern as catalog/product preview). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`. Future confirmed schedules are allowed, so FE does not need to wait until runtime to upload measurement photos.
+Direct upload (prepare → PUT GCS → complete). Assigned **designer** only; schedule must be `MEASUREMENT` + `CONFIRMED`. Future confirmed schedules are allowed.
 
-**Request:** `multipart/form-data`
+**Prepare JSON** (`POST .../measurement-images/upload-url`):
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
-| `file` | file | Yes | Image only: `.jpg`, `.jpeg`, `.png`, `.webp` |
+| `originalFileName` | string | Yes | Image only: `.jpg`, `.jpeg`, `.png`, `.webp` |
+| `contentType` | string | Yes | Must match PUT header |
+| `fileSizeBytes` | long | Yes | |
 | `visibility` | enum | No | Default `STAFF_ONLY` when omitted |
 | `note` | string | No | Saved to schedule file link description |
-| `projectAreaId` | uuid | No | When set, also links photo to the project area in the same request |
+| `projectAreaId` | uuid | No | When set, also links photo to the project area on complete |
+
+**Complete JSON:** `{ "fileId": "..." }`
 
 **Response:** `MeasurementImageUploadResponseDto`
 
@@ -2621,9 +2715,9 @@ Upload via backend multipart (same pattern as catalog/product preview). Assigned
 
 Creates one `StoredFile` + schedule `file_links` row (`referenceType=PROJECT_SCHEDULE`, `fileType=SPACE_IMAGE`). Optional area link adds a second `file_links` row (`referenceType=PROJECT_AREA`).
 
-One request uploads one image. For multi-select, FE sends one multipart request per file (parallel or sequential).
+One prepare/complete cycle uploads one image. For multi-select, FE runs one cycle per file (parallel or sequential).
 
-**Do not use** `POST /projects/{projectId}/files` with `MEASUREMENT_REPORT` for measurement photo capture — that endpoint is for general project attachments, not the measurement gallery flow.
+**Do not use** general project file upload for measurement photo capture — use the measurement-images endpoints above.
 
 **Link area later (optional):** if upload did not include `projectAreaId`, call `POST /project-areas/{projectAreaId}/measurement-images/{fileId}/link` (no body). Use `fileId` from upload response `file.fileId`.
 
@@ -2643,15 +2737,47 @@ Project-wide gallery: `GET /projects/{projectId}/measurement-images` with option
 
 | Method | Path | Auth |
 | --- | --- | --- |
-| POST | `/projects/{projectId}/files` | JWT · multipart |
+| POST | `/projects/{projectId}/files/upload-url` | JWT · JSON |
+| POST | `/projects/{projectId}/files/complete` | JWT · JSON |
 | GET | `/projects/{projectId}/files` | JWT |
 | GET | `/projects/{projectId}/files/search` | JWT · `q`, `page`, `limit` |
 
-**Multipart fields:** `file`, `fileType`, `visibility?`, `note?`
+#### Direct upload pattern (all file modules)
+
+1. **Prepare** — `POST .../upload-url` (JSON metadata) → `fileId`, `uploadUrl`, `contentType`, `expiresAt`
+2. **Upload** — client `PUT uploadUrl` with file bytes; `Content-Type` header must match prepare
+3. **Complete** — `POST .../complete` with `{ "fileId" }` → final DTO
+
+Shared errors: `FILE_UPLOAD_*` (see [FE handoff](../fe-handoff/direct-upload-signed-url.md)). Pending files are hidden from lists until complete.
+
+#### Project files
+
+1. **Prepare** — `POST /projects/{projectId}/files/upload-url`
+
+```json
+{
+  "originalFileName": "shop-reference.jpg",
+  "contentType": "image/jpeg",
+  "fileSizeBytes": 204800,
+  "fileType": "REFERENCE_IMAGE",
+  "visibility": "CUSTOMER_VISIBLE",
+  "note": "Reference image"
+}
+```
+
+**Prepare response (201):** `fileId`, `projectId`, `uploadUrl`, `contentType`, `expiresAt`
+
+2. **Upload to GCS** — browser/client `PUT uploadUrl` with body = file bytes and header `Content-Type` **exactly** matching prepare `contentType` (signed URL is content-type bound).
+
+3. **Complete** — `POST /projects/{projectId}/files/complete`
+
+```json
+{ "fileId": "..." }
+```
+
+**Complete response (200):** `fileId`, `fileLinkId`, `projectId`, `originalFileName`, `fileName`, `fileType`, `mimeType`, `fileSize`, `storagePath`, `publicUrl`, `visibility`, `uploadedBy`, `uploadedAt`. Only `fileId` is accepted — object path is resolved server-side. Only the uploader (or Admin) may complete. Idempotent when file is already `ACTIVE`.
 
 **List query:** `fileType?`, `visibility?`, `page`, `limit`
-
-**Upload response:** `fileId`, `fileLinkId`, `projectId`, `originalFileName`, `fileName`, `fileType`, `mimeType`, `fileSize`, `storagePath`, `publicUrl`, `visibility`, `uploadedBy`, `uploadedAt`
 
 ### Shared files — `/files`
 
@@ -2682,7 +2808,8 @@ Project-wide gallery: `GET /projects/{projectId}/measurement-images` with option
 | GET | `/projects/{projectId}/chats` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
 | PATCH | `/project-chats/{chatId}/status` | SALES, DESIGNER, ADMIN |
 | POST | `/project-chats/{chatId}/messages` | CUSTOMER, SALES, DESIGNER, PRODUCTION, ADMIN |
-| POST | `/project-chats/{chatId}/messages/files` | same · multipart |
+| POST | `/project-chats/{chatId}/messages/files/upload-url` | same · prepare file message |
+| POST | `/project-chats/{chatId}/messages/files/complete` | same · complete + send message |
 | GET | `/project-chats/{chatId}/messages` | same |
 
 ### Create chat
@@ -2720,14 +2847,11 @@ Project-wide gallery: `GET /projects/{projectId}/measurement-images` with option
 }
 ```
 
-### Send file message (multipart)
+### Send file message (direct upload)
 
-| Field | Type |
-| --- | --- |
-| `file` | file |
-| `content` | string? |
-| `fileType` | `FileType` |
-| `visibility` | `FileVisibility?` |
+1. **Prepare** — `POST .../files/upload-url`: `originalFileName`, `contentType`, `fileSizeBytes`
+2. **PUT** GCS
+3. **Complete** — `POST .../files/complete`: `{ "fileId", "content?", "fileType", "visibility?" }` — creates chat message + activates file
 
 ### List messages query
 
@@ -2797,6 +2921,18 @@ Route: `notifications`
 ```
 
 Realtime push: `/hubs/notifications` (§22).
+
+### Schedule notification types
+
+| `notificationType` | When | `referenceType` |
+| --- | --- | --- |
+| `ProjectScheduleCreated` | Schedule created (pending customer confirmation) | `PROJECT_SCHEDULE` |
+| `ProjectScheduleConfirmed` | Customer confirmed schedule | `PROJECT_SCHEDULE` |
+| `ProductionRequestAssigned` | Production request assigned to staff | `PRODUCTION_REQUEST` |
+
+List items do not embed domain metadata; use SignalR payload `metadata` (§22) or refetch the referenced resource.
+
+FE handoff index: `docs/fe-handoff/`
 
 ---
 
@@ -3742,6 +3878,19 @@ Create production request: `POST /orders/{orderId}/production-request` (§13).
 }
 ```
 
+Dispatches **InAppRealtime** notification after successful assign:
+
+| Field | Value |
+| --- | --- |
+| `notificationType` | `ProductionRequestAssigned` |
+| SignalR event | `production.request.assigned` |
+| `referenceType` | `PRODUCTION_REQUEST` |
+| `referenceId` | `productionRequestId` |
+
+Recipients: assigned production user + project Assigned Sales.  
+Metadata: `productionRequestId`, `assignedToAccountId`.  
+See §22 and `docs/fe-handoff/notifications-realtime-schedule-production.md`.
+
 ### Start
 
 Optional body (ignored for date assignment — server sets `actualStartDate` to UTC today on start):
@@ -3827,6 +3976,41 @@ Notification message: `{SenderName} sent a new message in "{ChatTitle}".`
 
 `PaymentUpdatedRealtimeDto`: `paymentId`, `projectId`, `paymentCode`, `status?`, `amount`, `paidAmount`, `remainingAmount`, `paymentTransactionId`, `transactionAmount`, `appliedAmount`, `paidAt?`, `occurredAt`
 
+### Project schedule notification events
+
+Hub: `/hubs/notifications` — direct to `user:{accountId}` groups (same as other in-app notifications).
+
+| Event | `notificationType` | Persisted to bell/history |
+| --- | --- | --- |
+| `project_schedule.created` | `ProjectScheduleCreated` | Yes |
+| `project_schedule.confirmed` | `ProjectScheduleConfirmed` | Yes |
+
+Standard envelope fields: `notificationId`, `title`, `message`, `notificationType`, `projectId`, `referenceType`, `referenceId`, `createdAt`, `occurredAt`, `metadata`.
+
+`metadata` (schedule create / confirm):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `scheduleId` | uuid | Same as `referenceId` |
+| `projectId` | uuid | Same as top-level `projectId` |
+| `scheduleType` | string | e.g. `MEASUREMENT`, `DELIVERY` |
+| `status` | string | Post-action status: `PENDING_CONFIRMATION` (create) or `CONFIRMED` (confirm) |
+| `scheduledStart` | datetime (UTC ISO) | Current schedule start |
+| `scheduledEnd` | datetime? (UTC ISO) | Nullable when domain allows |
+
+Other schedule SignalR events (`project_schedule.updated`, `project_schedule.completed`, `project_schedule.cancelled`) remain **realtime-only** (not persisted).
+
+### Production assignment notification event
+
+| Event | `notificationType` | Persisted |
+| --- | --- | --- |
+| `production.request.assigned` | `ProductionRequestAssigned` | Yes |
+
+Metadata: `productionRequestId`, `assignedToAccountId`.  
+Related (also persisted): `production.request.created`, `production.request.completed`.
+
+FE handoff: `docs/fe-handoff/notifications-realtime-schedule-production.md` (schedule + production assign).
+
 ---
 
 ## 23. Portfolio & public showcases
@@ -3888,24 +4072,16 @@ Route: `project-showcases/{showcaseId}/media`
 
 | Method | Path | Roles | Description |
 | --- | --- | --- | --- |
-| POST | `/project-showcases/{showcaseId}/media` | SALES, ADMIN | Multipart upload + attach new showcase image atomically |
-| POST | `/project-showcases/{showcaseId}/media/upload` | SALES, ADMIN | Backward-compatible multipart upload alias |
+| POST | `/project-showcases/{showcaseId}/media/upload-url` | SALES, ADMIN | Prepare showcase media direct upload |
+| POST | `/project-showcases/{showcaseId}/media/complete` | SALES, ADMIN | Complete showcase media direct upload |
 | POST | `/project-showcases/{showcaseId}/media/from-file` | SALES, ADMIN | Add media from existing project file |
 | PATCH | `/project-showcases/{showcaseId}/media/reorder` | SALES, ADMIN | Reorder gallery |
 | PATCH | `/project-showcases/{showcaseId}/media/{mediaId}/cover` | SALES, ADMIN | Set single cover image |
 | DELETE | `/project-showcases/{showcaseId}/media/{mediaId}` | SALES, ADMIN | Remove media row; if deleted item was cover and other media remain, the next item by `displayOrder` becomes cover |
 
-**Multipart upload** (`POST .../media/upload`, `Content-Type: multipart/form-data`)
+**Direct upload** (`POST .../media/upload-url` → PUT GCS → `POST .../media/complete`)
 
-| Field | Required | Notes |
-| --- | --- | --- |
-| `file` | Yes | Showcase image (`jpeg` / `png` / `webp`) |
-| `mediaType` | No | Defaults to `FINAL` |
-| `title` | No | Media title |
-| `caption` | No | Media caption |
-| `setAsCover` | No | Default `false` |
-
-Creates `StoredFile` + project `FileLink(PORTFOLIO_IMAGE)` + `ProjectShowcaseMedia` in one request. If DB persistence fails after Firebase upload, the uploaded object is deleted.
+Prepare JSON: `originalFileName`, `contentType`, `fileSizeBytes`, optional `mediaType`, `title`, `caption`, `setAsCover`. Complete: `{ "fileId" }`. Creates `StoredFile` + project `FileLink(PORTFOLIO_IMAGE)` + `ProjectShowcaseMedia` on complete.
 
 **Add media body (existing project file, `POST .../media/from-file`)**
 
@@ -4099,7 +4275,7 @@ All values are JSON strings matching C# member names.
 | `ProjectChatType` | `SALES`, `DESIGNER`, `DESIGNER_SALES`, `PRODUCTION`, `DELIVERY`, `GENERAL`, `INTERNAL` |
 | `ProjectChatStatus` | `OPEN`, `CLOSED`, `ARCHIVED` |
 | `ProjectChatMessageType` | `TEXT`, `FILE`, `SYSTEM` |
-| `FileStatus` | `ACTIVE`, `ARCHIVED` |
+| `FileStatus` | `PENDING`, `ACTIVE`, `ARCHIVED` |
 | `FileVisibility` | `CUSTOMER_VISIBLE`, `STAFF_ONLY`, `PRIVATE` |
 | `FileType` | `SPACE_IMAGE`, `FLOOR_PLAN`, `REFERENCE_IMAGE`, `BRAND_ASSET`, `CAD_FILE`, `PDF_DRAWING`, `MEASUREMENT_REPORT`, `LIDAR_SCAN`, `MODEL_3D`, `TEXTURE`, `PREVIEW`, `PRODUCT_PREVIEW`, `PROPOSAL_PREVIEW`, `PROPOSAL_FILE`, `QUOTATION_FILE`, `ORDER_DOCUMENT`, `PRODUCTION_FILE`, `DELIVERY_PHOTO`, `DELIVERY_NOTE`, `PRODUCT_ISSUE_EVIDENCE`, `REVIEW_IMAGE`, `PORTFOLIO_IMAGE`, `OTHER` |
 | `OperationalDelayPhase` | `PRODUCTION`, `DELIVERY` |
@@ -4118,8 +4294,6 @@ All values are JSON strings matching C# member names.
 | GET | `/` | Public | Returns `"FurniSpace API"`; Swagger UI also served at `/` |
 | GET | `/health/redis` | Public | Only if `REDIS_DEBUG_HEALTH` / `Redis:DebugHealth` enabled |
 | GET | `/swagger/v1/swagger.json` | Public | OpenAPI document |
-
-CLI (not HTTP): `dotnet run --project src/FurniSpace.API -- reindex {accounts|products|projects|chat-messages|project-files}`
 
 ---
 

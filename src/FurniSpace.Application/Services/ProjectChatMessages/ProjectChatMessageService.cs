@@ -6,15 +6,11 @@ using static FurniSpace.Application.Constants.ProjectChatMessages.ProjectChatMes
 using FurniSpace.Application.DTOs.ProjectChatMessages;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectChatMessages;
-using FurniSpace.Application.Interfaces.Search;
-using FurniSpace.Application.Services.Search;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
 using FurniSpace.Infrastructure.ReadModels.ProjectChatMessages;
 using FurniSpace.Infrastructure.ReadModels.ProjectFiles;
-using FurniSpace.Infrastructure.Common.Search.Documents;
-using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Persistence;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Mapster;
@@ -22,7 +18,7 @@ using Microsoft.Extensions.Logging;
 
 namespace FurniSpace.Application.Services.ProjectChatMessages;
 
-public sealed class ProjectChatMessageService : IProjectChatMessageService
+public sealed partial class ProjectChatMessageService : IProjectChatMessageService
 {
     private const string ChatMessageReferenceType = "PROJECT_CHAT_MESSAGE";
     private const string UnknownChatTitle = "Project chat";
@@ -32,8 +28,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
     private readonly IUnitOfWork _unitOfWork;
     private readonly ProjectChatFileUploadDependencies _fileUpload;
     private readonly ILogger<ProjectChatMessageServiceDependencies> _logger;
-    private readonly ISearchIndexService? _search;
-    private readonly IChatMessageSearchIndexer? _chatMessageSearchIndexer;
     private readonly INotificationDispatcher? _notifications;
 
     public ProjectChatMessageService(
@@ -47,8 +41,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         _unitOfWork = dependencies.UnitOfWork;
         _fileUpload = dependencies.FileUpload;
         _logger = dependencies.Logger;
-        _search = dependencies.Search;
-        _chatMessageSearchIndexer = dependencies.ChatMessageSearchIndexer;
         _notifications = dependencies.Notifications;
     }
 
@@ -161,33 +153,12 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
                 "You do not have access to search messages for this project.");
         }
 
-        ProjectChatMessageSearchResponseDto response;
-        if (_search is not null)
-        {
-            try
-            {
-                var searchResult = await _search.SearchAsync<ChatMessageSearchDocument>(
-                    ChatMessageIndexName,
-                    ChatMessageElasticsearchQueryFactory.BuildProjectSearch(projectId, query, page, limit),
-                    cancellationToken);
-
-                response = new ProjectChatMessageSearchResponseDto
-                {
-                    Items = searchResult.Documents.Select(ChatMessageSearchResponseMapper.ToItem).ToList(),
-                    Page = page,
-                    Limit = limit,
-                    Total = (int)Math.Min(searchResult.Total, int.MaxValue)
-                };
-            }
-            catch
-            {
-                response = await GetProjectMessagesFromRepositoryAsync(projectId, query, page, limit, cancellationToken);
-            }
-        }
-        else
-        {
-            response = await GetProjectMessagesFromRepositoryAsync(projectId, query, page, limit, cancellationToken);
-        }
+        var response = await GetProjectMessagesFromRepositoryAsync(
+            projectId,
+            query,
+            page,
+            limit,
+            cancellationToken);
 
         return ServiceResult<ProjectChatMessageSearchResponseDto>.Success(
             response,
@@ -236,7 +207,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
 
         await _messages.AddAsync(message, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await SyncChatMessageIndexAsync(message.MessageId, cancellationToken);
 
         var response = MapCreatedMessage(message, access);
 
@@ -262,139 +232,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
         return ServiceResult<ProjectChatMessageDto>.Created(
             response,
             "Message sent successfully.");
-    }
-
-    public async Task<ServiceResult<ProjectChatMessageDto>> SendFileMessageAsync(
-        Guid chatId,
-        Guid currentUserId,
-        SendFileChatMessageRequestDto request,
-        CancellationToken cancellationToken = default)
-    {
-        var validationError = ValidateSendFileRequest(chatId, currentUserId, request);
-        if (validationError is not null)
-        {
-            return validationError;
-        }
-
-        var access = await _messages.GetAccessAsync(chatId, currentUserId, cancellationToken);
-        if (access is null)
-        {
-            return ServiceResult<ProjectChatMessageDto>.NotFound("Project chat not found.");
-        }
-
-        if (!CanAccessChat(access, currentUserId))
-        {
-            return ServiceResult<ProjectChatMessageDto>.Forbidden(
-                "You do not have access to this project chat.");
-        }
-
-        if ((access.ChatStatus ?? ProjectChatStatus.OPEN) != ProjectChatStatus.OPEN)
-        {
-            return ServiceResult<ProjectChatMessageDto>.Conflict(
-                "Messages can only be sent to an open project chat.");
-        }
-
-        var now = DateTime.UtcNow;
-        var fileId = Guid.NewGuid();
-        var fileLinkId = Guid.NewGuid();
-        var originalFileName = Path.GetFileName(request.OriginalFileName.Trim());
-        var generatedFileName = ProjectFileUploadSupport.BuildGeneratedFileName(fileId, originalFileName);
-        var objectName = ProjectFileUploadSupport.BuildProjectObjectName(
-            _fileUpload.FirebaseSettings,
-            access.ProjectId,
-            generatedFileName);
-        var visibility = ProjectFileUploadSupport.ResolveVisibility(
-            request.Visibility,
-            access.RoleName,
-            ApplicationRoles.Customer);
-        var normalizedContent = ProjectFileUploadSupport.NormalizeOptionalText(request.Content);
-
-        var uploadResult = await _fileUpload.Storage.UploadAsync(
-            new StorageUploadRequest
-            {
-                Content = request.FileContent,
-                ObjectName = objectName,
-                ContentType = ProjectFileUploadSupport.NormalizeContentType(request.ContentType)
-            },
-            cancellationToken);
-
-        var storedFile = ProjectFileUploadSupport.CreateStoredFile(
-            new StoredFileCreationRequest(
-                fileId,
-                currentUserId,
-                originalFileName,
-                generatedFileName,
-                uploadResult,
-                request.ContentType,
-                request.FileSizeBytes,
-                now));
-
-        var fileLink = ProjectFileUploadSupport.CreateProjectFileLink(
-            new ProjectFileLinkCreationRequest(
-                fileLinkId,
-                fileId,
-                access.ProjectId,
-                request.FileType,
-                visibility,
-                normalizedContent,
-                currentUserId,
-                now));
-
-        var message = new ProjectChatMessage
-        {
-            MessageId = Guid.NewGuid(),
-            ChatId = chatId,
-            SenderId = currentUserId,
-            MessageType = ProjectChatMessageType.FILE,
-            Content = normalizedContent,
-            AttachmentFileId = fileId,
-            CreatedAt = now
-        };
-
-        try
-        {
-            await ExecuteInTransactionAsync(
-                async ct =>
-                {
-                    await _projectFiles.AddAsync(storedFile, ct);
-                    await _projectFiles.AddFileLinkAsync(fileLink, ct);
-                    await _messages.AddAsync(message, ct);
-                    await _unitOfWork.SaveChangesAsync(ct);
-                },
-                cancellationToken);
-        }
-        catch
-        {
-            await _fileUpload.Storage.DeleteAsync(uploadResult.ObjectName, cancellationToken);
-            throw;
-        }
-
-        await SyncChatMessageIndexAsync(message.MessageId, cancellationToken);
-
-        var response = MapCreatedMessage(message, access, storedFile);
-
-        try
-        {
-            await _realtime.SendMessageSentAsync(
-                access.ProjectId,
-                chatId,
-                response,
-                cancellationToken);
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(
-                exception,
-                "Failed to publish project chat file message {MessageId} for chat {ChatId}",
-                message.MessageId,
-                chatId);
-        }
-
-        await DispatchChatNotificationAsync(access, message, response, cancellationToken);
-
-        return ServiceResult<ProjectChatMessageDto>.Created(
-            response,
-            "File message sent successfully.");
     }
 
     private static ServiceResult<ProjectChatMessageListResponseDto>? ValidateRequest(
@@ -465,51 +302,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             ? ServiceResult<ProjectChatMessageDto>.BadRequest(
                 "Message content must not exceed 4000 characters.")
             : null;
-    }
-
-    private ServiceResult<ProjectChatMessageDto>? ValidateSendFileRequest(
-        Guid chatId,
-        Guid currentUserId,
-        SendFileChatMessageRequestDto request)
-    {
-        if (chatId == Guid.Empty)
-        {
-            return ServiceResult<ProjectChatMessageDto>.BadRequest("Chat id is required.");
-        }
-
-        if (currentUserId == Guid.Empty)
-        {
-            return ServiceResult<ProjectChatMessageDto>.Unauthorized(
-                "Authenticated account id is required.");
-        }
-
-        var fileValidation = _fileUpload.FileUploadValidator.Validate(request);
-        if (!fileValidation.IsValid)
-        {
-            return MapFileValidationResult(fileValidation);
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.Content) &&
-            request.Content.Trim().Length > MaxTextMessageLength)
-        {
-            return ServiceResult<ProjectChatMessageDto>.BadRequest(
-                "Message content must not exceed 4000 characters.");
-        }
-
-        return null;
-    }
-
-    private static ServiceResult<ProjectChatMessageDto> MapFileValidationResult(
-        FileUploadValidationResult validation)
-    {
-        return validation.FailureKind switch
-        {
-            FileUploadValidationFailureKind.FileTooLarge =>
-                ServiceResult<ProjectChatMessageDto>.PayloadTooLarge(validation.Message),
-            FileUploadValidationFailureKind.InvalidExtension or FileUploadValidationFailureKind.InvalidMimeType =>
-                ServiceResult<ProjectChatMessageDto>.UnsupportedMediaType(validation.Message),
-            _ => ServiceResult<ProjectChatMessageDto>.BadRequest(validation.Message)
-        };
     }
 
     private static ProjectChatMessageDto MapCreatedMessage(
@@ -647,11 +439,6 @@ public sealed class ProjectChatMessageService : IProjectChatMessageService
             Limit = limit,
             Total = total
         };
-    }
-
-    private Task SyncChatMessageIndexAsync(Guid messageId, CancellationToken cancellationToken)
-    {
-        return _chatMessageSearchIndexer?.SyncMessageAsync(messageId, cancellationToken) ?? Task.CompletedTask;
     }
 
     private async Task DispatchChatNotificationAsync(

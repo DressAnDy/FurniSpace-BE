@@ -65,6 +65,7 @@ public class AppDbContext : DbContext
     private const string ProductionDelayReasonCodeColumnType = "production_delay_reason_code";
     private const string DeliveryDelayReasonCodeColumnType = "delivery_delay_reason_code";
     private const string DeliveryProductIssueTypeColumnType = "delivery_product_issue_type";
+    private const string ReportResolutionStatusColumnType = "report_resolution_status";
 
     private const string ProjectChatTypeColumnType = "project_chat_type";
     private const string ProjectChatStatusColumnType = "project_chat_status";
@@ -191,7 +192,7 @@ public class AppDbContext : DbContext
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_type", "SALES,DESIGNER,DESIGNER_SALES,PRODUCTION,DELIVERY,GENERAL,INTERNAL");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_status", "OPEN,CLOSED,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:project_chat_message_type", "TEXT,FILE,SYSTEM");
-        modelBuilder.HasAnnotation("Npgsql:Enum:file_status", "ACTIVE,ARCHIVED");
+        modelBuilder.HasAnnotation("Npgsql:Enum:file_status", "PENDING,ACTIVE,ARCHIVED");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_visibility", "CUSTOMER_VISIBLE,STAFF_ONLY,PRIVATE");
         modelBuilder.HasAnnotation("Npgsql:Enum:file_type", "SPACE_IMAGE,FLOOR_PLAN,REFERENCE_IMAGE,BRAND_ASSET,CAD_FILE,PDF_DRAWING,MEASUREMENT_REPORT,LIDAR_SCAN,MODEL_3D,TEXTURE,PREVIEW,PRODUCT_PREVIEW,PROPOSAL_PREVIEW,PROPOSAL_FILE,QUOTATION_FILE,ORDER_DOCUMENT,PRODUCTION_FILE,DELIVERY_PHOTO,DELIVERY_NOTE,PRODUCT_ISSUE_EVIDENCE,REVIEW_IMAGE,PORTFOLIO_IMAGE,OTHER");
         modelBuilder.HasAnnotation("Npgsql:Enum:product_status", "ACTIVE,INACTIVE,ARCHIVED");
@@ -1267,6 +1268,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ReportedBy).HasColumnName("reported_by").HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.ReportedAt).HasColumnName("reported_at").HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType(ReportResolutionStatusColumnType).HasDefaultValue(ReportResolutionStatus.OPEN).IsRequired();
+            entity.Property(e => e.ResolvedAt).HasColumnName("resolved_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.ResolutionNote).HasColumnName("resolution_note").HasColumnType(TextColumnType);
             entity.HasIndex(e => new { e.ProjectId, e.ReportPhase }).HasDatabaseName("idx_operational_delay_reports_project_phase");
             entity.HasIndex(e => e.ProductionRequestId).HasDatabaseName("idx_operational_delay_reports_production_request");
             entity.HasIndex(e => e.OrderId).HasDatabaseName("idx_operational_delay_reports_order");
@@ -1296,6 +1300,9 @@ public class AppDbContext : DbContext
             entity.Property(e => e.ReportedBy).HasColumnName("reported_by").HasColumnType(UuidColumnType).IsRequired();
             entity.Property(e => e.ReportedAt).HasColumnName("reported_at").HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
             entity.Property(e => e.CreatedAt).HasColumnName(CreatedAtColumnName).HasColumnType(TimestampWithTimeZoneColumnType).IsRequired();
+            entity.Property(e => e.Status).HasColumnName("status").HasColumnType(ReportResolutionStatusColumnType).HasDefaultValue(ReportResolutionStatus.OPEN).IsRequired();
+            entity.Property(e => e.ResolvedAt).HasColumnName("resolved_at").HasColumnType(TimestampWithTimeZoneColumnType);
+            entity.Property(e => e.ResolutionNote).HasColumnName("resolution_note").HasColumnType(TextColumnType);
             entity.HasIndex(e => e.ProjectId).HasDatabaseName("idx_delivery_product_issue_reports_project");
             entity.HasIndex(e => e.OrderId).HasDatabaseName("idx_delivery_product_issue_reports_order");
             entity.HasIndex(e => e.OrderItemId).HasDatabaseName("idx_delivery_product_issue_reports_order_item");

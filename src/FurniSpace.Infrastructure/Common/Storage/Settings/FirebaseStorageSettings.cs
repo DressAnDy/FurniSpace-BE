@@ -11,4 +11,5 @@ public sealed class FirebaseStorageSettings
     public string ProductVersionFilesPrefix { get; set; } = "product-versions";
     public string LayoutAssetFilesPrefix { get; set; } = "layout-assets";
     public long MaxFileSizeBytes { get; set; } = 50 * 1024 * 1024;
+    public int UploadSignedUrlExpirationMinutes { get; set; } = 15;
 }

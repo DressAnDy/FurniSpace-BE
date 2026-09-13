@@ -2,7 +2,6 @@ namespace FurniSpace.Application.Constants.Accounts;
 
 internal static class AccountServiceConstants
 {
-    internal const string AccountIndexName = "accounts";
     internal const string AccountItemCachePrefix = "furnispace:accounts:item:";
     internal const string AccountListCachePrefix = "furnispace:accounts:list:";
     internal const string AccountNotFoundCode = "ACCOUNT_NOT_FOUND";

@@ -327,7 +327,7 @@ public sealed class ProjectChatMessageServiceTests
     }
 
     [Fact]
-    public async Task SendFileMessageAsync_WithOpenChat_StoresFileAndCreatesFileMessage()
+    public async Task CompleteFileMessageUploadAsync_WithOpenChat_StoresFileAndCreatesFileMessage()
     {
         var chatId = Guid.NewGuid();
         var projectId = Guid.NewGuid();
@@ -350,18 +350,23 @@ public sealed class ProjectChatMessageServiceTests
         var realtime = new FakeProjectChatRealtimeService();
         var service = CreateService(repository, realtime, unitOfWork, projectFiles, storage);
 
-        await using var stream = new MemoryStream("floor-plan"u8.ToArray());
-        var result = await service.SendFileMessageAsync(
+        var prepareResult = await service.PrepareFileMessageUploadAsync(
             chatId,
             salesId,
-            new SendFileChatMessageRequestDto
+            new PrepareProjectChatFileUploadRequestDto
             {
-                FileContent = stream,
                 OriginalFileName = "floor-plan.pdf",
                 ContentType = "application/pdf",
-                FileSizeBytes = stream.Length,
+                FileSizeBytes = 11,
                 FileType = FileType.FLOOR_PLAN,
-                Visibility = FileVisibility.CUSTOMER_VISIBLE,
+                Visibility = FileVisibility.CUSTOMER_VISIBLE
+            });
+        var result = await service.CompleteFileMessageUploadAsync(
+            chatId,
+            salesId,
+            new CompleteProjectChatFileUploadRequestDto
+            {
+                FileId = prepareResult.Data!.FileId,
                 Content = "  Em gửi file mặt bằng.  "
             });
 
@@ -381,13 +386,12 @@ public sealed class ProjectChatMessageServiceTests
         Assert.Equal(FileType.FLOOR_PLAN, projectFiles.FileLinks[0].FileType);
         Assert.Equal(FileVisibility.CUSTOMER_VISIBLE, projectFiles.FileLinks[0].Visibility);
         Assert.Equal(repository.AddedMessage!.AttachmentFileId, projectFiles.StoredFiles[0].FileId);
-        Assert.Equal(1, saveChangesCallCount);
+        Assert.Equal(3, saveChangesCallCount);
         Assert.Equal(1, realtime.CallCount);
-        Assert.NotNull(storage.UploadRequest);
     }
 
     [Fact]
-    public async Task SendFileMessageAsync_WithSalesChat_NotifiesAssignedSalesWithFilePreview()
+    public async Task CompleteFileMessageUploadAsync_WithSalesChat_NotifiesAssignedSalesWithFilePreview()
     {
         var chatId = Guid.NewGuid();
         var customerId = Guid.NewGuid();
@@ -415,18 +419,20 @@ public sealed class ProjectChatMessageServiceTests
                 _ => Task.CompletedTask),
             notifications: notifications);
 
-        await using var stream = new MemoryStream("floor-plan"u8.ToArray());
-        var result = await service.SendFileMessageAsync(
+        var prepareResult = await service.PrepareFileMessageUploadAsync(
             chatId,
             customerId,
-            new SendFileChatMessageRequestDto
+            new PrepareProjectChatFileUploadRequestDto
             {
-                FileContent = stream,
                 OriginalFileName = "floor-plan.pdf",
                 ContentType = "application/pdf",
-                FileSizeBytes = stream.Length,
+                FileSizeBytes = 11,
                 FileType = FileType.FLOOR_PLAN
             });
+        var result = await service.CompleteFileMessageUploadAsync(
+            chatId,
+            customerId,
+            new CompleteProjectChatFileUploadRequestDto { FileId = prepareResult.Data!.FileId });
 
         Assert.Equal(201, result.Status);
         var request = Assert.Single(notifications.Requests);
@@ -436,22 +442,19 @@ public sealed class ProjectChatMessageServiceTests
         Assert.Equal("floor-plan.pdf", request.Request!.Metadata!["contentPreview"]);
     }
 
-
     [Fact]
-    public async Task SendFileMessageAsync_WithInvalidMimeType_ReturnsUnsupportedMediaType()
+    public async Task PrepareFileMessageUploadAsync_WithInvalidMimeType_ReturnsUnsupportedMediaType()
     {
         var service = CreateService(new FakeProjectChatMessageRepository());
 
-        await using var stream = new MemoryStream([1, 2, 3]);
-        var result = await service.SendFileMessageAsync(
+        var result = await service.PrepareFileMessageUploadAsync(
             Guid.NewGuid(),
             Guid.NewGuid(),
-            new SendFileChatMessageRequestDto
+            new PrepareProjectChatFileUploadRequestDto
             {
-                FileContent = stream,
                 OriginalFileName = "malware.exe",
                 ContentType = "application/x-msdownload",
-                FileSizeBytes = stream.Length,
+                FileSizeBytes = 3,
                 FileType = FileType.OTHER
             });
 
@@ -460,60 +463,25 @@ public sealed class ProjectChatMessageServiceTests
     }
 
     [Fact]
-    public async Task SendFileMessageAsync_WithFileTooLarge_ReturnsPayloadTooLarge()
+    public async Task PrepareFileMessageUploadAsync_WithFileTooLarge_ReturnsPayloadTooLarge()
     {
         var service = CreateService(
             new FakeProjectChatMessageRepository(),
             uploadSettings: new FileUploadSettings { MaxFileSizeBytes = 1024 });
 
-        await using var stream = new MemoryStream(new byte[2048]);
-        var result = await service.SendFileMessageAsync(
+        var result = await service.PrepareFileMessageUploadAsync(
             Guid.NewGuid(),
             Guid.NewGuid(),
-            new SendFileChatMessageRequestDto
+            new PrepareProjectChatFileUploadRequestDto
             {
-                FileContent = stream,
                 OriginalFileName = "large.pdf",
                 ContentType = "application/pdf",
-                FileSizeBytes = stream.Length,
+                FileSizeBytes = 2048,
                 FileType = FileType.FLOOR_PLAN
             });
 
         Assert.Equal(413, result.Status);
         Assert.Contains("File size must not exceed 1024 bytes.", result.Message);
-    }
-
-    [Fact]
-    public async Task SendFileMessageAsync_WhenTransactionFails_DeletesUploadedObject()
-    {
-        var chatId = Guid.NewGuid();
-        var salesId = Guid.NewGuid();
-        var access = CreateAccess(chatId, salesId, "SALES", ProjectChatType.SALES);
-        var repository = new FakeProjectChatMessageRepository(access);
-        var storage = new FakeFileStorageService();
-        var unitOfWork = TestUnitOfWork.ForTransaction(
-            _ => Task.CompletedTask,
-            _ => Task.FromException<int>(new InvalidOperationException("Save failed.")),
-            _ => Task.CompletedTask,
-            _ => Task.CompletedTask);
-        var service = CreateService(repository, unitOfWork: unitOfWork, storage: storage);
-
-        await using var stream = new MemoryStream("floor-plan"u8.ToArray());
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            service.SendFileMessageAsync(
-                chatId,
-                salesId,
-                new SendFileChatMessageRequestDto
-                {
-                    FileContent = stream,
-                    OriginalFileName = "floor-plan.pdf",
-                    ContentType = "application/pdf",
-                    FileSizeBytes = stream.Length,
-                    FileType = FileType.FLOOR_PLAN
-                }));
-
-        Assert.NotNull(storage.UploadRequest);
-        Assert.Equal(1, storage.DeleteCallCount);
     }
 
     [Fact]
@@ -1091,10 +1059,11 @@ public sealed class ProjectChatMessageServiceTests
                     new FileUploadValidator(
                         Options.Create(uploadSettings ?? new FileUploadSettings()),
                         Options.Create(new FirebaseStorageSettings())),
+                    DirectUploadTestDoubles.CreateCoordinator(
+                        storage ?? new FakeFileStorageService(),
+                        new FirebaseStorageSettings()),
                     new FirebaseStorageSettings()),
                 NullLogger<ProjectChatMessageServiceDependencies>.Instance,
-                Search: null,
-                ChatMessageSearchIndexer: null,
                 Notifications: notifications));
     }
 

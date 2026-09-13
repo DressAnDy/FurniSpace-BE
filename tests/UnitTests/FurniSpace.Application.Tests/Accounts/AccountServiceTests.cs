@@ -14,7 +14,6 @@ using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.Accounts;
-using FurniSpace.Infrastructure.Common.Search;
 using FurniSpace.Infrastructure.Interfaces;
 using FurniSpace.Infrastructure.Repositories.IRepository;
 using Microsoft.AspNetCore.Identity;
@@ -571,7 +570,7 @@ public sealed class AccountServiceTests
     }
 
     [Fact]
-    public async Task GetPagedAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    public async Task GetPagedAsync_UsesRepository()
     {
         var accountId = Guid.NewGuid();
         var roleId = Guid.NewGuid();
@@ -594,7 +593,6 @@ public sealed class AccountServiceTests
             repository,
             new FakeAuthService(),
             new InMemoryCacheService(),
-            new ThrowingSearchIndexService(),
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
             new PasswordHasher<Account>());
 
@@ -645,7 +643,7 @@ public sealed class AccountServiceTests
     }
 
     [Fact]
-    public async Task SuggestAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    public async Task SuggestAsync_UsesRepository()
     {
         var accountId = Guid.NewGuid();
         var repository = new FakeAccountRepository
@@ -668,7 +666,6 @@ public sealed class AccountServiceTests
             repository,
             new FakeAuthService(),
             new InMemoryCacheService(),
-            new ThrowingSearchIndexService(),
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
             new PasswordHasher<Account>());
 
@@ -709,7 +706,7 @@ public sealed class AccountServiceTests
     }
 
     [Fact]
-    public async Task GetSearchStatsAsync_WhenElasticsearchUnavailable_FallsBackToRepository()
+    public async Task GetSearchStatsAsync_UsesRepository()
     {
         var roleId = Guid.NewGuid();
         var repository = new FakeAccountRepository
@@ -728,7 +725,6 @@ public sealed class AccountServiceTests
             repository,
             new FakeAuthService(),
             new InMemoryCacheService(),
-            new ThrowingSearchIndexService(),
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
             new PasswordHasher<Account>());
 
@@ -751,7 +747,6 @@ public sealed class AccountServiceTests
             repository,
             new FakeAuthService(),
             new InMemoryCacheService(),
-            new FakeSearchIndexService(),
             TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
             new PasswordHasher<Account>());
     }
@@ -1021,83 +1016,4 @@ public sealed class AccountServiceTests
         public Task<bool> IsAccessTokenRevokedAsync(string jti, Guid userId, DateTimeOffset issuedAt, CancellationToken cancellationToken = default) => Task.FromResult(false);
     }
 
-    private sealed class FakeSearchIndexService : ISearchIndexService
-    {
-        public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(string indexName, SearchRequest request, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(new SearchResult<TDocument>
-            {
-                Documents = [],
-                Total = 0,
-                Page = request.Page,
-                PageSize = request.PageSize
-            });
-        }
-
-        public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(string indexName, string query, int size = 100, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult<IReadOnlyList<TDocument>>([]);
-        }
-
-        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(new SuggestResult());
-        }
-
-        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
-            string indexName,
-            string documentId,
-            MoreLikeThisRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(new SearchResult<TDocument>
-            {
-                Documents = [],
-                Total = 0,
-                Page = 1,
-                PageSize = request.Size
-            });
-        }
-
-        public Task<SearchAggregationResult> AggregateAsync(
-            string indexName,
-            SearchAggregationRequest request,
-            CancellationToken cancellationToken = default)
-            => Task.FromResult(new SearchAggregationResult());
-    }
-
-    private sealed class ThrowingSearchIndexService : ISearchIndexService
-    {
-        public Task IndexAsync<TDocument>(string indexName, string id, TDocument document, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task BulkIndexAsync<TDocument>(string indexName, IReadOnlyList<BulkIndexItem<TDocument>> items, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DeleteAsync(string indexName, string id, CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<SearchResult<TDocument>> SearchAsync<TDocument>(string indexName, SearchRequest request, CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-
-        public Task<IReadOnlyList<TDocument>> SearchAsync<TDocument>(string indexName, string query, int size = 100, CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-
-        public Task<SuggestResult> SuggestAsync(string indexName, SuggestRequest request, CancellationToken cancellationToken = default)
-            => Task.FromResult(new SuggestResult());
-
-        public Task<SearchResult<TDocument>> MoreLikeThisAsync<TDocument>(
-            string indexName,
-            string documentId,
-            MoreLikeThisRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-
-        public Task<SearchAggregationResult> AggregateAsync(
-            string indexName,
-            SearchAggregationRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("Elasticsearch unavailable.");
-    }
 }

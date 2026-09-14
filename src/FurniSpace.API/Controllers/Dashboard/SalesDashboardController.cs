@@ -34,6 +34,12 @@ public sealed class SalesDashboardController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// Sales KPI stock counts. <c>acceptedProjects</c>, <c>unpaidRemaining</c>, and <c>overdueTasks</c>
+    /// ignore <c>dateRange</c> and <c>search</c>.
+    /// <c>overdueTasks</c> counts scoped projects whose <c>targetCompletionDate</c> is before today (UTC);
+    /// no project status is excluded.
+    /// </summary>
     [Authorize(Roles = "SALES,ADMIN")]
     [HttpGet("kpis")]
     public async Task<IActionResult> GetKpis(

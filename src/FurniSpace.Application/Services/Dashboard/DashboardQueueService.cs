@@ -70,10 +70,12 @@ public sealed class DashboardQueueService : IDashboardQueueService
         return ServiceResult<SalesDashboardKpisDto>.Success(
             new SalesDashboardKpisDto
             {
+                AcceptedProjects = kpis.AcceptedProjects,
+                UnpaidRemaining = kpis.UnpaidRemaining,
+                OverdueTasks = kpis.OverdueTasks,
                 NewRequests = kpis.NewRequests,
                 WaitingCustomer = kpis.WaitingCustomer,
                 PaymentFollowUp = kpis.PaymentFollowUp,
-                OverdueTasks = kpis.OverdueTasks,
                 ActiveProjects = kpis.ActiveProjects
             },
             "Sales KPIs retrieved successfully.");

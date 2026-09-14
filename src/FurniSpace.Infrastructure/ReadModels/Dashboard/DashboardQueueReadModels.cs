@@ -189,6 +189,10 @@ public sealed class DashboardProductionDeliveryQueueRowReadModel
 
 public sealed class SalesDashboardKpisReadModel
 {
+    public int AcceptedProjects { get; init; }
+
+    public int UnpaidRemaining { get; init; }
+
     public int NewRequests { get; init; }
 
     public int WaitingCustomer { get; init; }

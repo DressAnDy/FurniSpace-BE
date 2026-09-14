@@ -101,6 +101,88 @@ public sealed class DashboardQueueServiceTests
     }
 
     [Fact]
+    public async Task GetSalesUnpaidRemainingAsync_PagesAndMatchesTotal()
+    {
+        var orderId = Guid.NewGuid();
+        var dashboard = new FakeDashboardQueueReadRepository
+        {
+            UnpaidRemainingRows =
+            [
+                new SalesUnpaidRemainingRowReadModel
+                {
+                    OrderId = orderId,
+                    OrderCode = "ORD-1",
+                    ProjectId = Guid.NewGuid(),
+                    ProjectCode = "PRJ-1",
+                    ProjectName = "Project",
+                    CustomerId = Guid.NewGuid(),
+                    CustomerName = "Customer",
+                    Status = OrderStatus.FINAL_PAYMENT_PENDING,
+                    RemainingAmount = 100m,
+                    Currency = "VND",
+                    UpdatedAt = DateTime.UtcNow
+                },
+                new SalesUnpaidRemainingRowReadModel
+                {
+                    OrderId = Guid.NewGuid(),
+                    ProjectId = Guid.NewGuid(),
+                    ProjectName = "Project 2",
+                    CustomerId = Guid.NewGuid(),
+                    CustomerName = "Customer 2",
+                    Status = OrderStatus.FINAL_PAYMENT_PENDING,
+                    RemainingAmount = 200m,
+                    UpdatedAt = DateTime.UtcNow.AddDays(-1)
+                }
+            ]
+        };
+        var service = new DashboardQueueService(dashboard, new FakeProjectRepository { RoleName = "SALES" });
+
+        var result = await service.GetSalesUnpaidRemainingAsync(
+            Guid.NewGuid(),
+            new DashboardQueueQueryDto { Scope = "mine", Page = 1, Limit = 1, DateRange = "today", Search = "x" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, result.Data!.Total);
+        Assert.Single(result.Data.Items);
+        Assert.Equal(orderId, result.Data.Items[0].OrderId);
+        Assert.Equal(1, result.Data.Page);
+        Assert.Equal(1, result.Data.Limit);
+    }
+
+    [Fact]
+    public async Task GetSalesOverdueTasksAsync_IncludesOverdueDays()
+    {
+        var projectId = Guid.NewGuid();
+        var dashboard = new FakeDashboardQueueReadRepository
+        {
+            OverdueTaskRows =
+            [
+                new SalesOverdueTaskRowReadModel
+                {
+                    ProjectId = projectId,
+                    ProjectCode = "PRJ-OVD",
+                    ProjectName = "Late",
+                    CustomerId = Guid.NewGuid(),
+                    CustomerName = "Customer",
+                    Status = ProjectStatus.COMPLETED,
+                    TargetCompletionDate = new DateOnly(2026, 8, 1),
+                    OverdueDays = 16,
+                    UpdatedAt = DateTime.UtcNow
+                }
+            ]
+        };
+        var service = new DashboardQueueService(dashboard, new FakeProjectRepository { RoleName = "SALES" });
+
+        var result = await service.GetSalesOverdueTasksAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, result.Data!.Total);
+        Assert.Equal(projectId, result.Data.Items[0].ProjectId);
+        Assert.Equal(16, result.Data.Items[0].OverdueDays);
+        Assert.Equal("COMPLETED", result.Data.Items[0].Status);
+    }
+
+    [Fact]
     public async Task GetDesignerWorkQueueAsync_FiltersByGroup()
     {
         var dashboard = new FakeDashboardQueueReadRepository
@@ -795,6 +877,20 @@ public sealed class DashboardQueueServiceTests
             DashboardQueueFilterReadModel filter,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(SalesKpis);
+
+        public IReadOnlyList<SalesUnpaidRemainingRowReadModel> UnpaidRemainingRows { get; init; } = [];
+
+        public IReadOnlyList<SalesOverdueTaskRowReadModel> OverdueTaskRows { get; init; } = [];
+
+        public Task<IReadOnlyList<SalesUnpaidRemainingRowReadModel>> GetSalesUnpaidRemainingRowsAsync(
+            DashboardQueueFilterReadModel filter,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(UnpaidRemainingRows);
+
+        public Task<IReadOnlyList<SalesOverdueTaskRowReadModel>> GetSalesOverdueTaskRowsAsync(
+            DashboardQueueFilterReadModel filter,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(OverdueTaskRows);
 
         public Task<IReadOnlyList<DashboardProjectQueueRowReadModel>> GetDesignerQueueRowsAsync(
             DashboardQueueFilterReadModel filter,

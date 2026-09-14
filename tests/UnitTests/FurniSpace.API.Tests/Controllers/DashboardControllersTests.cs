@@ -32,6 +32,36 @@ public sealed class DashboardControllersTests
     }
 
     [Fact]
+    public async Task Sales_GetUnpaidRemaining_ReturnsOk()
+    {
+        var userId = Guid.NewGuid();
+        var service = new FakeDashboardQueueService();
+        var controller = CreateSalesController(service, userId);
+
+        var result = await controller.GetUnpaidRemaining(new DashboardQueueQueryDto { Scope = "mine", Limit = 5 });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(userId, service.LastUserId);
+        Assert.Equal("sales-unpaid-remaining", service.LastCall);
+    }
+
+    [Fact]
+    public async Task Sales_GetOverdueTasks_ReturnsOk()
+    {
+        var userId = Guid.NewGuid();
+        var service = new FakeDashboardQueueService();
+        var controller = CreateSalesController(service, userId);
+
+        var result = await controller.GetOverdueTasks(new DashboardQueueQueryDto { Scope = "team", Page = 2, Limit = 5 });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(userId, service.LastUserId);
+        Assert.Equal("sales-overdue-tasks", service.LastCall);
+    }
+
+    [Fact]
     public async Task Sales_GetActionQueue_WithoutUser_ReturnsUnauthorized()
     {
         var controller = CreateSalesController(new FakeDashboardQueueService(), userId: null);
@@ -191,6 +221,30 @@ public sealed class DashboardControllersTests
             LastCall = "sales-kpis";
             return Task.FromResult(ServiceResult<SalesDashboardKpisDto>.Success(
                 new SalesDashboardKpisDto { NewRequests = 1 },
+                "ok"));
+        }
+
+        public Task<ServiceResult<SalesUnpaidRemainingListResponseDto>> GetSalesUnpaidRemainingAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastUserId = currentUserId;
+            LastCall = "sales-unpaid-remaining";
+            return Task.FromResult(ServiceResult<SalesUnpaidRemainingListResponseDto>.Success(
+                new SalesUnpaidRemainingListResponseDto(),
+                "ok"));
+        }
+
+        public Task<ServiceResult<SalesOverdueTasksListResponseDto>> GetSalesOverdueTasksAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastUserId = currentUserId;
+            LastCall = "sales-overdue-tasks";
+            return Task.FromResult(ServiceResult<SalesOverdueTasksListResponseDto>.Success(
+                new SalesOverdueTasksListResponseDto(),
                 "ok"));
         }
 

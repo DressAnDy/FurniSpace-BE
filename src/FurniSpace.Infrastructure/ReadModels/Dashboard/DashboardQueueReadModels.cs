@@ -204,6 +204,66 @@ public sealed class SalesDashboardKpisReadModel
     public int ActiveProjects { get; init; }
 }
 
+public sealed class SalesUnpaidRemainingRowReadModel
+{
+    public Guid OrderId { get; init; }
+
+    public string? OrderCode { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid CustomerId { get; init; }
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public Guid? AssignedSalesId { get; init; }
+
+    public string? AssignedSalesName { get; init; }
+
+    public OrderStatus Status { get; init; }
+
+    public decimal RemainingAmount { get; init; }
+
+    public string? Currency { get; init; }
+
+    public Guid? PaymentId { get; init; }
+
+    public PaymentStatus? PaymentStatus { get; init; }
+
+    public DateTime UpdatedAt { get; init; }
+}
+
+public sealed class SalesOverdueTaskRowReadModel
+{
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid CustomerId { get; init; }
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public Guid? AssignedSalesId { get; init; }
+
+    public string? AssignedSalesName { get; init; }
+
+    public ProjectStatus? Status { get; init; }
+
+    public DateOnly TargetCompletionDate { get; init; }
+
+    public int OverdueDays { get; init; }
+
+    public DateTime? SubmittedAt { get; init; }
+
+    public DateTime? UpdatedAt { get; init; }
+}
+
 public sealed class DesignerDashboardKpisReadModel
 {
     public int MeasurementDue { get; init; }

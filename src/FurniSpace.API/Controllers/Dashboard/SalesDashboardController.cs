@@ -55,6 +55,45 @@ public sealed class SalesDashboardController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// Stock list for the Unpaid Remaining KPI card. Same scope semantics as KPIs;
+    /// ignores <c>dateRange</c> and <c>search</c>. <c>total</c> matches <c>unpaidRemaining</c>.
+    /// </summary>
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpGet("kpis/unpaid-remaining")]
+    public async Task<IActionResult> GetUnpaidRemaining(
+        [FromQuery] DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _dashboard.GetSalesUnpaidRemainingAsync(currentUserId, query, cancellationToken);
+        return ToActionResult(result);
+    }
+
+    /// <summary>
+    /// Stock list for the Overdue Tasks KPI card. Same scope and deadline rule as KPIs
+    /// (<c>targetCompletionDate</c> before today UTC; no status excluded).
+    /// Ignores <c>dateRange</c> and <c>search</c>. <c>total</c> matches <c>overdueTasks</c>.
+    /// </summary>
+    [Authorize(Roles = "SALES,ADMIN")]
+    [HttpGet("kpis/overdue-tasks")]
+    public async Task<IActionResult> GetOverdueTasks(
+        [FromQuery] DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _dashboard.GetSalesOverdueTasksAsync(currentUserId, query, cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

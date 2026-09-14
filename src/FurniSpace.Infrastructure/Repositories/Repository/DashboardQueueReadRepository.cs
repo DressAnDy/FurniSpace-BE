@@ -142,7 +142,8 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 order.CustomerConfirmedDeliveryAt == null,
             cancellationToken);
 
-        var unpaidRemaining = await CountUnpaidRemainingAsync(acceptedProjectsQuery, cancellationToken);
+        var unpaidRemaining = await BuildUnpaidRemainingOrdersQuery(acceptedProjectsQuery)
+            .CountAsync(cancellationToken);
 
         return new SalesDashboardKpisReadModel
         {
@@ -156,27 +157,156 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         };
     }
 
-    private async Task<int> CountUnpaidRemainingAsync(
-        IQueryable<Domain.Entities.Project> acceptedProjects,
-        CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<SalesUnpaidRemainingRowReadModel>> GetSalesUnpaidRemainingRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
     {
-        var acceptedProjectIds = acceptedProjects.Select(project => project.ProjectId);
-        return await _db.OrderSet.CountAsync(
-            order =>
-                acceptedProjectIds.Contains(order.ProjectId) &&
-                order.Status != null &&
-                !RemainingNotYetIncurredStatuses.Contains(order.Status.Value) &&
-                (
-                    ((order.RemainingAmount ?? 0m) > 0m &&
-                     (order.Status == OrderStatus.FINAL_PAYMENT_PENDING ||
-                      order.CustomerConfirmedDeliveryAt != null))
-                    ||
-                    _db.PaymentSet.Any(payment =>
+        var acceptedProjects = BuildAcceptedSalesProjectQuery(filter);
+        var orders = BuildUnpaidRemainingOrdersQuery(acceptedProjects);
+
+        return await orders
+            .Select(order => new SalesUnpaidRemainingRowReadModel
+            {
+                OrderId = order.OrderId,
+                OrderCode = order.OrderCode,
+                ProjectId = order.ProjectId,
+                ProjectCode = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId)
+                    .Select(project => project.ProjectCode)
+                    .FirstOrDefault(),
+                ProjectName = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId)
+                    .Select(project => project.ProjectName)
+                    .FirstOrDefault() ?? string.Empty,
+                CustomerId = order.CustomerId,
+                CustomerName = _db.AccountSet
+                    .Where(account => account.AccountId == order.CustomerId)
+                    .Select(account => account.FullName)
+                    .FirstOrDefault() ?? string.Empty,
+                AssignedSalesId = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId)
+                    .Select(project => project.AssignedSalesId)
+                    .FirstOrDefault(),
+                AssignedSalesName = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId && project.AssignedSalesId.HasValue)
+                    .Join(
+                        _db.AccountSet,
+                        project => project.AssignedSalesId,
+                        account => account.AccountId,
+                        (_, account) => account.FullName)
+                    .FirstOrDefault(),
+                Status = order.Status ?? OrderStatus.FINAL_PAYMENT_PENDING,
+                RemainingAmount = order.RemainingAmount ?? 0m,
+                Currency = _db.PaymentSet
+                    .Where(payment =>
+                        payment.OrderId == order.OrderId &&
+                        payment.PaymentType == PaymentType.REMAINING_PAYMENT)
+                    .OrderByDescending(payment => payment.UpdatedAt ?? payment.CreatedAt)
+                    .ThenByDescending(payment => payment.PaymentId)
+                    .Select(payment => payment.Currency)
+                    .FirstOrDefault() ?? "VND",
+                PaymentId = _db.PaymentSet
+                    .Where(payment =>
                         payment.OrderId == order.OrderId &&
                         payment.PaymentType == PaymentType.REMAINING_PAYMENT &&
                         payment.Status != null &&
-                        OpenRemainingPaymentStatuses.Contains(payment.Status.Value))),
-            cancellationToken);
+                        OpenRemainingPaymentStatuses.Contains(payment.Status.Value))
+                    .OrderByDescending(payment => payment.UpdatedAt ?? payment.CreatedAt)
+                    .ThenByDescending(payment => payment.PaymentId)
+                    .Select(payment => (Guid?)payment.PaymentId)
+                    .FirstOrDefault(),
+                PaymentStatus = _db.PaymentSet
+                    .Where(payment =>
+                        payment.OrderId == order.OrderId &&
+                        payment.PaymentType == PaymentType.REMAINING_PAYMENT &&
+                        payment.Status != null &&
+                        OpenRemainingPaymentStatuses.Contains(payment.Status.Value))
+                    .OrderByDescending(payment => payment.UpdatedAt ?? payment.CreatedAt)
+                    .ThenByDescending(payment => payment.PaymentId)
+                    .Select(payment => payment.Status)
+                    .FirstOrDefault(),
+                UpdatedAt = order.UpdatedAt ?? order.CreatedAt ?? filter.UtcNow
+            })
+            .OrderByDescending(row => row.UpdatedAt)
+            .ThenByDescending(row => row.OrderId)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SalesOverdueTaskRowReadModel>> GetSalesOverdueTaskRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var today = DateOnly.FromDateTime(filter.UtcNow);
+        var projects = BuildSalesStockProjectQuery(filter)
+            .Where(project =>
+                project.TargetCompletionDate.HasValue &&
+                project.TargetCompletionDate.Value < today);
+
+        var rows = await projects
+            .OrderBy(project => project.TargetCompletionDate)
+            .ThenBy(project => project.ProjectId)
+            .Select(project => new SalesOverdueTaskRowReadModel
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                CustomerId = project.CustomerId,
+                CustomerName = _db.AccountSet
+                    .Where(account => account.AccountId == project.CustomerId)
+                    .Select(account => account.FullName)
+                    .FirstOrDefault() ?? string.Empty,
+                AssignedSalesId = project.AssignedSalesId,
+                AssignedSalesName = project.AssignedSalesId.HasValue
+                    ? _db.AccountSet
+                        .Where(account => account.AccountId == project.AssignedSalesId)
+                        .Select(account => account.FullName)
+                        .FirstOrDefault()
+                    : null,
+                Status = project.Status,
+                TargetCompletionDate = project.TargetCompletionDate!.Value,
+                OverdueDays = 0,
+                SubmittedAt = project.SubmittedAt,
+                UpdatedAt = project.UpdatedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(row => new SalesOverdueTaskRowReadModel
+            {
+                ProjectId = row.ProjectId,
+                ProjectCode = row.ProjectCode,
+                ProjectName = row.ProjectName,
+                CustomerId = row.CustomerId,
+                CustomerName = row.CustomerName,
+                AssignedSalesId = row.AssignedSalesId,
+                AssignedSalesName = row.AssignedSalesName,
+                Status = row.Status,
+                TargetCompletionDate = row.TargetCompletionDate,
+                OverdueDays = today.DayNumber - row.TargetCompletionDate.DayNumber,
+                SubmittedAt = row.SubmittedAt,
+                UpdatedAt = row.UpdatedAt
+            })
+            .ToList();
+    }
+
+    private IQueryable<Domain.Entities.Order> BuildUnpaidRemainingOrdersQuery(
+        IQueryable<Domain.Entities.Project> acceptedProjects)
+    {
+        var acceptedProjectIds = acceptedProjects.Select(project => project.ProjectId);
+        return _db.OrderSet.Where(order =>
+            acceptedProjectIds.Contains(order.ProjectId) &&
+            order.Status != null &&
+            !RemainingNotYetIncurredStatuses.Contains(order.Status.Value) &&
+            (
+                ((order.RemainingAmount ?? 0m) > 0m &&
+                 (order.Status == OrderStatus.FINAL_PAYMENT_PENDING ||
+                  order.CustomerConfirmedDeliveryAt != null))
+                ||
+                _db.PaymentSet.Any(payment =>
+                    payment.OrderId == order.OrderId &&
+                    payment.PaymentType == PaymentType.REMAINING_PAYMENT &&
+                    payment.Status != null &&
+                    OpenRemainingPaymentStatuses.Contains(payment.Status.Value))));
     }
 
     public async Task<IReadOnlyList<DashboardProjectQueueRowReadModel>> GetDesignerQueueRowsAsync(

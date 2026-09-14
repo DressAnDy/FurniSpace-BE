@@ -15,6 +15,16 @@ public interface IDashboardQueueService
         DashboardQueueQueryDto query,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<SalesUnpaidRemainingListResponseDto>> GetSalesUnpaidRemainingAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default);
+
+    Task<ServiceResult<SalesOverdueTasksListResponseDto>> GetSalesOverdueTasksAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<DashboardQueueResponseDto>> GetDesignerWorkQueueAsync(
         Guid currentUserId,
         DashboardQueueQueryDto query,

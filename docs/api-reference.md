@@ -3728,6 +3728,8 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 | --- | --- | --- |
 | GET | `/api/dashboard/sales/action-queue` | SALES, ADMIN |
 | GET | `/api/dashboard/sales/kpis` | SALES, ADMIN |
+| GET | `/api/dashboard/sales/kpis/unpaid-remaining` | SALES, ADMIN |
+| GET | `/api/dashboard/sales/kpis/overdue-tasks` | SALES, ADMIN |
 | GET | `/api/dashboard/designer/work-queue` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/designer/kpis` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/production/queue` | PRODUCTION, ADMIN |
@@ -3855,6 +3857,89 @@ Typical status is `FINAL_PAYMENT_PENDING`. Orders still in production or deliver
 | 400 | `scope` is not `mine` / `team` / `all`, or `dateRange` is not `today` / `thisWeek` / `thisMonth` |
 | 401 | Missing or invalid current user |
 | 403 | Role is not `SALES` or `ADMIN` |
+
+#### `GET /api/dashboard/sales/kpis/unpaid-remaining`
+
+Inline list for the Unpaid Remaining KPI card. Same stock filter as `unpaidRemaining` (ignore `dateRange` / `search`). `total` equals the KPI count for the same `scope`.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Required semantics match KPIs |
+| `page` | number, default `1` | |
+| `limit` | number, default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Sales unpaid remaining list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "orderId": "uuid",
+        "orderCode": "ORD-1",
+        "projectId": "uuid",
+        "projectCode": "PRJ-001",
+        "projectName": "Coffee Shop A",
+        "customerId": "uuid",
+        "customerName": "Customer One",
+        "assignedSalesId": "uuid",
+        "assignedSalesName": "Sales One",
+        "status": "FINAL_PAYMENT_PENDING",
+        "remainingAmount": 1500000,
+        "currency": "VND",
+        "paymentId": "uuid",
+        "paymentStatus": "PENDING",
+        "updatedAt": "2026-09-14T12:00:00Z"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 3
+  }
+}
+```
+
+Only stage-3 remaining unpaid orders. Sorted by `updatedAt` desc, then `orderId` desc.
+
+#### `GET /api/dashboard/sales/kpis/overdue-tasks`
+
+Inline list for the Overdue Tasks KPI card. Same stock filter as `overdueTasks`: `targetCompletionDate < today (UTC)`, no status excluded. `total` equals the KPI count for the same `scope`.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Required semantics match KPIs |
+| `page` | number, default `1` | |
+| `limit` | number, default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Sales overdue tasks list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "projectId": "uuid",
+        "projectCode": "PRJ-001",
+        "projectName": "Coffee Shop A",
+        "customerId": "uuid",
+        "customerName": "Customer One",
+        "assignedSalesId": "uuid",
+        "assignedSalesName": "Sales One",
+        "status": "ORDER_CONFIRMED",
+        "targetCompletionDate": "2026-09-01",
+        "overdueDays": 14,
+        "submittedAt": "2026-08-01T10:00:00Z",
+        "updatedAt": "2026-09-10T08:00:00Z"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 40
+  }
+}
+```
+
+Sorted by `targetCompletionDate` asc (most overdue first), then `projectId`. `overdueDays` = today UTC minus `targetCompletionDate`.
 
 ### Project phase deadline risks
 

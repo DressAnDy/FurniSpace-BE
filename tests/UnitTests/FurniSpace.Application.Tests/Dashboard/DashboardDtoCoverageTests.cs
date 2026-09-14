@@ -57,6 +57,8 @@ public sealed class DashboardDtoCoverageTests
         };
         var salesKpis = new SalesDashboardKpisDto
         {
+            AcceptedProjects = 6,
+            UnpaidRemaining = 7,
             NewRequests = 1,
             WaitingCustomer = 2,
             PaymentFollowUp = 3,
@@ -86,6 +88,8 @@ public sealed class DashboardDtoCoverageTests
         Assert.Equal(1, queue.Total);
         Assert.Equal("mine", query.Scope);
         Assert.Equal(5, salesKpis.ActiveProjects);
+        Assert.Equal(6, salesKpis.AcceptedProjects);
+        Assert.Equal(7, salesKpis.UnpaidRemaining);
         Assert.Equal(4, designerKpis.OverdueTasks);
         Assert.Equal(3, productionKpis.ReadyToComplete);
         Assert.Equal(1, productionKpis.PendingStart);

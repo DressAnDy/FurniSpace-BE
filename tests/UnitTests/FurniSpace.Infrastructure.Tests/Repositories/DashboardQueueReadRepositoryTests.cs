@@ -103,8 +103,101 @@ public sealed class DashboardQueueReadRepositoryTests
             UtcNow = seed.Now
         });
 
+        Assert.Equal(2, kpis.AcceptedProjects);
+        Assert.Equal(0, kpis.UnpaidRemaining);
+        Assert.Equal(1, kpis.OverdueTasks);
         Assert.True(kpis.ActiveProjects >= 1);
         Assert.True(kpis.PaymentFollowUp >= 1);
+    }
+
+    [Fact]
+    public async Task GetSalesKpisAsync_StockCards_CountAcceptedProjectsAndUnpaidRemainingOnly()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        var otherSalesId = Guid.NewGuid();
+        var completedId = Guid.NewGuid();
+        var rejectedId = Guid.NewGuid();
+        var otherSalesProjectId = Guid.NewGuid();
+        var today = DateOnly.FromDateTime(seed.Now);
+
+        context.ProjectSet.AddRange(
+            new Project
+            {
+                ProjectId = completedId,
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = seed.SalesId,
+                ProjectCode = "PRJ-DONE",
+                ProjectName = "Completed Assigned",
+                Status = ProjectStatus.COMPLETED,
+                TargetCompletionDate = today.AddDays(-10),
+                CreatedAt = seed.Now
+            },
+            new Project
+            {
+                ProjectId = rejectedId,
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = seed.SalesId,
+                ProjectCode = "PRJ-REJ",
+                ProjectName = "Rejected Assigned",
+                Status = ProjectStatus.REJECTED,
+                CreatedAt = seed.Now
+            },
+            new Project
+            {
+                ProjectId = otherSalesProjectId,
+                CustomerId = Guid.NewGuid(),
+                AssignedSalesId = otherSalesId,
+                ProjectCode = "PRJ-OTHER",
+                ProjectName = "Other Sales",
+                Status = ProjectStatus.IN_CONSULTATION,
+                TargetCompletionDate = today.AddDays(-2),
+                CreatedAt = seed.Now
+            });
+
+        var remainingOrderId = Guid.NewGuid();
+        var paidRemainingOrderId = Guid.NewGuid();
+        var awaitingOrderId = Guid.NewGuid();
+        var producingOrderId = Guid.NewGuid();
+        context.OrderSet.AddRange(
+            CreateOrder(remainingOrderId, completedId, seed.SalesId, OrderStatus.FINAL_PAYMENT_PENDING, 400m, seed.Now, confirmed: true),
+            CreateOrder(paidRemainingOrderId, rejectedId, seed.SalesId, OrderStatus.COMPLETED, 0m, seed.Now, confirmed: true),
+            CreateOrder(awaitingOrderId, seed.SalesProjectId, seed.SalesId, OrderStatus.AWAITING_CUSTOMER_CONFIRMATION, 500m, seed.Now, confirmed: false),
+            CreateOrder(producingOrderId, seed.DesignerProjectId, seed.SalesId, OrderStatus.IN_PRODUCTION, 800m, seed.Now, confirmed: false),
+            CreateOrder(Guid.NewGuid(), otherSalesProjectId, otherSalesId, OrderStatus.FINAL_PAYMENT_PENDING, 250m, seed.Now, confirmed: true));
+
+        context.PaymentSet.AddRange(
+            CreatePayment(remainingOrderId, completedId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PENDING, 400m),
+            CreatePayment(paidRemainingOrderId, rejectedId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PAID, 100m),
+            CreatePayment(seed.SalesProjectId, seed.SalesProjectId, PaymentType.PROJECT_START_FEE, PaymentStatus.PENDING, 2000000m),
+            CreatePayment(producingOrderId, seed.DesignerProjectId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PENDING, 800m),
+            CreatePayment(awaitingOrderId, seed.SalesProjectId, PaymentType.DEPOSIT, PaymentStatus.PENDING, 300m));
+
+        await context.SaveChangesAsync();
+        var repository = new DashboardQueueReadRepository(context);
+
+        var mine = await repository.GetSalesKpisAsync(new DashboardQueueFilterReadModel
+        {
+            Scope = "mine",
+            CurrentUserId = seed.SalesId,
+            CurrentUserRole = "SALES",
+            DateRange = "today",
+            UtcNow = seed.Now
+        });
+        var team = await repository.GetSalesKpisAsync(new DashboardQueueFilterReadModel
+        {
+            Scope = "team",
+            CurrentUserId = seed.SalesId,
+            CurrentUserRole = "SALES",
+            DateRange = "today",
+            UtcNow = seed.Now
+        });
+
+        Assert.Equal(4, mine.AcceptedProjects);
+        Assert.Equal(1, mine.UnpaidRemaining);
+        Assert.Equal(2, mine.OverdueTasks);
+        Assert.Equal(5, team.AcceptedProjects);
+        Assert.Equal(2, team.UnpaidRemaining);
     }
 
     [Fact]
@@ -766,6 +859,53 @@ public sealed class DashboardQueueReadRepositoryTests
             orderId,
             productionRequestId,
             now);
+    }
+
+    private static Order CreateOrder(
+        Guid orderId,
+        Guid projectId,
+        Guid salesId,
+        OrderStatus status,
+        decimal remainingAmount,
+        DateTime now,
+        bool confirmed)
+    {
+        return new Order
+        {
+            OrderId = orderId,
+            ProjectId = projectId,
+            QuotationId = Guid.NewGuid(),
+            OrderCode = "ORD-" + orderId.ToString("N")[..8],
+            CustomerId = Guid.NewGuid(),
+            SalesId = salesId,
+            FinalTotalAmount = remainingAmount + 100m,
+            PaidAmount = 100m,
+            RemainingAmount = remainingAmount,
+            Status = status,
+            CustomerConfirmedDeliveryAt = confirmed ? now : null,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+    }
+
+    private static Payment CreatePayment(
+        Guid orderId,
+        Guid projectId,
+        PaymentType paymentType,
+        PaymentStatus status,
+        decimal amount)
+    {
+        return new Payment
+        {
+            PaymentId = Guid.NewGuid(),
+            ProjectId = projectId,
+            OrderId = orderId,
+            PaymentCode = "PAY-" + Guid.NewGuid().ToString("N")[..8],
+            PaymentType = paymentType,
+            Amount = amount,
+            Status = status,
+            CreatedAt = DateTime.UtcNow
+        };
     }
 
     private static Account CreateAccount(Guid accountId, Guid roleId, string email, string fullName)

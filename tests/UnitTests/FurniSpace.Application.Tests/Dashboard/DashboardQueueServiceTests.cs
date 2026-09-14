@@ -77,6 +77,8 @@ public sealed class DashboardQueueServiceTests
         {
             SalesKpis = new SalesDashboardKpisReadModel
             {
+                AcceptedProjects = 6,
+                UnpaidRemaining = 1,
                 NewRequests = 2,
                 WaitingCustomer = 3,
                 PaymentFollowUp = 1,
@@ -89,9 +91,13 @@ public sealed class DashboardQueueServiceTests
         var result = await service.GetSalesKpisAsync(Guid.NewGuid(), new DashboardQueueQueryDto());
 
         Assert.Equal(200, result.Status);
-        Assert.Equal(2, result.Data!.NewRequests);
+        Assert.Equal(6, result.Data!.AcceptedProjects);
+        Assert.Equal(1, result.Data.UnpaidRemaining);
+        Assert.Equal(4, result.Data.OverdueTasks);
+        Assert.Equal(2, result.Data.NewRequests);
         Assert.Equal(3, result.Data.WaitingCustomer);
         Assert.Equal(1, result.Data.PaymentFollowUp);
+        Assert.Equal(8, result.Data.ActiveProjects);
     }
 
     [Fact]

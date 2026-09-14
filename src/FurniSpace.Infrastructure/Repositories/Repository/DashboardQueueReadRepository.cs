@@ -51,6 +51,29 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         ProductionItemStatus.CANCELLED
     ];
 
+    /// <summary>
+    /// Remaining payment is incurred only after customer delivery confirmation.
+    /// Earlier collect stages (start fee, deposit, production, in-transit delivery) are not this KPI.
+    /// </summary>
+    private static readonly OrderStatus[] RemainingNotYetIncurredStatuses =
+    [
+        OrderStatus.CREATED,
+        OrderStatus.DEPOSIT_PENDING,
+        OrderStatus.DEPOSIT_PAID,
+        OrderStatus.IN_PRODUCTION,
+        OrderStatus.READY_FOR_DELIVERY,
+        OrderStatus.DELIVERING,
+        OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
+        OrderStatus.CANCELLED
+    ];
+
+    private static readonly PaymentStatus[] OpenRemainingPaymentStatuses =
+    [
+        PaymentStatus.PENDING,
+        PaymentStatus.PROCESSING,
+        PaymentStatus.EXPIRED
+    ];
+
     private readonly AppDbContext _db;
 
     public DashboardQueueReadRepository(AppDbContext db)
@@ -72,6 +95,8 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
     {
         var today = DateOnly.FromDateTime(filter.UtcNow);
         var projects = BuildSalesProjectQuery(filter);
+        var stockProjects = BuildSalesStockProjectQuery(filter);
+        var acceptedProjectsQuery = BuildAcceptedSalesProjectQuery(filter);
 
         var newRequests = await projects.CountAsync(
             project => project.Status == ProjectStatus.SUBMITTED,
@@ -89,7 +114,11 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 project.Status != ProjectStatus.REJECTED,
             cancellationToken);
 
-        var overdueTasks = await projects.CountAsync(
+        var acceptedProjects = await acceptedProjectsQuery.CountAsync(cancellationToken);
+
+        // Stock overdue: targetCompletionDate < today (UTC). No status is excluded.
+        // dateRange and search are ignored so a period filter cannot hide the current backlog.
+        var overdueTasks = await stockProjects.CountAsync(
             project =>
                 project.TargetCompletionDate.HasValue &&
                 project.TargetCompletionDate.Value < today,
@@ -113,14 +142,41 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 order.CustomerConfirmedDeliveryAt == null,
             cancellationToken);
 
+        var unpaidRemaining = await CountUnpaidRemainingAsync(acceptedProjectsQuery, cancellationToken);
+
         return new SalesDashboardKpisReadModel
         {
+            AcceptedProjects = acceptedProjects,
+            UnpaidRemaining = unpaidRemaining,
             NewRequests = newRequests,
             WaitingCustomer = waitingCustomer + waitingConfirm,
             PaymentFollowUp = paymentFollowUp,
             OverdueTasks = overdueTasks,
             ActiveProjects = activeProjects
         };
+    }
+
+    private async Task<int> CountUnpaidRemainingAsync(
+        IQueryable<Domain.Entities.Project> acceptedProjects,
+        CancellationToken cancellationToken)
+    {
+        var acceptedProjectIds = acceptedProjects.Select(project => project.ProjectId);
+        return await _db.OrderSet.CountAsync(
+            order =>
+                acceptedProjectIds.Contains(order.ProjectId) &&
+                order.Status != null &&
+                !RemainingNotYetIncurredStatuses.Contains(order.Status.Value) &&
+                (
+                    ((order.RemainingAmount ?? 0m) > 0m &&
+                     (order.Status == OrderStatus.FINAL_PAYMENT_PENDING ||
+                      order.CustomerConfirmedDeliveryAt != null))
+                    ||
+                    _db.PaymentSet.Any(payment =>
+                        payment.OrderId == order.OrderId &&
+                        payment.PaymentType == PaymentType.REMAINING_PAYMENT &&
+                        payment.Status != null &&
+                        OpenRemainingPaymentStatuses.Contains(payment.Status.Value))),
+            cancellationToken);
     }
 
     public async Task<IReadOnlyList<DashboardProjectQueueRowReadModel>> GetDesignerQueueRowsAsync(
@@ -287,14 +343,33 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
 
     private IQueryable<Domain.Entities.Project> BuildSalesProjectQuery(DashboardQueueFilterReadModel filter)
     {
-        var projects = _db.ProjectSet.AsQueryable();
-        projects = ApplyProjectScope(
-            projects,
+        var projects = BuildSalesStockProjectQuery(filter);
+        projects = ApplyProjectSearch(projects, filter.Search);
+        projects = ApplyProjectDateRange(projects, filter.DateRange, filter.UtcNow);
+        return projects;
+    }
+
+    private IQueryable<Domain.Entities.Project> BuildSalesStockProjectQuery(DashboardQueueFilterReadModel filter)
+    {
+        return ApplyProjectScope(
+            _db.ProjectSet.AsQueryable(),
             filter,
             salesScoped: true,
             designerScoped: false);
-        projects = ApplyProjectSearch(projects, filter.Search);
-        projects = ApplyProjectDateRange(projects, filter.DateRange, filter.UtcNow);
+    }
+
+    /// <summary>
+    /// Projects a sales user has accepted for consultation: <c>assignedSalesId</c> is set.
+    /// Status is not filtered. Unassigned requests, including <c>SUBMITTED</c>, are excluded.
+    /// </summary>
+    private IQueryable<Domain.Entities.Project> BuildAcceptedSalesProjectQuery(DashboardQueueFilterReadModel filter)
+    {
+        var projects = _db.ProjectSet.Where(project => project.AssignedSalesId != null);
+        if (string.Equals(NormalizeScope(filter.Scope), "mine", StringComparison.OrdinalIgnoreCase))
+        {
+            projects = projects.Where(project => project.AssignedSalesId == filter.CurrentUserId);
+        }
+
         return projects;
     }
 

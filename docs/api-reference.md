@@ -3786,13 +3786,75 @@ Sales next-action uses project status plus latest non-cancelled order (deposit /
 
 ### KPI responses
 
-**Sales:** `newRequests`, `waitingCustomer`, `paymentFollowUp`, `overdueTasks`, `activeProjects`
+**Sales:** `acceptedProjects`, `unpaidRemaining`, `overdueTasks`. Compatibility fields still returned: `newRequests`, `waitingCustomer`, `paymentFollowUp`, `activeProjects`. See below.
 
 **Designer:** `measurementDue`, `proposalsInProgress`, `revisionRequested`, `overdueTasks`
 
 **Production:** `pendingCustomizationReview`, `pendingStart`, `pendingReview` (alias of `pendingStart`), `inProduction`, `readyToComplete`, `overdueTasks`, `readyForDelivery`, `awaitingDeliverySchedule`, `completedInRange`. Default `scope=mine`. Customization KPI chỉ khi `scope=all`. `unavailableItems` is not a KPI field; use `GET /production-items/unavailable` for that queue.
 
-KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local).
+Designer and Production KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local). Sales stock cards do not.
+
+#### `GET /api/dashboard/sales/kpis`
+
+Roles: `SALES`, `ADMIN`. `dateRange` and `search` are accepted so the query shape matches the action queue, but the three stock cards ignore them. They are current backlog counts, not “arose in the period”. A future period count must be a new field, not an overwrite of these.
+
+| Param | Values | Effect on stock cards |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Applied. `mine` = current user's assigned projects/orders. `team` and non-admin `all` = any project with `assignedSalesId`. Admin `all` is the same for `acceptedProjects` / `unpaidRemaining` (unassigned requests are not accepted). `overdueTasks` on admin `all` includes unassigned projects, matching the previous overdue scope. |
+| `dateRange` | `today`, `thisWeek`, `thisMonth` | Ignored by `acceptedProjects`, `unpaidRemaining`, `overdueTasks`. Still applied to compatibility fields `newRequests`, `waitingCustomer`, `paymentFollowUp`, `activeProjects`. |
+| `search` | project code/name or customer name | Ignored by the three stock cards. Applied to compatibility fields. |
+| `group`, `priority`, `page`, `limit` | queue params | Ignored by this endpoint except paging validation. |
+
+```json
+{
+  "status": 200,
+  "message": "Sales KPIs retrieved successfully.",
+  "data": {
+    "acceptedProjects": 2,
+    "unpaidRemaining": 0,
+    "overdueTasks": 0,
+    "newRequests": 0,
+    "waitingCustomer": 1,
+    "paymentFollowUp": 1,
+    "activeProjects": 3
+  }
+}
+```
+
+**`acceptedProjects`** — projects the scoped sales user has accepted for consultation (`assignedSalesId` set). Includes `COMPLETED` and `REJECTED` while still assigned. Does not count unassigned `SUBMITTED` requests (those belong to New Project Requests). Not a non-terminal / “still running” count. Does not replace `waitingCustomer`.
+
+**`unpaidRemaining`** — orders on those accepted projects where stage-3 remaining has been incurred and is not collected. A project collects money three times; this card is stage 3 only.
+
+| Stage | Type | When | Counted |
+| --- | --- | --- | --- |
+| 1 | `PROJECT_START_FEE` | Before designer assignment | No |
+| 2 | `DEPOSIT` | Order `CREATED` / `DEPOSIT_PENDING` | No |
+| 3 | `REMAINING_PAYMENT` | After the customer confirms delivery | Yes, if unpaid |
+
+An order is counted when its status is not `CREATED`, `DEPOSIT_PENDING`, `DEPOSIT_PAID`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `AWAITING_CUSTOMER_CONFIRMATION`, or `CANCELLED`, and either:
+
+- `remainingAmount > 0` and (`status` is `FINAL_PAYMENT_PENDING` or `customerConfirmedDeliveryAt` is set), or
+- a `REMAINING_PAYMENT` exists with status `PENDING`, `PROCESSING`, or `EXPIRED`
+
+Typical status is `FINAL_PAYMENT_PENDING`. Orders still in production or delivery, and `AWAITING_CUSTOMER_CONFIRMATION`, are excluded because remaining is created only after delivery confirmation. A paid remaining (`PaymentStatus.PAID` and `remainingAmount <= 0`) is not counted. One order is counted once even if it has more than one open remaining payment.
+
+**`overdueTasks`** — unchanged contract and deadline rule. Counts scoped projects whose `targetCompletionDate` is set and is before today (UTC date of the request). No project status is excluded (`COMPLETED` / `REJECTED` still count if the target date is in the past). Null `targetCompletionDate` is not overdue. `dateRange` and `search` are not applied to this stock card.
+
+**Compatibility fields** (do not bind the new cards to these):
+
+| Field | Meaning kept |
+| --- | --- |
+| `newRequests` | `SUBMITTED` projects inside the date/search-filtered queue. `scope=mine` is 0 for unassigned requests. Frontend may keep counting those from `GET /projects?status=SUBMITTED`. Not changed by this ticket. |
+| `waitingCustomer` | `NEED_BASIC_INFORMATION` or `QUOTATION_SENT`, plus `FINAL_PAYMENT_PENDING` orders with no remaining amount and no delivery confirmation. Not a substitute for the new cards. |
+| `paymentFollowUp` | Old follow-up count: `DEPOSIT_PENDING`, or `FINAL_PAYMENT_PENDING` with `remainingAmount > 0`. Broader than `unpaidRemaining`. |
+| `activeProjects` | Old non-terminal count (`status` is not `COMPLETED` and not `REJECTED`). Not `acceptedProjects`. |
+
+| HTTP | Case |
+| --- | --- |
+| 200 | KPI payload |
+| 400 | `scope` is not `mine` / `team` / `all`, or `dateRange` is not `today` / `thisWeek` / `thisMonth` |
+| 401 | Missing or invalid current user |
+| 403 | Role is not `SALES` or `ADMIN` |
 
 ### Project phase deadline risks
 

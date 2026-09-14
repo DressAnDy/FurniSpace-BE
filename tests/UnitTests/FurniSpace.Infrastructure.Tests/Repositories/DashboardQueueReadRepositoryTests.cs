@@ -201,6 +201,53 @@ public sealed class DashboardQueueReadRepositoryTests
     }
 
     [Fact]
+    public async Task GetSalesUnpaidRemainingAndOverdueRows_MatchKpiTotals()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        var completedId = Guid.NewGuid();
+        var today = DateOnly.FromDateTime(seed.Now);
+
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = completedId,
+            CustomerId = Guid.NewGuid(),
+            AssignedSalesId = seed.SalesId,
+            ProjectCode = "PRJ-DONE",
+            ProjectName = "Completed Assigned",
+            Status = ProjectStatus.COMPLETED,
+            TargetCompletionDate = today.AddDays(-10),
+            CreatedAt = seed.Now
+        });
+
+        var remainingOrderId = Guid.NewGuid();
+        context.OrderSet.Add(
+            CreateOrder(remainingOrderId, completedId, seed.SalesId, OrderStatus.FINAL_PAYMENT_PENDING, 400m, seed.Now, confirmed: true));
+        context.PaymentSet.Add(
+            CreatePayment(remainingOrderId, completedId, PaymentType.REMAINING_PAYMENT, PaymentStatus.PENDING, 400m));
+        await context.SaveChangesAsync();
+
+        var repository = new DashboardQueueReadRepository(context);
+        var filter = new DashboardQueueFilterReadModel
+        {
+            Scope = "mine",
+            CurrentUserId = seed.SalesId,
+            CurrentUserRole = "SALES",
+            UtcNow = seed.Now
+        };
+
+        var kpis = await repository.GetSalesKpisAsync(filter);
+        var unpaidRows = await repository.GetSalesUnpaidRemainingRowsAsync(filter);
+        var overdueRows = await repository.GetSalesOverdueTaskRowsAsync(filter);
+
+        Assert.Equal(kpis.UnpaidRemaining, unpaidRows.Count);
+        Assert.Equal(kpis.OverdueTasks, overdueRows.Count);
+        Assert.Contains(unpaidRows, row => row.OrderId == remainingOrderId && row.RemainingAmount == 400m);
+        Assert.Contains(overdueRows, row => row.ProjectId == completedId && row.OverdueDays == 10);
+        Assert.All(unpaidRows, row => Assert.NotEqual(OrderStatus.DEPOSIT_PENDING, row.Status));
+    }
+
+    [Fact]
     public async Task GetDesignerQueueRowsAndKpis_ReturnDesignActiveWork()
     {
         await using var context = CreateContext();

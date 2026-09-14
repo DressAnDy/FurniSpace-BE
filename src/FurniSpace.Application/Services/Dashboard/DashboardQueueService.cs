@@ -81,6 +81,72 @@ public sealed class DashboardQueueService : IDashboardQueueService
             "Sales KPIs retrieved successfully.");
     }
 
+    public async Task<ServiceResult<SalesUnpaidRemainingListResponseDto>> GetSalesUnpaidRemainingAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Sales, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<SalesUnpaidRemainingListResponseDto>(prepared.Error);
+        }
+
+        // Stock list: ignore dateRange / search so total matches unpaidRemaining KPI.
+        var filter = ToStockFilter(prepared.Filter!);
+        var rows = await _dashboard.GetSalesUnpaidRemainingRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapUnpaidRemainingItem)
+            .ToList();
+
+        return ServiceResult<SalesUnpaidRemainingListResponseDto>.Success(
+            new SalesUnpaidRemainingListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Sales unpaid remaining list retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<SalesOverdueTasksListResponseDto>> GetSalesOverdueTasksAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Sales, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<SalesOverdueTasksListResponseDto>(prepared.Error);
+        }
+
+        // Stock list: ignore dateRange / search so total matches overdueTasks KPI.
+        var filter = ToStockFilter(prepared.Filter!);
+        var rows = await _dashboard.GetSalesOverdueTaskRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapOverdueTaskItem)
+            .ToList();
+
+        return ServiceResult<SalesOverdueTasksListResponseDto>.Success(
+            new SalesOverdueTasksListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Sales overdue tasks list retrieved successfully.");
+    }
+
     public async Task<ServiceResult<DashboardQueueResponseDto>> GetDesignerWorkQueueAsync(
         Guid currentUserId,
         DashboardQueueQueryDto query,
@@ -837,6 +903,74 @@ public sealed class DashboardQueueService : IDashboardQueueService
                string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(roleName, ApplicationRoles.Production, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static DashboardQueueFilterReadModel ToStockFilter(DashboardQueueFilterReadModel filter)
+    {
+        return new DashboardQueueFilterReadModel
+        {
+            Scope = filter.Scope,
+            CurrentUserId = filter.CurrentUserId,
+            CurrentUserRole = filter.CurrentUserRole,
+            Search = null,
+            DateRange = null,
+            UtcNow = filter.UtcNow
+        };
+    }
+
+    private static SalesUnpaidRemainingItemDto MapUnpaidRemainingItem(SalesUnpaidRemainingRowReadModel row)
+    {
+        return new SalesUnpaidRemainingItemDto
+        {
+            OrderId = row.OrderId,
+            OrderCode = row.OrderCode,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            CustomerId = row.CustomerId,
+            CustomerName = row.CustomerName,
+            AssignedSalesId = row.AssignedSalesId,
+            AssignedSalesName = row.AssignedSalesName,
+            Status = row.Status.ToString(),
+            RemainingAmount = row.RemainingAmount,
+            Currency = row.Currency,
+            PaymentId = row.PaymentId,
+            PaymentStatus = row.PaymentStatus?.ToString(),
+            UpdatedAt = DateTime.SpecifyKind(row.UpdatedAt, DateTimeKind.Utc)
+        };
+    }
+
+    private static SalesOverdueTaskItemDto MapOverdueTaskItem(SalesOverdueTaskRowReadModel row)
+    {
+        return new SalesOverdueTaskItemDto
+        {
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            CustomerId = row.CustomerId,
+            CustomerName = row.CustomerName,
+            AssignedSalesId = row.AssignedSalesId,
+            AssignedSalesName = row.AssignedSalesName,
+            Status = row.Status?.ToString() ?? string.Empty,
+            TargetCompletionDate = row.TargetCompletionDate,
+            OverdueDays = row.OverdueDays,
+            SubmittedAt = row.SubmittedAt.HasValue
+                ? DateTime.SpecifyKind(row.SubmittedAt.Value, DateTimeKind.Utc)
+                : null,
+            UpdatedAt = row.UpdatedAt.HasValue
+                ? DateTime.SpecifyKind(row.UpdatedAt.Value, DateTimeKind.Utc)
+                : null
+        };
+    }
+
+    private static int NormalizePage(int page)
+    {
+        return page < 1 ? DefaultPage : page;
+    }
+
+    private static int NormalizeLimit(int limit)
+    {
+        return limit < 1 ? DefaultLimit : Math.Min(limit, MaxLimit);
     }
 
     private static bool IsValidScope(string? scope)

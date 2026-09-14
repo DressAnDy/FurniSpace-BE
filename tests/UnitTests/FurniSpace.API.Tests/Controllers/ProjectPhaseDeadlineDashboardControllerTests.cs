@@ -107,6 +107,18 @@ public sealed class ProjectPhaseDeadlineDashboardControllerTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<ServiceResult<SalesUnpaidRemainingListResponseDto>> GetSalesUnpaidRemainingAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ServiceResult<SalesOverdueTasksListResponseDto>> GetSalesOverdueTasksAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<ServiceResult<DashboardQueueResponseDto>> GetDesignerWorkQueueAsync(
             Guid currentUserId,
             DashboardQueueQueryDto query,

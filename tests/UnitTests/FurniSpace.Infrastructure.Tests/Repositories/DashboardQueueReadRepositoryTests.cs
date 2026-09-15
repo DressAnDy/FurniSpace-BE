@@ -265,7 +265,110 @@ public sealed class DashboardQueueReadRepositoryTests
         var kpis = await repository.GetDesignerKpisAsync(filter);
 
         Assert.Contains(rows, row => row.ProjectId == seed.DesignerProjectId);
-        Assert.True(kpis.MeasurementDue >= 1);
+        Assert.Equal(0, kpis.MeasurementDue);
+    }
+
+    [Fact]
+    public async Task GetDesignerKpisAndConfirmedMeasurementRows_CountConfirmedSchedulesInDateRange()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        var scheduleInWeekId = Guid.NewGuid();
+        var otherDesignerId = Guid.NewGuid();
+
+        // seed.Now = 2026-08-17 UTC → VN 2026-08-17. Week Mon 2026-08-17 → Sun 2026-08-23.
+        context.ProjectScheduleSet.AddRange(
+            new ProjectSchedule
+            {
+                ScheduleId = scheduleInWeekId,
+                ProjectId = seed.DesignerProjectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                Title = "Measure K-ON",
+                AssignedStaffId = seed.DesignerId,
+                ScheduledStart = new DateTime(2026, 8, 19, 3, 0, 0, DateTimeKind.Utc),
+                ScheduledEnd = new DateTime(2026, 8, 19, 5, 0, 0, DateTimeKind.Utc),
+                Location = "Site",
+                Status = ProjectScheduleStatus.CONFIRMED,
+                CreatedAt = seed.Now
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = seed.DesignerProjectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                AssignedStaffId = seed.DesignerId,
+                ScheduledStart = new DateTime(2026, 8, 19, 6, 0, 0, DateTimeKind.Utc),
+                Status = ProjectScheduleStatus.COMPLETED,
+                CreatedAt = seed.Now
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = seed.DesignerProjectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                AssignedStaffId = seed.DesignerId,
+                ScheduledStart = new DateTime(2026, 8, 19, 7, 0, 0, DateTimeKind.Utc),
+                Status = ProjectScheduleStatus.PENDING_CONFIRMATION,
+                CreatedAt = seed.Now
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = seed.DesignerProjectId,
+                ScheduleType = ProjectScheduleType.CONSULTATION,
+                AssignedStaffId = seed.DesignerId,
+                ScheduledStart = new DateTime(2026, 8, 19, 8, 0, 0, DateTimeKind.Utc),
+                Status = ProjectScheduleStatus.CONFIRMED,
+                CreatedAt = seed.Now
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = seed.SalesProjectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                AssignedStaffId = otherDesignerId,
+                ScheduledStart = new DateTime(2026, 8, 20, 3, 0, 0, DateTimeKind.Utc),
+                Status = ProjectScheduleStatus.CONFIRMED,
+                CreatedAt = seed.Now
+            },
+            new ProjectSchedule
+            {
+                ScheduleId = Guid.NewGuid(),
+                ProjectId = seed.DesignerProjectId,
+                ScheduleType = ProjectScheduleType.MEASUREMENT,
+                AssignedStaffId = seed.DesignerId,
+                ScheduledStart = new DateTime(2026, 9, 2, 3, 0, 0, DateTimeKind.Utc),
+                Status = ProjectScheduleStatus.CONFIRMED,
+                CreatedAt = seed.Now
+            });
+        await context.SaveChangesAsync();
+
+        var repository = new DashboardQueueReadRepository(context);
+        var filter = new DashboardQueueFilterReadModel
+        {
+            Scope = "mine",
+            CurrentUserId = seed.DesignerId,
+            CurrentUserRole = "DESIGNER",
+            DateRange = "thisWeek",
+            UtcNow = seed.Now
+        };
+
+        var kpis = await repository.GetDesignerKpisAsync(filter);
+        var list = await repository.GetDesignerConfirmedMeasurementRowsAsync(filter);
+        var team = await repository.GetDesignerKpisAsync(new DashboardQueueFilterReadModel
+        {
+            Scope = "team",
+            CurrentUserId = seed.DesignerId,
+            CurrentUserRole = "DESIGNER",
+            DateRange = "thisWeek",
+            UtcNow = seed.Now
+        });
+
+        Assert.Equal(1, kpis.MeasurementDue);
+        Assert.Single(list);
+        Assert.Equal(scheduleInWeekId, list[0].ScheduleId);
+        Assert.Equal("PRJ-DESIGN", list[0].ProjectCode);
+        Assert.Equal(2, team.MeasurementDue);
     }
 
     [Fact]

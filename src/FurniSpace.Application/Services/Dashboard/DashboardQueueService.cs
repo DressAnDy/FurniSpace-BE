@@ -185,11 +185,53 @@ public sealed class DashboardQueueService : IDashboardQueueService
             new DesignerDashboardKpisDto
             {
                 MeasurementDue = kpis.MeasurementDue,
+                ConfirmedMeasurements = kpis.MeasurementDue,
                 ProposalsInProgress = kpis.ProposalsInProgress,
                 RevisionRequested = kpis.RevisionRequested,
                 OverdueTasks = kpis.OverdueTasks
             },
             "Designer KPIs retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerConfirmedMeasurementsListResponseDto>> GetDesignerConfirmedMeasurementsAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerConfirmedMeasurementsListResponseDto>(prepared.Error);
+        }
+
+        // Same scope + dateRange as measurementDue / confirmedMeasurements KPI. Search ignored.
+        var filter = new DashboardQueueFilterReadModel
+        {
+            Scope = prepared.Filter!.Scope,
+            CurrentUserId = prepared.Filter.CurrentUserId,
+            CurrentUserRole = prepared.Filter.CurrentUserRole,
+            Search = null,
+            DateRange = prepared.Filter.DateRange,
+            UtcNow = prepared.Filter.UtcNow
+        };
+        var rows = await _dashboard.GetDesignerConfirmedMeasurementRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapConfirmedMeasurementItem)
+            .ToList();
+
+        return ServiceResult<DesignerConfirmedMeasurementsListResponseDto>.Success(
+            new DesignerConfirmedMeasurementsListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer confirmed measurements list retrieved successfully.");
     }
 
     public async Task<ServiceResult<DashboardQueueResponseDto>> GetProductionQueueAsync(
@@ -960,6 +1002,27 @@ public sealed class DashboardQueueService : IDashboardQueueService
             UpdatedAt = row.UpdatedAt.HasValue
                 ? DateTime.SpecifyKind(row.UpdatedAt.Value, DateTimeKind.Utc)
                 : null
+        };
+    }
+
+    private static DesignerConfirmedMeasurementItemDto MapConfirmedMeasurementItem(
+        DesignerConfirmedMeasurementRowReadModel row)
+    {
+        return new DesignerConfirmedMeasurementItemDto
+        {
+            ScheduleId = row.ScheduleId,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            Title = row.Title,
+            ScheduledStart = DateTime.SpecifyKind(row.ScheduledStart, DateTimeKind.Utc),
+            ScheduledEnd = row.ScheduledEnd.HasValue
+                ? DateTime.SpecifyKind(row.ScheduledEnd.Value, DateTimeKind.Utc)
+                : null,
+            Location = row.Location,
+            Status = row.Status.ToString(),
+            AssignedStaffId = row.AssignedStaffId,
+            AssignedStaffName = row.AssignedStaffName
         };
     }
 

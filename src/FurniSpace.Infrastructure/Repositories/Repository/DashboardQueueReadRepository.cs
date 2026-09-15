@@ -1,6 +1,7 @@
 #nullable enable
 
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Dashboard;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.ReadModels.Dashboard;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -323,12 +324,12 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
     {
         var today = DateOnly.FromDateTime(filter.UtcNow);
         var projects = BuildDesignerProjectQuery(filter);
+        var measurementDue = await BuildConfirmedMeasurementSchedulesQuery(filter)
+            .CountAsync(cancellationToken);
 
         return new DesignerDashboardKpisReadModel
         {
-            MeasurementDue = await projects.CountAsync(
-                project => project.Status == ProjectStatus.MEASUREMENT_REQUIRED,
-                cancellationToken),
+            MeasurementDue = measurementDue,
             ProposalsInProgress = await projects.CountAsync(
                 project =>
                     project.Status == ProjectStatus.SPACE_VERIFIED ||
@@ -343,6 +344,86 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                     project.TargetCompletionDate.Value < today,
                 cancellationToken)
         };
+    }
+
+    public async Task<IReadOnlyList<DesignerConfirmedMeasurementRowReadModel>> GetDesignerConfirmedMeasurementRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var schedules = BuildConfirmedMeasurementSchedulesQuery(filter);
+
+        return await schedules
+            .OrderBy(schedule => schedule.ScheduledStart)
+            .ThenBy(schedule => schedule.ScheduleId)
+            .Select(schedule => new DesignerConfirmedMeasurementRowReadModel
+            {
+                ScheduleId = schedule.ScheduleId,
+                ProjectId = schedule.ProjectId,
+                ProjectCode = _db.ProjectSet
+                    .Where(project => project.ProjectId == schedule.ProjectId)
+                    .Select(project => project.ProjectCode)
+                    .FirstOrDefault(),
+                ProjectName = _db.ProjectSet
+                    .Where(project => project.ProjectId == schedule.ProjectId)
+                    .Select(project => project.ProjectName)
+                    .FirstOrDefault() ?? string.Empty,
+                Title = schedule.Title,
+                ScheduledStart = schedule.ScheduledStart,
+                ScheduledEnd = schedule.ScheduledEnd,
+                Location = schedule.Location,
+                Status = schedule.Status ?? ProjectScheduleStatus.CONFIRMED,
+                AssignedStaffId = schedule.AssignedStaffId,
+                AssignedStaffName = schedule.AssignedStaffId.HasValue
+                    ? _db.AccountSet
+                        .Where(account => account.AccountId == schedule.AssignedStaffId)
+                        .Select(account => account.FullName)
+                        .FirstOrDefault()
+                    : null
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    private IQueryable<Domain.Entities.ProjectSchedule> BuildConfirmedMeasurementSchedulesQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var schedules = _db.ProjectScheduleSet.Where(schedule =>
+            schedule.ScheduleType == ProjectScheduleType.MEASUREMENT &&
+            schedule.Status == ProjectScheduleStatus.CONFIRMED);
+
+        schedules = ApplyScheduleAssigneeScope(schedules, filter);
+
+        var bounds = DashboardScheduleDateRange.TryResolve(filter.DateRange, filter.UtcNow);
+        if (bounds.HasValue)
+        {
+            var fromUtc = bounds.Value.FromUtc;
+            var toUtcExclusive = bounds.Value.ToUtcExclusive;
+            schedules = schedules.Where(schedule =>
+                schedule.ScheduledStart >= fromUtc &&
+                schedule.ScheduledStart < toUtcExclusive);
+        }
+
+        return schedules;
+    }
+
+    private static IQueryable<Domain.Entities.ProjectSchedule> ApplyScheduleAssigneeScope(
+        IQueryable<Domain.Entities.ProjectSchedule> schedules,
+        DashboardQueueFilterReadModel filter)
+    {
+        var scope = NormalizeScope(filter.Scope);
+        var isAdmin = IsAdmin(filter.CurrentUserRole);
+
+        if (string.Equals(scope, "mine", StringComparison.OrdinalIgnoreCase))
+        {
+            return schedules.Where(schedule => schedule.AssignedStaffId == filter.CurrentUserId);
+        }
+
+        if (isAdmin && string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            return schedules;
+        }
+
+        // team (and non-admin all): must have an assignee
+        return schedules.Where(schedule => schedule.AssignedStaffId != null);
     }
 
     public async Task<IReadOnlyList<DashboardProductionQueueRowReadModel>> GetProductionQueueRowsAsync(

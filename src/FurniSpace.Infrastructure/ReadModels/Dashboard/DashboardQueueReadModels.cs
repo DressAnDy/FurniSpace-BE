@@ -275,6 +275,31 @@ public sealed class DesignerDashboardKpisReadModel
     public int OverdueTasks { get; init; }
 }
 
+public sealed class DesignerConfirmedMeasurementRowReadModel
+{
+    public Guid ScheduleId { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public string? Title { get; init; }
+
+    public DateTime ScheduledStart { get; init; }
+
+    public DateTime? ScheduledEnd { get; init; }
+
+    public string? Location { get; init; }
+
+    public ProjectScheduleStatus Status { get; init; }
+
+    public Guid? AssignedStaffId { get; init; }
+
+    public string? AssignedStaffName { get; init; }
+}
+
 public sealed class ProductionDashboardKpisReadModel
 {
     public int PendingCustomizationReview { get; init; }

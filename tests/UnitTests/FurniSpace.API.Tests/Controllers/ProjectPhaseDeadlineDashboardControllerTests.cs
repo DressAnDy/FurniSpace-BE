@@ -131,6 +131,12 @@ public sealed class ProjectPhaseDeadlineDashboardControllerTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<ServiceResult<DesignerConfirmedMeasurementsListResponseDto>> GetDesignerConfirmedMeasurementsAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<ServiceResult<DashboardQueueResponseDto>> GetProductionQueueAsync(
             Guid currentUserId,
             DashboardQueueQueryDto query,

@@ -111,6 +111,22 @@ public sealed class DashboardControllersTests
     }
 
     [Fact]
+    public async Task Designer_GetConfirmedMeasurements_ReturnsOk()
+    {
+        var userId = Guid.NewGuid();
+        var service = new FakeDashboardQueueService();
+        var controller = CreateDesignerController(service, userId);
+
+        var result = await controller.GetConfirmedMeasurements(
+            new DashboardQueueQueryDto { Scope = "mine", DateRange = "thisWeek", Limit = 5 });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(userId, service.LastUserId);
+        Assert.Equal("designer-confirmed-measurements", service.LastCall);
+    }
+
+    [Fact]
     public async Task Designer_WithoutUser_ReturnsUnauthorized()
     {
         var controller = CreateDesignerController(new FakeDashboardQueueService(), userId: null);
@@ -269,6 +285,18 @@ public sealed class DashboardControllersTests
             LastCall = "designer-kpis";
             return Task.FromResult(ServiceResult<DesignerDashboardKpisDto>.Success(
                 new DesignerDashboardKpisDto { MeasurementDue = 2 },
+                "ok"));
+        }
+
+        public Task<ServiceResult<DesignerConfirmedMeasurementsListResponseDto>> GetDesignerConfirmedMeasurementsAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastUserId = currentUserId;
+            LastCall = "designer-confirmed-measurements";
+            return Task.FromResult(ServiceResult<DesignerConfirmedMeasurementsListResponseDto>.Success(
+                new DesignerConfirmedMeasurementsListResponseDto(),
                 "ok"));
         }
 

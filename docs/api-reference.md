@@ -3732,6 +3732,7 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 | GET | `/api/dashboard/sales/kpis/overdue-tasks` | SALES, ADMIN |
 | GET | `/api/dashboard/designer/work-queue` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/designer/kpis` | DESIGNER, ADMIN |
+| GET | `/api/dashboard/designer/kpis/confirmed-measurements` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/production/queue` | PRODUCTION, ADMIN |
 | GET | `/api/dashboard/production/kpis` | PRODUCTION, ADMIN |
 | GET | `/dashboard/project-phase-deadlines` | SALES, DESIGNER, PRODUCTION, ADMIN |
@@ -3790,11 +3791,11 @@ Sales next-action uses project status plus latest non-cancelled order (deposit /
 
 **Sales:** `acceptedProjects`, `unpaidRemaining`, `overdueTasks`. Compatibility fields still returned: `newRequests`, `waitingCustomer`, `paymentFollowUp`, `activeProjects`. See below.
 
-**Designer:** `measurementDue`, `proposalsInProgress`, `revisionRequested`, `overdueTasks`
+**Designer:** `measurementDue` (= `confirmedMeasurements`), `proposalsInProgress`, `revisionRequested`, `overdueTasks`. See confirmed-measurements section below.
 
 **Production:** `pendingCustomizationReview`, `pendingStart`, `pendingReview` (alias of `pendingStart`), `inProduction`, `readyToComplete`, `overdueTasks`, `readyForDelivery`, `awaitingDeliverySchedule`, `completedInRange`. Default `scope=mine`. Customization KPI chỉ khi `scope=all`. `unavailableItems` is not a KPI field; use `GET /production-items/unavailable` for that queue.
 
-Designer and Production KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local). Sales stock cards do not.
+Designer `proposalsInProgress` / `revisionRequested` / `overdueTasks` still honor queue `scope` / `dateRange` / `search` on projects. Designer `measurementDue` uses schedule `scope` + `dateRange` only (see below). Production KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local). Sales stock cards do not.
 
 #### `GET /api/dashboard/sales/kpis`
 
@@ -3940,6 +3941,84 @@ Inline list for the Overdue Tasks KPI card. Same stock filter as `overdueTasks`:
 ```
 
 Sorted by `targetCompletionDate` asc (most overdue first), then `projectId`. `overdueDays` = today UTC minus `targetCompletionDate`.
+
+#### `GET /api/dashboard/designer/kpis` — `measurementDue`
+
+`measurementDue` counts **confirmed measurement schedules**, not projects in `MEASUREMENT_REQUIRED`. Alias field `confirmedMeasurements` returns the same number. FE card label: Confirmed Measurements.
+
+Does **not** count projects that need measurement but have no schedule yet.
+
+| Condition | Value |
+| --- | --- |
+| `scheduleType` | `MEASUREMENT` |
+| `status` | `CONFIRMED` only |
+| Assignee | `scope=mine` → `assignedStaffId` = current user. `team` / non-admin `all` → `assignedStaffId` not null. Admin `all` → any assignee including null |
+| Time | `scheduledStart` in `dateRange` (not `createdAt` / `completedAt`) |
+
+Not counted: `PENDING_CONFIRMATION`, `COMPLETED`, `CANCELLED`, or non-`MEASUREMENT` types.
+
+**`dateRange` timezone:** `Asia/Ho_Chi_Minh`. Bounds are half-open UTC `[from, to)`.
+
+| Value | Local window |
+| --- | --- |
+| `today` | That VN calendar day 00:00 → next day 00:00 |
+| `thisWeek` | Monday 00:00 → next Monday 00:00 (Mon–Sun inclusive) |
+| `thisMonth` | 1st 00:00 → 1st of next month 00:00 |
+| omitted | No time filter (all confirmed measurements in scope) |
+
+```json
+{
+  "status": 200,
+  "message": "Designer KPIs retrieved successfully.",
+  "data": {
+    "measurementDue": 1,
+    "confirmedMeasurements": 1,
+    "proposalsInProgress": 0,
+    "revisionRequested": 0,
+    "overdueTasks": 0
+  }
+}
+```
+
+#### `GET /api/dashboard/designer/kpis/confirmed-measurements`
+
+Dropdown list for the Confirmed Measurements card. Same `scope` + `dateRange` as `measurementDue`. `total` equals the KPI. `search` ignored.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Same as KPI |
+| `dateRange` | `today`, `thisWeek`, `thisMonth` | Same VN Monday–Sunday rules |
+| `page` | default `1` | |
+| `limit` | default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Designer confirmed measurements list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "scheduleId": "uuid",
+        "projectId": "uuid",
+        "projectCode": "PRJ-2026-0125",
+        "projectName": "K-ON 63",
+        "title": "Site measure",
+        "scheduledStart": "2026-09-19T03:00:00Z",
+        "scheduledEnd": "2026-09-19T05:00:00Z",
+        "location": "District 1",
+        "status": "CONFIRMED",
+        "assignedStaffId": "uuid",
+        "assignedStaffName": "Designer One"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 1
+  }
+}
+```
+
+Sorted by `scheduledStart` asc, then `scheduleId`. Completing or cancelling a schedule drops it from both KPI and list.
 
 ### Project phase deadline risks
 

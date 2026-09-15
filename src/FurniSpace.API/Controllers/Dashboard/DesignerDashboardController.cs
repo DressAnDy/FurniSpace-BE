@@ -49,6 +49,29 @@ public sealed class DesignerDashboardController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// List for Confirmed Measurements KPI. Same scope + dateRange as
+    /// <c>measurementDue</c> / <c>confirmedMeasurements</c>. <c>total</c> matches the KPI.
+    /// dateRange uses Asia/Ho_Chi_Minh; thisWeek is Monday–Sunday.
+    /// </summary>
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpGet("kpis/confirmed-measurements")]
+    public async Task<IActionResult> GetConfirmedMeasurements(
+        [FromQuery] DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _dashboard.GetDesignerConfirmedMeasurementsAsync(
+            currentUserId,
+            query,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

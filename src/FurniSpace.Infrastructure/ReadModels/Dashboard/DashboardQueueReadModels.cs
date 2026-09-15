@@ -325,6 +325,29 @@ public sealed class DesignerProposalConsultingRowReadModel
     public DateTime? SubmittedAt { get; init; }
 }
 
+public sealed class DesignerRevisionRequestedRowReadModel
+{
+    public Guid ProposalId { get; init; }
+
+    public string ProposalName { get; init; } = string.Empty;
+
+    public ProposalStatus Status { get; init; }
+
+    public string? RevisionNote { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid? AssignedDesignerId { get; init; }
+
+    public string? AssignedDesignerName { get; init; }
+
+    public DateTime? RevisionRequestedAt { get; init; }
+}
+
 public sealed class ProductionDashboardKpisReadModel
 {
     public int PendingCustomizationReview { get; init; }

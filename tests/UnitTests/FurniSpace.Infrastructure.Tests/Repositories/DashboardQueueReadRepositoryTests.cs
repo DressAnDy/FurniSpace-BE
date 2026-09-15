@@ -451,6 +451,96 @@ public sealed class DashboardQueueReadRepositoryTests
     }
 
     [Fact]
+    public async Task GetDesignerRevisionRequestedRows_CountProposalsNotProjectQuotationStatus()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        var proposalId = Guid.NewGuid();
+        var otherDesignerId = Guid.NewGuid();
+        var otherProjectId = Guid.NewGuid();
+
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = otherProjectId,
+            CustomerId = Guid.NewGuid(),
+            AssignedDesignerId = otherDesignerId,
+            ProjectCode = "PRJ-OTHER",
+            ProjectName = "Other Designer Project",
+            Status = ProjectStatus.PROPOSAL_CONSULTING,
+            CreatedAt = seed.Now
+        });
+
+        // Project in QUOTATION_REVISION_REQUESTED must NOT inflate the new KPI.
+        context.ProjectSet.Add(new Project
+        {
+            ProjectId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            AssignedDesignerId = seed.DesignerId,
+            ProjectCode = "PRJ-QR",
+            ProjectName = "Quotation Revision Project",
+            Status = ProjectStatus.QUOTATION_REVISION_REQUESTED,
+            CreatedAt = seed.Now
+        });
+
+        context.ProposalSet.AddRange(
+            new Proposal
+            {
+                ProposalId = proposalId,
+                ProjectId = seed.DesignerProjectId,
+                ProposalName = "Bản 1",
+                Status = ProposalStatus.REVISION_REQUESTED,
+                RevisionNote = "Tày vl",
+                CreatedAt = seed.Now
+            },
+            new Proposal
+            {
+                ProposalId = Guid.NewGuid(),
+                ProjectId = seed.DesignerProjectId,
+                ProposalName = "Draft",
+                Status = ProposalStatus.DRAFT,
+                CreatedAt = seed.Now
+            },
+            new Proposal
+            {
+                ProposalId = Guid.NewGuid(),
+                ProjectId = otherProjectId,
+                ProposalName = "Other Ban",
+                Status = ProposalStatus.REVISION_REQUESTED,
+                CreatedAt = seed.Now
+            });
+        await context.SaveChangesAsync();
+
+        var repository = new DashboardQueueReadRepository(context);
+        var now = DateTime.UtcNow;
+        var filter = new DashboardQueueFilterReadModel
+        {
+            Scope = "mine",
+            CurrentUserId = seed.DesignerId,
+            CurrentUserRole = "DESIGNER",
+            DateRange = "thisWeek",
+            UtcNow = now
+        };
+
+        var kpis = await repository.GetDesignerKpisAsync(filter);
+        var rows = await repository.GetDesignerRevisionRequestedRowsAsync(filter);
+        var team = await repository.GetDesignerKpisAsync(new DashboardQueueFilterReadModel
+        {
+            Scope = "team",
+            CurrentUserId = seed.DesignerId,
+            CurrentUserRole = "DESIGNER",
+            DateRange = "thisWeek",
+            UtcNow = now
+        });
+
+        Assert.Equal(1, kpis.RevisionRequested);
+        Assert.Single(rows);
+        Assert.Equal(proposalId, rows[0].ProposalId);
+        Assert.Equal("Bản 1", rows[0].ProposalName);
+        Assert.Equal(ProposalStatus.REVISION_REQUESTED, rows[0].Status);
+        Assert.Equal(2, team.RevisionRequested);
+    }
+
+    [Fact]
     public async Task GetDesignerQueueRowsAsync_TeamScope_RequiresAssignedDesigner()
     {
         await using var context = CreateContext();

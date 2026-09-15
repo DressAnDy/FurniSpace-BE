@@ -412,6 +412,7 @@ public sealed class DashboardQueueServiceTests
         Assert.Equal(2, result.Data.ProposalsInProgress);
         Assert.Equal(2, result.Data.ProposalConsultingProjects);
         Assert.Equal(3, result.Data.RevisionRequested);
+        Assert.Equal(3, result.Data.ProposalRevisionsRequested);
         Assert.Equal(4, result.Data.OverdueTasks);
     }
 
@@ -500,6 +501,52 @@ public sealed class DashboardQueueServiceTests
         Assert.Single(result.Data.Items);
         Assert.Equal(projectId, result.Data.Items[0].ProjectId);
         Assert.Equal("PROPOSAL_CONSULTING", result.Data.Items[0].Status);
+    }
+
+    [Fact]
+    public async Task GetDesignerRevisionRequestedAsync_PagesAndMatchesTotal()
+    {
+        var proposalId = Guid.NewGuid();
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                RevisionRequestedRows =
+                [
+                    new DesignerRevisionRequestedRowReadModel
+                    {
+                        ProposalId = proposalId,
+                        ProposalName = "Bản 1",
+                        Status = ProposalStatus.REVISION_REQUESTED,
+                        RevisionNote = "Need changes",
+                        ProjectId = Guid.NewGuid(),
+                        ProjectCode = "PRJ-1",
+                        ProjectName = "Project",
+                        AssignedDesignerId = Guid.NewGuid(),
+                        AssignedDesignerName = "Designer",
+                        RevisionRequestedAt = DateTime.UtcNow
+                    },
+                    new DesignerRevisionRequestedRowReadModel
+                    {
+                        ProposalId = Guid.NewGuid(),
+                        ProposalName = "Bản 2",
+                        Status = ProposalStatus.REVISION_REQUESTED,
+                        ProjectId = Guid.NewGuid(),
+                        ProjectName = "Project 2",
+                        RevisionRequestedAt = DateTime.UtcNow.AddDays(-1)
+                    }
+                ]
+            },
+            new FakeProjectRepository { RoleName = "DESIGNER" });
+
+        var result = await service.GetDesignerRevisionRequestedAsync(
+            Guid.NewGuid(),
+            new DashboardQueueQueryDto { Scope = "mine", DateRange = "thisWeek", Page = 1, Limit = 1 });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, result.Data!.Total);
+        Assert.Single(result.Data.Items);
+        Assert.Equal(proposalId, result.Data.Items[0].ProposalId);
+        Assert.Equal("REVISION_REQUESTED", result.Data.Items[0].Status);
     }
 
     [Fact]
@@ -1004,6 +1051,13 @@ public sealed class DashboardQueueServiceTests
             DashboardQueueFilterReadModel filter,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ProposalConsultingRows);
+
+        public IReadOnlyList<DesignerRevisionRequestedRowReadModel> RevisionRequestedRows { get; init; } = [];
+
+        public Task<IReadOnlyList<DesignerRevisionRequestedRowReadModel>> GetDesignerRevisionRequestedRowsAsync(
+            DashboardQueueFilterReadModel filter,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(RevisionRequestedRows);
 
         public Task<IReadOnlyList<DashboardProductionQueueRowReadModel>> GetProductionQueueRowsAsync(
             DashboardQueueFilterReadModel filter,

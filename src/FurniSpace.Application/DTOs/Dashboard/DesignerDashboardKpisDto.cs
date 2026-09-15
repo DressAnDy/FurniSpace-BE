@@ -27,7 +27,14 @@ public sealed class DesignerDashboardKpisDto
     /// <summary>Same value as <see cref="ProposalsInProgress"/>.</summary>
     public int ProposalConsultingProjects { get; set; }
 
+    /// <summary>
+    /// Proposals with status <c>REVISION_REQUESTED</c> on designer-scoped projects.
+    /// Does not count project <c>QUOTATION_REVISION_REQUESTED</c>.
+    /// </summary>
     public int RevisionRequested { get; set; }
+
+    /// <summary>Same value as <see cref="RevisionRequested"/>.</summary>
+    public int ProposalRevisionsRequested { get; set; }
 
     public int OverdueTasks { get; set; }
 }

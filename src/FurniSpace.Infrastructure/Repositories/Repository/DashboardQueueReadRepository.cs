@@ -328,14 +328,14 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
             .CountAsync(cancellationToken);
         var proposalsInProgress = await BuildProposalConsultingProjectsQuery(filter)
             .CountAsync(cancellationToken);
+        var revisionRequested = await BuildRevisionRequestedProposalsQuery(filter)
+            .CountAsync(cancellationToken);
 
         return new DesignerDashboardKpisReadModel
         {
             MeasurementDue = measurementDue,
             ProposalsInProgress = proposalsInProgress,
-            RevisionRequested = await projects.CountAsync(
-                project => project.Status == ProjectStatus.QUOTATION_REVISION_REQUESTED,
-                cancellationToken),
+            RevisionRequested = revisionRequested,
             OverdueTasks = await projects.CountAsync(
                 project =>
                     project.TargetCompletionDate.HasValue &&
@@ -415,6 +415,47 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<DesignerRevisionRequestedRowReadModel>> GetDesignerRevisionRequestedRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var proposals = BuildRevisionRequestedProposalsQuery(filter);
+
+        return await proposals
+            .OrderByDescending(proposal => proposal.UpdatedAt ?? proposal.CreatedAt)
+            .ThenByDescending(proposal => proposal.ProposalId)
+            .Select(proposal => new DesignerRevisionRequestedRowReadModel
+            {
+                ProposalId = proposal.ProposalId,
+                ProposalName = proposal.ProposalName,
+                Status = proposal.Status ?? ProposalStatus.REVISION_REQUESTED,
+                RevisionNote = proposal.RevisionNote,
+                ProjectId = proposal.ProjectId,
+                ProjectCode = _db.ProjectSet
+                    .Where(project => project.ProjectId == proposal.ProjectId)
+                    .Select(project => project.ProjectCode)
+                    .FirstOrDefault(),
+                ProjectName = _db.ProjectSet
+                    .Where(project => project.ProjectId == proposal.ProjectId)
+                    .Select(project => project.ProjectName)
+                    .FirstOrDefault() ?? string.Empty,
+                AssignedDesignerId = _db.ProjectSet
+                    .Where(project => project.ProjectId == proposal.ProjectId)
+                    .Select(project => project.AssignedDesignerId)
+                    .FirstOrDefault(),
+                AssignedDesignerName = _db.ProjectSet
+                    .Where(project => project.ProjectId == proposal.ProjectId && project.AssignedDesignerId.HasValue)
+                    .Join(
+                        _db.AccountSet,
+                        project => project.AssignedDesignerId,
+                        account => account.AccountId,
+                        (_, account) => account.FullName)
+                    .FirstOrDefault(),
+                RevisionRequestedAt = proposal.UpdatedAt ?? proposal.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
+    }
+
     private IQueryable<Domain.Entities.ProjectSchedule> BuildConfirmedMeasurementSchedulesQuery(
         DashboardQueueFilterReadModel filter)
     {
@@ -465,6 +506,37 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         }
 
         return projects;
+    }
+
+    /// <summary>
+    /// Proposals with status <c>REVISION_REQUESTED</c>, scoped via parent project designer.
+    /// Date filter uses proposal <c>updatedAt</c> (fallback <c>createdAt</c>) — no
+    /// <c>revisionRequestedAt</c> column yet.
+    /// </summary>
+    private IQueryable<Domain.Entities.Proposal> BuildRevisionRequestedProposalsQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var scopedProjectIds = ApplyDesignerAssigneeScope(_db.ProjectSet.AsQueryable(), filter)
+            .Select(project => project.ProjectId);
+
+        var proposals = _db.ProposalSet.Where(proposal =>
+            proposal.Status == ProposalStatus.REVISION_REQUESTED &&
+            scopedProjectIds.Contains(proposal.ProjectId));
+
+        var bounds = DashboardScheduleDateRange.TryResolve(filter.DateRange, filter.UtcNow);
+        if (bounds.HasValue)
+        {
+            var fromUtc = bounds.Value.FromUtc;
+            var toUtcExclusive = bounds.Value.ToUtcExclusive;
+            proposals = proposals.Where(proposal =>
+                proposal.UpdatedAt.HasValue
+                    ? proposal.UpdatedAt.Value >= fromUtc && proposal.UpdatedAt.Value < toUtcExclusive
+                    : proposal.CreatedAt.HasValue &&
+                      proposal.CreatedAt.Value >= fromUtc &&
+                      proposal.CreatedAt.Value < toUtcExclusive);
+        }
+
+        return proposals;
     }
 
     private static IQueryable<Domain.Entities.Project> ApplyDesignerAssigneeScope(

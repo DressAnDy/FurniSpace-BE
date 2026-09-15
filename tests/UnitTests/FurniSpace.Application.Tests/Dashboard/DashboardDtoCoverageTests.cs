@@ -72,6 +72,7 @@ public sealed class DashboardDtoCoverageTests
             ProposalsInProgress = 2,
             ProposalConsultingProjects = 2,
             RevisionRequested = 3,
+            ProposalRevisionsRequested = 3,
             OverdueTasks = 4
         };
         var productionKpis = new ProductionDashboardKpisDto
@@ -95,6 +96,7 @@ public sealed class DashboardDtoCoverageTests
         Assert.Equal(4, designerKpis.OverdueTasks);
         Assert.Equal(1, designerKpis.ConfirmedMeasurements);
         Assert.Equal(2, designerKpis.ProposalConsultingProjects);
+        Assert.Equal(3, designerKpis.ProposalRevisionsRequested);
         Assert.Equal(3, productionKpis.ReadyToComplete);
         Assert.Equal(1, productionKpis.PendingStart);
         Assert.Equal("HIGH", item.Priority);

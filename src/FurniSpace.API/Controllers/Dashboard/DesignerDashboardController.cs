@@ -95,6 +95,29 @@ public sealed class DesignerDashboardController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// List for Revision Requests KPI. Same scope + dateRange as
+    /// <c>revisionRequested</c> / <c>proposalRevisionsRequested</c>.
+    /// Counts proposals in <c>REVISION_REQUESTED</c>; dateRange filters proposal <c>updatedAt</c>.
+    /// </summary>
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpGet("kpis/revision-requested")]
+    public async Task<IActionResult> GetRevisionRequested(
+        [FromQuery] DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _dashboard.GetDesignerRevisionRequestedAsync(
+            currentUserId,
+            query,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

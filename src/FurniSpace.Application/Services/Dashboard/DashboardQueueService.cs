@@ -189,6 +189,7 @@ public sealed class DashboardQueueService : IDashboardQueueService
                 ProposalsInProgress = kpis.ProposalsInProgress,
                 ProposalConsultingProjects = kpis.ProposalsInProgress,
                 RevisionRequested = kpis.RevisionRequested,
+                ProposalRevisionsRequested = kpis.RevisionRequested,
                 OverdueTasks = kpis.OverdueTasks
             },
             "Designer KPIs retrieved successfully.");
@@ -258,6 +259,39 @@ public sealed class DashboardQueueService : IDashboardQueueService
                 Total = rows.Count
             },
             "Designer proposal consulting list retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerRevisionRequestedListResponseDto>> GetDesignerRevisionRequestedAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerRevisionRequestedListResponseDto>(prepared.Error);
+        }
+
+        // Same scope + dateRange as revisionRequested KPI. Search ignored.
+        var filter = ToDesignerKpiFilter(prepared.Filter!);
+        var rows = await _dashboard.GetDesignerRevisionRequestedRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapRevisionRequestedItem)
+            .ToList();
+
+        return ServiceResult<DesignerRevisionRequestedListResponseDto>.Success(
+            new DesignerRevisionRequestedListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer revision requested list retrieved successfully.");
     }
 
     public async Task<ServiceResult<DashboardQueueResponseDto>> GetProductionQueueAsync(
@@ -1086,6 +1120,26 @@ public sealed class DashboardQueueService : IDashboardQueueService
                 : null,
             SubmittedAt = row.SubmittedAt.HasValue
                 ? DateTime.SpecifyKind(row.SubmittedAt.Value, DateTimeKind.Utc)
+                : null
+        };
+    }
+
+    private static DesignerRevisionRequestedItemDto MapRevisionRequestedItem(
+        DesignerRevisionRequestedRowReadModel row)
+    {
+        return new DesignerRevisionRequestedItemDto
+        {
+            ProposalId = row.ProposalId,
+            ProposalName = row.ProposalName,
+            Status = row.Status.ToString(),
+            RevisionNote = row.RevisionNote,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            AssignedDesignerId = row.AssignedDesignerId,
+            AssignedDesignerName = row.AssignedDesignerName,
+            RevisionRequestedAt = row.RevisionRequestedAt.HasValue
+                ? DateTime.SpecifyKind(row.RevisionRequestedAt.Value, DateTimeKind.Utc)
                 : null
         };
     }

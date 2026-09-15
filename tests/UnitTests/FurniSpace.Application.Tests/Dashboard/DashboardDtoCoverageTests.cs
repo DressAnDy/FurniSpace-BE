@@ -57,6 +57,8 @@ public sealed class DashboardDtoCoverageTests
         };
         var salesKpis = new SalesDashboardKpisDto
         {
+            AcceptedProjects = 6,
+            UnpaidRemaining = 7,
             NewRequests = 1,
             WaitingCustomer = 2,
             PaymentFollowUp = 3,
@@ -66,8 +68,11 @@ public sealed class DashboardDtoCoverageTests
         var designerKpis = new DesignerDashboardKpisDto
         {
             MeasurementDue = 1,
+            ConfirmedMeasurements = 1,
             ProposalsInProgress = 2,
+            ProposalConsultingProjects = 2,
             RevisionRequested = 3,
+            ProposalRevisionsRequested = 3,
             OverdueTasks = 4
         };
         var productionKpis = new ProductionDashboardKpisDto
@@ -86,7 +91,12 @@ public sealed class DashboardDtoCoverageTests
         Assert.Equal(1, queue.Total);
         Assert.Equal("mine", query.Scope);
         Assert.Equal(5, salesKpis.ActiveProjects);
+        Assert.Equal(6, salesKpis.AcceptedProjects);
+        Assert.Equal(7, salesKpis.UnpaidRemaining);
         Assert.Equal(4, designerKpis.OverdueTasks);
+        Assert.Equal(1, designerKpis.ConfirmedMeasurements);
+        Assert.Equal(2, designerKpis.ProposalConsultingProjects);
+        Assert.Equal(3, designerKpis.ProposalRevisionsRequested);
         Assert.Equal(3, productionKpis.ReadyToComplete);
         Assert.Equal(1, productionKpis.PendingStart);
         Assert.Equal("HIGH", item.Priority);

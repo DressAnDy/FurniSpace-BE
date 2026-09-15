@@ -32,6 +32,36 @@ public sealed class DashboardControllersTests
     }
 
     [Fact]
+    public async Task Sales_GetUnpaidRemaining_ReturnsOk()
+    {
+        var userId = Guid.NewGuid();
+        var service = new FakeDashboardQueueService();
+        var controller = CreateSalesController(service, userId);
+
+        var result = await controller.GetUnpaidRemaining(new DashboardQueueQueryDto { Scope = "mine", Limit = 5 });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(userId, service.LastUserId);
+        Assert.Equal("sales-unpaid-remaining", service.LastCall);
+    }
+
+    [Fact]
+    public async Task Sales_GetOverdueTasks_ReturnsOk()
+    {
+        var userId = Guid.NewGuid();
+        var service = new FakeDashboardQueueService();
+        var controller = CreateSalesController(service, userId);
+
+        var result = await controller.GetOverdueTasks(new DashboardQueueQueryDto { Scope = "team", Page = 2, Limit = 5 });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(userId, service.LastUserId);
+        Assert.Equal("sales-overdue-tasks", service.LastCall);
+    }
+
+    [Fact]
     public async Task Sales_GetActionQueue_WithoutUser_ReturnsUnauthorized()
     {
         var controller = CreateSalesController(new FakeDashboardQueueService(), userId: null);
@@ -78,6 +108,54 @@ public sealed class DashboardControllersTests
         Assert.Equal(200, Assert.IsType<ObjectResult>(queueResult).StatusCode);
         Assert.Equal(200, Assert.IsType<ObjectResult>(kpiResult).StatusCode);
         Assert.Equal("designer-kpis", service.LastCall);
+    }
+
+    [Fact]
+    public async Task Designer_GetConfirmedMeasurements_ReturnsOk()
+    {
+        var userId = Guid.NewGuid();
+        var service = new FakeDashboardQueueService();
+        var controller = CreateDesignerController(service, userId);
+
+        var result = await controller.GetConfirmedMeasurements(
+            new DashboardQueueQueryDto { Scope = "mine", DateRange = "thisWeek", Limit = 5 });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(userId, service.LastUserId);
+        Assert.Equal("designer-confirmed-measurements", service.LastCall);
+    }
+
+    [Fact]
+    public async Task Designer_GetProposalConsulting_ReturnsOk()
+    {
+        var userId = Guid.NewGuid();
+        var service = new FakeDashboardQueueService();
+        var controller = CreateDesignerController(service, userId);
+
+        var result = await controller.GetProposalConsulting(
+            new DashboardQueueQueryDto { Scope = "mine", DateRange = "thisWeek", Limit = 5 });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(userId, service.LastUserId);
+        Assert.Equal("designer-proposal-consulting", service.LastCall);
+    }
+
+    [Fact]
+    public async Task Designer_GetRevisionRequested_ReturnsOk()
+    {
+        var userId = Guid.NewGuid();
+        var service = new FakeDashboardQueueService();
+        var controller = CreateDesignerController(service, userId);
+
+        var result = await controller.GetRevisionRequested(
+            new DashboardQueueQueryDto { Scope = "mine", DateRange = "thisWeek", Limit = 5 });
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(200, objectResult.StatusCode);
+        Assert.Equal(userId, service.LastUserId);
+        Assert.Equal("designer-revision-requested", service.LastCall);
     }
 
     [Fact]
@@ -194,6 +272,30 @@ public sealed class DashboardControllersTests
                 "ok"));
         }
 
+        public Task<ServiceResult<SalesUnpaidRemainingListResponseDto>> GetSalesUnpaidRemainingAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastUserId = currentUserId;
+            LastCall = "sales-unpaid-remaining";
+            return Task.FromResult(ServiceResult<SalesUnpaidRemainingListResponseDto>.Success(
+                new SalesUnpaidRemainingListResponseDto(),
+                "ok"));
+        }
+
+        public Task<ServiceResult<SalesOverdueTasksListResponseDto>> GetSalesOverdueTasksAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastUserId = currentUserId;
+            LastCall = "sales-overdue-tasks";
+            return Task.FromResult(ServiceResult<SalesOverdueTasksListResponseDto>.Success(
+                new SalesOverdueTasksListResponseDto(),
+                "ok"));
+        }
+
         public Task<ServiceResult<DashboardQueueResponseDto>> GetDesignerWorkQueueAsync(
             Guid currentUserId,
             DashboardQueueQueryDto query,
@@ -215,6 +317,42 @@ public sealed class DashboardControllersTests
             LastCall = "designer-kpis";
             return Task.FromResult(ServiceResult<DesignerDashboardKpisDto>.Success(
                 new DesignerDashboardKpisDto { MeasurementDue = 2 },
+                "ok"));
+        }
+
+        public Task<ServiceResult<DesignerConfirmedMeasurementsListResponseDto>> GetDesignerConfirmedMeasurementsAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastUserId = currentUserId;
+            LastCall = "designer-confirmed-measurements";
+            return Task.FromResult(ServiceResult<DesignerConfirmedMeasurementsListResponseDto>.Success(
+                new DesignerConfirmedMeasurementsListResponseDto(),
+                "ok"));
+        }
+
+        public Task<ServiceResult<DesignerProposalConsultingListResponseDto>> GetDesignerProposalConsultingAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastUserId = currentUserId;
+            LastCall = "designer-proposal-consulting";
+            return Task.FromResult(ServiceResult<DesignerProposalConsultingListResponseDto>.Success(
+                new DesignerProposalConsultingListResponseDto(),
+                "ok"));
+        }
+
+        public Task<ServiceResult<DesignerRevisionRequestedListResponseDto>> GetDesignerRevisionRequestedAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default)
+        {
+            LastUserId = currentUserId;
+            LastCall = "designer-revision-requested";
+            return Task.FromResult(ServiceResult<DesignerRevisionRequestedListResponseDto>.Success(
+                new DesignerRevisionRequestedListResponseDto(),
                 "ok"));
         }
 

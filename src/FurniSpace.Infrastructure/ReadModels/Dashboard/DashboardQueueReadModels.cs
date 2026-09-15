@@ -189,6 +189,10 @@ public sealed class DashboardProductionDeliveryQueueRowReadModel
 
 public sealed class SalesDashboardKpisReadModel
 {
+    public int AcceptedProjects { get; init; }
+
+    public int UnpaidRemaining { get; init; }
+
     public int NewRequests { get; init; }
 
     public int WaitingCustomer { get; init; }
@@ -200,6 +204,66 @@ public sealed class SalesDashboardKpisReadModel
     public int ActiveProjects { get; init; }
 }
 
+public sealed class SalesUnpaidRemainingRowReadModel
+{
+    public Guid OrderId { get; init; }
+
+    public string? OrderCode { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid CustomerId { get; init; }
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public Guid? AssignedSalesId { get; init; }
+
+    public string? AssignedSalesName { get; init; }
+
+    public OrderStatus Status { get; init; }
+
+    public decimal RemainingAmount { get; init; }
+
+    public string? Currency { get; init; }
+
+    public Guid? PaymentId { get; init; }
+
+    public PaymentStatus? PaymentStatus { get; init; }
+
+    public DateTime UpdatedAt { get; init; }
+}
+
+public sealed class SalesOverdueTaskRowReadModel
+{
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid CustomerId { get; init; }
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public Guid? AssignedSalesId { get; init; }
+
+    public string? AssignedSalesName { get; init; }
+
+    public ProjectStatus? Status { get; init; }
+
+    public DateOnly TargetCompletionDate { get; init; }
+
+    public int OverdueDays { get; init; }
+
+    public DateTime? SubmittedAt { get; init; }
+
+    public DateTime? UpdatedAt { get; init; }
+}
+
 public sealed class DesignerDashboardKpisReadModel
 {
     public int MeasurementDue { get; init; }
@@ -209,6 +273,79 @@ public sealed class DesignerDashboardKpisReadModel
     public int RevisionRequested { get; init; }
 
     public int OverdueTasks { get; init; }
+}
+
+public sealed class DesignerConfirmedMeasurementRowReadModel
+{
+    public Guid ScheduleId { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public string? Title { get; init; }
+
+    public DateTime ScheduledStart { get; init; }
+
+    public DateTime? ScheduledEnd { get; init; }
+
+    public string? Location { get; init; }
+
+    public ProjectScheduleStatus Status { get; init; }
+
+    public Guid? AssignedStaffId { get; init; }
+
+    public string? AssignedStaffName { get; init; }
+}
+
+public sealed class DesignerProposalConsultingRowReadModel
+{
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid CustomerId { get; init; }
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public Guid? AssignedDesignerId { get; init; }
+
+    public string? AssignedDesignerName { get; init; }
+
+    public ProjectStatus Status { get; init; }
+
+    public DateTime? DesignerAssignedAt { get; init; }
+
+    public DateTime? UpdatedAt { get; init; }
+
+    public DateTime? SubmittedAt { get; init; }
+}
+
+public sealed class DesignerRevisionRequestedRowReadModel
+{
+    public Guid ProposalId { get; init; }
+
+    public string ProposalName { get; init; } = string.Empty;
+
+    public ProposalStatus Status { get; init; }
+
+    public string? RevisionNote { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid? AssignedDesignerId { get; init; }
+
+    public string? AssignedDesignerName { get; init; }
+
+    public DateTime? RevisionRequestedAt { get; init; }
 }
 
 public sealed class ProductionDashboardKpisReadModel

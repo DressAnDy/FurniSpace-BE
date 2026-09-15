@@ -70,13 +70,81 @@ public sealed class DashboardQueueService : IDashboardQueueService
         return ServiceResult<SalesDashboardKpisDto>.Success(
             new SalesDashboardKpisDto
             {
+                AcceptedProjects = kpis.AcceptedProjects,
+                UnpaidRemaining = kpis.UnpaidRemaining,
+                OverdueTasks = kpis.OverdueTasks,
                 NewRequests = kpis.NewRequests,
                 WaitingCustomer = kpis.WaitingCustomer,
                 PaymentFollowUp = kpis.PaymentFollowUp,
-                OverdueTasks = kpis.OverdueTasks,
                 ActiveProjects = kpis.ActiveProjects
             },
             "Sales KPIs retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<SalesUnpaidRemainingListResponseDto>> GetSalesUnpaidRemainingAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Sales, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<SalesUnpaidRemainingListResponseDto>(prepared.Error);
+        }
+
+        // Stock list: ignore dateRange / search so total matches unpaidRemaining KPI.
+        var filter = ToStockFilter(prepared.Filter!);
+        var rows = await _dashboard.GetSalesUnpaidRemainingRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapUnpaidRemainingItem)
+            .ToList();
+
+        return ServiceResult<SalesUnpaidRemainingListResponseDto>.Success(
+            new SalesUnpaidRemainingListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Sales unpaid remaining list retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<SalesOverdueTasksListResponseDto>> GetSalesOverdueTasksAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Sales, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<SalesOverdueTasksListResponseDto>(prepared.Error);
+        }
+
+        // Stock list: ignore dateRange / search so total matches overdueTasks KPI.
+        var filter = ToStockFilter(prepared.Filter!);
+        var rows = await _dashboard.GetSalesOverdueTaskRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapOverdueTaskItem)
+            .ToList();
+
+        return ServiceResult<SalesOverdueTasksListResponseDto>.Success(
+            new SalesOverdueTasksListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Sales overdue tasks list retrieved successfully.");
     }
 
     public async Task<ServiceResult<DashboardQueueResponseDto>> GetDesignerWorkQueueAsync(
@@ -117,11 +185,113 @@ public sealed class DashboardQueueService : IDashboardQueueService
             new DesignerDashboardKpisDto
             {
                 MeasurementDue = kpis.MeasurementDue,
+                ConfirmedMeasurements = kpis.MeasurementDue,
                 ProposalsInProgress = kpis.ProposalsInProgress,
+                ProposalConsultingProjects = kpis.ProposalsInProgress,
                 RevisionRequested = kpis.RevisionRequested,
+                ProposalRevisionsRequested = kpis.RevisionRequested,
                 OverdueTasks = kpis.OverdueTasks
             },
             "Designer KPIs retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerConfirmedMeasurementsListResponseDto>> GetDesignerConfirmedMeasurementsAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerConfirmedMeasurementsListResponseDto>(prepared.Error);
+        }
+
+        // Same scope + dateRange as measurementDue / confirmedMeasurements KPI. Search ignored.
+        var filter = ToDesignerKpiFilter(prepared.Filter!);
+        var rows = await _dashboard.GetDesignerConfirmedMeasurementRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapConfirmedMeasurementItem)
+            .ToList();
+
+        return ServiceResult<DesignerConfirmedMeasurementsListResponseDto>.Success(
+            new DesignerConfirmedMeasurementsListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer confirmed measurements list retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerProposalConsultingListResponseDto>> GetDesignerProposalConsultingAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerProposalConsultingListResponseDto>(prepared.Error);
+        }
+
+        // Same scope + dateRange as proposalsInProgress KPI. Search ignored.
+        var filter = ToDesignerKpiFilter(prepared.Filter!);
+        var rows = await _dashboard.GetDesignerProposalConsultingRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapProposalConsultingItem)
+            .ToList();
+
+        return ServiceResult<DesignerProposalConsultingListResponseDto>.Success(
+            new DesignerProposalConsultingListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer proposal consulting list retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerRevisionRequestedListResponseDto>> GetDesignerRevisionRequestedAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerRevisionRequestedListResponseDto>(prepared.Error);
+        }
+
+        // Same scope + dateRange as revisionRequested KPI. Search ignored.
+        var filter = ToDesignerKpiFilter(prepared.Filter!);
+        var rows = await _dashboard.GetDesignerRevisionRequestedRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapRevisionRequestedItem)
+            .ToList();
+
+        return ServiceResult<DesignerRevisionRequestedListResponseDto>.Success(
+            new DesignerRevisionRequestedListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer revision requested list retrieved successfully.");
     }
 
     public async Task<ServiceResult<DashboardQueueResponseDto>> GetProductionQueueAsync(
@@ -835,6 +1005,153 @@ public sealed class DashboardQueueService : IDashboardQueueService
                string.Equals(roleName, ApplicationRoles.Sales, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(roleName, ApplicationRoles.Designer, StringComparison.OrdinalIgnoreCase) ||
                string.Equals(roleName, ApplicationRoles.Production, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static DashboardQueueFilterReadModel ToStockFilter(DashboardQueueFilterReadModel filter)
+    {
+        return new DashboardQueueFilterReadModel
+        {
+            Scope = filter.Scope,
+            CurrentUserId = filter.CurrentUserId,
+            CurrentUserRole = filter.CurrentUserRole,
+            Search = null,
+            DateRange = null,
+            UtcNow = filter.UtcNow
+        };
+    }
+
+    private static SalesUnpaidRemainingItemDto MapUnpaidRemainingItem(SalesUnpaidRemainingRowReadModel row)
+    {
+        return new SalesUnpaidRemainingItemDto
+        {
+            OrderId = row.OrderId,
+            OrderCode = row.OrderCode,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            CustomerId = row.CustomerId,
+            CustomerName = row.CustomerName,
+            AssignedSalesId = row.AssignedSalesId,
+            AssignedSalesName = row.AssignedSalesName,
+            Status = row.Status.ToString(),
+            RemainingAmount = row.RemainingAmount,
+            Currency = row.Currency,
+            PaymentId = row.PaymentId,
+            PaymentStatus = row.PaymentStatus?.ToString(),
+            UpdatedAt = DateTime.SpecifyKind(row.UpdatedAt, DateTimeKind.Utc)
+        };
+    }
+
+    private static SalesOverdueTaskItemDto MapOverdueTaskItem(SalesOverdueTaskRowReadModel row)
+    {
+        return new SalesOverdueTaskItemDto
+        {
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            CustomerId = row.CustomerId,
+            CustomerName = row.CustomerName,
+            AssignedSalesId = row.AssignedSalesId,
+            AssignedSalesName = row.AssignedSalesName,
+            Status = row.Status?.ToString() ?? string.Empty,
+            TargetCompletionDate = row.TargetCompletionDate,
+            OverdueDays = row.OverdueDays,
+            SubmittedAt = row.SubmittedAt.HasValue
+                ? DateTime.SpecifyKind(row.SubmittedAt.Value, DateTimeKind.Utc)
+                : null,
+            UpdatedAt = row.UpdatedAt.HasValue
+                ? DateTime.SpecifyKind(row.UpdatedAt.Value, DateTimeKind.Utc)
+                : null
+        };
+    }
+
+    private static DashboardQueueFilterReadModel ToDesignerKpiFilter(DashboardQueueFilterReadModel filter)
+    {
+        return new DashboardQueueFilterReadModel
+        {
+            Scope = filter.Scope,
+            CurrentUserId = filter.CurrentUserId,
+            CurrentUserRole = filter.CurrentUserRole,
+            Search = null,
+            DateRange = filter.DateRange,
+            UtcNow = filter.UtcNow
+        };
+    }
+
+    private static DesignerConfirmedMeasurementItemDto MapConfirmedMeasurementItem(
+        DesignerConfirmedMeasurementRowReadModel row)
+    {
+        return new DesignerConfirmedMeasurementItemDto
+        {
+            ScheduleId = row.ScheduleId,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            Title = row.Title,
+            ScheduledStart = DateTime.SpecifyKind(row.ScheduledStart, DateTimeKind.Utc),
+            ScheduledEnd = row.ScheduledEnd.HasValue
+                ? DateTime.SpecifyKind(row.ScheduledEnd.Value, DateTimeKind.Utc)
+                : null,
+            Location = row.Location,
+            Status = row.Status.ToString(),
+            AssignedStaffId = row.AssignedStaffId,
+            AssignedStaffName = row.AssignedStaffName
+        };
+    }
+
+    private static DesignerProposalConsultingItemDto MapProposalConsultingItem(
+        DesignerProposalConsultingRowReadModel row)
+    {
+        return new DesignerProposalConsultingItemDto
+        {
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            CustomerId = row.CustomerId,
+            CustomerName = row.CustomerName,
+            AssignedDesignerId = row.AssignedDesignerId,
+            AssignedDesignerName = row.AssignedDesignerName,
+            Status = row.Status.ToString(),
+            DesignerAssignedAt = row.DesignerAssignedAt.HasValue
+                ? DateTime.SpecifyKind(row.DesignerAssignedAt.Value, DateTimeKind.Utc)
+                : null,
+            UpdatedAt = row.UpdatedAt.HasValue
+                ? DateTime.SpecifyKind(row.UpdatedAt.Value, DateTimeKind.Utc)
+                : null,
+            SubmittedAt = row.SubmittedAt.HasValue
+                ? DateTime.SpecifyKind(row.SubmittedAt.Value, DateTimeKind.Utc)
+                : null
+        };
+    }
+
+    private static DesignerRevisionRequestedItemDto MapRevisionRequestedItem(
+        DesignerRevisionRequestedRowReadModel row)
+    {
+        return new DesignerRevisionRequestedItemDto
+        {
+            ProposalId = row.ProposalId,
+            ProposalName = row.ProposalName,
+            Status = row.Status.ToString(),
+            RevisionNote = row.RevisionNote,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            AssignedDesignerId = row.AssignedDesignerId,
+            AssignedDesignerName = row.AssignedDesignerName,
+            RevisionRequestedAt = row.RevisionRequestedAt.HasValue
+                ? DateTime.SpecifyKind(row.RevisionRequestedAt.Value, DateTimeKind.Utc)
+                : null
+        };
+    }
+
+    private static int NormalizePage(int page)
+    {
+        return page < 1 ? DefaultPage : page;
+    }
+
+    private static int NormalizeLimit(int limit)
+    {
+        return limit < 1 ? DefaultLimit : Math.Min(limit, MaxLimit);
     }
 
     private static bool IsValidScope(string? scope)

@@ -1,6 +1,7 @@
 #nullable enable
 
 using FurniSpace.Domain.Enums;
+using FurniSpace.Infrastructure.Common.Dashboard;
 using FurniSpace.Infrastructure.Data;
 using FurniSpace.Infrastructure.ReadModels.Dashboard;
 using FurniSpace.Infrastructure.Repositories.IRepository;
@@ -51,6 +52,29 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         ProductionItemStatus.CANCELLED
     ];
 
+    /// <summary>
+    /// Remaining payment is incurred only after customer delivery confirmation.
+    /// Earlier collect stages (start fee, deposit, production, in-transit delivery) are not this KPI.
+    /// </summary>
+    private static readonly OrderStatus[] RemainingNotYetIncurredStatuses =
+    [
+        OrderStatus.CREATED,
+        OrderStatus.DEPOSIT_PENDING,
+        OrderStatus.DEPOSIT_PAID,
+        OrderStatus.IN_PRODUCTION,
+        OrderStatus.READY_FOR_DELIVERY,
+        OrderStatus.DELIVERING,
+        OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
+        OrderStatus.CANCELLED
+    ];
+
+    private static readonly PaymentStatus[] OpenRemainingPaymentStatuses =
+    [
+        PaymentStatus.PENDING,
+        PaymentStatus.PROCESSING,
+        PaymentStatus.EXPIRED
+    ];
+
     private readonly AppDbContext _db;
 
     public DashboardQueueReadRepository(AppDbContext db)
@@ -72,6 +96,8 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
     {
         var today = DateOnly.FromDateTime(filter.UtcNow);
         var projects = BuildSalesProjectQuery(filter);
+        var stockProjects = BuildSalesStockProjectQuery(filter);
+        var acceptedProjectsQuery = BuildAcceptedSalesProjectQuery(filter);
 
         var newRequests = await projects.CountAsync(
             project => project.Status == ProjectStatus.SUBMITTED,
@@ -89,7 +115,11 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 project.Status != ProjectStatus.REJECTED,
             cancellationToken);
 
-        var overdueTasks = await projects.CountAsync(
+        var acceptedProjects = await acceptedProjectsQuery.CountAsync(cancellationToken);
+
+        // Stock overdue: targetCompletionDate < today (UTC). No status is excluded.
+        // dateRange and search are ignored so a period filter cannot hide the current backlog.
+        var overdueTasks = await stockProjects.CountAsync(
             project =>
                 project.TargetCompletionDate.HasValue &&
                 project.TargetCompletionDate.Value < today,
@@ -113,14 +143,171 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
                 order.CustomerConfirmedDeliveryAt == null,
             cancellationToken);
 
+        var unpaidRemaining = await BuildUnpaidRemainingOrdersQuery(acceptedProjectsQuery)
+            .CountAsync(cancellationToken);
+
         return new SalesDashboardKpisReadModel
         {
+            AcceptedProjects = acceptedProjects,
+            UnpaidRemaining = unpaidRemaining,
             NewRequests = newRequests,
             WaitingCustomer = waitingCustomer + waitingConfirm,
             PaymentFollowUp = paymentFollowUp,
             OverdueTasks = overdueTasks,
             ActiveProjects = activeProjects
         };
+    }
+
+    public async Task<IReadOnlyList<SalesUnpaidRemainingRowReadModel>> GetSalesUnpaidRemainingRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var acceptedProjects = BuildAcceptedSalesProjectQuery(filter);
+        var orders = BuildUnpaidRemainingOrdersQuery(acceptedProjects);
+
+        return await orders
+            .Select(order => new SalesUnpaidRemainingRowReadModel
+            {
+                OrderId = order.OrderId,
+                OrderCode = order.OrderCode,
+                ProjectId = order.ProjectId,
+                ProjectCode = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId)
+                    .Select(project => project.ProjectCode)
+                    .FirstOrDefault(),
+                ProjectName = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId)
+                    .Select(project => project.ProjectName)
+                    .FirstOrDefault() ?? string.Empty,
+                CustomerId = order.CustomerId,
+                CustomerName = _db.AccountSet
+                    .Where(account => account.AccountId == order.CustomerId)
+                    .Select(account => account.FullName)
+                    .FirstOrDefault() ?? string.Empty,
+                AssignedSalesId = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId)
+                    .Select(project => project.AssignedSalesId)
+                    .FirstOrDefault(),
+                AssignedSalesName = _db.ProjectSet
+                    .Where(project => project.ProjectId == order.ProjectId && project.AssignedSalesId.HasValue)
+                    .Join(
+                        _db.AccountSet,
+                        project => project.AssignedSalesId,
+                        account => account.AccountId,
+                        (_, account) => account.FullName)
+                    .FirstOrDefault(),
+                Status = order.Status ?? OrderStatus.FINAL_PAYMENT_PENDING,
+                RemainingAmount = order.RemainingAmount ?? 0m,
+                Currency = _db.PaymentSet
+                    .Where(payment =>
+                        payment.OrderId == order.OrderId &&
+                        payment.PaymentType == PaymentType.REMAINING_PAYMENT)
+                    .OrderByDescending(payment => payment.UpdatedAt ?? payment.CreatedAt)
+                    .ThenByDescending(payment => payment.PaymentId)
+                    .Select(payment => payment.Currency)
+                    .FirstOrDefault() ?? "VND",
+                PaymentId = _db.PaymentSet
+                    .Where(payment =>
+                        payment.OrderId == order.OrderId &&
+                        payment.PaymentType == PaymentType.REMAINING_PAYMENT &&
+                        payment.Status != null &&
+                        OpenRemainingPaymentStatuses.Contains(payment.Status.Value))
+                    .OrderByDescending(payment => payment.UpdatedAt ?? payment.CreatedAt)
+                    .ThenByDescending(payment => payment.PaymentId)
+                    .Select(payment => (Guid?)payment.PaymentId)
+                    .FirstOrDefault(),
+                PaymentStatus = _db.PaymentSet
+                    .Where(payment =>
+                        payment.OrderId == order.OrderId &&
+                        payment.PaymentType == PaymentType.REMAINING_PAYMENT &&
+                        payment.Status != null &&
+                        OpenRemainingPaymentStatuses.Contains(payment.Status.Value))
+                    .OrderByDescending(payment => payment.UpdatedAt ?? payment.CreatedAt)
+                    .ThenByDescending(payment => payment.PaymentId)
+                    .Select(payment => payment.Status)
+                    .FirstOrDefault(),
+                UpdatedAt = order.UpdatedAt ?? order.CreatedAt ?? filter.UtcNow
+            })
+            .OrderByDescending(row => row.UpdatedAt)
+            .ThenByDescending(row => row.OrderId)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SalesOverdueTaskRowReadModel>> GetSalesOverdueTaskRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var today = DateOnly.FromDateTime(filter.UtcNow);
+        var projects = BuildSalesStockProjectQuery(filter)
+            .Where(project =>
+                project.TargetCompletionDate.HasValue &&
+                project.TargetCompletionDate.Value < today);
+
+        var rows = await projects
+            .OrderBy(project => project.TargetCompletionDate)
+            .ThenBy(project => project.ProjectId)
+            .Select(project => new SalesOverdueTaskRowReadModel
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                CustomerId = project.CustomerId,
+                CustomerName = _db.AccountSet
+                    .Where(account => account.AccountId == project.CustomerId)
+                    .Select(account => account.FullName)
+                    .FirstOrDefault() ?? string.Empty,
+                AssignedSalesId = project.AssignedSalesId,
+                AssignedSalesName = project.AssignedSalesId.HasValue
+                    ? _db.AccountSet
+                        .Where(account => account.AccountId == project.AssignedSalesId)
+                        .Select(account => account.FullName)
+                        .FirstOrDefault()
+                    : null,
+                Status = project.Status,
+                TargetCompletionDate = project.TargetCompletionDate!.Value,
+                OverdueDays = 0,
+                SubmittedAt = project.SubmittedAt,
+                UpdatedAt = project.UpdatedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(row => new SalesOverdueTaskRowReadModel
+            {
+                ProjectId = row.ProjectId,
+                ProjectCode = row.ProjectCode,
+                ProjectName = row.ProjectName,
+                CustomerId = row.CustomerId,
+                CustomerName = row.CustomerName,
+                AssignedSalesId = row.AssignedSalesId,
+                AssignedSalesName = row.AssignedSalesName,
+                Status = row.Status,
+                TargetCompletionDate = row.TargetCompletionDate,
+                OverdueDays = today.DayNumber - row.TargetCompletionDate.DayNumber,
+                SubmittedAt = row.SubmittedAt,
+                UpdatedAt = row.UpdatedAt
+            })
+            .ToList();
+    }
+
+    private IQueryable<Domain.Entities.Order> BuildUnpaidRemainingOrdersQuery(
+        IQueryable<Domain.Entities.Project> acceptedProjects)
+    {
+        var acceptedProjectIds = acceptedProjects.Select(project => project.ProjectId);
+        return _db.OrderSet.Where(order =>
+            acceptedProjectIds.Contains(order.ProjectId) &&
+            order.Status != null &&
+            !RemainingNotYetIncurredStatuses.Contains(order.Status.Value) &&
+            (
+                ((order.RemainingAmount ?? 0m) > 0m &&
+                 (order.Status == OrderStatus.FINAL_PAYMENT_PENDING ||
+                  order.CustomerConfirmedDeliveryAt != null))
+                ||
+                _db.PaymentSet.Any(payment =>
+                    payment.OrderId == order.OrderId &&
+                    payment.PaymentType == PaymentType.REMAINING_PAYMENT &&
+                    payment.Status != null &&
+                    OpenRemainingPaymentStatuses.Contains(payment.Status.Value))));
     }
 
     public async Task<IReadOnlyList<DashboardProjectQueueRowReadModel>> GetDesignerQueueRowsAsync(
@@ -137,26 +324,260 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
     {
         var today = DateOnly.FromDateTime(filter.UtcNow);
         var projects = BuildDesignerProjectQuery(filter);
+        var measurementDue = await BuildConfirmedMeasurementSchedulesQuery(filter)
+            .CountAsync(cancellationToken);
+        var proposalsInProgress = await BuildProposalConsultingProjectsQuery(filter)
+            .CountAsync(cancellationToken);
+        var revisionRequested = await BuildRevisionRequestedProposalsQuery(filter)
+            .CountAsync(cancellationToken);
 
         return new DesignerDashboardKpisReadModel
         {
-            MeasurementDue = await projects.CountAsync(
-                project => project.Status == ProjectStatus.MEASUREMENT_REQUIRED,
-                cancellationToken),
-            ProposalsInProgress = await projects.CountAsync(
-                project =>
-                    project.Status == ProjectStatus.SPACE_VERIFIED ||
-                    project.Status == ProjectStatus.PROPOSAL_CONSULTING,
-                cancellationToken),
-            RevisionRequested = await projects.CountAsync(
-                project => project.Status == ProjectStatus.QUOTATION_REVISION_REQUESTED,
-                cancellationToken),
+            MeasurementDue = measurementDue,
+            ProposalsInProgress = proposalsInProgress,
+            RevisionRequested = revisionRequested,
             OverdueTasks = await projects.CountAsync(
                 project =>
                     project.TargetCompletionDate.HasValue &&
                     project.TargetCompletionDate.Value < today,
                 cancellationToken)
         };
+    }
+
+    public async Task<IReadOnlyList<DesignerConfirmedMeasurementRowReadModel>> GetDesignerConfirmedMeasurementRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var schedules = BuildConfirmedMeasurementSchedulesQuery(filter);
+
+        return await schedules
+            .OrderBy(schedule => schedule.ScheduledStart)
+            .ThenBy(schedule => schedule.ScheduleId)
+            .Select(schedule => new DesignerConfirmedMeasurementRowReadModel
+            {
+                ScheduleId = schedule.ScheduleId,
+                ProjectId = schedule.ProjectId,
+                ProjectCode = _db.ProjectSet
+                    .Where(project => project.ProjectId == schedule.ProjectId)
+                    .Select(project => project.ProjectCode)
+                    .FirstOrDefault(),
+                ProjectName = _db.ProjectSet
+                    .Where(project => project.ProjectId == schedule.ProjectId)
+                    .Select(project => project.ProjectName)
+                    .FirstOrDefault() ?? string.Empty,
+                Title = schedule.Title,
+                ScheduledStart = schedule.ScheduledStart,
+                ScheduledEnd = schedule.ScheduledEnd,
+                Location = schedule.Location,
+                Status = schedule.Status ?? ProjectScheduleStatus.CONFIRMED,
+                AssignedStaffId = schedule.AssignedStaffId,
+                AssignedStaffName = schedule.AssignedStaffId.HasValue
+                    ? _db.AccountSet
+                        .Where(account => account.AccountId == schedule.AssignedStaffId)
+                        .Select(account => account.FullName)
+                        .FirstOrDefault()
+                    : null
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DesignerProposalConsultingRowReadModel>> GetDesignerProposalConsultingRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var projects = BuildProposalConsultingProjectsQuery(filter);
+
+        return await projects
+            .OrderByDescending(project => project.UpdatedAt ?? project.CreatedAt)
+            .ThenByDescending(project => project.ProjectId)
+            .Select(project => new DesignerProposalConsultingRowReadModel
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                CustomerId = project.CustomerId,
+                CustomerName = _db.AccountSet
+                    .Where(account => account.AccountId == project.CustomerId)
+                    .Select(account => account.FullName)
+                    .FirstOrDefault() ?? string.Empty,
+                AssignedDesignerId = project.AssignedDesignerId,
+                AssignedDesignerName = project.AssignedDesignerId.HasValue
+                    ? _db.AccountSet
+                        .Where(account => account.AccountId == project.AssignedDesignerId)
+                        .Select(account => account.FullName)
+                        .FirstOrDefault()
+                    : null,
+                Status = project.Status ?? ProjectStatus.PROPOSAL_CONSULTING,
+                DesignerAssignedAt = project.DesignerAssignedAt,
+                UpdatedAt = project.UpdatedAt,
+                SubmittedAt = project.SubmittedAt
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<DesignerRevisionRequestedRowReadModel>> GetDesignerRevisionRequestedRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var proposals = BuildRevisionRequestedProposalsQuery(filter);
+
+        return await proposals
+            .OrderByDescending(proposal => proposal.UpdatedAt ?? proposal.CreatedAt)
+            .ThenByDescending(proposal => proposal.ProposalId)
+            .Select(proposal => new DesignerRevisionRequestedRowReadModel
+            {
+                ProposalId = proposal.ProposalId,
+                ProposalName = proposal.ProposalName,
+                Status = proposal.Status ?? ProposalStatus.REVISION_REQUESTED,
+                RevisionNote = proposal.RevisionNote,
+                ProjectId = proposal.ProjectId,
+                ProjectCode = _db.ProjectSet
+                    .Where(project => project.ProjectId == proposal.ProjectId)
+                    .Select(project => project.ProjectCode)
+                    .FirstOrDefault(),
+                ProjectName = _db.ProjectSet
+                    .Where(project => project.ProjectId == proposal.ProjectId)
+                    .Select(project => project.ProjectName)
+                    .FirstOrDefault() ?? string.Empty,
+                AssignedDesignerId = _db.ProjectSet
+                    .Where(project => project.ProjectId == proposal.ProjectId)
+                    .Select(project => project.AssignedDesignerId)
+                    .FirstOrDefault(),
+                AssignedDesignerName = _db.ProjectSet
+                    .Where(project => project.ProjectId == proposal.ProjectId && project.AssignedDesignerId.HasValue)
+                    .Join(
+                        _db.AccountSet,
+                        project => project.AssignedDesignerId,
+                        account => account.AccountId,
+                        (_, account) => account.FullName)
+                    .FirstOrDefault(),
+                RevisionRequestedAt = proposal.UpdatedAt ?? proposal.CreatedAt
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    private IQueryable<Domain.Entities.ProjectSchedule> BuildConfirmedMeasurementSchedulesQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var schedules = _db.ProjectScheduleSet.Where(schedule =>
+            schedule.ScheduleType == ProjectScheduleType.MEASUREMENT &&
+            schedule.Status == ProjectScheduleStatus.CONFIRMED);
+
+        schedules = ApplyScheduleAssigneeScope(schedules, filter);
+
+        var bounds = DashboardScheduleDateRange.TryResolve(filter.DateRange, filter.UtcNow);
+        if (bounds.HasValue)
+        {
+            var fromUtc = bounds.Value.FromUtc;
+            var toUtcExclusive = bounds.Value.ToUtcExclusive;
+            schedules = schedules.Where(schedule =>
+                schedule.ScheduledStart >= fromUtc &&
+                schedule.ScheduledStart < toUtcExclusive);
+        }
+
+        return schedules;
+    }
+
+    /// <summary>
+    /// Projects currently in <c>PROPOSAL_CONSULTING</c>. Date filter uses
+    /// <c>updatedAt</c> (fallback <c>createdAt</c>) in Asia/Ho_Chi_Minh dateRange —
+    /// there is no dedicated "entered consulting" timestamp.
+    /// </summary>
+    private IQueryable<Domain.Entities.Project> BuildProposalConsultingProjectsQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var projects = _db.ProjectSet.Where(project =>
+            project.Status == ProjectStatus.PROPOSAL_CONSULTING);
+
+        projects = ApplyDesignerAssigneeScope(projects, filter);
+
+        var bounds = DashboardScheduleDateRange.TryResolve(filter.DateRange, filter.UtcNow);
+        if (bounds.HasValue)
+        {
+            var fromUtc = bounds.Value.FromUtc;
+            var toUtcExclusive = bounds.Value.ToUtcExclusive;
+            // Prefer updatedAt; fall back to createdAt when updatedAt is null.
+            projects = projects.Where(project =>
+                project.UpdatedAt.HasValue
+                    ? project.UpdatedAt.Value >= fromUtc && project.UpdatedAt.Value < toUtcExclusive
+                    : project.CreatedAt.HasValue &&
+                      project.CreatedAt.Value >= fromUtc &&
+                      project.CreatedAt.Value < toUtcExclusive);
+        }
+
+        return projects;
+    }
+
+    /// <summary>
+    /// Proposals with status <c>REVISION_REQUESTED</c>, scoped via parent project designer.
+    /// Date filter uses proposal <c>updatedAt</c> (fallback <c>createdAt</c>) — no
+    /// <c>revisionRequestedAt</c> column yet.
+    /// </summary>
+    private IQueryable<Domain.Entities.Proposal> BuildRevisionRequestedProposalsQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var scopedProjectIds = ApplyDesignerAssigneeScope(_db.ProjectSet.AsQueryable(), filter)
+            .Select(project => project.ProjectId);
+
+        var proposals = _db.ProposalSet.Where(proposal =>
+            proposal.Status == ProposalStatus.REVISION_REQUESTED &&
+            scopedProjectIds.Contains(proposal.ProjectId));
+
+        var bounds = DashboardScheduleDateRange.TryResolve(filter.DateRange, filter.UtcNow);
+        if (bounds.HasValue)
+        {
+            var fromUtc = bounds.Value.FromUtc;
+            var toUtcExclusive = bounds.Value.ToUtcExclusive;
+            proposals = proposals.Where(proposal =>
+                proposal.UpdatedAt.HasValue
+                    ? proposal.UpdatedAt.Value >= fromUtc && proposal.UpdatedAt.Value < toUtcExclusive
+                    : proposal.CreatedAt.HasValue &&
+                      proposal.CreatedAt.Value >= fromUtc &&
+                      proposal.CreatedAt.Value < toUtcExclusive);
+        }
+
+        return proposals;
+    }
+
+    private static IQueryable<Domain.Entities.Project> ApplyDesignerAssigneeScope(
+        IQueryable<Domain.Entities.Project> projects,
+        DashboardQueueFilterReadModel filter)
+    {
+        var scope = NormalizeScope(filter.Scope);
+        var isAdmin = IsAdmin(filter.CurrentUserRole);
+
+        if (string.Equals(scope, "mine", StringComparison.OrdinalIgnoreCase))
+        {
+            return projects.Where(project => project.AssignedDesignerId == filter.CurrentUserId);
+        }
+
+        if (isAdmin && string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            return projects;
+        }
+
+        return projects.Where(project => project.AssignedDesignerId != null);
+    }
+
+    private static IQueryable<Domain.Entities.ProjectSchedule> ApplyScheduleAssigneeScope(
+        IQueryable<Domain.Entities.ProjectSchedule> schedules,
+        DashboardQueueFilterReadModel filter)
+    {
+        var scope = NormalizeScope(filter.Scope);
+        var isAdmin = IsAdmin(filter.CurrentUserRole);
+
+        if (string.Equals(scope, "mine", StringComparison.OrdinalIgnoreCase))
+        {
+            return schedules.Where(schedule => schedule.AssignedStaffId == filter.CurrentUserId);
+        }
+
+        if (isAdmin && string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            return schedules;
+        }
+
+        // team (and non-admin all): must have an assignee
+        return schedules.Where(schedule => schedule.AssignedStaffId != null);
     }
 
     public async Task<IReadOnlyList<DashboardProductionQueueRowReadModel>> GetProductionQueueRowsAsync(
@@ -287,14 +708,33 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
 
     private IQueryable<Domain.Entities.Project> BuildSalesProjectQuery(DashboardQueueFilterReadModel filter)
     {
-        var projects = _db.ProjectSet.AsQueryable();
-        projects = ApplyProjectScope(
-            projects,
+        var projects = BuildSalesStockProjectQuery(filter);
+        projects = ApplyProjectSearch(projects, filter.Search);
+        projects = ApplyProjectDateRange(projects, filter.DateRange, filter.UtcNow);
+        return projects;
+    }
+
+    private IQueryable<Domain.Entities.Project> BuildSalesStockProjectQuery(DashboardQueueFilterReadModel filter)
+    {
+        return ApplyProjectScope(
+            _db.ProjectSet.AsQueryable(),
             filter,
             salesScoped: true,
             designerScoped: false);
-        projects = ApplyProjectSearch(projects, filter.Search);
-        projects = ApplyProjectDateRange(projects, filter.DateRange, filter.UtcNow);
+    }
+
+    /// <summary>
+    /// Projects a sales user has accepted for consultation: <c>assignedSalesId</c> is set.
+    /// Status is not filtered. Unassigned requests, including <c>SUBMITTED</c>, are excluded.
+    /// </summary>
+    private IQueryable<Domain.Entities.Project> BuildAcceptedSalesProjectQuery(DashboardQueueFilterReadModel filter)
+    {
+        var projects = _db.ProjectSet.Where(project => project.AssignedSalesId != null);
+        if (string.Equals(NormalizeScope(filter.Scope), "mine", StringComparison.OrdinalIgnoreCase))
+        {
+            projects = projects.Where(project => project.AssignedSalesId == filter.CurrentUserId);
+        }
+
         return projects;
     }
 

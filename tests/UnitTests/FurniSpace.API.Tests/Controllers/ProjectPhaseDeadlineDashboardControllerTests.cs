@@ -107,6 +107,18 @@ public sealed class ProjectPhaseDeadlineDashboardControllerTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<ServiceResult<SalesUnpaidRemainingListResponseDto>> GetSalesUnpaidRemainingAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ServiceResult<SalesOverdueTasksListResponseDto>> GetSalesOverdueTasksAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<ServiceResult<DashboardQueueResponseDto>> GetDesignerWorkQueueAsync(
             Guid currentUserId,
             DashboardQueueQueryDto query,
@@ -114,6 +126,24 @@ public sealed class ProjectPhaseDeadlineDashboardControllerTests
             throw new NotSupportedException();
 
         public Task<ServiceResult<DesignerDashboardKpisDto>> GetDesignerKpisAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ServiceResult<DesignerConfirmedMeasurementsListResponseDto>> GetDesignerConfirmedMeasurementsAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ServiceResult<DesignerProposalConsultingListResponseDto>> GetDesignerProposalConsultingAsync(
+            Guid currentUserId,
+            DashboardQueueQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<ServiceResult<DesignerRevisionRequestedListResponseDto>> GetDesignerRevisionRequestedAsync(
             Guid currentUserId,
             DashboardQueueQueryDto query,
             CancellationToken cancellationToken = default) =>

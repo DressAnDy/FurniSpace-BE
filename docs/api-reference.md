@@ -3728,8 +3728,13 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 | --- | --- | --- |
 | GET | `/api/dashboard/sales/action-queue` | SALES, ADMIN |
 | GET | `/api/dashboard/sales/kpis` | SALES, ADMIN |
+| GET | `/api/dashboard/sales/kpis/unpaid-remaining` | SALES, ADMIN |
+| GET | `/api/dashboard/sales/kpis/overdue-tasks` | SALES, ADMIN |
 | GET | `/api/dashboard/designer/work-queue` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/designer/kpis` | DESIGNER, ADMIN |
+| GET | `/api/dashboard/designer/kpis/confirmed-measurements` | DESIGNER, ADMIN |
+| GET | `/api/dashboard/designer/kpis/proposal-consulting` | DESIGNER, ADMIN |
+| GET | `/api/dashboard/designer/kpis/revision-requested` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/production/queue` | PRODUCTION, ADMIN |
 | GET | `/api/dashboard/production/kpis` | PRODUCTION, ADMIN |
 | GET | `/dashboard/project-phase-deadlines` | SALES, DESIGNER, PRODUCTION, ADMIN |
@@ -3786,13 +3791,339 @@ Sales next-action uses project status plus latest non-cancelled order (deposit /
 
 ### KPI responses
 
-**Sales:** `newRequests`, `waitingCustomer`, `paymentFollowUp`, `overdueTasks`, `activeProjects`
+**Sales:** `acceptedProjects`, `unpaidRemaining`, `overdueTasks`. Compatibility fields still returned: `newRequests`, `waitingCustomer`, `paymentFollowUp`, `activeProjects`. See below.
 
-**Designer:** `measurementDue`, `proposalsInProgress`, `revisionRequested`, `overdueTasks`
+**Designer:** `measurementDue` (= `confirmedMeasurements`), `proposalsInProgress` (= `proposalConsultingProjects`), `revisionRequested` (= `proposalRevisionsRequested`), `overdueTasks`. See KPI detail sections below.
 
 **Production:** `pendingCustomizationReview`, `pendingStart`, `pendingReview` (alias of `pendingStart`), `inProduction`, `readyToComplete`, `overdueTasks`, `readyForDelivery`, `awaitingDeliverySchedule`, `completedInRange`. Default `scope=mine`. Customization KPI chỉ khi `scope=all`. `unavailableItems` is not a KPI field; use `GET /production-items/unavailable` for that queue.
 
-KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local).
+Designer `overdueTasks` still honors queue `scope` / `dateRange` / `search` on projects. Designer `measurementDue`, `proposalsInProgress`, and `revisionRequested` use dedicated scope + dateRange rules (see below). Production KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local). Sales stock cards do not.
+
+#### `GET /api/dashboard/sales/kpis`
+
+Roles: `SALES`, `ADMIN`. `dateRange` and `search` are accepted so the query shape matches the action queue, but the three stock cards ignore them. They are current backlog counts, not “arose in the period”. A future period count must be a new field, not an overwrite of these.
+
+| Param | Values | Effect on stock cards |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Applied. `mine` = current user's assigned projects/orders. `team` and non-admin `all` = any project with `assignedSalesId`. Admin `all` is the same for `acceptedProjects` / `unpaidRemaining` (unassigned requests are not accepted). `overdueTasks` on admin `all` includes unassigned projects, matching the previous overdue scope. |
+| `dateRange` | `today`, `thisWeek`, `thisMonth` | Ignored by `acceptedProjects`, `unpaidRemaining`, `overdueTasks`. Still applied to compatibility fields `newRequests`, `waitingCustomer`, `paymentFollowUp`, `activeProjects`. |
+| `search` | project code/name or customer name | Ignored by the three stock cards. Applied to compatibility fields. |
+| `group`, `priority`, `page`, `limit` | queue params | Ignored by this endpoint except paging validation. |
+
+```json
+{
+  "status": 200,
+  "message": "Sales KPIs retrieved successfully.",
+  "data": {
+    "acceptedProjects": 2,
+    "unpaidRemaining": 0,
+    "overdueTasks": 0,
+    "newRequests": 0,
+    "waitingCustomer": 1,
+    "paymentFollowUp": 1,
+    "activeProjects": 3
+  }
+}
+```
+
+**`acceptedProjects`** — projects the scoped sales user has accepted for consultation (`assignedSalesId` set). Includes `COMPLETED` and `REJECTED` while still assigned. Does not count unassigned `SUBMITTED` requests (those belong to New Project Requests). Not a non-terminal / “still running” count. Does not replace `waitingCustomer`.
+
+**`unpaidRemaining`** — orders on those accepted projects where stage-3 remaining has been incurred and is not collected. A project collects money three times; this card is stage 3 only.
+
+| Stage | Type | When | Counted |
+| --- | --- | --- | --- |
+| 1 | `PROJECT_START_FEE` | Before designer assignment | No |
+| 2 | `DEPOSIT` | Order `CREATED` / `DEPOSIT_PENDING` | No |
+| 3 | `REMAINING_PAYMENT` | After the customer confirms delivery | Yes, if unpaid |
+
+An order is counted when its status is not `CREATED`, `DEPOSIT_PENDING`, `DEPOSIT_PAID`, `IN_PRODUCTION`, `READY_FOR_DELIVERY`, `DELIVERING`, `AWAITING_CUSTOMER_CONFIRMATION`, or `CANCELLED`, and either:
+
+- `remainingAmount > 0` and (`status` is `FINAL_PAYMENT_PENDING` or `customerConfirmedDeliveryAt` is set), or
+- a `REMAINING_PAYMENT` exists with status `PENDING`, `PROCESSING`, or `EXPIRED`
+
+Typical status is `FINAL_PAYMENT_PENDING`. Orders still in production or delivery, and `AWAITING_CUSTOMER_CONFIRMATION`, are excluded because remaining is created only after delivery confirmation. A paid remaining (`PaymentStatus.PAID` and `remainingAmount <= 0`) is not counted. One order is counted once even if it has more than one open remaining payment.
+
+**`overdueTasks`** — unchanged contract and deadline rule. Counts scoped projects whose `targetCompletionDate` is set and is before today (UTC date of the request). No project status is excluded (`COMPLETED` / `REJECTED` still count if the target date is in the past). Null `targetCompletionDate` is not overdue. `dateRange` and `search` are not applied to this stock card.
+
+**Compatibility fields** (do not bind the new cards to these):
+
+| Field | Meaning kept |
+| --- | --- |
+| `newRequests` | `SUBMITTED` projects inside the date/search-filtered queue. `scope=mine` is 0 for unassigned requests. Frontend may keep counting those from `GET /projects?status=SUBMITTED`. Not changed by this ticket. |
+| `waitingCustomer` | `NEED_BASIC_INFORMATION` or `QUOTATION_SENT`, plus `FINAL_PAYMENT_PENDING` orders with no remaining amount and no delivery confirmation. Not a substitute for the new cards. |
+| `paymentFollowUp` | Old follow-up count: `DEPOSIT_PENDING`, or `FINAL_PAYMENT_PENDING` with `remainingAmount > 0`. Broader than `unpaidRemaining`. |
+| `activeProjects` | Old non-terminal count (`status` is not `COMPLETED` and not `REJECTED`). Not `acceptedProjects`. |
+
+| HTTP | Case |
+| --- | --- |
+| 200 | KPI payload |
+| 400 | `scope` is not `mine` / `team` / `all`, or `dateRange` is not `today` / `thisWeek` / `thisMonth` |
+| 401 | Missing or invalid current user |
+| 403 | Role is not `SALES` or `ADMIN` |
+
+#### `GET /api/dashboard/sales/kpis/unpaid-remaining`
+
+Inline list for the Unpaid Remaining KPI card. Same stock filter as `unpaidRemaining` (ignore `dateRange` / `search`). `total` equals the KPI count for the same `scope`.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Required semantics match KPIs |
+| `page` | number, default `1` | |
+| `limit` | number, default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Sales unpaid remaining list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "orderId": "uuid",
+        "orderCode": "ORD-1",
+        "projectId": "uuid",
+        "projectCode": "PRJ-001",
+        "projectName": "Coffee Shop A",
+        "customerId": "uuid",
+        "customerName": "Customer One",
+        "assignedSalesId": "uuid",
+        "assignedSalesName": "Sales One",
+        "status": "FINAL_PAYMENT_PENDING",
+        "remainingAmount": 1500000,
+        "currency": "VND",
+        "paymentId": "uuid",
+        "paymentStatus": "PENDING",
+        "updatedAt": "2026-09-14T12:00:00Z"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 3
+  }
+}
+```
+
+Only stage-3 remaining unpaid orders. Sorted by `updatedAt` desc, then `orderId` desc.
+
+#### `GET /api/dashboard/sales/kpis/overdue-tasks`
+
+Inline list for the Overdue Tasks KPI card. Same stock filter as `overdueTasks`: `targetCompletionDate < today (UTC)`, no status excluded. `total` equals the KPI count for the same `scope`.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Required semantics match KPIs |
+| `page` | number, default `1` | |
+| `limit` | number, default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Sales overdue tasks list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "projectId": "uuid",
+        "projectCode": "PRJ-001",
+        "projectName": "Coffee Shop A",
+        "customerId": "uuid",
+        "customerName": "Customer One",
+        "assignedSalesId": "uuid",
+        "assignedSalesName": "Sales One",
+        "status": "ORDER_CONFIRMED",
+        "targetCompletionDate": "2026-09-01",
+        "overdueDays": 14,
+        "submittedAt": "2026-08-01T10:00:00Z",
+        "updatedAt": "2026-09-10T08:00:00Z"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 40
+  }
+}
+```
+
+Sorted by `targetCompletionDate` asc (most overdue first), then `projectId`. `overdueDays` = today UTC minus `targetCompletionDate`.
+
+#### `GET /api/dashboard/designer/kpis` — `measurementDue`
+
+`measurementDue` counts **confirmed measurement schedules**, not projects in `MEASUREMENT_REQUIRED`. Alias field `confirmedMeasurements` returns the same number. FE card label: Confirmed Measurements.
+
+Does **not** count projects that need measurement but have no schedule yet.
+
+| Condition | Value |
+| --- | --- |
+| `scheduleType` | `MEASUREMENT` |
+| `status` | `CONFIRMED` only |
+| Assignee | `scope=mine` → `assignedStaffId` = current user. `team` / non-admin `all` → `assignedStaffId` not null. Admin `all` → any assignee including null |
+| Time | `scheduledStart` in `dateRange` (not `createdAt` / `completedAt`) |
+
+Not counted: `PENDING_CONFIRMATION`, `COMPLETED`, `CANCELLED`, or non-`MEASUREMENT` types.
+
+**`dateRange` timezone:** `Asia/Ho_Chi_Minh`. Bounds are half-open UTC `[from, to)`.
+
+| Value | Local window |
+| --- | --- |
+| `today` | That VN calendar day 00:00 → next day 00:00 |
+| `thisWeek` | Monday 00:00 → next Monday 00:00 (Mon–Sun inclusive) |
+| `thisMonth` | 1st 00:00 → 1st of next month 00:00 |
+| omitted | No time filter (all confirmed measurements in scope) |
+
+```json
+{
+  "status": 200,
+  "message": "Designer KPIs retrieved successfully.",
+  "data": {
+    "measurementDue": 1,
+    "confirmedMeasurements": 1,
+    "proposalsInProgress": 2,
+    "proposalConsultingProjects": 2,
+    "revisionRequested": 1,
+    "proposalRevisionsRequested": 1,
+    "overdueTasks": 0
+  }
+}
+```
+
+#### `GET /api/dashboard/designer/kpis` — `proposalsInProgress`
+
+Counts **projects** with status `PROPOSAL_CONSULTING` only. Does not count proposal entity `DRAFT`/`PUBLISHED`, and does not count `SPACE_VERIFIED`. Alias `proposalConsultingProjects` returns the same number.
+
+| Condition | Value |
+| --- | --- |
+| Entity | Project |
+| `status` | `PROPOSAL_CONSULTING` |
+| Assignee | `mine` → `assignedDesignerId` = current user. `team` / non-admin `all` → `assignedDesignerId` not null. Admin `all` → any |
+| Time | `updatedAt` (fallback `createdAt`) in `dateRange` — Asia/Ho_Chi_Minh, same Mon–Sun rules as Confirmed Measurements. No dedicated “entered consulting” timestamp exists. |
+
+#### `GET /api/dashboard/designer/kpis/confirmed-measurements`
+
+Dropdown list for the Confirmed Measurements card. Same `scope` + `dateRange` as `measurementDue`. `total` equals the KPI. `search` ignored.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Same as KPI |
+| `dateRange` | `today`, `thisWeek`, `thisMonth` | Same VN Monday–Sunday rules |
+| `page` | default `1` | |
+| `limit` | default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Designer confirmed measurements list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "scheduleId": "uuid",
+        "projectId": "uuid",
+        "projectCode": "PRJ-2026-0125",
+        "projectName": "K-ON 63",
+        "title": "Site measure",
+        "scheduledStart": "2026-09-19T03:00:00Z",
+        "scheduledEnd": "2026-09-19T05:00:00Z",
+        "location": "District 1",
+        "status": "CONFIRMED",
+        "assignedStaffId": "uuid",
+        "assignedStaffName": "Designer One"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 1
+  }
+}
+```
+
+Sorted by `scheduledStart` asc, then `scheduleId`. Completing or cancelling a schedule drops it from both KPI and list.
+
+#### `GET /api/dashboard/designer/kpis/proposal-consulting`
+
+Dropdown list for Proposal Consulting. Same `scope` + `dateRange` as `proposalsInProgress`. `total` equals the KPI. `search` ignored.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Same as KPI |
+| `dateRange` | `today`, `thisWeek`, `thisMonth` | Filters `updatedAt` / `createdAt` |
+| `page` | default `1` | |
+| `limit` | default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Designer proposal consulting list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "projectId": "uuid",
+        "projectCode": "PRJ-001",
+        "projectName": "Coffee Shop A",
+        "customerId": "uuid",
+        "customerName": "Customer One",
+        "assignedDesignerId": "uuid",
+        "assignedDesignerName": "Designer One",
+        "status": "PROPOSAL_CONSULTING",
+        "designerAssignedAt": "2026-09-10T08:00:00Z",
+        "updatedAt": "2026-09-15T10:00:00Z",
+        "submittedAt": "2026-09-01T04:00:00Z"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 2
+  }
+}
+```
+
+Sorted by `updatedAt`/`createdAt` desc, then `projectId`. Changing project status away from `PROPOSAL_CONSULTING` drops it from both KPI and list.
+
+#### `GET /api/dashboard/designer/kpis` — `revisionRequested`
+
+Counts **proposals** with status `REVISION_REQUESTED` (source of truth for “Proposal revision requested” notifications). Does **not** count project `QUOTATION_REVISION_REQUESTED` (Sales/quotation flow). Alias `proposalRevisionsRequested` returns the same number.
+
+| Condition | Value |
+| --- | --- |
+| Entity | Proposal |
+| `status` | `REVISION_REQUESTED` |
+| Scope | Via parent project: `mine` → `assignedDesignerId` = current user; `team` / non-admin `all` → designer assigned; Admin `all` → any |
+| Time | Proposal `updatedAt` (fallback `createdAt`) in `dateRange` — Asia/Ho_Chi_Minh Mon–Sun. No `revisionRequestedAt` column; request-revision stamps `updatedAt`. |
+
+#### `GET /api/dashboard/designer/kpis/revision-requested`
+
+Dropdown list for Revision Requests. Same `scope` + `dateRange` as `revisionRequested`. `total` equals the KPI.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Same as KPI |
+| `dateRange` | `today`, `thisWeek`, `thisMonth` | Filters proposal `updatedAt` |
+| `page` | default `1` | |
+| `limit` | default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Designer revision requested list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "proposalId": "uuid",
+        "proposalName": "Bản 1",
+        "status": "REVISION_REQUESTED",
+        "revisionNote": "Tày vl",
+        "projectId": "uuid",
+        "projectCode": "PRJ-001",
+        "projectName": "Coffee Shop A",
+        "assignedDesignerId": "uuid",
+        "assignedDesignerName": "Designer One",
+        "revisionRequestedAt": "2026-09-15T10:00:00Z"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 1
+  }
+}
+```
+
+`revisionRequestedAt` is proposal `updatedAt` (or `createdAt`). Sorted by that timestamp desc. Leaving `REVISION_REQUESTED` drops the row from KPI and list.
 
 ### Project phase deadline risks
 

@@ -300,6 +300,31 @@ public sealed class DesignerConfirmedMeasurementRowReadModel
     public string? AssignedStaffName { get; init; }
 }
 
+public sealed class DesignerProposalConsultingRowReadModel
+{
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid CustomerId { get; init; }
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public Guid? AssignedDesignerId { get; init; }
+
+    public string? AssignedDesignerName { get; init; }
+
+    public ProjectStatus Status { get; init; }
+
+    public DateTime? DesignerAssignedAt { get; init; }
+
+    public DateTime? UpdatedAt { get; init; }
+
+    public DateTime? SubmittedAt { get; init; }
+}
+
 public sealed class ProductionDashboardKpisReadModel
 {
     public int PendingCustomizationReview { get; init; }

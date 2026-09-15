@@ -3733,6 +3733,7 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 | GET | `/api/dashboard/designer/work-queue` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/designer/kpis` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/designer/kpis/confirmed-measurements` | DESIGNER, ADMIN |
+| GET | `/api/dashboard/designer/kpis/proposal-consulting` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/production/queue` | PRODUCTION, ADMIN |
 | GET | `/api/dashboard/production/kpis` | PRODUCTION, ADMIN |
 | GET | `/dashboard/project-phase-deadlines` | SALES, DESIGNER, PRODUCTION, ADMIN |
@@ -3791,11 +3792,11 @@ Sales next-action uses project status plus latest non-cancelled order (deposit /
 
 **Sales:** `acceptedProjects`, `unpaidRemaining`, `overdueTasks`. Compatibility fields still returned: `newRequests`, `waitingCustomer`, `paymentFollowUp`, `activeProjects`. See below.
 
-**Designer:** `measurementDue` (= `confirmedMeasurements`), `proposalsInProgress`, `revisionRequested`, `overdueTasks`. See confirmed-measurements section below.
+**Designer:** `measurementDue` (= `confirmedMeasurements`), `proposalsInProgress` (= `proposalConsultingProjects`), `revisionRequested`, `overdueTasks`. See KPI detail sections below.
 
 **Production:** `pendingCustomizationReview`, `pendingStart`, `pendingReview` (alias of `pendingStart`), `inProduction`, `readyToComplete`, `overdueTasks`, `readyForDelivery`, `awaitingDeliverySchedule`, `completedInRange`. Default `scope=mine`. Customization KPI chỉ khi `scope=all`. `unavailableItems` is not a KPI field; use `GET /production-items/unavailable` for that queue.
 
-Designer `proposalsInProgress` / `revisionRequested` / `overdueTasks` still honor queue `scope` / `dateRange` / `search` on projects. Designer `measurementDue` uses schedule `scope` + `dateRange` only (see below). Production KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local). Sales stock cards do not.
+Designer `revisionRequested` / `overdueTasks` still honor queue `scope` / `dateRange` / `search` on projects. Designer `measurementDue` and `proposalsInProgress` use dedicated scope + dateRange rules (see below). Production KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local). Sales stock cards do not.
 
 #### `GET /api/dashboard/sales/kpis`
 
@@ -3973,12 +3974,24 @@ Not counted: `PENDING_CONFIRMATION`, `COMPLETED`, `CANCELLED`, or non-`MEASUREME
   "data": {
     "measurementDue": 1,
     "confirmedMeasurements": 1,
-    "proposalsInProgress": 0,
+    "proposalsInProgress": 2,
+    "proposalConsultingProjects": 2,
     "revisionRequested": 0,
     "overdueTasks": 0
   }
 }
 ```
+
+#### `GET /api/dashboard/designer/kpis` — `proposalsInProgress`
+
+Counts **projects** with status `PROPOSAL_CONSULTING` only. Does not count proposal entity `DRAFT`/`PUBLISHED`, and does not count `SPACE_VERIFIED`. Alias `proposalConsultingProjects` returns the same number.
+
+| Condition | Value |
+| --- | --- |
+| Entity | Project |
+| `status` | `PROPOSAL_CONSULTING` |
+| Assignee | `mine` → `assignedDesignerId` = current user. `team` / non-admin `all` → `assignedDesignerId` not null. Admin `all` → any |
+| Time | `updatedAt` (fallback `createdAt`) in `dateRange` — Asia/Ho_Chi_Minh, same Mon–Sun rules as Confirmed Measurements. No dedicated “entered consulting” timestamp exists. |
 
 #### `GET /api/dashboard/designer/kpis/confirmed-measurements`
 
@@ -4019,6 +4032,46 @@ Dropdown list for the Confirmed Measurements card. Same `scope` + `dateRange` as
 ```
 
 Sorted by `scheduledStart` asc, then `scheduleId`. Completing or cancelling a schedule drops it from both KPI and list.
+
+#### `GET /api/dashboard/designer/kpis/proposal-consulting`
+
+Dropdown list for Proposal Consulting. Same `scope` + `dateRange` as `proposalsInProgress`. `total` equals the KPI. `search` ignored.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Same as KPI |
+| `dateRange` | `today`, `thisWeek`, `thisMonth` | Filters `updatedAt` / `createdAt` |
+| `page` | default `1` | |
+| `limit` | default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Designer proposal consulting list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "projectId": "uuid",
+        "projectCode": "PRJ-001",
+        "projectName": "Coffee Shop A",
+        "customerId": "uuid",
+        "customerName": "Customer One",
+        "assignedDesignerId": "uuid",
+        "assignedDesignerName": "Designer One",
+        "status": "PROPOSAL_CONSULTING",
+        "designerAssignedAt": "2026-09-10T08:00:00Z",
+        "updatedAt": "2026-09-15T10:00:00Z",
+        "submittedAt": "2026-09-01T04:00:00Z"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 2
+  }
+}
+```
+
+Sorted by `updatedAt`/`createdAt` desc, then `projectId`. Changing project status away from `PROPOSAL_CONSULTING` drops it from both KPI and list.
 
 ### Project phase deadline risks
 

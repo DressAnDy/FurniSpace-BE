@@ -187,6 +187,7 @@ public sealed class DashboardQueueService : IDashboardQueueService
                 MeasurementDue = kpis.MeasurementDue,
                 ConfirmedMeasurements = kpis.MeasurementDue,
                 ProposalsInProgress = kpis.ProposalsInProgress,
+                ProposalConsultingProjects = kpis.ProposalsInProgress,
                 RevisionRequested = kpis.RevisionRequested,
                 OverdueTasks = kpis.OverdueTasks
             },
@@ -205,15 +206,7 @@ public sealed class DashboardQueueService : IDashboardQueueService
         }
 
         // Same scope + dateRange as measurementDue / confirmedMeasurements KPI. Search ignored.
-        var filter = new DashboardQueueFilterReadModel
-        {
-            Scope = prepared.Filter!.Scope,
-            CurrentUserId = prepared.Filter.CurrentUserId,
-            CurrentUserRole = prepared.Filter.CurrentUserRole,
-            Search = null,
-            DateRange = prepared.Filter.DateRange,
-            UtcNow = prepared.Filter.UtcNow
-        };
+        var filter = ToDesignerKpiFilter(prepared.Filter!);
         var rows = await _dashboard.GetDesignerConfirmedMeasurementRowsAsync(filter, cancellationToken);
         var page = NormalizePage(prepared.Query!.Page);
         var limit = NormalizeLimit(prepared.Query.Limit);
@@ -232,6 +225,39 @@ public sealed class DashboardQueueService : IDashboardQueueService
                 Total = rows.Count
             },
             "Designer confirmed measurements list retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerProposalConsultingListResponseDto>> GetDesignerProposalConsultingAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerProposalConsultingListResponseDto>(prepared.Error);
+        }
+
+        // Same scope + dateRange as proposalsInProgress KPI. Search ignored.
+        var filter = ToDesignerKpiFilter(prepared.Filter!);
+        var rows = await _dashboard.GetDesignerProposalConsultingRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapProposalConsultingItem)
+            .ToList();
+
+        return ServiceResult<DesignerProposalConsultingListResponseDto>.Success(
+            new DesignerProposalConsultingListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer proposal consulting list retrieved successfully.");
     }
 
     public async Task<ServiceResult<DashboardQueueResponseDto>> GetProductionQueueAsync(
@@ -1005,6 +1031,19 @@ public sealed class DashboardQueueService : IDashboardQueueService
         };
     }
 
+    private static DashboardQueueFilterReadModel ToDesignerKpiFilter(DashboardQueueFilterReadModel filter)
+    {
+        return new DashboardQueueFilterReadModel
+        {
+            Scope = filter.Scope,
+            CurrentUserId = filter.CurrentUserId,
+            CurrentUserRole = filter.CurrentUserRole,
+            Search = null,
+            DateRange = filter.DateRange,
+            UtcNow = filter.UtcNow
+        };
+    }
+
     private static DesignerConfirmedMeasurementItemDto MapConfirmedMeasurementItem(
         DesignerConfirmedMeasurementRowReadModel row)
     {
@@ -1023,6 +1062,31 @@ public sealed class DashboardQueueService : IDashboardQueueService
             Status = row.Status.ToString(),
             AssignedStaffId = row.AssignedStaffId,
             AssignedStaffName = row.AssignedStaffName
+        };
+    }
+
+    private static DesignerProposalConsultingItemDto MapProposalConsultingItem(
+        DesignerProposalConsultingRowReadModel row)
+    {
+        return new DesignerProposalConsultingItemDto
+        {
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            CustomerId = row.CustomerId,
+            CustomerName = row.CustomerName,
+            AssignedDesignerId = row.AssignedDesignerId,
+            AssignedDesignerName = row.AssignedDesignerName,
+            Status = row.Status.ToString(),
+            DesignerAssignedAt = row.DesignerAssignedAt.HasValue
+                ? DateTime.SpecifyKind(row.DesignerAssignedAt.Value, DateTimeKind.Utc)
+                : null,
+            UpdatedAt = row.UpdatedAt.HasValue
+                ? DateTime.SpecifyKind(row.UpdatedAt.Value, DateTimeKind.Utc)
+                : null,
+            SubmittedAt = row.SubmittedAt.HasValue
+                ? DateTime.SpecifyKind(row.SubmittedAt.Value, DateTimeKind.Utc)
+                : null
         };
     }
 

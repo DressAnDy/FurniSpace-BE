@@ -72,6 +72,29 @@ public sealed class DesignerDashboardController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// List for Proposal Consulting KPI. Same scope + dateRange as
+    /// <c>proposalsInProgress</c> / <c>proposalConsultingProjects</c>.
+    /// dateRange filters <c>updatedAt</c> (fallback <c>createdAt</c>) in Asia/Ho_Chi_Minh.
+    /// </summary>
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpGet("kpis/proposal-consulting")]
+    public async Task<IActionResult> GetProposalConsulting(
+        [FromQuery] DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _dashboard.GetDesignerProposalConsultingAsync(
+            currentUserId,
+            query,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

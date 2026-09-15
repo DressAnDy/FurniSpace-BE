@@ -326,15 +326,13 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         var projects = BuildDesignerProjectQuery(filter);
         var measurementDue = await BuildConfirmedMeasurementSchedulesQuery(filter)
             .CountAsync(cancellationToken);
+        var proposalsInProgress = await BuildProposalConsultingProjectsQuery(filter)
+            .CountAsync(cancellationToken);
 
         return new DesignerDashboardKpisReadModel
         {
             MeasurementDue = measurementDue,
-            ProposalsInProgress = await projects.CountAsync(
-                project =>
-                    project.Status == ProjectStatus.SPACE_VERIFIED ||
-                    project.Status == ProjectStatus.PROPOSAL_CONSULTING,
-                cancellationToken),
+            ProposalsInProgress = proposalsInProgress,
             RevisionRequested = await projects.CountAsync(
                 project => project.Status == ProjectStatus.QUOTATION_REVISION_REQUESTED,
                 cancellationToken),
@@ -383,6 +381,40 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<DesignerProposalConsultingRowReadModel>> GetDesignerProposalConsultingRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var projects = BuildProposalConsultingProjectsQuery(filter);
+
+        return await projects
+            .OrderByDescending(project => project.UpdatedAt ?? project.CreatedAt)
+            .ThenByDescending(project => project.ProjectId)
+            .Select(project => new DesignerProposalConsultingRowReadModel
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                CustomerId = project.CustomerId,
+                CustomerName = _db.AccountSet
+                    .Where(account => account.AccountId == project.CustomerId)
+                    .Select(account => account.FullName)
+                    .FirstOrDefault() ?? string.Empty,
+                AssignedDesignerId = project.AssignedDesignerId,
+                AssignedDesignerName = project.AssignedDesignerId.HasValue
+                    ? _db.AccountSet
+                        .Where(account => account.AccountId == project.AssignedDesignerId)
+                        .Select(account => account.FullName)
+                        .FirstOrDefault()
+                    : null,
+                Status = project.Status ?? ProjectStatus.PROPOSAL_CONSULTING,
+                DesignerAssignedAt = project.DesignerAssignedAt,
+                UpdatedAt = project.UpdatedAt,
+                SubmittedAt = project.SubmittedAt
+            })
+            .ToListAsync(cancellationToken);
+    }
+
     private IQueryable<Domain.Entities.ProjectSchedule> BuildConfirmedMeasurementSchedulesQuery(
         DashboardQueueFilterReadModel filter)
     {
@@ -403,6 +435,56 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         }
 
         return schedules;
+    }
+
+    /// <summary>
+    /// Projects currently in <c>PROPOSAL_CONSULTING</c>. Date filter uses
+    /// <c>updatedAt</c> (fallback <c>createdAt</c>) in Asia/Ho_Chi_Minh dateRange —
+    /// there is no dedicated "entered consulting" timestamp.
+    /// </summary>
+    private IQueryable<Domain.Entities.Project> BuildProposalConsultingProjectsQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var projects = _db.ProjectSet.Where(project =>
+            project.Status == ProjectStatus.PROPOSAL_CONSULTING);
+
+        projects = ApplyDesignerAssigneeScope(projects, filter);
+
+        var bounds = DashboardScheduleDateRange.TryResolve(filter.DateRange, filter.UtcNow);
+        if (bounds.HasValue)
+        {
+            var fromUtc = bounds.Value.FromUtc;
+            var toUtcExclusive = bounds.Value.ToUtcExclusive;
+            // Prefer updatedAt; fall back to createdAt when updatedAt is null.
+            projects = projects.Where(project =>
+                project.UpdatedAt.HasValue
+                    ? project.UpdatedAt.Value >= fromUtc && project.UpdatedAt.Value < toUtcExclusive
+                    : project.CreatedAt.HasValue &&
+                      project.CreatedAt.Value >= fromUtc &&
+                      project.CreatedAt.Value < toUtcExclusive);
+        }
+
+        return projects;
+    }
+
+    private static IQueryable<Domain.Entities.Project> ApplyDesignerAssigneeScope(
+        IQueryable<Domain.Entities.Project> projects,
+        DashboardQueueFilterReadModel filter)
+    {
+        var scope = NormalizeScope(filter.Scope);
+        var isAdmin = IsAdmin(filter.CurrentUserRole);
+
+        if (string.Equals(scope, "mine", StringComparison.OrdinalIgnoreCase))
+        {
+            return projects.Where(project => project.AssignedDesignerId == filter.CurrentUserId);
+        }
+
+        if (isAdmin && string.Equals(scope, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            return projects;
+        }
+
+        return projects.Where(project => project.AssignedDesignerId != null);
     }
 
     private static IQueryable<Domain.Entities.ProjectSchedule> ApplyScheduleAssigneeScope(

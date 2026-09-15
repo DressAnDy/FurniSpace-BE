@@ -185,11 +185,113 @@ public sealed class DashboardQueueService : IDashboardQueueService
             new DesignerDashboardKpisDto
             {
                 MeasurementDue = kpis.MeasurementDue,
+                ConfirmedMeasurements = kpis.MeasurementDue,
                 ProposalsInProgress = kpis.ProposalsInProgress,
+                ProposalConsultingProjects = kpis.ProposalsInProgress,
                 RevisionRequested = kpis.RevisionRequested,
+                ProposalRevisionsRequested = kpis.RevisionRequested,
                 OverdueTasks = kpis.OverdueTasks
             },
             "Designer KPIs retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerConfirmedMeasurementsListResponseDto>> GetDesignerConfirmedMeasurementsAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerConfirmedMeasurementsListResponseDto>(prepared.Error);
+        }
+
+        // Same scope + dateRange as measurementDue / confirmedMeasurements KPI. Search ignored.
+        var filter = ToDesignerKpiFilter(prepared.Filter!);
+        var rows = await _dashboard.GetDesignerConfirmedMeasurementRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapConfirmedMeasurementItem)
+            .ToList();
+
+        return ServiceResult<DesignerConfirmedMeasurementsListResponseDto>.Success(
+            new DesignerConfirmedMeasurementsListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer confirmed measurements list retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerProposalConsultingListResponseDto>> GetDesignerProposalConsultingAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerProposalConsultingListResponseDto>(prepared.Error);
+        }
+
+        // Same scope + dateRange as proposalsInProgress KPI. Search ignored.
+        var filter = ToDesignerKpiFilter(prepared.Filter!);
+        var rows = await _dashboard.GetDesignerProposalConsultingRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapProposalConsultingItem)
+            .ToList();
+
+        return ServiceResult<DesignerProposalConsultingListResponseDto>.Success(
+            new DesignerProposalConsultingListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer proposal consulting list retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerRevisionRequestedListResponseDto>> GetDesignerRevisionRequestedAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerRevisionRequestedListResponseDto>(prepared.Error);
+        }
+
+        // Same scope + dateRange as revisionRequested KPI. Search ignored.
+        var filter = ToDesignerKpiFilter(prepared.Filter!);
+        var rows = await _dashboard.GetDesignerRevisionRequestedRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapRevisionRequestedItem)
+            .ToList();
+
+        return ServiceResult<DesignerRevisionRequestedListResponseDto>.Success(
+            new DesignerRevisionRequestedListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer revision requested list retrieved successfully.");
     }
 
     public async Task<ServiceResult<DashboardQueueResponseDto>> GetProductionQueueAsync(
@@ -959,6 +1061,85 @@ public sealed class DashboardQueueService : IDashboardQueueService
                 : null,
             UpdatedAt = row.UpdatedAt.HasValue
                 ? DateTime.SpecifyKind(row.UpdatedAt.Value, DateTimeKind.Utc)
+                : null
+        };
+    }
+
+    private static DashboardQueueFilterReadModel ToDesignerKpiFilter(DashboardQueueFilterReadModel filter)
+    {
+        return new DashboardQueueFilterReadModel
+        {
+            Scope = filter.Scope,
+            CurrentUserId = filter.CurrentUserId,
+            CurrentUserRole = filter.CurrentUserRole,
+            Search = null,
+            DateRange = filter.DateRange,
+            UtcNow = filter.UtcNow
+        };
+    }
+
+    private static DesignerConfirmedMeasurementItemDto MapConfirmedMeasurementItem(
+        DesignerConfirmedMeasurementRowReadModel row)
+    {
+        return new DesignerConfirmedMeasurementItemDto
+        {
+            ScheduleId = row.ScheduleId,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            Title = row.Title,
+            ScheduledStart = DateTime.SpecifyKind(row.ScheduledStart, DateTimeKind.Utc),
+            ScheduledEnd = row.ScheduledEnd.HasValue
+                ? DateTime.SpecifyKind(row.ScheduledEnd.Value, DateTimeKind.Utc)
+                : null,
+            Location = row.Location,
+            Status = row.Status.ToString(),
+            AssignedStaffId = row.AssignedStaffId,
+            AssignedStaffName = row.AssignedStaffName
+        };
+    }
+
+    private static DesignerProposalConsultingItemDto MapProposalConsultingItem(
+        DesignerProposalConsultingRowReadModel row)
+    {
+        return new DesignerProposalConsultingItemDto
+        {
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            CustomerId = row.CustomerId,
+            CustomerName = row.CustomerName,
+            AssignedDesignerId = row.AssignedDesignerId,
+            AssignedDesignerName = row.AssignedDesignerName,
+            Status = row.Status.ToString(),
+            DesignerAssignedAt = row.DesignerAssignedAt.HasValue
+                ? DateTime.SpecifyKind(row.DesignerAssignedAt.Value, DateTimeKind.Utc)
+                : null,
+            UpdatedAt = row.UpdatedAt.HasValue
+                ? DateTime.SpecifyKind(row.UpdatedAt.Value, DateTimeKind.Utc)
+                : null,
+            SubmittedAt = row.SubmittedAt.HasValue
+                ? DateTime.SpecifyKind(row.SubmittedAt.Value, DateTimeKind.Utc)
+                : null
+        };
+    }
+
+    private static DesignerRevisionRequestedItemDto MapRevisionRequestedItem(
+        DesignerRevisionRequestedRowReadModel row)
+    {
+        return new DesignerRevisionRequestedItemDto
+        {
+            ProposalId = row.ProposalId,
+            ProposalName = row.ProposalName,
+            Status = row.Status.ToString(),
+            RevisionNote = row.RevisionNote,
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            AssignedDesignerId = row.AssignedDesignerId,
+            AssignedDesignerName = row.AssignedDesignerName,
+            RevisionRequestedAt = row.RevisionRequestedAt.HasValue
+                ? DateTime.SpecifyKind(row.RevisionRequestedAt.Value, DateTimeKind.Utc)
                 : null
         };
     }

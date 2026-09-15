@@ -275,6 +275,79 @@ public sealed class DesignerDashboardKpisReadModel
     public int OverdueTasks { get; init; }
 }
 
+public sealed class DesignerConfirmedMeasurementRowReadModel
+{
+    public Guid ScheduleId { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public string? Title { get; init; }
+
+    public DateTime ScheduledStart { get; init; }
+
+    public DateTime? ScheduledEnd { get; init; }
+
+    public string? Location { get; init; }
+
+    public ProjectScheduleStatus Status { get; init; }
+
+    public Guid? AssignedStaffId { get; init; }
+
+    public string? AssignedStaffName { get; init; }
+}
+
+public sealed class DesignerProposalConsultingRowReadModel
+{
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid CustomerId { get; init; }
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public Guid? AssignedDesignerId { get; init; }
+
+    public string? AssignedDesignerName { get; init; }
+
+    public ProjectStatus Status { get; init; }
+
+    public DateTime? DesignerAssignedAt { get; init; }
+
+    public DateTime? UpdatedAt { get; init; }
+
+    public DateTime? SubmittedAt { get; init; }
+}
+
+public sealed class DesignerRevisionRequestedRowReadModel
+{
+    public Guid ProposalId { get; init; }
+
+    public string ProposalName { get; init; } = string.Empty;
+
+    public ProposalStatus Status { get; init; }
+
+    public string? RevisionNote { get; init; }
+
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public Guid? AssignedDesignerId { get; init; }
+
+    public string? AssignedDesignerName { get; init; }
+
+    public DateTime? RevisionRequestedAt { get; init; }
+}
+
 public sealed class ProductionDashboardKpisReadModel
 {
     public int PendingCustomizationReview { get; init; }

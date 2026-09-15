@@ -49,6 +49,75 @@ public sealed class DesignerDashboardController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// List for Confirmed Measurements KPI. Same scope + dateRange as
+    /// <c>measurementDue</c> / <c>confirmedMeasurements</c>. <c>total</c> matches the KPI.
+    /// dateRange uses Asia/Ho_Chi_Minh; thisWeek is Monday–Sunday.
+    /// </summary>
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpGet("kpis/confirmed-measurements")]
+    public async Task<IActionResult> GetConfirmedMeasurements(
+        [FromQuery] DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _dashboard.GetDesignerConfirmedMeasurementsAsync(
+            currentUserId,
+            query,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    /// <summary>
+    /// List for Proposal Consulting KPI. Same scope + dateRange as
+    /// <c>proposalsInProgress</c> / <c>proposalConsultingProjects</c>.
+    /// dateRange filters <c>updatedAt</c> (fallback <c>createdAt</c>) in Asia/Ho_Chi_Minh.
+    /// </summary>
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpGet("kpis/proposal-consulting")]
+    public async Task<IActionResult> GetProposalConsulting(
+        [FromQuery] DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _dashboard.GetDesignerProposalConsultingAsync(
+            currentUserId,
+            query,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    /// <summary>
+    /// List for Revision Requests KPI. Same scope + dateRange as
+    /// <c>revisionRequested</c> / <c>proposalRevisionsRequested</c>.
+    /// Counts proposals in <c>REVISION_REQUESTED</c>; dateRange filters proposal <c>updatedAt</c>.
+    /// </summary>
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpGet("kpis/revision-requested")]
+    public async Task<IActionResult> GetRevisionRequested(
+        [FromQuery] DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _dashboard.GetDesignerRevisionRequestedAsync(
+            currentUserId,
+            query,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

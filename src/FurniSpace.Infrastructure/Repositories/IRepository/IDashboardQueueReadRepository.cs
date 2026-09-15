@@ -28,6 +28,18 @@ public interface IDashboardQueueReadRepository
         DashboardQueueFilterReadModel filter,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<DesignerConfirmedMeasurementRowReadModel>> GetDesignerConfirmedMeasurementRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<DesignerProposalConsultingRowReadModel>> GetDesignerProposalConsultingRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<DesignerRevisionRequestedRowReadModel>> GetDesignerRevisionRequestedRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<DashboardProductionQueueRowReadModel>> GetProductionQueueRowsAsync(
         DashboardQueueFilterReadModel filter,
         CancellationToken cancellationToken = default);

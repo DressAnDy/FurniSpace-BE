@@ -235,18 +235,6 @@ Two source patterns intentionally serve unauthenticated clients:
 | Provider webhooks | PayOS and SePay webhook POSTs | Explicit `[AllowAnonymous]`; provider-to-server only; signature/timestamp validation; not a client API. |
 | Infrastructure | Root, Swagger/OpenAPI and optional Redis health | Operational/debug endpoints; see Appendix A. |
 
-#### Known authorization gap — do not rely on it
-
-These `AccountsController` CRUD actions currently have no `[Authorize]` or role attribute:
-
-- `GET /api/Accounts`
-- `GET /api/Accounts/{accountId}`
-- `POST /api/Accounts`
-- `PUT /api/Accounts/{accountId}`
-- `DELETE /api/Accounts/{accountId}`
-
-They are reachable without a role **as currently implemented**, but this is a security gap, not intended public behavior. Treat them as Admin management contracts pending backend hardening.
-
 ### 0.7 JWT without a specific role
 
 | Area | APIs | Service-level scope |
@@ -608,11 +596,12 @@ Controller: `AccountsController`
 
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
-| GET | `/api/Accounts` | ⚠️ None on controller (known gap) | List accounts |
-| GET | `/api/Accounts/{accountId}` | ⚠️ None | Get by id |
-| POST | `/api/Accounts` | ⚠️ None | Create account |
-| PUT | `/api/Accounts/{accountId}` | ⚠️ None | Update account |
-| DELETE | `/api/Accounts/{accountId}` | ⚠️ None | Soft-delete style remove |
+| GET | `/api/Accounts` | ADMIN | List accounts |
+| GET | `/api/Accounts/{accountId}` | ADMIN | Get by id |
+| POST | `/api/Accounts` | ADMIN | Create account |
+| PUT | `/api/Accounts/{accountId}` | ADMIN | Update account (role change revokes JWT) |
+| DELETE | `/api/Accounts/{accountId}` | ADMIN | Soft-delete style remove |
+| GET | `/admin/roles` | ADMIN | Read-only role catalog for admin UI |
 | GET | `/admin/accounts/suggest` | ADMIN | Suggest accounts |
 | GET | `/admin/accounts/search-stats` | ADMIN | Facet stats |
 | GET | `/admin/accounts/{accountId}` | ADMIN | Admin detail |
@@ -668,6 +657,22 @@ Controller: `AccountsController`
 ```
 
 `AccountDetailDto` nests `role: { roleId, roleName, description? }`.
+
+### `GET /admin/roles`
+
+**Auth:** ADMIN  
+**Response:** `AccountRoleDto[]` sorted by `roleName`.
+
+```json
+[
+  { "roleId": "...", "roleName": "ADMIN", "description": "System Administrator" },
+  { "roleId": "...", "roleName": "CUSTOMER", "description": "Customer" }
+]
+```
+
+Roles are seeded/fixed in the database. This endpoint is read-only (no create/update/delete role definitions).
+
+To assign or change a user's role, use `PUT /api/Accounts/{accountId}` with `roleId` in the body. Role changes revoke the target user's access tokens (login again for the new role claim). Admin cannot change their own role; the last active `ADMIN` cannot be demoted.
 
 ### `GET /accounts/designers/available`
 
@@ -4768,6 +4773,6 @@ The domain route tables above cover all 292 actions. Both aliases are shown wher
 
 - Prefer this doc + live `/swagger/v1/swagger.json` when fields drift; DTO source of truth is `src/FurniSpace.Application/DTOs` (report models also in `src/FurniSpace.Shared/DTOs/Reports`).
   2190|- Routing is intentionally inconsistent in a few places (`/api/Accounts` vs `/accounts/...`, `/api/ProductVersions` vs `/ProductVersions`); paths above match controllers as coded.
-- `AccountsController` CRUD currently lacks `[Authorize]` — treat as a security gap until locked down.
+- Account CRUD and role assignment require `ADMIN`; role changes revoke existing JWTs for the affected user.
 - Auth tokens are cookie-first; JSON body does not include raw access/refresh tokens.
 - For deeper behavior, follow the current payment/realtime/planner/storage source; `docs/backend-api-dev-guide.md` is secondary context only.

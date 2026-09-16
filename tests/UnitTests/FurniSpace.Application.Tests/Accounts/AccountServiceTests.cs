@@ -56,7 +56,8 @@ public sealed class AccountServiceTests
                 Email = "missing@furnispace.com",
                 FullName = "Missing User",
                 Status = "ACTIVE"
-            });
+            },
+            Guid.NewGuid());
 
         Assert.Equal(404, result.Status);
         Assert.Equal("Account not found.", result.Message);
@@ -741,6 +742,159 @@ public sealed class AccountServiceTests
         Assert.Equal(1, repository.CountGroupedByRoleIdCallCount);
     }
 
+    [Fact]
+    public async Task GetAllRolesAsync_ReturnsMappedRoles()
+    {
+        var adminRoleId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            AllRoles =
+            [
+                new AccountRoleReadModel { RoleId = adminRoleId, RoleName = "ADMIN", Description = "Admin" },
+                new AccountRoleReadModel { RoleId = Guid.NewGuid(), RoleName = "SALES", Description = "Sales" }
+            ]
+        };
+        var service = CreateService(repository);
+
+        var result = await service.GetAllRolesAsync();
+
+        Assert.Equal(200, result.Status);
+        Assert.NotNull(result.Data);
+        Assert.Equal(2, result.Data!.Count);
+        Assert.Equal("ADMIN", result.Data[0].RoleName);
+        Assert.Equal(adminRoleId, result.Data[0].RoleId);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithSelfChange_ReturnsForbidden()
+    {
+        var accountId = Guid.NewGuid();
+        var roleId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            Accounts =
+            [
+                new Account
+                {
+                    AccountId = accountId,
+                    RoleId = roleId,
+                    Email = "admin@furnispace.com",
+                    FullName = "Admin User",
+                    Status = AccountStatus.ACTIVE
+                }
+            ],
+            RoleExistsResult = true
+        };
+        var service = CreateService(repository);
+
+        var result = await service.UpdateAsync(
+            accountId,
+            new UpdateAccountRequestDto
+            {
+                RoleId = Guid.NewGuid(),
+                Email = "admin@furnispace.com",
+                FullName = "Admin User",
+                Status = "ACTIVE"
+            },
+            accountId);
+
+        Assert.Equal(403, result.Status);
+        Assert.Equal("You cannot change your own role.", result.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithLastAdmin_ReturnsConflict()
+    {
+        var adminRoleId = Guid.NewGuid();
+        var salesRoleId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            Accounts =
+            [
+                new Account
+                {
+                    AccountId = accountId,
+                    RoleId = adminRoleId,
+                    Email = "admin@furnispace.com",
+                    FullName = "Admin User",
+                    Status = AccountStatus.ACTIVE
+                }
+            ],
+            RoleExistsResult = true,
+            ActiveAccountsByRoleNameCount = 1,
+            RoleNames =
+            {
+                [adminRoleId] = "ADMIN",
+                [salesRoleId] = "SALES"
+            }
+        };
+        var service = CreateService(repository);
+
+        var result = await service.UpdateAsync(
+            accountId,
+            new UpdateAccountRequestDto
+            {
+                RoleId = salesRoleId,
+                Email = "admin@furnispace.com",
+                FullName = "Admin User",
+                Status = "ACTIVE"
+            },
+            Guid.NewGuid());
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal("LAST_ADMIN_CANNOT_BE_DEMOTED", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithRoleChange_RevokesTokens()
+    {
+        var adminRoleId = Guid.NewGuid();
+        var salesRoleId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+        var account = new Account
+        {
+            AccountId = accountId,
+            RoleId = adminRoleId,
+            Email = "admin@furnispace.com",
+            FullName = "Admin User",
+            Status = AccountStatus.ACTIVE
+        };
+        var repository = new FakeAccountRepository
+        {
+            Accounts = [account],
+            RoleExistsResult = true,
+            ActiveAccountsByRoleNameCount = 2,
+            RoleNames =
+            {
+                [adminRoleId] = "ADMIN",
+                [salesRoleId] = "SALES"
+            }
+        };
+        var auth = new FakeAuthService();
+        var service = new AccountService(
+            repository,
+            auth,
+            new InMemoryCacheService(),
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new PasswordHasher<Account>());
+
+        var result = await service.UpdateAsync(
+            accountId,
+            new UpdateAccountRequestDto
+            {
+                RoleId = salesRoleId,
+                Email = "admin@furnispace.com",
+                FullName = "Admin User",
+                Status = "ACTIVE"
+            },
+            Guid.NewGuid());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(1, auth.RevokeUserAccessTokensCallCount);
+        Assert.Equal(accountId, auth.RevokedUserId);
+    }
+
     private static AccountService CreateService(FakeAccountRepository repository)
     {
         return new AccountService(
@@ -760,6 +914,9 @@ public sealed class AccountServiceTests
         public IReadOnlyList<AccountFacetCountReadModel> StatusCounts { get; set; } = [];
         public IReadOnlyList<AccountFacetCountReadModel> RoleCounts { get; set; } = [];
         public Dictionary<Guid, string> RoleNames { get; } = [];
+        public IReadOnlyList<AccountRoleReadModel> AllRoles { get; set; } = [];
+        public int ActiveAccountsByRoleNameCount { get; set; }
+        public string? ActiveAccountsByRoleName { get; private set; }
         public int AccountCount { get; set; }
         public int GetDetailCallCount { get; private set; }
         public int CountGroupedByStatusCallCount { get; private set; }
@@ -827,6 +984,13 @@ public sealed class AccountServiceTests
 
         public Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default) => Task.FromResult<Guid?>(null);
         public Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default) => Task.FromResult(RoleExistsResult);
+        public Task<IReadOnlyList<AccountRoleReadModel>> GetAllRolesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(AllRoles);
+        public Task<int> CountActiveAccountsByRoleNameAsync(string roleName, CancellationToken cancellationToken = default)
+        {
+            ActiveAccountsByRoleName = roleName;
+            return Task.FromResult(ActiveAccountsByRoleNameCount);
+        }
         public Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default) => Task.FromResult(EmailExistsResult);
         public Task<IReadOnlyList<AvailableDesignerReadModel>> GetAvailableDesignersAsync(
             int page,
@@ -1002,6 +1166,9 @@ public sealed class AccountServiceTests
 
     private sealed class FakeAuthService : IAuthService
     {
+        public int RevokeUserAccessTokensCallCount { get; private set; }
+        public Guid RevokedUserId { get; private set; }
+
         public Task<AuthResponseDto> CreateSessionAsync(Guid userId, string email, string fullName, IEnumerable<string>? roles = null, CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new AuthResponseDto());
@@ -1011,7 +1178,12 @@ public sealed class AccountServiceTests
         public Task<AuthResponseDto?> RotateRefreshTokenAsync(Guid userId, string refreshToken, string email, string fullName, IEnumerable<string>? roles = null, CancellationToken cancellationToken = default) => Task.FromResult<AuthResponseDto?>(null);
         public Task RevokeRefreshTokenAsync(Guid userId, string refreshToken, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task RevokeAccessTokenAsync(string jti, DateTimeOffset expiresAt, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task RevokeUserAccessTokensAsync(Guid userId, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RevokeUserAccessTokensAsync(Guid userId, CancellationToken cancellationToken = default)
+        {
+            RevokeUserAccessTokensCallCount++;
+            RevokedUserId = userId;
+            return Task.CompletedTask;
+        }
         public Task<bool> IsAccessTokenRevokedAsync(string jti, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<bool> IsAccessTokenRevokedAsync(string jti, Guid userId, DateTimeOffset issuedAt, CancellationToken cancellationToken = default) => Task.FromResult(false);
     }

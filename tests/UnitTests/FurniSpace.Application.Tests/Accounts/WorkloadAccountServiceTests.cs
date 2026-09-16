@@ -470,6 +470,10 @@ public sealed class WorkloadAccountServiceTests
         public Task<string?> GetRoleNameAsync(Guid roleId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
         public Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default) => Task.FromResult<Guid?>(null);
         public Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<IReadOnlyList<AccountRoleReadModel>> GetAllRolesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<AccountRoleReadModel>>([]);
+        public Task<int> CountActiveAccountsByRoleNameAsync(string roleName, CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
         public Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<IReadOnlyList<AvailableDesignerReadModel>> GetAvailableDesignersAsync(int page, int pageSize, int maxActiveProjects, string? search, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<AvailableDesignerReadModel>>(AvailableDesigners);

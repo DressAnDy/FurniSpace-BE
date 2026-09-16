@@ -16,6 +16,11 @@ internal static class AccountServiceConstants
     internal const string SalesWorkloadSummaryRetrievedMessage = "Sales workload summary retrieved successfully.";
     internal const string SalesAssignedProjectsRetrievedMessage = "Sales assigned projects retrieved successfully.";
     internal const string UnassignedIntakeProjectsRetrievedMessage = "Unassigned intake projects retrieved successfully.";
+    internal const string RoleNotFoundMessage = "Role does not exist.";
+    internal const string LastAdminCannotBeDemotedCode = "LAST_ADMIN_CANNOT_BE_DEMOTED";
+    internal const string LastAdminCannotBeDemotedMessage = "Cannot demote the last active administrator.";
+    internal const string CannotChangeOwnRoleMessage = "You cannot change your own role.";
+    internal const string RolesRetrievedMessage = "Roles retrieved successfully.";
     internal const int MaxActiveDesignerProjects = 3;
     internal const int MaxActiveSalesProjects = 5;
     internal const string PageMustBeGreaterThanZero = "Page must be greater than zero.";

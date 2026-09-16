@@ -6,6 +6,8 @@ namespace FurniSpace.Application.DTOs.Dashboard;
 /// whose <c>scheduledStart</c> falls in <c>dateRange</c> (Asia/Ho_Chi_Minh; week = Mon–Sun).
 /// <c>proposalsInProgress</c> / <c>proposalConsultingProjects</c> count projects in
 /// <c>PROPOSAL_CONSULTING</c> whose <c>updatedAt</c> (fallback <c>createdAt</c>) falls in <c>dateRange</c>.
+/// <c>assignedProjects</c> is a stock count of designer-assigned projects (excludes
+/// <c>COMPLETED</c>/<c>REJECTED</c>; ignores <c>dateRange</c>). <c>overdueTasks</c> is deprecated.
 /// </summary>
 public sealed class DesignerDashboardKpisDto
 {
@@ -36,5 +38,15 @@ public sealed class DesignerDashboardKpisDto
     /// <summary>Same value as <see cref="RevisionRequested"/>.</summary>
     public int ProposalRevisionsRequested { get; set; }
 
+    /// <summary>
+    /// Stock count of projects currently assigned to the scoped designer.
+    /// Excludes <c>COMPLETED</c> and <c>REJECTED</c>. Ignores <c>dateRange</c>.
+    /// </summary>
+    public int AssignedProjects { get; set; }
+
+    /// <summary>
+    /// Deprecated. Projects with <c>targetCompletionDate</c> before today UTC.
+    /// Prefer <see cref="AssignedProjects"/> for the Assigned Projects card.
+    /// </summary>
     public int OverdueTasks { get; set; }
 }

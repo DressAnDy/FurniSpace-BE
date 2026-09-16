@@ -3740,6 +3740,7 @@ Server-side work queues so FE can render without N+1 account lookups or client-s
 | GET | `/api/dashboard/designer/kpis/confirmed-measurements` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/designer/kpis/proposal-consulting` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/designer/kpis/revision-requested` | DESIGNER, ADMIN |
+| GET | `/api/dashboard/designer/kpis/assigned-projects` | DESIGNER, ADMIN |
 | GET | `/api/dashboard/production/queue` | PRODUCTION, ADMIN |
 | GET | `/api/dashboard/production/kpis` | PRODUCTION, ADMIN |
 | GET | `/dashboard/project-phase-deadlines` | SALES, DESIGNER, PRODUCTION, ADMIN |
@@ -3798,11 +3799,11 @@ Sales next-action uses project status plus latest non-cancelled order (deposit /
 
 **Sales:** `acceptedProjects`, `unpaidRemaining`, `overdueTasks`. Compatibility fields still returned: `newRequests`, `waitingCustomer`, `paymentFollowUp`, `activeProjects`. See below.
 
-**Designer:** `measurementDue` (= `confirmedMeasurements`), `proposalsInProgress` (= `proposalConsultingProjects`), `revisionRequested` (= `proposalRevisionsRequested`), `overdueTasks`. See KPI detail sections below.
+**Designer:** `measurementDue` (= `confirmedMeasurements`), `proposalsInProgress` (= `proposalConsultingProjects`), `revisionRequested` (= `proposalRevisionsRequested`), `assignedProjects`, deprecated `overdueTasks`. See KPI detail sections below.
 
 **Production:** `pendingCustomizationReview`, `pendingStart`, `pendingReview` (alias of `pendingStart`), `inProduction`, `readyToComplete`, `overdueTasks`, `readyForDelivery`, `awaitingDeliverySchedule`, `completedInRange`. Default `scope=mine`. Customization KPI chỉ khi `scope=all`. `unavailableItems` is not a KPI field; use `GET /production-items/unavailable` for that queue.
 
-Designer `overdueTasks` still honors queue `scope` / `dateRange` / `search` on projects. Designer `measurementDue`, `proposalsInProgress`, and `revisionRequested` use dedicated scope + dateRange rules (see below). Production KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local). Sales stock cards do not.
+Designer `assignedProjects` is a stock card (ignores `dateRange` / `search`). Designer `overdueTasks` still honors queue `scope` / `dateRange` / `search` on projects (deprecated — prefer `assignedProjects` for the Assigned Projects card). Designer `measurementDue`, `proposalsInProgress`, and `revisionRequested` use dedicated scope + dateRange rules (see below). Production KPI filters honor the same `scope` / `dateRange` / `search` as the queue (not page-local). Sales stock cards do not.
 
 #### `GET /api/dashboard/sales/kpis`
 
@@ -3984,6 +3985,7 @@ Not counted: `PENDING_CONFIRMATION`, `COMPLETED`, `CANCELLED`, or non-`MEASUREME
     "proposalConsultingProjects": 2,
     "revisionRequested": 1,
     "proposalRevisionsRequested": 1,
+    "assignedProjects": 3,
     "overdueTasks": 0
   }
 }
@@ -4129,6 +4131,84 @@ Dropdown list for Revision Requests. Same `scope` + `dateRange` as `revisionRequ
 ```
 
 `revisionRequestedAt` is proposal `updatedAt` (or `createdAt`). Sorted by that timestamp desc. Leaving `REVISION_REQUESTED` drops the row from KPI and list.
+
+#### `GET /api/dashboard/designer/kpis` — `assignedProjects`
+
+Stock count of **projects** currently assigned to a designer. FE card label: Assigned Projects (replaces Overdue Design Tasks). Deprecated field `overdueTasks` remains for FE migration.
+
+| Condition | Value |
+| --- | --- |
+| Entity | Project |
+| Assignee | `mine` → `assignedDesignerId` = current user; `team` / non-admin `all` → any project with a designer; Admin `all` → same (always requires designer) |
+| Status | Any status still “attached” to a designer; excludes `COMPLETED` and `REJECTED` (Project has no `CANCELLED`) |
+| Time | Stock — `dateRange` and `search` ignored |
+
+```json
+{
+  "status": 200,
+  "message": "Designer KPIs retrieved successfully.",
+  "data": {
+    "measurementDue": 1,
+    "confirmedMeasurements": 1,
+    "proposalsInProgress": 2,
+    "proposalConsultingProjects": 2,
+    "revisionRequested": 1,
+    "proposalRevisionsRequested": 1,
+    "assignedProjects": 3,
+    "overdueTasks": 0
+  }
+}
+```
+
+Assign designer → KPI increases. Unassign or move to `COMPLETED` / `REJECTED` → KPI decreases.
+
+#### `GET /api/dashboard/designer/kpis/assigned-projects`
+
+Dropdown list for Assigned Projects. Same stock `scope` as `assignedProjects`; `dateRange` ignored. `total` equals the KPI.
+
+| Param | Values | Notes |
+| --- | --- | --- |
+| `scope` | `mine` (default), `team`, `all` | Same as KPI |
+| `dateRange` | `today`, `thisWeek`, `thisMonth` | Ignored |
+| `page` | default `1` | |
+| `limit` | default `20`, max `100` | FE typically sends `5` |
+
+```json
+{
+  "status": 200,
+  "message": "Designer assigned projects list retrieved successfully.",
+  "data": {
+    "items": [
+      {
+        "projectId": "uuid",
+        "projectCode": "PRJ-2026-0125",
+        "projectName": "K-ON 63",
+        "status": "PROPOSAL_CONSULTING",
+        "customerId": "uuid",
+        "customerName": "Nguyen Quoc Viet",
+        "designerAssignedAt": "2026-09-15T10:00:00Z",
+        "hasCustomerCustomizationRequest": true,
+        "openCustomizationRequestCount": 1,
+        "latestCustomizationStatus": "SUBMITTED",
+        "updatedAt": "2026-09-15T12:00:00Z"
+      }
+    ],
+    "page": 1,
+    "limit": 5,
+    "total": 3
+  }
+}
+```
+
+**Customization flags** (customer-originated only):
+
+| Field | Rule |
+| --- | --- |
+| `hasCustomerCustomizationRequest` | Exists a customization request with `requestedByCustomerId != null` |
+| `openCustomizationRequestCount` | Those requests in `SUBMITTED` or `REVIEWING` |
+| `latestCustomizationStatus` | Status of the latest customer request (`updatedAt` / `createdAt`, then id) |
+
+Designer-created requests without `requestedByCustomerId` are not counted. Sorted by project `updatedAt` / `designerAssignedAt` / `createdAt` desc. FE: Customization column Yes/No (+ status badge when present).
 
 ### Project phase deadline risks
 

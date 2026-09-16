@@ -212,7 +212,13 @@ public sealed class AdminReportServiceTests
             => throw new NotImplementedException();
         public Task<ServiceResult<AccountSuggestResponseDto>> SuggestAsync(string query, int limit, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
-        public Task<ServiceResult<AccountDto>> UpdateAsync(Guid accountId, UpdateAccountRequestDto request, CancellationToken cancellationToken = default)
+        public Task<ServiceResult<IReadOnlyList<AccountRoleDto>>> GetAllRolesAsync(CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+        public Task<ServiceResult<AccountDto>> UpdateAsync(
+            Guid accountId,
+            UpdateAccountRequestDto request,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
         public Task<ServiceResult> DeleteAsync(Guid accountId, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();

@@ -342,6 +342,10 @@ public sealed class IdentityServiceTests
         public Task<Infrastructure.ReadModels.Accounts.AccountDetailReadModel?> GetDetailAsync(Guid accountId, CancellationToken cancellationToken = default) => Task.FromResult<Infrastructure.ReadModels.Accounts.AccountDetailReadModel?>(null);
         public Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default) => Task.FromResult(RoleId);
         public Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<IReadOnlyList<Infrastructure.ReadModels.Accounts.AccountRoleReadModel>> GetAllRolesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Accounts.AccountRoleReadModel>>([]);
+        public Task<int> CountActiveAccountsByRoleNameAsync(string roleName, CancellationToken cancellationToken = default) =>
+            Task.FromResult(0);
         public Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<IReadOnlyList<Infrastructure.ReadModels.Accounts.AvailableDesignerReadModel>> GetAvailableDesignersAsync(int page, int pageSize, int maxActiveProjects, string? search, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Infrastructure.ReadModels.Accounts.AvailableDesignerReadModel>>([]);
         public Task<int> CountAvailableDesignersAsync(int maxActiveProjects, string? search, CancellationToken cancellationToken = default) => Task.FromResult(0);

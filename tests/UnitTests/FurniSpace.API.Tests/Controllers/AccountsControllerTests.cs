@@ -1,6 +1,7 @@
 #nullable enable
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Security.Claims;
 using System.Threading;
@@ -19,6 +20,11 @@ namespace FurniSpace.API.Tests.Controllers;
 public sealed class AccountsControllerTests
 {
     [Theory]
+    [InlineData(nameof(AccountsController.GetPaged), "ADMIN")]
+    [InlineData(nameof(AccountsController.GetById), "ADMIN")]
+    [InlineData(nameof(AccountsController.Create), "ADMIN")]
+    [InlineData(nameof(AccountsController.Update), "ADMIN")]
+    [InlineData(nameof(AccountsController.Delete), "ADMIN")]
     [InlineData(nameof(AccountsController.Suggest), "ADMIN")]
     [InlineData(nameof(AccountsController.GetSearchStats), "ADMIN")]
     public void AdminSearchActions_RequireAdminRole(string methodName, string expectedRoles)
@@ -633,6 +639,7 @@ public sealed class AccountsControllerTests
     public async Task Update_ReturnsServiceResultAndPassesRequest()
     {
         var accountId = Guid.NewGuid();
+        var currentUserId = Guid.NewGuid();
         var response = new AccountDto
         {
             AccountId = accountId,
@@ -642,7 +649,7 @@ public sealed class AccountsControllerTests
         var service = new FakeAccountService(
             ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()),
             updateResult: ServiceResult<AccountDto>.Success(response, "Account updated successfully."));
-        var controller = new AccountsController(service);
+        var controller = CreateController(service, currentUserId);
         var request = new UpdateAccountRequestDto
         {
             Email = "updated@furnispace.com",
@@ -656,7 +663,37 @@ public sealed class AccountsControllerTests
         var result = Assert.IsType<ServiceResult<AccountDto>>(objectResult.Value);
         Assert.Same(response, result.Data);
         Assert.Equal(accountId, service.AccountId);
+        Assert.Equal(currentUserId, service.CurrentUserId);
         Assert.Same(request, service.UpdateRequest);
+    }
+
+    [Fact]
+    public async Task Update_WithMissingUserClaim_ReturnsUnauthorizedServiceResult()
+    {
+        var service = new FakeAccountService(ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()));
+        var controller = new AccountsController(service)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.Update(
+            Guid.NewGuid(),
+            new UpdateAccountRequestDto
+            {
+                RoleId = Guid.NewGuid(),
+                Email = "updated@furnispace.com",
+                FullName = "Updated User",
+                Status = "ACTIVE"
+            },
+            CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(401, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult>(objectResult.Value);
+        Assert.Equal("Unauthorized", result.Message);
     }
 
     [Fact]
@@ -695,6 +732,7 @@ public sealed class AccountsControllerTests
         private readonly ServiceResult<AccountSearchStatsDto> _searchStatsResult;
         private readonly ServiceResult<AccountSuggestResponseDto> _suggestResult;
         private readonly ServiceResult<AccountDto> _updateResult;
+        private readonly ServiceResult<IReadOnlyList<AccountRoleDto>> _allRolesResult;
         private readonly ServiceResult _deleteResult;
 
         public FakeAccountService(
@@ -714,6 +752,7 @@ public sealed class AccountsControllerTests
             ServiceResult<AccountSearchStatsDto>? searchStatsResult = null,
             ServiceResult<AccountSuggestResponseDto>? suggestResult = null,
             ServiceResult<AccountDto>? updateResult = null,
+            ServiceResult<IReadOnlyList<AccountRoleDto>>? allRolesResult = null,
             ServiceResult? deleteResult = null)
         {
             _adminDetailResult = adminDetailResult;
@@ -751,6 +790,7 @@ public sealed class AccountsControllerTests
                 new AccountSuggestResponseDto(),
                 string.Empty);
             _updateResult = updateResult ?? ServiceResult<AccountDto>.Success(new AccountDto());
+            _allRolesResult = allRolesResult ?? ServiceResult<IReadOnlyList<AccountRoleDto>>.Success([], "Roles retrieved successfully.");
             _deleteResult = deleteResult ?? ServiceResult.Success();
         }
 
@@ -901,12 +941,17 @@ public sealed class AccountsControllerTests
             return Task.FromResult(_suggestResult);
         }
 
+        public Task<ServiceResult<IReadOnlyList<AccountRoleDto>>> GetAllRolesAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(_allRolesResult);
+
         public Task<ServiceResult<AccountDto>> UpdateAsync(
             Guid accountId,
             UpdateAccountRequestDto request,
+            Guid currentUserId,
             CancellationToken cancellationToken = default)
         {
             AccountId = accountId;
+            CurrentUserId = currentUserId;
             UpdateRequest = request;
             return Task.FromResult(_updateResult);
         }

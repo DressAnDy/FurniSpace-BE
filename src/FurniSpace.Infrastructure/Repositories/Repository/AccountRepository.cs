@@ -74,6 +74,31 @@ public sealed class AccountRepository : GenericRepository<Account>, IAccountRepo
         return DbContext.RoleSet.AnyAsync(role => role.RoleId == roleId, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<AccountRoleReadModel>> GetAllRolesAsync(CancellationToken cancellationToken = default)
+    {
+        return await DbContext.RoleSet
+            .OrderBy(role => role.RoleName)
+            .Select(role => new AccountRoleReadModel
+            {
+                RoleId = role.RoleId,
+                RoleName = role.RoleName,
+                Description = role.Description
+            })
+            .ToListAsync(cancellationToken);
+    }
+
+    public Task<int> CountActiveAccountsByRoleNameAsync(string roleName, CancellationToken cancellationToken = default)
+    {
+        return (
+            from account in DbSet
+            join role in DbContext.RoleSet on account.RoleId equals role.RoleId
+            where role.RoleName == roleName &&
+                account.DeletedAt == null &&
+                account.Status == AccountStatus.ACTIVE
+            select account)
+            .CountAsync(cancellationToken);
+    }
+
     public Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default)
     {
         return DbSet.AnyAsync(

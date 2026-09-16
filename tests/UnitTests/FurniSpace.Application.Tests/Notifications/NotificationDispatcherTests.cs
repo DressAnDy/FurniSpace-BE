@@ -92,6 +92,34 @@ public sealed class NotificationDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_RecurringProposalRevisionRequested_DoesNotCheckDuplicates()
+    {
+        var receiverId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var repository = new CapturingNotificationRepository { DuplicateExists = true };
+        var realtime = new CapturingRealtimeNotificationService();
+        var dispatcher = new NotificationDispatcher(
+            repository,
+            realtime,
+            NullLogger<NotificationDispatcher>.Instance,
+            TestUnitOfWork.Instance);
+
+        await dispatcher.DispatchAsync(
+            NotificationType.ProposalRevisionRequested,
+            new Dictionary<string, string>
+            {
+                ["ProposalName"] = "Living room v2",
+                ["RevisionNote"] = "Adjust sofa placement"
+            },
+            [receiverId],
+            new NotificationDispatchRequest(Guid.NewGuid(), "PROPOSAL", proposalId));
+
+        Assert.Single(repository.Added);
+        Assert.Single(realtime.Sent);
+        Assert.Equal(0, repository.DuplicateChecks);
+    }
+
+    [Fact]
     public async Task DispatchAsync_RealtimeOnly_DoesNotPersist()
     {
         var receiverId = Guid.NewGuid();

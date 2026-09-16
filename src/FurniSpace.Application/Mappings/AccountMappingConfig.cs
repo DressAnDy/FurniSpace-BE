@@ -9,6 +9,8 @@ public sealed class AccountMappingConfig : IRegister
 {
     public void Register(TypeAdapterConfig config)
     {
+        config.NewConfig<AccountRoleReadModel, AccountRoleDto>();
+
         config.NewConfig<Account, AccountDto>()
             .Map(destination => destination.Status, source => source.Status.HasValue ? source.Status.Value.ToString() : null);
 

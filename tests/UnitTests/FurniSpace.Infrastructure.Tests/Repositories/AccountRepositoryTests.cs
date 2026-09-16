@@ -15,6 +15,45 @@ namespace FurniSpace.Infrastructure.Tests.Repositories;
 public sealed class AccountRepositoryTests
 {
     [Fact]
+    public async Task GetAllRolesAsync_ReturnsRolesOrderedByName()
+    {
+        await using var context = CreateContext();
+        await SeedAsync(context);
+        var repository = new AccountRepository(context);
+
+        var roles = await repository.GetAllRolesAsync();
+
+        Assert.Equal(4, roles.Count);
+        Assert.Equal(["ADMIN", "CUSTOMER", "DESIGNER", "SALES"], roles.Select(role => role.RoleName));
+        Assert.All(roles, role => Assert.False(string.IsNullOrWhiteSpace(role.Description)));
+    }
+
+    [Fact]
+    public async Task CountActiveAccountsByRoleNameAsync_CountsOnlyActiveNonDeletedAccounts()
+    {
+        await using var context = CreateContext();
+        var adminRole = CreateRole("ADMIN", "Admin accounts");
+        var salesRole = CreateRole("SALES", "Sales accounts");
+        var now = DateTime.UtcNow;
+        context.RoleSet.AddRange(adminRole, salesRole);
+        context.AccountSet.AddRange(
+            CreateAccount(Guid.NewGuid(), adminRole.RoleId, "admin@example.com", "Active Admin", AccountStatus.ACTIVE, now),
+            CreateAccount(Guid.NewGuid(), adminRole.RoleId, "inactive-admin@example.com", "Inactive Admin", AccountStatus.INACTIVE, now),
+            CreateAccount(Guid.NewGuid(), adminRole.RoleId, "deleted-admin@example.com", "Deleted Admin", AccountStatus.ACTIVE, now, deletedAt: now),
+            CreateAccount(Guid.NewGuid(), salesRole.RoleId, "sales@example.com", "Sales User", AccountStatus.ACTIVE, now));
+        await context.SaveChangesAsync();
+        var repository = new AccountRepository(context);
+
+        var adminCount = await repository.CountActiveAccountsByRoleNameAsync("ADMIN");
+        var salesCount = await repository.CountActiveAccountsByRoleNameAsync("SALES");
+        var missingRoleCount = await repository.CountActiveAccountsByRoleNameAsync("PRODUCTION");
+
+        Assert.Equal(1, adminCount);
+        Assert.Equal(1, salesCount);
+        Assert.Equal(0, missingRoleCount);
+    }
+
+    [Fact]
     public async Task GetDetailAsync_ReturnsJoinedRoleProjection()
     {
         await using var context = CreateContext();

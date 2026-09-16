@@ -272,6 +272,8 @@ public sealed class DesignerDashboardKpisReadModel
 
     public int RevisionRequested { get; init; }
 
+    public int AssignedProjects { get; init; }
+
     public int OverdueTasks { get; init; }
 }
 
@@ -346,6 +348,31 @@ public sealed class DesignerRevisionRequestedRowReadModel
     public string? AssignedDesignerName { get; init; }
 
     public DateTime? RevisionRequestedAt { get; init; }
+}
+
+public sealed class DesignerAssignedProjectRowReadModel
+{
+    public Guid ProjectId { get; init; }
+
+    public string? ProjectCode { get; init; }
+
+    public string ProjectName { get; init; } = string.Empty;
+
+    public ProjectStatus? Status { get; init; }
+
+    public Guid CustomerId { get; init; }
+
+    public string CustomerName { get; init; } = string.Empty;
+
+    public DateTime? DesignerAssignedAt { get; init; }
+
+    public bool HasCustomerCustomizationRequest { get; init; }
+
+    public int OpenCustomizationRequestCount { get; init; }
+
+    public CustomizationStatus? LatestCustomizationStatus { get; init; }
+
+    public DateTime? UpdatedAt { get; init; }
 }
 
 public sealed class ProductionDashboardKpisReadModel

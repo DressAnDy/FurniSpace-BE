@@ -330,12 +330,15 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
             .CountAsync(cancellationToken);
         var revisionRequested = await BuildRevisionRequestedProposalsQuery(filter)
             .CountAsync(cancellationToken);
+        var assignedProjects = await BuildAssignedDesignerProjectsQuery(filter)
+            .CountAsync(cancellationToken);
 
         return new DesignerDashboardKpisReadModel
         {
             MeasurementDue = measurementDue,
             ProposalsInProgress = proposalsInProgress,
             RevisionRequested = revisionRequested,
+            AssignedProjects = assignedProjects,
             OverdueTasks = await projects.CountAsync(
                 project =>
                     project.TargetCompletionDate.HasValue &&
@@ -456,6 +459,53 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<DesignerAssignedProjectRowReadModel>> GetDesignerAssignedProjectRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default)
+    {
+        var openStatuses = new[]
+        {
+            CustomizationStatus.SUBMITTED,
+            CustomizationStatus.REVIEWING
+        };
+        var projects = BuildAssignedDesignerProjectsQuery(filter);
+
+        return await projects
+            .OrderByDescending(project => project.UpdatedAt ?? project.DesignerAssignedAt ?? project.CreatedAt)
+            .ThenByDescending(project => project.ProjectId)
+            .Select(project => new DesignerAssignedProjectRowReadModel
+            {
+                ProjectId = project.ProjectId,
+                ProjectCode = project.ProjectCode,
+                ProjectName = project.ProjectName,
+                Status = project.Status,
+                CustomerId = project.CustomerId,
+                CustomerName = _db.AccountSet
+                    .Where(account => account.AccountId == project.CustomerId)
+                    .Select(account => account.FullName)
+                    .FirstOrDefault() ?? string.Empty,
+                DesignerAssignedAt = project.DesignerAssignedAt,
+                HasCustomerCustomizationRequest = _db.CustomizationRequestSet.Any(request =>
+                    request.ProjectId == project.ProjectId &&
+                    request.RequestedByCustomerId != null),
+                OpenCustomizationRequestCount = _db.CustomizationRequestSet.Count(request =>
+                    request.ProjectId == project.ProjectId &&
+                    request.RequestedByCustomerId != null &&
+                    request.Status.HasValue &&
+                    openStatuses.Contains(request.Status.Value)),
+                LatestCustomizationStatus = _db.CustomizationRequestSet
+                    .Where(request =>
+                        request.ProjectId == project.ProjectId &&
+                        request.RequestedByCustomerId != null)
+                    .OrderByDescending(request => request.UpdatedAt ?? request.CreatedAt)
+                    .ThenByDescending(request => request.CustomizationRequestId)
+                    .Select(request => request.Status)
+                    .FirstOrDefault(),
+                UpdatedAt = project.UpdatedAt
+            })
+            .ToListAsync(cancellationToken);
+    }
+
     private IQueryable<Domain.Entities.ProjectSchedule> BuildConfirmedMeasurementSchedulesQuery(
         DashboardQueueFilterReadModel filter)
     {
@@ -537,6 +587,27 @@ public sealed class DashboardQueueReadRepository : IDashboardQueueReadRepository
         }
 
         return proposals;
+    }
+
+    /// <summary>
+    /// Stock projects currently assigned to a designer. Excludes <c>COMPLETED</c> /
+    /// <c>REJECTED</c>. Ignores <c>dateRange</c>. Always requires <c>assignedDesignerId</c>.
+    /// </summary>
+    private IQueryable<Domain.Entities.Project> BuildAssignedDesignerProjectsQuery(
+        DashboardQueueFilterReadModel filter)
+    {
+        var projects = _db.ProjectSet.Where(project =>
+            project.AssignedDesignerId != null &&
+            project.Status != ProjectStatus.COMPLETED &&
+            project.Status != ProjectStatus.REJECTED);
+
+        var scope = NormalizeScope(filter.Scope);
+        if (string.Equals(scope, "mine", StringComparison.OrdinalIgnoreCase))
+        {
+            projects = projects.Where(project => project.AssignedDesignerId == filter.CurrentUserId);
+        }
+
+        return projects;
     }
 
     private static IQueryable<Domain.Entities.Project> ApplyDesignerAssigneeScope(

@@ -399,6 +399,7 @@ public sealed class DashboardQueueServiceTests
                     MeasurementDue = 1,
                     ProposalsInProgress = 2,
                     RevisionRequested = 3,
+                    AssignedProjects = 5,
                     OverdueTasks = 4
                 }
             },
@@ -413,6 +414,7 @@ public sealed class DashboardQueueServiceTests
         Assert.Equal(2, result.Data.ProposalConsultingProjects);
         Assert.Equal(3, result.Data.RevisionRequested);
         Assert.Equal(3, result.Data.ProposalRevisionsRequested);
+        Assert.Equal(5, result.Data.AssignedProjects);
         Assert.Equal(4, result.Data.OverdueTasks);
     }
 
@@ -547,6 +549,53 @@ public sealed class DashboardQueueServiceTests
         Assert.Single(result.Data.Items);
         Assert.Equal(proposalId, result.Data.Items[0].ProposalId);
         Assert.Equal("REVISION_REQUESTED", result.Data.Items[0].Status);
+    }
+
+    [Fact]
+    public async Task GetDesignerAssignedProjectsAsync_PagesAndMatchesTotal()
+    {
+        var projectId = Guid.NewGuid();
+        var service = new DashboardQueueService(
+            new FakeDashboardQueueReadRepository
+            {
+                AssignedProjectRows =
+                [
+                    new DesignerAssignedProjectRowReadModel
+                    {
+                        ProjectId = projectId,
+                        ProjectCode = "PRJ-1",
+                        ProjectName = "K-ON 63",
+                        Status = ProjectStatus.PROPOSAL_CONSULTING,
+                        CustomerId = Guid.NewGuid(),
+                        CustomerName = "Customer",
+                        HasCustomerCustomizationRequest = true,
+                        OpenCustomizationRequestCount = 1,
+                        LatestCustomizationStatus = CustomizationStatus.SUBMITTED,
+                        UpdatedAt = DateTime.UtcNow
+                    },
+                    new DesignerAssignedProjectRowReadModel
+                    {
+                        ProjectId = Guid.NewGuid(),
+                        ProjectName = "Other",
+                        Status = ProjectStatus.SPACE_VERIFIED,
+                        CustomerId = Guid.NewGuid(),
+                        CustomerName = "Customer 2",
+                        UpdatedAt = DateTime.UtcNow.AddDays(-1)
+                    }
+                ]
+            },
+            new FakeProjectRepository { RoleName = "DESIGNER" });
+
+        var result = await service.GetDesignerAssignedProjectsAsync(
+            Guid.NewGuid(),
+            new DashboardQueueQueryDto { Scope = "mine", DateRange = "thisWeek", Page = 1, Limit = 1 });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(2, result.Data!.Total);
+        Assert.Single(result.Data.Items);
+        Assert.Equal(projectId, result.Data.Items[0].ProjectId);
+        Assert.True(result.Data.Items[0].HasCustomerCustomizationRequest);
+        Assert.Equal("SUBMITTED", result.Data.Items[0].LatestCustomizationStatus);
     }
 
     [Fact]
@@ -1058,6 +1107,13 @@ public sealed class DashboardQueueServiceTests
             DashboardQueueFilterReadModel filter,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(RevisionRequestedRows);
+
+        public IReadOnlyList<DesignerAssignedProjectRowReadModel> AssignedProjectRows { get; init; } = [];
+
+        public Task<IReadOnlyList<DesignerAssignedProjectRowReadModel>> GetDesignerAssignedProjectRowsAsync(
+            DashboardQueueFilterReadModel filter,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(AssignedProjectRows);
 
         public Task<IReadOnlyList<DashboardProductionQueueRowReadModel>> GetProductionQueueRowsAsync(
             DashboardQueueFilterReadModel filter,

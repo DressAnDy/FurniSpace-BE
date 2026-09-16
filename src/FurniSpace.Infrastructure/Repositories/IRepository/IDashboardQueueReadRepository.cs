@@ -40,6 +40,10 @@ public interface IDashboardQueueReadRepository
         DashboardQueueFilterReadModel filter,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<DesignerAssignedProjectRowReadModel>> GetDesignerAssignedProjectRowsAsync(
+        DashboardQueueFilterReadModel filter,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<DashboardProductionQueueRowReadModel>> GetProductionQueueRowsAsync(
         DashboardQueueFilterReadModel filter,
         CancellationToken cancellationToken = default);

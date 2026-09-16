@@ -541,6 +541,155 @@ public sealed class DashboardQueueReadRepositoryTests
     }
 
     [Fact]
+    public async Task GetDesignerAssignedProjectRows_StockCountIgnoresDateRangeAndFlagsCustomerCustomization()
+    {
+        await using var context = CreateContext();
+        var seed = await SeedAsync(context);
+        var otherDesignerId = Guid.NewGuid();
+        var otherProjectId = Guid.NewGuid();
+        var completedProjectId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+
+        context.ProjectSet.AddRange(
+            new Project
+            {
+                ProjectId = otherProjectId,
+                CustomerId = seed.CustomerId,
+                AssignedDesignerId = otherDesignerId,
+                ProjectCode = "PRJ-OTHER-D",
+                ProjectName = "Other Designer Active",
+                Status = ProjectStatus.PROPOSAL_CONSULTING,
+                DesignerAssignedAt = seed.Now.AddDays(-2),
+                CreatedAt = seed.Now.AddDays(-30),
+                UpdatedAt = seed.Now.AddDays(-1)
+            },
+            new Project
+            {
+                ProjectId = completedProjectId,
+                CustomerId = seed.CustomerId,
+                AssignedDesignerId = seed.DesignerId,
+                ProjectCode = "PRJ-DONE",
+                ProjectName = "Completed Assigned",
+                Status = ProjectStatus.COMPLETED,
+                DesignerAssignedAt = seed.Now.AddDays(-10),
+                CreatedAt = seed.Now.AddDays(-20),
+                UpdatedAt = seed.Now
+            },
+            new Project
+            {
+                ProjectId = Guid.NewGuid(),
+                CustomerId = seed.CustomerId,
+                AssignedDesignerId = seed.DesignerId,
+                ProjectCode = "PRJ-REJ",
+                ProjectName = "Rejected Assigned",
+                Status = ProjectStatus.REJECTED,
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            });
+
+        context.CustomizationRequestSet.AddRange(
+            new CustomizationRequest
+            {
+                CustomizationRequestId = Guid.NewGuid(),
+                ProjectId = seed.DesignerProjectId,
+                ProposalId = Guid.NewGuid(),
+                SourceProductVersionId = productVersionId,
+                RequestedByCustomerId = seed.CustomerId,
+                RequestTitle = "Customer tweak",
+                Status = CustomizationStatus.SUBMITTED,
+                CreatedAt = seed.Now.AddHours(-2),
+                UpdatedAt = seed.Now.AddHours(-2)
+            },
+            new CustomizationRequest
+            {
+                CustomizationRequestId = Guid.NewGuid(),
+                ProjectId = seed.DesignerProjectId,
+                ProposalId = Guid.NewGuid(),
+                SourceProductVersionId = productVersionId,
+                RequestedByCustomerId = null,
+                RequestTitle = "Designer-only request",
+                Status = CustomizationStatus.SUBMITTED,
+                CreatedAt = seed.Now,
+                UpdatedAt = seed.Now
+            },
+            new CustomizationRequest
+            {
+                CustomizationRequestId = Guid.NewGuid(),
+                ProjectId = seed.SalesProjectId,
+                ProposalId = Guid.NewGuid(),
+                SourceProductVersionId = productVersionId,
+                RequestedByCustomerId = seed.CustomerId,
+                RequestTitle = "Accepted only",
+                Status = CustomizationStatus.ACCEPTED,
+                CreatedAt = seed.Now.AddDays(-1),
+                UpdatedAt = seed.Now.AddDays(-1)
+            });
+        await context.SaveChangesAsync();
+
+        // Second save so UpdatedAt stamp is strictly later than SUBMITTED (AppDbContext overwrites UpdatedAt).
+        context.CustomizationRequestSet.Add(new CustomizationRequest
+        {
+            CustomizationRequestId = Guid.NewGuid(),
+            ProjectId = seed.DesignerProjectId,
+            ProposalId = Guid.NewGuid(),
+            SourceProductVersionId = productVersionId,
+            RequestedByCustomerId = seed.CustomerId,
+            RequestTitle = "Customer reviewing",
+            Status = CustomizationStatus.REVIEWING,
+            CreatedAt = seed.Now.AddHours(-3),
+            UpdatedAt = seed.Now
+        });
+        await context.SaveChangesAsync();
+
+        var repository = new DashboardQueueReadRepository(context);
+        var mine = new DashboardQueueFilterReadModel
+        {
+            Scope = "mine",
+            CurrentUserId = seed.DesignerId,
+            CurrentUserRole = "DESIGNER",
+            DateRange = "today",
+            UtcNow = seed.Now
+        };
+        var team = new DashboardQueueFilterReadModel
+        {
+            Scope = "team",
+            CurrentUserId = seed.DesignerId,
+            CurrentUserRole = "DESIGNER",
+            DateRange = "today",
+            UtcNow = seed.Now
+        };
+
+        var kpis = await repository.GetDesignerKpisAsync(mine);
+        var kpisNoRange = await repository.GetDesignerKpisAsync(new DashboardQueueFilterReadModel
+        {
+            Scope = "mine",
+            CurrentUserId = seed.DesignerId,
+            CurrentUserRole = "DESIGNER",
+            UtcNow = seed.Now
+        });
+        var rows = await repository.GetDesignerAssignedProjectRowsAsync(mine);
+        var teamKpis = await repository.GetDesignerKpisAsync(team);
+
+        // Seed has 2 active assigned projects for this designer; completed/rejected excluded.
+        Assert.Equal(2, kpis.AssignedProjects);
+        Assert.Equal(kpis.AssignedProjects, kpisNoRange.AssignedProjects);
+        Assert.Equal(2, rows.Count);
+        Assert.Equal(3, teamKpis.AssignedProjects);
+
+        var designerRow = Assert.Single(rows, row => row.ProjectId == seed.DesignerProjectId);
+        Assert.True(designerRow.HasCustomerCustomizationRequest);
+        Assert.Equal(2, designerRow.OpenCustomizationRequestCount);
+        Assert.Equal(CustomizationStatus.REVIEWING, designerRow.LatestCustomizationStatus);
+
+        var salesRow = Assert.Single(rows, row => row.ProjectId == seed.SalesProjectId);
+        Assert.True(salesRow.HasCustomerCustomizationRequest);
+        Assert.Equal(0, salesRow.OpenCustomizationRequestCount);
+        Assert.Equal(CustomizationStatus.ACCEPTED, salesRow.LatestCustomizationStatus);
+        Assert.DoesNotContain(rows, row => row.ProjectId == completedProjectId);
+        Assert.DoesNotContain(rows, row => row.ProjectId == otherProjectId);
+    }
+
+    [Fact]
     public async Task GetDesignerQueueRowsAsync_TeamScope_RequiresAssignedDesigner()
     {
         await using var context = CreateContext();
@@ -1169,6 +1318,7 @@ public sealed class DashboardQueueReadRepositoryTests
         await context.SaveChangesAsync();
 
         return new SeedData(
+            customerId,
             salesId,
             designerId,
             productionId,
@@ -1261,6 +1411,7 @@ public sealed class DashboardQueueReadRepositoryTests
     }
 
     private sealed record SeedData(
+        Guid CustomerId,
         Guid SalesId,
         Guid DesignerId,
         Guid ProductionId,

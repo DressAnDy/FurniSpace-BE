@@ -118,6 +118,28 @@ public sealed class DesignerDashboardController : BaseApiController
         return ToActionResult(result);
     }
 
+    /// <summary>
+    /// Stock list for Assigned Projects KPI. Same scope as <c>assignedProjects</c>;
+    /// ignores <c>dateRange</c>. Includes customer customization request flags.
+    /// </summary>
+    [Authorize(Roles = "DESIGNER,ADMIN")]
+    [HttpGet("kpis/assigned-projects")]
+    public async Task<IActionResult> GetAssignedProjects(
+        [FromQuery] DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return Unauthorized();
+        }
+
+        var result = await _dashboard.GetDesignerAssignedProjectsAsync(
+            currentUserId,
+            query,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
     private bool TryGetCurrentUserId(out Guid currentUserId)
     {
         return Guid.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out currentUserId);

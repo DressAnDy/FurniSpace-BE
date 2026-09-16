@@ -190,6 +190,7 @@ public sealed class DashboardQueueService : IDashboardQueueService
                 ProposalConsultingProjects = kpis.ProposalsInProgress,
                 RevisionRequested = kpis.RevisionRequested,
                 ProposalRevisionsRequested = kpis.RevisionRequested,
+                AssignedProjects = kpis.AssignedProjects,
                 OverdueTasks = kpis.OverdueTasks
             },
             "Designer KPIs retrieved successfully.");
@@ -292,6 +293,39 @@ public sealed class DashboardQueueService : IDashboardQueueService
                 Total = rows.Count
             },
             "Designer revision requested list retrieved successfully.");
+    }
+
+    public async Task<ServiceResult<DesignerAssignedProjectsListResponseDto>> GetDesignerAssignedProjectsAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default)
+    {
+        var prepared = await PrepareAsync(currentUserId, query, ApplicationRoles.Designer, cancellationToken);
+        if (prepared.Error is not null)
+        {
+            return MapError<DesignerAssignedProjectsListResponseDto>(prepared.Error);
+        }
+
+        // Stock list: ignore dateRange / search so total matches assignedProjects KPI.
+        var filter = ToDesignerStockFilter(prepared.Filter!);
+        var rows = await _dashboard.GetDesignerAssignedProjectRowsAsync(filter, cancellationToken);
+        var page = NormalizePage(prepared.Query!.Page);
+        var limit = NormalizeLimit(prepared.Query.Limit);
+        var items = rows
+            .Skip((page - 1) * limit)
+            .Take(limit)
+            .Select(MapAssignedProjectItem)
+            .ToList();
+
+        return ServiceResult<DesignerAssignedProjectsListResponseDto>.Success(
+            new DesignerAssignedProjectsListResponseDto
+            {
+                Items = items,
+                Page = page,
+                Limit = limit,
+                Total = rows.Count
+            },
+            "Designer assigned projects list retrieved successfully.");
     }
 
     public async Task<ServiceResult<DashboardQueueResponseDto>> GetProductionQueueAsync(
@@ -1078,6 +1112,19 @@ public sealed class DashboardQueueService : IDashboardQueueService
         };
     }
 
+    private static DashboardQueueFilterReadModel ToDesignerStockFilter(DashboardQueueFilterReadModel filter)
+    {
+        return new DashboardQueueFilterReadModel
+        {
+            Scope = filter.Scope,
+            CurrentUserId = filter.CurrentUserId,
+            CurrentUserRole = filter.CurrentUserRole,
+            Search = null,
+            DateRange = null,
+            UtcNow = filter.UtcNow
+        };
+    }
+
     private static DesignerConfirmedMeasurementItemDto MapConfirmedMeasurementItem(
         DesignerConfirmedMeasurementRowReadModel row)
     {
@@ -1140,6 +1187,29 @@ public sealed class DashboardQueueService : IDashboardQueueService
             AssignedDesignerName = row.AssignedDesignerName,
             RevisionRequestedAt = row.RevisionRequestedAt.HasValue
                 ? DateTime.SpecifyKind(row.RevisionRequestedAt.Value, DateTimeKind.Utc)
+                : null
+        };
+    }
+
+    private static DesignerAssignedProjectItemDto MapAssignedProjectItem(
+        DesignerAssignedProjectRowReadModel row)
+    {
+        return new DesignerAssignedProjectItemDto
+        {
+            ProjectId = row.ProjectId,
+            ProjectCode = row.ProjectCode,
+            ProjectName = row.ProjectName,
+            Status = row.Status?.ToString() ?? string.Empty,
+            CustomerId = row.CustomerId,
+            CustomerName = row.CustomerName,
+            DesignerAssignedAt = row.DesignerAssignedAt.HasValue
+                ? DateTime.SpecifyKind(row.DesignerAssignedAt.Value, DateTimeKind.Utc)
+                : null,
+            HasCustomerCustomizationRequest = row.HasCustomerCustomizationRequest,
+            OpenCustomizationRequestCount = row.OpenCustomizationRequestCount,
+            LatestCustomizationStatus = row.LatestCustomizationStatus?.ToString(),
+            UpdatedAt = row.UpdatedAt.HasValue
+                ? DateTime.SpecifyKind(row.UpdatedAt.Value, DateTimeKind.Utc)
                 : null
         };
     }

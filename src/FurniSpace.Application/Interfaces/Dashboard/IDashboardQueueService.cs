@@ -50,6 +50,11 @@ public interface IDashboardQueueService
         DashboardQueueQueryDto query,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult<DesignerAssignedProjectsListResponseDto>> GetDesignerAssignedProjectsAsync(
+        Guid currentUserId,
+        DashboardQueueQueryDto query,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<DashboardQueueResponseDto>> GetProductionQueueAsync(
         Guid currentUserId,
         DashboardQueueQueryDto query,

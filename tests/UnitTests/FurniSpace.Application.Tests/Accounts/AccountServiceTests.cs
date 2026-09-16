@@ -895,6 +895,224 @@ public sealed class AccountServiceTests
         Assert.Equal(accountId, auth.RevokedUserId);
     }
 
+    [Fact]
+    public async Task UpdateAsync_WithMissingRole_ReturnsBadRequest()
+    {
+        var accountId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            Accounts =
+            [
+                new Account
+                {
+                    AccountId = accountId,
+                    RoleId = Guid.NewGuid(),
+                    Email = "sales@furnispace.com",
+                    FullName = "Sales User",
+                    Status = AccountStatus.ACTIVE
+                }
+            ],
+            RoleExistsResult = false
+        };
+        var service = CreateService(repository);
+
+        var result = await service.UpdateAsync(
+            accountId,
+            new UpdateAccountRequestDto
+            {
+                RoleId = Guid.NewGuid(),
+                Email = "sales@furnispace.com",
+                FullName = "Sales User",
+                Status = "ACTIVE"
+            },
+            Guid.NewGuid());
+
+        Assert.Equal(400, result.Status);
+        Assert.Equal("Role does not exist.", result.Message);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithNonAdminRoleChange_SucceedsWithoutLastAdminGuard()
+    {
+        var salesRoleId = Guid.NewGuid();
+        var designerRoleId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            Accounts =
+            [
+                new Account
+                {
+                    AccountId = accountId,
+                    RoleId = salesRoleId,
+                    Email = "sales@furnispace.com",
+                    FullName = "Sales User",
+                    Status = AccountStatus.ACTIVE
+                }
+            ],
+            RoleExistsResult = true,
+            RoleNames =
+            {
+                [salesRoleId] = "SALES",
+                [designerRoleId] = "DESIGNER"
+            }
+        };
+        var service = CreateService(repository);
+
+        var result = await service.UpdateAsync(
+            accountId,
+            new UpdateAccountRequestDto
+            {
+                RoleId = designerRoleId,
+                Email = "sales@furnispace.com",
+                FullName = "Sales User",
+                Status = "ACTIVE"
+            },
+            Guid.NewGuid());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(designerRoleId, repository.Accounts[0].RoleId);
+        Assert.Null(repository.ActiveAccountsByRoleName);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenPromotingToAdmin_Succeeds()
+    {
+        var salesRoleId = Guid.NewGuid();
+        var adminRoleId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            Accounts =
+            [
+                new Account
+                {
+                    AccountId = accountId,
+                    RoleId = salesRoleId,
+                    Email = "sales@furnispace.com",
+                    FullName = "Sales User",
+                    Status = AccountStatus.ACTIVE
+                }
+            ],
+            RoleExistsResult = true,
+            RoleNames =
+            {
+                [salesRoleId] = "SALES",
+                [adminRoleId] = "ADMIN"
+            }
+        };
+        var auth = new FakeAuthService();
+        var service = new AccountService(
+            repository,
+            auth,
+            new InMemoryCacheService(),
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new PasswordHasher<Account>());
+
+        var result = await service.UpdateAsync(
+            accountId,
+            new UpdateAccountRequestDto
+            {
+                RoleId = adminRoleId,
+                Email = "sales@furnispace.com",
+                FullName = "Sales User",
+                Status = "ACTIVE"
+            },
+            Guid.NewGuid());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(adminRoleId, repository.Accounts[0].RoleId);
+        Assert.Equal(1, auth.RevokeUserAccessTokensCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WhenDeactivatingActiveAccount_RevokesTokensWithoutRoleChange()
+    {
+        var roleId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            Accounts =
+            [
+                new Account
+                {
+                    AccountId = accountId,
+                    RoleId = roleId,
+                    Email = "sales@furnispace.com",
+                    FullName = "Sales User",
+                    Status = AccountStatus.ACTIVE
+                }
+            ],
+            RoleExistsResult = true
+        };
+        var auth = new FakeAuthService();
+        var service = new AccountService(
+            repository,
+            auth,
+            new InMemoryCacheService(),
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new PasswordHasher<Account>());
+
+        var result = await service.UpdateAsync(
+            accountId,
+            new UpdateAccountRequestDto
+            {
+                RoleId = roleId,
+                Email = "sales@furnispace.com",
+                FullName = "Sales User",
+                Status = "INACTIVE"
+            },
+            Guid.NewGuid());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(AccountStatus.INACTIVE, repository.Accounts[0].Status);
+        Assert.Equal(1, auth.RevokeUserAccessTokensCallCount);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithSameRoleAndStatus_DoesNotRevokeTokens()
+    {
+        var roleId = Guid.NewGuid();
+        var accountId = Guid.NewGuid();
+        var repository = new FakeAccountRepository
+        {
+            Accounts =
+            [
+                new Account
+                {
+                    AccountId = accountId,
+                    RoleId = roleId,
+                    Email = "sales@furnispace.com",
+                    FullName = "Sales User",
+                    Status = AccountStatus.ACTIVE
+                }
+            ],
+            RoleExistsResult = true
+        };
+        var auth = new FakeAuthService();
+        var service = new AccountService(
+            repository,
+            auth,
+            new InMemoryCacheService(),
+            TestUnitOfWork.ForSaveChanges(repository.SaveChangesAsync),
+            new PasswordHasher<Account>());
+
+        var result = await service.UpdateAsync(
+            accountId,
+            new UpdateAccountRequestDto
+            {
+                RoleId = roleId,
+                Email = "sales@furnispace.com",
+                FullName = "Updated Name",
+                Status = "ACTIVE"
+            },
+            Guid.NewGuid());
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal("Updated Name", repository.Accounts[0].FullName);
+        Assert.Equal(0, auth.RevokeUserAccessTokensCallCount);
+    }
+
     private static AccountService CreateService(FakeAccountRepository repository)
     {
         return new AccountService(

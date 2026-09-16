@@ -668,6 +668,35 @@ public sealed class AccountsControllerTests
     }
 
     [Fact]
+    public async Task Update_WithMissingUserClaim_ReturnsUnauthorizedServiceResult()
+    {
+        var service = new FakeAccountService(ServiceResult<AccountDetailDto>.Success(new AccountDetailDto()));
+        var controller = new AccountsController(service)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext()
+            }
+        };
+
+        var actionResult = await controller.Update(
+            Guid.NewGuid(),
+            new UpdateAccountRequestDto
+            {
+                RoleId = Guid.NewGuid(),
+                Email = "updated@furnispace.com",
+                FullName = "Updated User",
+                Status = "ACTIVE"
+            },
+            CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(actionResult);
+        Assert.Equal(401, objectResult.StatusCode);
+        var result = Assert.IsType<ServiceResult>(objectResult.Value);
+        Assert.Equal("Unauthorized", result.Message);
+    }
+
+    [Fact]
     public async Task Delete_ReturnsServiceResultAndPassesAccountId()
     {
         var accountId = Guid.NewGuid();

@@ -82,6 +82,14 @@ public sealed class NotificationTemplateProviderTests
     }
 
     [Fact]
+    public void Get_ProposalRevisionRequested_AllowsRepeatNotificationsForSameReference()
+    {
+        var template = NotificationTemplateProvider.Get(NotificationType.ProposalRevisionRequested);
+
+        Assert.True(template.SuppressDuplicateCheck);
+    }
+
+    [Fact]
     public void Get_ProposalRevisionRequested_ReturnsWorkflowEventName()
     {
         var template = NotificationTemplateProvider.Get(NotificationType.ProposalRevisionRequested);

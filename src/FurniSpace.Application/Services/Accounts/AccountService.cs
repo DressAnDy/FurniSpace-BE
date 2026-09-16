@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Identity;
+using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.Accounts.AccountServiceConstants;
 using FurniSpace.Application.DTOs.Accounts;
 using FurniSpace.Application.DTOs.Search;
@@ -593,7 +594,19 @@ public sealed class AccountService : IAccountService
             string.Empty);
     }
 
-    public async Task<ServiceResult<AccountDto>> UpdateAsync(Guid accountId, UpdateAccountRequestDto request, CancellationToken cancellationToken = default)
+    public async Task<ServiceResult<IReadOnlyList<AccountRoleDto>>> GetAllRolesAsync(CancellationToken cancellationToken = default)
+    {
+        var roles = await _accounts.GetAllRolesAsync(cancellationToken);
+        return ServiceResult<IReadOnlyList<AccountRoleDto>>.Success(
+            roles.Adapt<List<AccountRoleDto>>(),
+            RolesRetrievedMessage);
+    }
+
+    public async Task<ServiceResult<AccountDto>> UpdateAsync(
+        Guid accountId,
+        UpdateAccountRequestDto request,
+        Guid currentUserId,
+        CancellationToken cancellationToken = default)
     {
         var validationErrors = ValidateUpdateRequest(request);
         if (validationErrors.Count > 0)
@@ -610,12 +623,26 @@ public sealed class AccountService : IAccountService
         var email = NormalizeEmail(request.Email);
         if (!await _accounts.RoleExistsAsync(request.RoleId, cancellationToken))
         {
-            return ServiceResult<AccountDto>.BadRequest("Role does not exist.");
+            return ServiceResult<AccountDto>.BadRequest(RoleNotFoundMessage);
         }
 
         if (await _accounts.EmailExistsAsync(email, accountId, cancellationToken))
         {
             return ServiceResult<AccountDto>.Conflict("Email already exists.");
+        }
+
+        var roleChanged = account.RoleId != request.RoleId;
+        if (roleChanged)
+        {
+            var roleChangeError = await ValidateAdminRoleChangeAsync(
+                account,
+                request.RoleId,
+                currentUserId,
+                cancellationToken);
+            if (roleChangeError is not null)
+            {
+                return roleChangeError;
+            }
         }
 
         var wasActive = account.Status == AccountStatus.ACTIVE;
@@ -631,7 +658,7 @@ public sealed class AccountService : IAccountService
         var dto = account.Adapt<AccountDto>();
         await CacheAccountAsync(dto, cancellationToken);
         await InvalidateAccountListsAsync(cancellationToken);
-        if (wasActive && account.Status != AccountStatus.ACTIVE)
+        if (roleChanged || (wasActive && account.Status != AccountStatus.ACTIVE))
         {
             await _auth.RevokeUserAccessTokensAsync(account.AccountId, cancellationToken);
         }
@@ -811,6 +838,44 @@ public sealed class AccountService : IAccountService
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(value));
         return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private async Task<ServiceResult<AccountDto>?> ValidateAdminRoleChangeAsync(
+        Account account,
+        Guid newRoleId,
+        Guid currentUserId,
+        CancellationToken cancellationToken)
+    {
+        if (account.AccountId == currentUserId)
+        {
+            return ServiceResult<AccountDto>.Forbidden(CannotChangeOwnRoleMessage);
+        }
+
+        var currentRoleName = await _accounts.GetRoleNameAsync(account.RoleId, cancellationToken);
+        if (currentRoleName != ApplicationRoles.Admin ||
+            account.Status != AccountStatus.ACTIVE ||
+            account.DeletedAt is not null)
+        {
+            return null;
+        }
+
+        var newRoleName = await _accounts.GetRoleNameAsync(newRoleId, cancellationToken);
+        if (newRoleName == ApplicationRoles.Admin)
+        {
+            return null;
+        }
+
+        var activeAdminCount = await _accounts.CountActiveAccountsByRoleNameAsync(
+            ApplicationRoles.Admin,
+            cancellationToken);
+        if (activeAdminCount <= 1)
+        {
+            var result = ServiceResult<AccountDto>.Conflict(LastAdminCannotBeDemotedMessage);
+            result.ErrorCode = LastAdminCannotBeDemotedCode;
+            return result;
+        }
+
+        return null;
     }
 
     private static List<string> ValidateCreateRequest(CreateAccountRequestDto request)

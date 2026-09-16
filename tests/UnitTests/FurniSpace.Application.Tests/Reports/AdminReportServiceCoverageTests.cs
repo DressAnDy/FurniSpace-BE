@@ -341,7 +341,12 @@ public sealed class AdminReportServiceCoverageTests
         public Task<ServiceResult<PagedResult<AccountDto>>> GetPagedAsync(int page, int pageSize, string? search, string? status, bool includeDeleted, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<ServiceResult<AccountSearchStatsDto>> GetSearchStatsAsync(bool includeDeleted, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<ServiceResult<AccountSuggestResponseDto>> SuggestAsync(string query, int limit, CancellationToken cancellationToken = default) => throw new NotImplementedException();
-        public Task<ServiceResult<AccountDto>> UpdateAsync(Guid accountId, UpdateAccountRequestDto request, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<ServiceResult<IReadOnlyList<AccountRoleDto>>> GetAllRolesAsync(CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<ServiceResult<AccountDto>> UpdateAsync(
+            Guid accountId,
+            UpdateAccountRequestDto request,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<ServiceResult> DeleteAsync(Guid accountId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     }
 

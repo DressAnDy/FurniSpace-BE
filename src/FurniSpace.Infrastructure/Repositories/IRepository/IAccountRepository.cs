@@ -11,6 +11,8 @@ public interface IAccountRepository : IGenericRepository<Account>
     Task<string?> GetRoleNameAsync(Guid roleId, CancellationToken cancellationToken = default);
     Task<Guid?> GetRoleIdByNameAsync(string roleName, CancellationToken cancellationToken = default);
     Task<bool> RoleExistsAsync(Guid roleId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AccountRoleReadModel>> GetAllRolesAsync(CancellationToken cancellationToken = default);
+    Task<int> CountActiveAccountsByRoleNameAsync(string roleName, CancellationToken cancellationToken = default);
     Task<bool> EmailExistsAsync(string email, Guid? excludedAccountId = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AvailableDesignerReadModel>> GetAvailableDesignersAsync(
         int page,

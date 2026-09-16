@@ -19,6 +19,7 @@ public sealed class AccountsController : BaseApiController
         _accounts = accounts;
     }
 
+    [Authorize(Roles = "ADMIN")]
     [HttpGet]
     public async Task<IActionResult> GetPaged(
         [FromQuery] int page = 1,
@@ -32,6 +33,7 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "ADMIN")]
     [HttpGet("{accountId:guid}")]
     public async Task<IActionResult> GetById(Guid accountId, CancellationToken cancellationToken)
     {
@@ -221,6 +223,7 @@ public sealed class AccountsController : BaseApiController
             : ToActionResult(ServiceResult.Unauthorized());
     }
 
+    [Authorize(Roles = "ADMIN")]
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateAccountRequestDto request, CancellationToken cancellationToken)
     {
@@ -228,13 +231,20 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "ADMIN")]
     [HttpPut("{accountId:guid}")]
     public async Task<IActionResult> Update(Guid accountId, [FromBody] UpdateAccountRequestDto request, CancellationToken cancellationToken)
     {
-        var result = await _accounts.UpdateAsync(accountId, request, cancellationToken);
+        if (!TryGetCurrentUserId(out var currentUserId))
+        {
+            return ToActionResult(ServiceResult.Unauthorized());
+        }
+
+        var result = await _accounts.UpdateAsync(accountId, request, currentUserId, cancellationToken);
         return ToActionResult(result);
     }
 
+    [Authorize(Roles = "ADMIN")]
     [HttpDelete("{accountId:guid}")]
     public async Task<IActionResult> Delete(Guid accountId, CancellationToken cancellationToken)
     {

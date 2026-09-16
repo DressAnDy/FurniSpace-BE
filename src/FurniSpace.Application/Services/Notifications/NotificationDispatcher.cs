@@ -62,7 +62,7 @@ public sealed class NotificationDispatcher : INotificationDispatcher
 
         if (template.DeliveryLevel == NotificationDeliveryLevel.InAppRealtime)
         {
-            await DispatchInAppRealtimeAsync(receivers, envelope, cancellationToken);
+            await DispatchInAppRealtimeAsync(receivers, envelope, template.SuppressDuplicateCheck, cancellationToken);
         }
         else
         {
@@ -73,11 +73,12 @@ public sealed class NotificationDispatcher : INotificationDispatcher
     private async Task DispatchInAppRealtimeAsync(
         IReadOnlyList<Guid> receivers,
         DispatchEnvelope envelope,
+        bool suppressDuplicateCheck,
         CancellationToken cancellationToken)
     {
         foreach (var receiverId in receivers)
         {
-            if (envelope.ReferenceId.HasValue)
+            if (!suppressDuplicateCheck && envelope.ReferenceId.HasValue)
             {
                 var isDuplicate = await _notifications.ExistsActiveDuplicateAsync(
                     receiverId,

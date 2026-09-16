@@ -51,13 +51,15 @@ public static class NotificationTemplateProvider
                 "New proposal is available",
                 "A new proposal has been published for your project. Please review it.",
                 NotificationDeliveryLevel.InAppRealtime,
-                "proposal.published"),
+                "proposal.published",
+                SuppressDuplicateCheck: true),
 
             NotificationType.ProposalRevisionRequested => new NotificationTemplate(
                 "Proposal revision requested",
                 "Customer requested revisions for proposal \"{ProposalName}\". Note: {RevisionNote}",
                 NotificationDeliveryLevel.InAppRealtime,
-                "proposal.revision.requested"),
+                "proposal.revision.requested",
+                SuppressDuplicateCheck: true),
 
             NotificationType.ProposalFinalSelected => new NotificationTemplate(
                 "Final proposal selected",
@@ -81,13 +83,15 @@ public static class NotificationTemplateProvider
                 "Quotation revision requested",
                 "Customer requested revision for quotation \"{QuotationCode}\". Reason: {RevisionReason}",
                 NotificationDeliveryLevel.InAppRealtime,
-                "quotation.revision_requested"),
+                "quotation.revision_requested",
+                SuppressDuplicateCheck: true),
 
             NotificationType.QuotationRevised => new NotificationTemplate(
                 "Quotation revised",
                 "Quotation \"{QuotationCode}\" has been revised and is ready for your review.",
                 NotificationDeliveryLevel.InAppRealtime,
-                "quotation.revised"),
+                "quotation.revised",
+                SuppressDuplicateCheck: true),
 
             NotificationType.QuotationRejected => new NotificationTemplate(
                 "Quotation rejected",

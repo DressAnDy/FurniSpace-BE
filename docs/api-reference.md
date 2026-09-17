@@ -597,7 +597,7 @@ Controller: `AccountsController`
 | Method | Path | Auth | Description |
 | --- | --- | --- | --- |
 | GET | `/api/Accounts` | ADMIN | List accounts |
-| GET | `/api/Accounts/{accountId}` | ADMIN | Get by id |
+| GET | `/api/Accounts/{accountId}` | None (staff/customer lookup by id, e.g. project participants) | Get by id |
 | POST | `/api/Accounts` | ADMIN | Create account |
 | PUT | `/api/Accounts/{accountId}` | ADMIN | Update account (role change revokes JWT) |
 | DELETE | `/api/Accounts/{accountId}` | ADMIN | Soft-delete style remove |
@@ -4853,6 +4853,6 @@ The domain route tables above cover all 292 actions. Both aliases are shown wher
 
 - Prefer this doc + live `/swagger/v1/swagger.json` when fields drift; DTO source of truth is `src/FurniSpace.Application/DTOs` (report models also in `src/FurniSpace.Shared/DTOs/Reports`).
   2190|- Routing is intentionally inconsistent in a few places (`/api/Accounts` vs `/accounts/...`, `/api/ProductVersions` vs `/ProductVersions`); paths above match controllers as coded.
-- Account CRUD and role assignment require `ADMIN`; role changes revoke existing JWTs for the affected user.
+- Account list/create/update/delete require `ADMIN`; `GET /api/Accounts/{accountId}` stays open for staff/customer participant lookup (e.g. within a project). Role changes revoke existing JWTs for the affected user.
 - Auth tokens are cookie-first; JSON body does not include raw access/refresh tokens.
 - For deeper behavior, follow the current payment/realtime/planner/storage source; `docs/backend-api-dev-guide.md` is secondary context only.

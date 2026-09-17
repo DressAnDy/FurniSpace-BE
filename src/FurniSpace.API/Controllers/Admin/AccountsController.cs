@@ -33,7 +33,6 @@ public sealed class AccountsController : BaseApiController
         return ToActionResult(result);
     }
 
-    [Authorize(Roles = "ADMIN")]
     [HttpGet("{accountId:guid}")]
     public async Task<IActionResult> GetById(Guid accountId, CancellationToken cancellationToken)
     {

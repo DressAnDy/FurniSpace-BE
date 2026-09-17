@@ -21,7 +21,6 @@ public sealed class AccountsControllerTests
 {
     [Theory]
     [InlineData(nameof(AccountsController.GetPaged), "ADMIN")]
-    [InlineData(nameof(AccountsController.GetById), "ADMIN")]
     [InlineData(nameof(AccountsController.Create), "ADMIN")]
     [InlineData(nameof(AccountsController.Update), "ADMIN")]
     [InlineData(nameof(AccountsController.Delete), "ADMIN")]
@@ -33,6 +32,14 @@ public sealed class AccountsControllerTests
 
         Assert.NotNull(authorize);
         Assert.Equal(expectedRoles, authorize.Roles);
+    }
+
+    [Fact]
+    public void GetById_DoesNotRequireAdminRole()
+    {
+        var authorize = GetMethodAuthorizeAttribute(nameof(AccountsController.GetById));
+
+        Assert.Null(authorize);
     }
 
     [Fact]

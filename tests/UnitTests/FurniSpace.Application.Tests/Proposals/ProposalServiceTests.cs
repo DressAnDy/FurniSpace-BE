@@ -2263,53 +2263,20 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
-    public async Task ReopenForEditingAsync_WithSelectedProposal_ReopensAndRestoresConsulting()
+    public async Task ReopenForEditingAsync_WithSelectedProposal_ReturnsBadRequest()
     {
         var designerId = Guid.NewGuid();
         var proposalId = Guid.NewGuid();
-        var otherProposalId = Guid.NewGuid();
-        var selectedAt = DateTime.UtcNow.AddDays(-1);
         var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
         context.ProposalStatus = ProposalStatus.SELECTED;
-        var project = new Project
-        {
-            ProjectId = context.ProjectId,
-            CustomerId = context.CustomerId,
-            ProjectName = "Cafe",
-            Status = ProjectStatus.PROPOSAL_SELECTED
-        };
-        var repository = new FakeProposalRepository(context: context);
-        repository.Proposals.Add(new Proposal
-        {
-            ProposalId = proposalId,
-            ProjectId = context.ProjectId,
-            ProposalName = "Selected proposal",
-            Status = ProposalStatus.SELECTED,
-            SelectedAt = selectedAt,
-            PublishedAt = selectedAt.AddHours(-1)
-        });
-        repository.Proposals.Add(new Proposal
-        {
-            ProposalId = otherProposalId,
-            ProjectId = context.ProjectId,
-            ProposalName = "Other proposal",
-            Status = ProposalStatus.REJECTED,
-            RejectedAt = selectedAt
-        });
-        var projects = new FakeProjectRepository("DESIGNER", project);
         var service = CreateService(
-            repository,
-            projects,
-            quotations: new FakeProposalReopenQuotationService());
+            new FakeProposalRepository(context: context),
+            new FakeProjectRepository("DESIGNER"));
 
         var result = await service.ReopenForEditingAsync(proposalId, designerId);
 
-        Assert.Equal(200, result.Status);
-        Assert.Equal(ProposalStatus.DRAFT, result.Data!.ProposalStatus);
-        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, result.Data.ProjectStatus);
-        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
-        Assert.Equal(ProposalStatus.PUBLISHED, repository.Proposals[1].Status);
-        Assert.Null(repository.Proposals[0].SelectedAt);
+        Assert.Equal(400, result.Status);
+        Assert.Equal(ProposalReopenErrorCodes.ProposalAlreadySelected, result.ErrorCode);
     }
 
     [Fact]

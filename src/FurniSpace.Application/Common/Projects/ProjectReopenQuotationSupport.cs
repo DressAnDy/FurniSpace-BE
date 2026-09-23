@@ -12,6 +12,16 @@ internal static class ProjectReopenQuotationSupport
             or QuotationStatus.ACCEPTED;
     }
 
+    internal static bool CanCancelForProposalEditingReopen(QuotationStatus? status)
+    {
+        if (CanCancelForReopen(status))
+        {
+            return true;
+        }
+
+        return status is QuotationStatus.REVISION_REQUESTED or QuotationStatus.REVISED;
+    }
+
     internal static void CancelForReopen(Quotation quotation, DateTime utcNow)
     {
         quotation.Status = QuotationStatus.CANCELLED;

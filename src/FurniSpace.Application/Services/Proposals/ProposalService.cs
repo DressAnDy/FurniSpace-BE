@@ -1189,18 +1189,11 @@ public sealed class ProposalService : IProposalService
                 "You do not have access to reopen this proposal for editing.");
         }
 
-        if (proposal.ProposalStatus == ProposalStatus.SELECTED)
-        {
-            return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.BadRequest(
-                ProposalReopenErrorCodes.ProposalAlreadySelected,
-                "Selected proposals cannot be reopened for editing."));
-        }
-
-        if (proposal.ProposalStatus != ProposalStatus.PUBLISHED)
+        if (proposal.ProposalStatus is not (ProposalStatus.PUBLISHED or ProposalStatus.SELECTED))
         {
             return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.BadRequest(
                 ProposalReopenErrorCodes.ReopenNotAllowed,
-                "Only published proposals can be reopened for editing."));
+                "Only published or selected proposals can be reopened for editing."));
         }
 
         var project = await _projects.GetByIdAsync(proposal.ProjectId, cancellationToken);
@@ -1211,19 +1204,21 @@ public sealed class ProposalService : IProposalService
                 ProposalNotFoundMessage));
         }
 
-        if (project.Status != ProjectStatus.PROPOSAL_CONSULTING)
+        var isSelectedProposal = proposal.ProposalStatus == ProposalStatus.SELECTED;
+        if (isSelectedProposal)
+        {
+            if (project.Status != ProjectStatus.PROPOSAL_SELECTED)
+            {
+                return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.BadRequest(
+                    ProposalReopenErrorCodes.ReopenNotAllowed,
+                    "Selected proposals can only be reopened while the project is in proposal selected."));
+            }
+        }
+        else if (project.Status != ProjectStatus.PROPOSAL_CONSULTING)
         {
             return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.BadRequest(
                 ProposalReopenErrorCodes.ReopenNotAllowed,
                 "Proposal can only be reopened while the project is in proposal consulting."));
-        }
-
-        if (_customizationRequests is not null &&
-            await _customizationRequests.HasQuotationForProposalAsync(proposalId, cancellationToken))
-        {
-            return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.Conflict(
-                ProposalReopenErrorCodes.ProposalHasQuotation,
-                "Proposal with an existing quotation cannot be reopened for editing."));
         }
 
         var proposalEntity = await _proposals.GetProposalEntityAsync(proposalId, cancellationToken);
@@ -1234,22 +1229,90 @@ public sealed class ProposalService : IProposalService
                 ProposalNotFoundMessage));
         }
 
-        var now = DateTime.UtcNow;
-        proposalEntity.Status = ProposalStatus.DRAFT;
-        proposalEntity.PublishedAt = null;
-        proposalEntity.UpdatedAt = now;
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<ReopenProposalForEditingResponseDto>.Success(
-            new ReopenProposalForEditingResponseDto
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            if (_quotations is not null)
             {
-                ProposalId = proposalId,
-                ProjectId = proposal.ProjectId,
-                ProposalStatus = proposalEntity.Status,
-                ProjectStatus = project.Status,
-                UpdatedAt = now
-            },
-            "Proposal reopened for editing successfully.");
+                var cancelQuotationsResult = await _quotations.CancelActiveQuotationsForProposalReopenAsync(
+                    proposalId,
+                    cancellationToken);
+                if (cancelQuotationsResult.Status != 200)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                    return MapProposalReopenQuotationCancellationFailure(cancelQuotationsResult);
+                }
+            }
+            else if (_customizationRequests is not null &&
+                     await _customizationRequests.HasQuotationForProposalAsync(proposalId, cancellationToken))
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.Conflict(
+                    ProposalReopenErrorCodes.ProposalHasQuotation,
+                    "Proposal with an existing quotation cannot be reopened for editing."));
+            }
+
+            var now = DateTime.UtcNow;
+            var autoRejectedAt = proposalEntity.SelectedAt;
+
+            proposalEntity.Status = ProposalStatus.DRAFT;
+            proposalEntity.PublishedAt = null;
+            proposalEntity.SelectedAt = null;
+            proposalEntity.UpdatedAt = now;
+
+            if (isSelectedProposal)
+            {
+                project.Status = ProjectStatus.PROPOSAL_CONSULTING;
+                project.UpdatedAt = now;
+                _projects.Update(project);
+
+                if (autoRejectedAt.HasValue)
+                {
+                    await _proposals.RestoreAutoRejectedProposalsAsync(
+                        proposal.ProjectId,
+                        autoRejectedAt.Value,
+                        now,
+                        cancellationToken);
+                }
+            }
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+            return ServiceResult<ReopenProposalForEditingResponseDto>.Success(
+                new ReopenProposalForEditingResponseDto
+                {
+                    ProposalId = proposalId,
+                    ProjectId = proposal.ProjectId,
+                    ProposalStatus = proposalEntity.Status,
+                    ProjectStatus = project.Status,
+                    UpdatedAt = now
+                },
+                "Proposal reopened for editing successfully.");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static ServiceResult<ReopenProposalForEditingResponseDto> MapProposalReopenQuotationCancellationFailure(
+        ServiceResult cancelQuotationsResult)
+    {
+        var errorCode = cancelQuotationsResult.ErrorCode switch
+        {
+            QuotationErrorCodes.OrderAlreadyCreated => ProposalReopenErrorCodes.QuotationHasOrder,
+            QuotationErrorCodes.InvalidQuotationStatus => ProposalReopenErrorCodes.QuotationCannotBeCancelled,
+            _ => ProposalReopenErrorCodes.ProposalHasQuotation
+        };
+
+        return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(
+            cancelQuotationsResult.Status switch
+            {
+                409 => Error.Conflict(errorCode, cancelQuotationsResult.Message ?? "Quotation could not be cancelled."),
+                _ => Error.BadRequest(errorCode, cancelQuotationsResult.Message ?? "Quotation could not be cancelled.")
+            });
     }
 
     public async Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(

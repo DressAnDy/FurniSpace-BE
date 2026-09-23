@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Orders;
+using FurniSpace.Application.Common.Projects;
 using FurniSpace.Application.Common.Quotations;
 using FurniSpace.Application.Constants.Financial;
 using static FurniSpace.Application.Constants.Quotations.QuotationServiceConstants;
@@ -731,12 +732,59 @@ public sealed class QuotationService : IQuotationService
                 "Quotation cannot be cancelled in its current status.");
         }
 
+        var now = DateTime.UtcNow;
         context.Quotation!.Status = QuotationStatus.CANCELLED;
-        context.Quotation.UpdatedAt = DateTime.UtcNow;
+        context.Quotation.UpdatedAt = now;
         _quotations.Update(context.Quotation);
+        await DetachInactiveQuotationProposalItemLinksAsync(quotationId, now, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return await LoadDetailResultAsync(quotationId, "Quotation cancelled successfully.", cancellationToken);
+    }
+
+    public async Task<ServiceResult> CancelActiveQuotationsForProposalReopenAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default)
+    {
+        if (proposalId == Guid.Empty)
+        {
+            return ServiceResult.BadRequest("Proposal id is required.");
+        }
+
+        var quotations = await _quotations.GetNonCancelledByProposalIdAsync(proposalId, cancellationToken);
+        if (quotations.Count == 0)
+        {
+            return ServiceResult.Success();
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var quotation in quotations)
+        {
+            if (quotation.Status == QuotationStatus.REJECTED)
+            {
+                continue;
+            }
+
+            if (await _orders.ExistsForQuotationAsync(quotation.QuotationId, cancellationToken))
+            {
+                return ServiceResult.Failure(Error.Conflict(
+                    QuotationErrorCodes.OrderAlreadyCreated,
+                    "An order already exists for a quotation linked to this proposal."));
+            }
+
+            if (!ProjectReopenQuotationSupport.CanCancelForProposalEditingReopen(quotation.Status))
+            {
+                return ServiceResult.Failure(Error.Conflict(
+                    QuotationErrorCodes.InvalidQuotationStatus,
+                    "Quotation linked to this proposal cannot be cancelled in its current status."));
+            }
+
+            ProjectReopenQuotationSupport.CancelForReopen(quotation, now);
+            _quotations.Update(quotation);
+            await DetachInactiveQuotationProposalItemLinksAsync(quotation.QuotationId, now, cancellationToken);
+        }
+
+        return ServiceResult.Success();
     }
 
     public async Task<ServiceResult<QuotationDetailDto>> RejectAsync(
@@ -776,6 +824,7 @@ public sealed class QuotationService : IQuotationService
 
         _quotations.Update(context.Quotation);
         _projects.Update(project);
+        await DetachInactiveQuotationProposalItemLinksAsync(quotationId, now, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         await DispatchQuotationRejectedNotificationAsync(context.Detail!, rejectReason!, cancellationToken);
 
@@ -1309,12 +1358,27 @@ public sealed class QuotationService : IQuotationService
             return;
         }
 
+        var now = DateTime.UtcNow;
         entity.Status = QuotationStatus.EXPIRED;
-        entity.UpdatedAt = DateTime.UtcNow;
+        entity.UpdatedAt = now;
         quotation.Status = QuotationStatus.EXPIRED;
-        quotation.UpdatedAt = entity.UpdatedAt;
+        quotation.UpdatedAt = now;
         _quotations.Update(entity);
+        await DetachInactiveQuotationProposalItemLinksAsync(quotation.QuotationId, now, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task DetachInactiveQuotationProposalItemLinksAsync(
+        Guid quotationId,
+        DateTime utcNow,
+        CancellationToken cancellationToken)
+    {
+        var quotationItems = await _quotations.GetItemsByQuotationAsync(quotationId, cancellationToken);
+        QuotationInactiveProposalLinkSupport.DetachProposalItemLinks(quotationItems, utcNow);
+        foreach (var quotationItem in quotationItems)
+        {
+            _quotations.UpdateItem(quotationItem);
+        }
     }
 
     private static bool ShouldExpire(

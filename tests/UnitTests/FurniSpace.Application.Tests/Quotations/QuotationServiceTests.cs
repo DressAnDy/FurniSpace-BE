@@ -249,6 +249,12 @@ public sealed class QuotationServiceTests
         var detail = MakeAcceptReadyDetail(quotation);
         var quotations = new FakeQuotationRepository { Detail = detail };
         quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(new QuotationItem
+        {
+            QuotationItemId = Guid.NewGuid(),
+            QuotationId = quotation.QuotationId,
+            ProposalItemId = Guid.NewGuid()
+        });
         var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER" });
 
         var result = await service.GetDetailAsync(quotation.QuotationId, _customerId);
@@ -256,6 +262,7 @@ public sealed class QuotationServiceTests
         Assert.Equal(200, result.Status);
         Assert.Equal(QuotationStatus.EXPIRED, quotation.Status);
         Assert.Equal(QuotationStatus.EXPIRED, result.Data!.Status);
+        Assert.Null(quotations.AddedItems[0].ProposalItemId);
     }
 
     [Fact]
@@ -1308,12 +1315,19 @@ public sealed class QuotationServiceTests
         var quotations = new FakeQuotationRepository { Detail = MakeDetail(QuotationStatus.REVISED) };
         quotations.Detail!.QuotationId = quotation.QuotationId;
         quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(new QuotationItem
+        {
+            QuotationItemId = Guid.NewGuid(),
+            QuotationId = quotation.QuotationId,
+            ProposalItemId = Guid.NewGuid()
+        });
         var service = BuildService(new() { Quotations = quotations, Role = "SALES" });
 
         var result = await service.CancelAsync(quotation.QuotationId, _salesId);
 
         Assert.Equal(200, result.Status);
         Assert.Equal(QuotationStatus.CANCELLED, quotation.Status);
+        Assert.Null(quotations.AddedItems[0].ProposalItemId);
     }
 
     [Fact]
@@ -1332,12 +1346,75 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task CancelActiveQuotationsForProposalReopenAsync_WhenDraft_CancelsQuotation()
+    {
+        var proposalId = Guid.NewGuid();
+        var proposalItemId = Guid.NewGuid();
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        quotation.ProposalId = proposalId;
+        var quotations = new FakeQuotationRepository();
+        quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(new QuotationItem
+        {
+            QuotationItemId = Guid.NewGuid(),
+            QuotationId = quotation.QuotationId,
+            ProposalItemId = proposalItemId
+        });
+        var service = BuildService(new() { Quotations = quotations });
+
+        var result = await service.CancelActiveQuotationsForProposalReopenAsync(proposalId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(QuotationStatus.CANCELLED, quotation.Status);
+        Assert.Null(quotations.AddedItems[0].ProposalItemId);
+    }
+
+    [Fact]
+    public async Task CancelActiveQuotationsForProposalReopenAsync_WhenOrderExists_ReturnsConflict()
+    {
+        var proposalId = Guid.NewGuid();
+        var quotation = MakeEntityQuotation(QuotationStatus.DRAFT);
+        quotation.ProposalId = proposalId;
+        var quotations = new FakeQuotationRepository();
+        quotations.AddedQuotations.Add(quotation);
+        var orders = new FakeOrderRepository { OrderExistsForQuotation = true };
+        var service = BuildService(new() { Quotations = quotations, Orders = orders });
+
+        var result = await service.CancelActiveQuotationsForProposalReopenAsync(proposalId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(QuotationErrorCodes.OrderAlreadyCreated, result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelActiveQuotationsForProposalReopenAsync_WhenExpired_ReturnsInvalidStatus()
+    {
+        var proposalId = Guid.NewGuid();
+        var quotation = MakeEntityQuotation(QuotationStatus.EXPIRED);
+        quotation.ProposalId = proposalId;
+        var quotations = new FakeQuotationRepository();
+        quotations.AddedQuotations.Add(quotation);
+        var service = BuildService(new() { Quotations = quotations });
+
+        var result = await service.CancelActiveQuotationsForProposalReopenAsync(proposalId);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(QuotationErrorCodes.InvalidQuotationStatus, result.ErrorCode);
+    }
+
+    [Fact]
     public async Task RejectAsync_WhenValid_RejectsQuotationAndNotifiesSales()
     {
         var quotation = MakeEntityQuotation(QuotationStatus.SENT);
         quotation.ValidUntil = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(5));
         var quotations = new FakeQuotationRepository { Detail = MakeAcceptReadyDetail(quotation) };
         quotations.AddedQuotations.Add(quotation);
+        quotations.AddedItems.Add(new QuotationItem
+        {
+            QuotationItemId = Guid.NewGuid(),
+            QuotationId = quotation.QuotationId,
+            ProposalItemId = Guid.NewGuid()
+        });
         var dispatcher = new FakeNotificationDispatcher();
         var service = BuildService(new() { Quotations = quotations, Role = "CUSTOMER", Notifications = dispatcher });
 
@@ -1348,6 +1425,7 @@ public sealed class QuotationServiceTests
 
         Assert.Equal(200, result.Status);
         Assert.Equal(QuotationStatus.REJECTED, quotation.Status);
+        Assert.Null(quotations.AddedItems[0].ProposalItemId);
         Assert.Equal("Price is too high.", quotation.RejectReason);
         Assert.NotNull(quotation.RejectedAt);
         Assert.Equal(ProjectStatus.PROPOSAL_SELECTED, ProjectEntity!.Status);
@@ -1713,6 +1791,13 @@ public sealed class QuotationServiceTests
         }
         public Task<SelectedProposalForQuotationReadModel?> GetSelectedProposalAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult(SelectedProposal);
         public Task<bool> HasQuotationForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(HasExistingQuotation);
+        public Task<IReadOnlyList<Quotation>> GetNonCancelledByProposalIdAsync(Guid proposalId, CancellationToken cancellationToken = default)
+        {
+            var items = AddedQuotations
+                .Where(item => item.ProposalId == proposalId && item.Status != QuotationStatus.CANCELLED)
+                .ToList();
+            return Task.FromResult<IReadOnlyList<Quotation>>(items);
+        }
         public Task<IReadOnlyList<ProposalItem>> GetProposalItemsAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProposalItem>>(ProposalItems);
         public Task<IReadOnlyList<QuotationItem>> GetItemsByQuotationAsync(Guid quotationId, CancellationToken cancellationToken = default)
         {

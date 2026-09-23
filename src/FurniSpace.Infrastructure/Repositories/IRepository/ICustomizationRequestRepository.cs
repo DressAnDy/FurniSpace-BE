@@ -36,4 +36,8 @@ public interface ICustomizationRequestRepository : IGenericRepository<Customizat
         Guid proposalId,
         Guid productVersionId,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlySet<Guid>> GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default);
 }

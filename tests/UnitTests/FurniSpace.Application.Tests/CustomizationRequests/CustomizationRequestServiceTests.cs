@@ -2663,6 +2663,11 @@ public sealed class CustomizationRequestServiceTests
             CancellationToken cancellationToken = default)
             => Task.FromResult(HasActiveRequest);
 
+        public Task<IReadOnlySet<Guid>> GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
+
         public Task AddAsync(CustomizationRequest entity, CancellationToken cancellationToken = default)
         {
             AddedRequest = entity;

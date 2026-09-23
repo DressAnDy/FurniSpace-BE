@@ -145,6 +145,27 @@ public sealed class CustomizationRequestRepository
             cancellationToken);
     }
 
+    public async Task<IReadOnlySet<Guid>> GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default)
+    {
+        var ids = await (
+            from request in DbContext.CustomizationRequestSet.AsNoTracking()
+            where request.ProposalId == proposalId
+                  && request.Status == CustomizationStatus.ACCEPTED
+                  && request.AcceptedRequestVersionId != null
+            join version in DbContext.CustomizationRequestVersionSet.AsNoTracking()
+                on request.AcceptedRequestVersionId equals version.CustomizationRequestVersionId
+            join productVersion in DbContext.ProductVersionSet.AsNoTracking()
+                on version.ProductVersionId equals productVersion.ProductVersionId
+            where productVersion.VersionType == ProductVersionType.PROJECT_SPECIFIC
+            select version.ProductVersionId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        return ids.ToHashSet();
+    }
+
     private IQueryable<CustomizationRequestReadModel> BuildListQuery()
     {
         return DbContext.CustomizationRequestSet

@@ -259,6 +259,67 @@ public sealed class QuotationServiceTests
     }
 
     [Fact]
+    public async Task CreateDraftAsync_WhenAcceptedCustomizationVersion_SetsIsCustomizedOnQuotationItem()
+    {
+        var acceptedVersionId = Guid.NewGuid();
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = acceptedVersionId,
+            ItemName = "Custom Chair",
+            Quantity = 1,
+            UnitPriceSnapshot = 100m,
+            TotalPriceSnapshot = 100m,
+            IsCustomized = false,
+            Note = null
+        });
+        var service = BuildService(new()
+        {
+            Quotations = quotations,
+            Role = "SALES",
+            AcceptedCustomizationProductVersionIds = new HashSet<Guid> { acceptedVersionId }
+        });
+
+        var result = await service.CreateDraftAsync(_projectId, _salesId);
+
+        Assert.Equal(201, result.Status);
+        Assert.True(quotations.AddedItems[0].IsCustomized);
+    }
+
+    [Fact]
+    public async Task AddDraftQuotationForSelectedProposalAsync_WhenValid_UsesAcceptedCustomizationLookup()
+    {
+        var acceptedVersionId = Guid.NewGuid();
+        var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
+        quotations.ProposalItems.Add(new ProposalItem
+        {
+            ProposalItemId = Guid.NewGuid(),
+            ProposalId = _proposalId,
+            ProductVersionId = acceptedVersionId,
+            ItemName = "Custom Table",
+            Quantity = 1,
+            UnitPriceSnapshot = 50m,
+            TotalPriceSnapshot = 50m
+        });
+        var service = BuildService(new()
+        {
+            Quotations = quotations,
+            Role = "SALES",
+            AcceptedCustomizationProductVersionIds = new HashSet<Guid> { acceptedVersionId }
+        });
+
+        var result = await service.AddDraftQuotationForSelectedProposalAsync(
+            _projectId,
+            _proposalId,
+            _salesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.True(quotations.AddedItems[0].IsCustomized);
+    }
+
+    [Fact]
     public async Task CreateDraftAsync_WhenValid_CreatesQuotationAndItems()
     {
         var quotations = new FakeQuotationRepository { SelectedProposal = MakeSelectedProposal() };
@@ -1345,6 +1406,9 @@ public sealed class QuotationServiceTests
 
         public bool HasPendingCustomization { get; init; }
 
+        public IReadOnlySet<Guid> AcceptedCustomizationProductVersionIds { get; init; } =
+            new HashSet<Guid>();
+
         public bool OrderExistsForQuotation { get; init; }
 
         public FurniSpace.Infrastructure.Persistence.IUnitOfWork? UnitOfWork { get; init; }
@@ -1367,7 +1431,9 @@ public sealed class QuotationServiceTests
             options.Quotations,
             projectRepository,
             orderRepository,
-            new FakeCustomizationRequestRepository(options.HasPendingCustomization),
+            new FakeCustomizationRequestRepository(
+                options.HasPendingCustomization,
+                options.AcceptedCustomizationProductVersionIds),
             new QuotationServiceDependencies(
                 options.UnitOfWork ?? TestUnitOfWork.Instance,
                 new OrderWorkflowSettings { DepositPercent = 30 },
@@ -1756,8 +1822,20 @@ public sealed class QuotationServiceTests
         public Task<IReadOnlyList<ProjectSearchIndexItemReadModel>> GetSearchIndexPageAsync(int page, int limit, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ProjectSearchIndexItemReadModel>>([]);
     }
 
-    private sealed class FakeCustomizationRequestRepository(bool hasPending) : ICustomizationRequestRepository
+    private sealed class FakeCustomizationRequestRepository : ICustomizationRequestRepository
     {
+        private readonly bool _hasPending;
+        private readonly IReadOnlySet<Guid> _acceptedCustomizationProductVersionIds;
+
+        public FakeCustomizationRequestRepository(
+            bool hasPending = false,
+            IReadOnlySet<Guid>? acceptedCustomizationProductVersionIds = null)
+        {
+            _hasPending = hasPending;
+            _acceptedCustomizationProductVersionIds =
+                acceptedCustomizationProductVersionIds ?? new HashSet<Guid>();
+        }
+
         public IQueryable<CustomizationRequest> Query() => Enumerable.Empty<CustomizationRequest>().AsQueryable();
         public Task<CustomizationRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<CustomizationRequest?>(null);
         public Task<IReadOnlyList<CustomizationRequest>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<CustomizationRequest>>([]);
@@ -1771,7 +1849,8 @@ public sealed class QuotationServiceTests
         public Task<CustomizationSubmitContextReadModel?> GetSubmitContextAsync(Guid proposalItemId, CancellationToken cancellationToken = default) => Task.FromResult<CustomizationSubmitContextReadModel?>(null);
         public Task<bool> HasQuotationForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(false);
         public Task<bool> HasProductionVisibleRequestAsync(Guid projectId, Guid productionUserId, CancellationToken cancellationToken = default) => Task.FromResult(false);
-        public Task<bool> HasPendingForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default) => Task.FromResult(hasPending);
+        public Task<bool> HasPendingForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_hasPending);
 
         public Task<bool> HasActiveRequestForProductVersionAsync(
             Guid projectId,
@@ -1782,7 +1861,7 @@ public sealed class QuotationServiceTests
         public Task<IReadOnlySet<Guid>> GetAcceptedCustomizationProductVersionIdsForProposalAsync(
             Guid proposalId,
             CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
+            Task.FromResult(_acceptedCustomizationProductVersionIds);
     }
 
     private sealed class FakeNotificationDispatcher : INotificationDispatcher

@@ -310,6 +310,91 @@ public sealed class CustomizationRequestRepositoryTests
     }
 
     [Fact]
+    public async Task GetAcceptedCustomizationProductVersionIdsForProposalAsync_ReturnsProjectSpecificAcceptedVersions()
+    {
+        await using var context = CreateContext();
+        var graph = await SeedRequestGraphAsync(context);
+        var acceptedVersionId = Guid.NewGuid();
+        var standardVersionId = Guid.NewGuid();
+        var acceptedCustomizationVersion = new ProductVersion
+        {
+            ProductVersionId = acceptedVersionId,
+            ProductId = graph.ProductVersion.ProductId,
+            ProjectId = graph.Project.ProjectId,
+            VersionCode = "PV-CUST-ACCEPT",
+            VersionName = "Accepted custom",
+            VersionType = ProductVersionType.PROJECT_SPECIFIC,
+            Status = ProductStatus.ACTIVE
+        };
+        var standardVersion = new ProductVersion
+        {
+            ProductVersionId = standardVersionId,
+            ProductId = graph.ProductVersion.ProductId,
+            VersionCode = "PV-STD",
+            VersionName = "Standard",
+            VersionType = ProductVersionType.STANDARD,
+            Status = ProductStatus.ACTIVE
+        };
+        context.ProductVersionSet.Add(acceptedCustomizationVersion);
+        context.ProductVersionSet.Add(standardVersion);
+
+        var acceptedRequestVersionId = Guid.NewGuid();
+        var standardRequestVersionId = Guid.NewGuid();
+        var acceptedRequest = CreateStoredRequest(graph, CustomizationStatus.ACCEPTED);
+        acceptedRequest.AcceptedRequestVersionId = acceptedRequestVersionId;
+        var reviewingRequest = CreateStoredRequest(graph, CustomizationStatus.REVIEWING);
+        context.CustomizationRequestSet.Add(acceptedRequest);
+        context.CustomizationRequestSet.Add(reviewingRequest);
+        context.CustomizationRequestVersionSet.Add(new CustomizationRequestVersion
+        {
+            CustomizationRequestVersionId = acceptedRequestVersionId,
+            CustomizationRequestId = acceptedRequest.CustomizationRequestId,
+            ProductVersionId = acceptedVersionId,
+            VersionNo = 1,
+            CreatedByDesignerId = graph.Project.AssignedDesignerId ?? Guid.NewGuid(),
+            Status = CustomizationVersionStatus.ACCEPTED,
+            FeasibilityStatus = ProductionFeasibilityStatus.FEASIBLE,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        context.CustomizationRequestVersionSet.Add(new CustomizationRequestVersion
+        {
+            CustomizationRequestVersionId = standardRequestVersionId,
+            CustomizationRequestId = reviewingRequest.CustomizationRequestId,
+            ProductVersionId = standardVersionId,
+            VersionNo = 1,
+            CreatedByDesignerId = graph.Project.AssignedDesignerId ?? Guid.NewGuid(),
+            Status = CustomizationVersionStatus.REVIEWING,
+            FeasibilityStatus = ProductionFeasibilityStatus.FEASIBLE,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var repository = new CustomizationRequestRepository(context);
+
+        var result = await repository.GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+            graph.Proposal.ProposalId);
+
+        Assert.Single(result);
+        Assert.Contains(acceptedVersionId, result);
+    }
+
+    [Fact]
+    public async Task GetAcceptedCustomizationProductVersionIdsForProposalAsync_WhenProposalHasNoAccepted_ReturnsEmpty()
+    {
+        await using var context = CreateContext();
+        var graph = await SeedRequestGraphAsync(context);
+        context.CustomizationRequestSet.Add(CreateStoredRequest(graph, CustomizationStatus.REVIEWING));
+        await context.SaveChangesAsync();
+        var repository = new CustomizationRequestRepository(context);
+
+        var result = await repository.GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+            graph.Proposal.ProposalId);
+
+        Assert.Empty(result);
+    }
+
+    [Fact]
     public async Task HasProductionVisibleRequestAsync_WhenNoReviewingVersion_ReturnsFalse()
     {
         await using var context = CreateContext();

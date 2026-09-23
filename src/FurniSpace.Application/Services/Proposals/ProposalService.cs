@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Proposals;
 using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.Proposals.ProposalServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
@@ -566,6 +567,7 @@ public sealed class ProposalService : IProposalService
         entity.Quantity = request.Quantity;
         entity.TotalPriceSnapshot = (entity.UnitPriceSnapshot ?? 0m) * request.Quantity;
         entity.Note = note;
+        entity.IsCustomized = ProposalItemCustomizationMarker.HasCustomizationNote(note);
         entity.UpdatedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -721,6 +723,13 @@ public sealed class ProposalService : IProposalService
                 "Existing proposal items contain duplicate scene object mappings."));
         }
 
+        var acceptedCustomizationProductVersionIds =
+            _customizationRequests is not null
+                ? await _customizationRequests.GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+                    proposalId,
+                    cancellationToken)
+                : new HashSet<Guid>();
+
         SyncProposalItemsFromSceneResponseDto response;
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
@@ -731,6 +740,7 @@ public sealed class ProposalService : IProposalService
                 scene,
                 productVersions,
                 existingItems,
+                acceptedCustomizationProductVersionIds,
                 now,
                 cancellationToken);
 
@@ -1893,6 +1903,7 @@ public sealed class ProposalService : IProposalService
         ProposalSceneContextReadModel scene,
         Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel> productVersions,
         IReadOnlyList<ProposalItem> existingItems,
+        IReadOnlySet<Guid> acceptedCustomizationProductVersionIds,
         DateTime now,
         CancellationToken cancellationToken)
     {
@@ -1924,7 +1935,12 @@ public sealed class ProposalService : IProposalService
                 updatedCount++;
             }
 
-            ApplyProposalItemSnapshot(proposalItem, productVersion, syncItem, now);
+            ApplyProposalItemSnapshot(
+                proposalItem,
+                productVersion,
+                syncItem,
+                acceptedCustomizationProductVersionIds,
+                now);
             syncedItems.Add(ToSyncedItemDto(proposalItem, productVersion, syncItem.FloorId));
         }
 
@@ -2000,6 +2016,7 @@ public sealed class ProposalService : IProposalService
         ProposalItem proposalItem,
         Infrastructure.ReadModels.Products.ProductVersionDetailReadModel productVersion,
         RoomPlannerSceneSyncItem syncItem,
+        IReadOnlySet<Guid> acceptedCustomizationProductVersionIds,
         DateTime now)
     {
         const int QuantityPerSceneObject = 1;
@@ -2016,8 +2033,10 @@ public sealed class ProposalService : IProposalService
         proposalItem.Quantity = QuantityPerSceneObject;
         proposalItem.UnitPriceSnapshot = unitPrice;
         proposalItem.TotalPriceSnapshot = unitPrice * QuantityPerSceneObject;
-        proposalItem.Note = null;
-        proposalItem.IsCustomized = !string.IsNullOrWhiteSpace(proposalItem.Note);
+        proposalItem.IsCustomized = ProposalItemCustomizationMarker.ResolveIsCustomized(
+            proposalItem,
+            productVersion.VersionType,
+            acceptedCustomizationProductVersionIds);
         proposalItem.UpdatedAt = now;
     }
 

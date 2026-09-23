@@ -1778,6 +1778,11 @@ public sealed class QuotationServiceTests
             Guid proposalId,
             Guid productVersionId,
             CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public Task<IReadOnlySet<Guid>> GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlySet<Guid>>(new HashSet<Guid>());
     }
 
     private sealed class FakeNotificationDispatcher : INotificationDispatcher

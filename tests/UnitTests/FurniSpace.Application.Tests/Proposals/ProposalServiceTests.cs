@@ -825,6 +825,42 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
+    public async Task SyncItemsFromSceneAsync_WithAcceptedCustomizationVersion_SetsIsCustomized()
+    {
+        var proposalId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        var sceneContext = CreateSceneContext(proposalId, sceneId, context.ProjectId, designerId);
+        var repository = new FakeProposalRepository(context: context, sceneContext: sceneContext);
+        var roomPlannerScenes = new FakeRoomPlannerSceneRepository();
+        roomPlannerScenes.Scenes[sceneId] = CreateRoomPlannerScene(sceneContext, "chair-001", productVersionId);
+        var productVersions = new FakeProductVersionRepository();
+        productVersions.ProductVersions.Add(
+            CreateProductVersion(productVersionId, estimatedPrice: 2500000m, versionType: ProductVersionType.PROJECT_SPECIFIC));
+        var customizationRequests = new FakeCustomizationRequestRepository
+        {
+            AcceptedCustomizationProductVersionIds = new HashSet<Guid> { productVersionId }
+        };
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER"),
+            productVersions,
+            roomPlannerScenes: roomPlannerScenes,
+            customizationRequests: customizationRequests);
+
+        var result = await service.SyncItemsFromSceneAsync(
+            proposalId,
+            designerId,
+            CreateSyncRequest(sceneId));
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(repository.Items);
+        Assert.True(repository.Items[0].IsCustomized);
+    }
+
+    [Fact]
     public async Task SyncItemsFromSceneAsync_WithExistingSceneObject_UpdatesProposalItem()
     {
         var proposalId = Guid.NewGuid();
@@ -1409,6 +1445,7 @@ public sealed class ProposalServiceTests
         Assert.Equal(7200000m, result.Data.SubtotalAmount);
         Assert.Equal("Increase quantity.", result.Data.CustomizationNote);
         AssertProposalItemArea(result.Data);
+        Assert.True(entity.IsCustomized);
         Assert.Equal(6, entity.Quantity);
         Assert.Equal(7200000m, entity.TotalPriceSnapshot);
         Assert.Equal(1, repository.SaveChangesCallCount);
@@ -2479,7 +2516,8 @@ public sealed class ProposalServiceTests
 
     private static ProductVersionDetailReadModel CreateProductVersion(
         Guid productVersionId,
-        decimal estimatedPrice = 1200000m)
+        decimal estimatedPrice = 1200000m,
+        ProductVersionType versionType = ProductVersionType.STANDARD)
     {
         return new ProductVersionDetailReadModel
         {
@@ -2487,7 +2525,7 @@ public sealed class ProposalServiceTests
             ProductId = Guid.NewGuid(),
             ProductName = "Cafe Chair",
             VersionName = "Brown Wood",
-            VersionType = ProductVersionType.STANDARD,
+            VersionType = versionType,
             EstimatedPrice = estimatedPrice,
             Status = ProductStatus.ACTIVE
         };
@@ -2794,6 +2832,9 @@ public sealed class ProposalServiceTests
         private readonly bool _hasPending;
         private readonly bool _hasQuotation;
 
+        public IReadOnlySet<Guid> AcceptedCustomizationProductVersionIds { get; init; } =
+            new HashSet<Guid>();
+
         public FakeCustomizationRequestRepository(bool hasPending = false, bool hasQuotation = false)
         {
             _hasPending = hasPending;
@@ -2833,6 +2874,11 @@ public sealed class ProposalServiceTests
             Guid projectId,
             Guid productionUserId,
             CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public Task<IReadOnlySet<Guid>> GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(AcceptedCustomizationProductVersionIds);
 
         public IQueryable<CustomizationRequest> Query() => Enumerable.Empty<CustomizationRequest>().AsQueryable();
         public Task<CustomizationRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<CustomizationRequest?>(null);

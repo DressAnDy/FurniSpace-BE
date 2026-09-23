@@ -179,9 +179,11 @@ public sealed class QuotationService : IQuotationService
 
         var proposalItems = await _quotations.GetProposalItemsAsync(selected.ProposalId, cancellationToken);
         var quotation = CreateDraftQuotation(selected, currentUserId);
-        var quotationItems = QuotationCommercialLineAggregator.AggregateFromProposalItems(
+        var quotationItems = await BuildQuotationItemsFromProposalAsync(
             quotation.QuotationId,
-            proposalItems);
+            selected.ProposalId,
+            proposalItems,
+            cancellationToken);
 
         QuotationRecalculationService.Recalculate(quotation, quotationItems);
         ApplyInitialDeposit(quotation, _orderWorkflowSettings.DepositPercent);
@@ -272,9 +274,11 @@ public sealed class QuotationService : IQuotationService
                 ProposalId = proposalId
             },
             triggeredByUserId);
-        var quotationItems = QuotationCommercialLineAggregator.AggregateFromProposalItems(
+        var quotationItems = await BuildQuotationItemsFromProposalAsync(
             quotation.QuotationId,
-            proposalItems);
+            proposalId,
+            proposalItems,
+            cancellationToken);
 
         QuotationRecalculationService.Recalculate(quotation, quotationItems);
         ApplyInitialDeposit(quotation, _orderWorkflowSettings.DepositPercent);
@@ -854,6 +858,23 @@ public sealed class QuotationService : IQuotationService
                 QuotationErrorCodes.QuotationAlreadyExists,
                 "Quotation already exists for this proposal.")
             : null;
+    }
+
+    private async Task<List<QuotationItem>> BuildQuotationItemsFromProposalAsync(
+        Guid quotationId,
+        Guid proposalId,
+        IReadOnlyList<ProposalItem> proposalItems,
+        CancellationToken cancellationToken)
+    {
+        var acceptedCustomizationProductVersionIds =
+            await _customizationRequests.GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+                proposalId,
+                cancellationToken);
+
+        return QuotationCommercialLineAggregator.AggregateFromProposalItems(
+            quotationId,
+            proposalItems,
+            acceptedCustomizationProductVersionIds);
     }
 
     private static Quotation CreateDraftQuotation(

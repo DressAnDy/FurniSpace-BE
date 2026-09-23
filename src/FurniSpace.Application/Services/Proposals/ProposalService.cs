@@ -1189,11 +1189,18 @@ public sealed class ProposalService : IProposalService
                 "You do not have access to reopen this proposal for editing.");
         }
 
-        if (proposal.ProposalStatus is not (ProposalStatus.PUBLISHED or ProposalStatus.SELECTED))
+        if (proposal.ProposalStatus == ProposalStatus.SELECTED)
+        {
+            return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.BadRequest(
+                ProposalReopenErrorCodes.ProposalAlreadySelected,
+                "Selected proposals cannot be reopened for editing."));
+        }
+
+        if (proposal.ProposalStatus != ProposalStatus.PUBLISHED)
         {
             return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.BadRequest(
                 ProposalReopenErrorCodes.ReopenNotAllowed,
-                "Only published or selected proposals can be reopened for editing."));
+                "Only published proposals can be reopened for editing."));
         }
 
         var project = await _projects.GetByIdAsync(proposal.ProjectId, cancellationToken);
@@ -1204,17 +1211,7 @@ public sealed class ProposalService : IProposalService
                 ProposalNotFoundMessage));
         }
 
-        var isSelectedProposal = proposal.ProposalStatus == ProposalStatus.SELECTED;
-        if (isSelectedProposal)
-        {
-            if (project.Status != ProjectStatus.PROPOSAL_SELECTED)
-            {
-                return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.BadRequest(
-                    ProposalReopenErrorCodes.ReopenNotAllowed,
-                    "Selected proposals can only be reopened while the project is in proposal selected."));
-            }
-        }
-        else if (project.Status != ProjectStatus.PROPOSAL_CONSULTING)
+        if (project.Status != ProjectStatus.PROPOSAL_CONSULTING)
         {
             return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.BadRequest(
                 ProposalReopenErrorCodes.ReopenNotAllowed,
@@ -1253,28 +1250,9 @@ public sealed class ProposalService : IProposalService
             }
 
             var now = DateTime.UtcNow;
-            var autoRejectedAt = proposalEntity.SelectedAt;
-
             proposalEntity.Status = ProposalStatus.DRAFT;
             proposalEntity.PublishedAt = null;
-            proposalEntity.SelectedAt = null;
             proposalEntity.UpdatedAt = now;
-
-            if (isSelectedProposal)
-            {
-                project.Status = ProjectStatus.PROPOSAL_CONSULTING;
-                project.UpdatedAt = now;
-                _projects.Update(project);
-
-                if (autoRejectedAt.HasValue)
-                {
-                    await _proposals.RestoreAutoRejectedProposalsAsync(
-                        proposal.ProjectId,
-                        autoRejectedAt.Value,
-                        now,
-                        cancellationToken);
-                }
-            }
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);

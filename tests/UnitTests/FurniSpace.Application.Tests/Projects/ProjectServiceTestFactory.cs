@@ -833,6 +833,7 @@ internal sealed class FakeProjectOrderRepository : IOrderRepository
 internal sealed class FakeProjectQuotationRepository : IQuotationRepository
 {
     public Quotation? Quotation { get; set; }
+    public List<QuotationItem> QuotationItems { get; } = [];
 
     public Task<Quotation?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
         => Task.FromResult(Quotation?.QuotationId == id ? Quotation : null);
@@ -878,11 +879,17 @@ internal sealed class FakeProjectQuotationRepository : IQuotationRepository
     public Task<bool> HasQuotationForProposalAsync(Guid proposalId, CancellationToken cancellationToken = default)
         => Task.FromResult(false);
 
+    public Task<IReadOnlyList<Quotation>> GetNonCancelledByProposalIdAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<Quotation>>([]);
+
     public Task<IReadOnlyList<ProposalItem>> GetProposalItemsAsync(Guid proposalId, CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<ProposalItem>>([]);
 
     public Task<IReadOnlyList<QuotationItem>> GetItemsByQuotationAsync(Guid quotationId, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<QuotationItem>>([]);
+        => Task.FromResult<IReadOnlyList<QuotationItem>>(
+            QuotationItems.Where(item => item.QuotationId == quotationId).ToList());
 
     public Task<QuotationItem?> GetItemAsync(Guid quotationItemId, CancellationToken cancellationToken = default)
         => Task.FromResult<QuotationItem?>(null);

@@ -43,6 +43,12 @@ public sealed class ProjectServiceReopenProposalTests
             ProjectId = projectId,
             Status = QuotationStatus.ACCEPTED
         };
+        var quotationItem = new QuotationItem
+        {
+            QuotationItemId = Guid.NewGuid(),
+            QuotationId = quotationId,
+            ProposalItemId = Guid.NewGuid()
+        };
         var selectedProposal = new Proposal
         {
             ProposalId = selectedProposalId,
@@ -60,7 +66,11 @@ public sealed class ProjectServiceReopenProposalTests
 
         var repository = new FakeReopenProjectRepository("CUSTOMER", [project]);
         var orders = new FakeProjectOrderRepository { Order = order };
-        var quotations = new FakeProjectQuotationRepository { Quotation = quotation };
+        var quotations = new FakeProjectQuotationRepository
+        {
+            Quotation = quotation,
+            QuotationItems = { quotationItem }
+        };
         var proposals = new FakeProjectReopenProposalRepository
         {
             SelectedProposal = selectedProposal,
@@ -104,6 +114,7 @@ public sealed class ProjectServiceReopenProposalTests
         Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
         Assert.Equal(OrderStatus.CANCELLED, order.Status);
         Assert.Equal(QuotationStatus.CANCELLED, quotation.Status);
+        Assert.Null(quotationItem.ProposalItemId);
         Assert.Equal(ProposalStatus.PUBLISHED, selectedProposal.Status);
         Assert.Null(selectedProposal.SelectedAt);
         Assert.Equal(ProposalStatus.PUBLISHED, rejectedProposal.Status);

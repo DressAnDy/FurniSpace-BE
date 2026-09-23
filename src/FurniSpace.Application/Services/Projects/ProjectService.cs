@@ -3,6 +3,7 @@ using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.ProjectSchedules;
 using FurniSpace.Application.Common.Projects;
+using FurniSpace.Application.Common.Quotations;
 using FurniSpace.Application.Common.Payments;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.Constants.ProjectChats;
@@ -1195,6 +1196,13 @@ public sealed class ProjectService : IProjectService
 
             ProjectReopenQuotationSupport.CancelForReopen(quotation, now);
             _quotations.Update(quotation);
+
+            var quotationItems = await _quotations.GetItemsByQuotationAsync(quotation.QuotationId, cancellationToken);
+            QuotationInactiveProposalLinkSupport.DetachProposalItemLinks(quotationItems, now);
+            foreach (var quotationItem in quotationItems)
+            {
+                _quotations.UpdateItem(quotationItem);
+            }
 
             selectedProposal.Status = ProposalStatus.PUBLISHED;
             selectedProposal.SelectedAt = null;

@@ -122,6 +122,17 @@ public sealed class QuotationRepository : GenericRepository<Quotation>, IQuotati
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Quotation>> GetNonCancelledByProposalIdAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default)
+    {
+        return await DbContext.QuotationSet
+            .Where(quotation =>
+                quotation.ProposalId == proposalId &&
+                quotation.Status != QuotationStatus.CANCELLED)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<ProposalItem>> GetProposalItemsAsync(
         Guid proposalId,
         CancellationToken cancellationToken = default)

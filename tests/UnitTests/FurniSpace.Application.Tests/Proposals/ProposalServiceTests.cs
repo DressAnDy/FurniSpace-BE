@@ -13,6 +13,8 @@ using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.Quotations;
+using FurniSpace.Application.DTOs.Quotations;
 using FurniSpace.Application.Services.Proposals;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -2170,7 +2172,7 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
-    public async Task ReopenForEditingAsync_WithQuotation_ReturnsConflict()
+    public async Task ReopenForEditingAsync_WithQuotation_CancelsQuotationAndReopensToDraft()
     {
         var designerId = Guid.NewGuid();
         var proposalId = Guid.NewGuid();
@@ -2191,15 +2193,56 @@ public sealed class ProposalServiceTests
             ProposalName = "Published proposal",
             Status = ProposalStatus.PUBLISHED
         });
+        var quotationService = new FakeProposalReopenQuotationService();
         var service = CreateService(
             repository,
             new FakeProjectRepository("DESIGNER", project),
-            customizationRequests: new FakeCustomizationRequestRepository(hasQuotation: true));
+            quotations: quotationService);
+
+        var result = await service.ReopenForEditingAsync(proposalId, designerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProposalStatus.DRAFT, result.Data!.ProposalStatus);
+        Assert.Equal(proposalId, quotationService.LastCancelProposalId);
+    }
+
+    [Fact]
+    public async Task ReopenForEditingAsync_WhenQuotationCannotBeCancelled_ReturnsConflict()
+    {
+        var designerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        context.ProposalStatus = ProposalStatus.PUBLISHED;
+        var project = new Project
+        {
+            ProjectId = context.ProjectId,
+            CustomerId = context.CustomerId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.PROPOSAL_CONSULTING
+        };
+        var repository = new FakeProposalRepository(context: context);
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = proposalId,
+            ProjectId = context.ProjectId,
+            ProposalName = "Published proposal",
+            Status = ProposalStatus.PUBLISHED
+        });
+        var quotationService = new FakeProposalReopenQuotationService
+        {
+            CancelResult = ServiceResult.Failure(Error.Conflict(
+                QuotationErrorCodes.InvalidQuotationStatus,
+                "blocked"))
+        };
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER", project),
+            quotations: quotationService);
 
         var result = await service.ReopenForEditingAsync(proposalId, designerId);
 
         Assert.Equal(409, result.Status);
-        Assert.Equal(ProposalReopenErrorCodes.ProposalHasQuotation, result.ErrorCode);
+        Assert.Equal(ProposalReopenErrorCodes.QuotationCannotBeCancelled, result.ErrorCode);
     }
 
     [Fact]
@@ -2220,20 +2263,53 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
-    public async Task ReopenForEditingAsync_WithSelectedProposal_ReturnsBadRequest()
+    public async Task ReopenForEditingAsync_WithSelectedProposal_ReopensAndRestoresConsulting()
     {
         var designerId = Guid.NewGuid();
         var proposalId = Guid.NewGuid();
+        var otherProposalId = Guid.NewGuid();
+        var selectedAt = DateTime.UtcNow.AddDays(-1);
         var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
         context.ProposalStatus = ProposalStatus.SELECTED;
+        var project = new Project
+        {
+            ProjectId = context.ProjectId,
+            CustomerId = context.CustomerId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.PROPOSAL_SELECTED
+        };
+        var repository = new FakeProposalRepository(context: context);
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = proposalId,
+            ProjectId = context.ProjectId,
+            ProposalName = "Selected proposal",
+            Status = ProposalStatus.SELECTED,
+            SelectedAt = selectedAt,
+            PublishedAt = selectedAt.AddHours(-1)
+        });
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = otherProposalId,
+            ProjectId = context.ProjectId,
+            ProposalName = "Other proposal",
+            Status = ProposalStatus.REJECTED,
+            RejectedAt = selectedAt
+        });
+        var projects = new FakeProjectRepository("DESIGNER", project);
         var service = CreateService(
-            new FakeProposalRepository(context: context),
-            new FakeProjectRepository("DESIGNER"));
+            repository,
+            projects,
+            quotations: new FakeProposalReopenQuotationService());
 
         var result = await service.ReopenForEditingAsync(proposalId, designerId);
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(ProposalReopenErrorCodes.ProposalAlreadySelected, result.ErrorCode);
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProposalStatus.DRAFT, result.Data!.ProposalStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, result.Data.ProjectStatus);
+        Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, project.Status);
+        Assert.Equal(ProposalStatus.PUBLISHED, repository.Proposals[1].Status);
+        Assert.Null(repository.Proposals[0].SelectedAt);
     }
 
     [Fact]
@@ -2477,7 +2553,8 @@ public sealed class ProposalServiceTests
         ApplicationRoomPlannerSceneRepository? roomPlannerScenes = null,
         INotificationDispatcher? notifications = null,
         ICustomizationRequestRepository? customizationRequests = null,
-        IProjectPhaseDeadlineService? phaseDeadlines = null)
+        IProjectPhaseDeadlineService? phaseDeadlines = null,
+        IQuotationService? quotations = null)
     {
         return new ProposalService(
             proposals,
@@ -2488,6 +2565,7 @@ public sealed class ProposalServiceTests
                 roomPlannerScenes,
                 notifications,
                 customizationRequests: customizationRequests,
+                quotations: quotations,
                 phaseDeadlines: phaseDeadlines));
     }
 
@@ -3148,6 +3226,27 @@ public sealed class ProposalServiceTests
             return Task.CompletedTask;
         }
 
+        public Task<int> RestoreAutoRejectedProposalsAsync(
+            Guid projectId,
+            DateTime autoRejectedAt,
+            DateTime restoredAt,
+            CancellationToken cancellationToken = default)
+        {
+            var restored = 0;
+            foreach (var proposal in Proposals.Where(proposal =>
+                proposal.ProjectId == projectId &&
+                proposal.Status == ProposalStatus.REJECTED &&
+                proposal.RejectedAt == autoRejectedAt))
+            {
+                proposal.Status = ProposalStatus.PUBLISHED;
+                proposal.RejectedAt = null;
+                proposal.UpdatedAt = restoredAt;
+                restored++;
+            }
+
+            return Task.FromResult(restored);
+        }
+
         public Task<bool> HasProposalWithActiveSceneAsync(
             Guid projectId,
             CancellationToken cancellationToken = default) =>
@@ -3457,6 +3556,113 @@ public sealed class ProposalServiceTests
         {
             return Task.FromResult<DateOnly?>(null);
         }
+    }
+
+    private sealed class FakeProposalReopenQuotationService : IQuotationService
+    {
+        public ServiceResult CancelResult { get; init; } = ServiceResult.Success();
+        public Guid? LastCancelProposalId { get; private set; }
+
+        public Task<ServiceResult> CancelActiveQuotationsForProposalReopenAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default)
+        {
+            LastCancelProposalId = proposalId;
+            return Task.FromResult(CancelResult);
+        }
+
+        public Task<ServiceResult<QuotationListResponseDto>> GetByProjectAsync(
+            Guid projectId,
+            Guid currentUserId,
+            QuotationQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> GetDetailAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> CreateDraftAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> CreateDraftFromProposalSelectionAsync(
+            Guid projectId,
+            Guid proposalId,
+            Guid triggeredByUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> AddDraftQuotationForSelectedProposalAsync(
+            Guid projectId,
+            Guid proposalId,
+            Guid triggeredByUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> UpdateAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            UpdateQuotationRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> UpdateItemFinancialsAsync(
+            Guid quotationId,
+            Guid quotationItemId,
+            Guid currentUserId,
+            UpdateQuotationItemFinancialsRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> BulkUpdateItemFinancialsAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            BulkUpdateQuotationItemFinancialsRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> SendAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> AcceptAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> RequestRevisionAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            RequestQuotationRevisionDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> ReviseAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> CancelAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> RejectAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            RejectQuotationRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
     }
 
     private sealed record CapturedDispatch(

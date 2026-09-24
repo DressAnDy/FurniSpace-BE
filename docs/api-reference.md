@@ -1418,7 +1418,7 @@ In one transaction the backend:
 
 - Cancels or expires active `DEPOSIT` payments when an order exists
 - Sets an eligible order (`CREATED` or `DEPOSIT_PENDING`) → `CANCELLED` when present
-- Sets the active quotation (`DRAFT`, `SENT`, or `ACCEPTED`) → `CANCELLED`
+- Sets the active quotation (`DRAFT`, `SENT`, or `ACCEPTED`) → `CANCELLED` and clears `proposalItemId` on its line items (FK detach; snapshots remain)
 - Demotes the selected proposal → `PUBLISHED` (clears `selectedAt`)
 - Restores auto-rejected sibling proposals when applicable
 - Moves project → `PROPOSAL_CONSULTING`
@@ -1598,9 +1598,9 @@ Sales normally continue from this draft (`PATCH` quotation → `PATCH` send). `P
 
 ### Reopen a published proposal for editing
 
-`POST /proposals/{proposalId}/reopen-for-editing` has no body. It changes a `PUBLISHED` proposal back to `DRAFT`, clears `publishedAt`, and returns `proposalId`, `projectId`, `proposalStatus`, `projectStatus`, `updatedAt`. The project must still be `PROPOSAL_CONSULTING`; selected proposals and proposals that already have a quotation cannot be reopened. Assignment/resource scope still applies to Designer/Sales; Admin is explicitly allowed.
+`POST /proposals/{proposalId}/reopen-for-editing` has no body. It changes a **`PUBLISHED`** proposal back to `DRAFT`, clears `publishedAt`, and returns `proposalId`, `projectId`, `proposalStatus`, `projectStatus`, `updatedAt`. The project must be `PROPOSAL_CONSULTING`. **`SELECTED` proposals cannot be reopened for editing** (use `POST /projects/{projectId}/reopen-proposal` to roll back customer selection / order path). Active (non-`CANCELLED`) quotations for that proposal are **cancelled** (status `CANCELLED`, not customer **reject** and not hard-deleted); line items are detached from `proposalItemId` so proposal sync/delete can proceed. A new draft quotation is built from current proposal items after re-selecting; reopen fails with `409` if a quotation already has an order or is in a status that cannot be cancelled (for example `EXPIRED`). Assignment/resource scope still applies to Designer/Sales; Admin is explicitly allowed.
 
-Errors: `PROPOSAL_REOPEN_NOT_ALLOWED`, `PROPOSAL_HAS_QUOTATION` (`409`), `PROPOSAL_ALREADY_SELECTED`, proposal not found, or `403`.
+Errors: `PROPOSAL_REOPEN_NOT_ALLOWED`, `PROPOSAL_ALREADY_SELECTED`, `PROPOSAL_QUOTATION_HAS_ORDER` / `PROPOSAL_QUOTATION_CANNOT_BE_CANCELLED` (`409`), `PROPOSAL_HAS_QUOTATION` (`409`), proposal not found, or `403`.
 
 ### Create scene
 
@@ -1900,6 +1900,8 @@ Bulk body:
 ```json
 { "rejectReason": "Changed requirements" }
 ```
+
+When a quotation becomes terminal for editing purposes (`CANCELLED` via Sales cancel or proposal/project reopen, `REJECTED` via customer reject, or `EXPIRED` after `validUntil`), the backend sets each line’s `proposalItemId` to `null` so proposal items can be synced or deleted without FK conflicts. Product/name/price snapshots on the line are unchanged; only the live link to `proposal_items` is removed.
 
 ### Response — `QuotationDetailDto`
 

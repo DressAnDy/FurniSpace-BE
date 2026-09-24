@@ -1,5 +1,6 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Proposals;
 using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.Proposals.ProposalServiceConstants;
 using FurniSpace.Application.DTOs.CustomizationRequests;
@@ -566,6 +567,7 @@ public sealed class ProposalService : IProposalService
         entity.Quantity = request.Quantity;
         entity.TotalPriceSnapshot = (entity.UnitPriceSnapshot ?? 0m) * request.Quantity;
         entity.Note = note;
+        entity.IsCustomized = ProposalItemCustomizationMarker.HasCustomizationNote(note);
         entity.UpdatedAt = DateTime.UtcNow;
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -721,6 +723,13 @@ public sealed class ProposalService : IProposalService
                 "Existing proposal items contain duplicate scene object mappings."));
         }
 
+        var acceptedCustomizationProductVersionIds =
+            _customizationRequests is not null
+                ? await _customizationRequests.GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+                    proposalId,
+                    cancellationToken)
+                : new HashSet<Guid>();
+
         SyncProposalItemsFromSceneResponseDto response;
         await _unitOfWork.BeginTransactionAsync(cancellationToken);
         try
@@ -731,6 +740,7 @@ public sealed class ProposalService : IProposalService
                 scene,
                 productVersions,
                 existingItems,
+                acceptedCustomizationProductVersionIds,
                 now,
                 cancellationToken);
 
@@ -1208,14 +1218,6 @@ public sealed class ProposalService : IProposalService
                 "Proposal can only be reopened while the project is in proposal consulting."));
         }
 
-        if (_customizationRequests is not null &&
-            await _customizationRequests.HasQuotationForProposalAsync(proposalId, cancellationToken))
-        {
-            return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.Conflict(
-                ProposalReopenErrorCodes.ProposalHasQuotation,
-                "Proposal with an existing quotation cannot be reopened for editing."));
-        }
-
         var proposalEntity = await _proposals.GetProposalEntityAsync(proposalId, cancellationToken);
         if (proposalEntity is null)
         {
@@ -1224,22 +1226,71 @@ public sealed class ProposalService : IProposalService
                 ProposalNotFoundMessage));
         }
 
-        var now = DateTime.UtcNow;
-        proposalEntity.Status = ProposalStatus.DRAFT;
-        proposalEntity.PublishedAt = null;
-        proposalEntity.UpdatedAt = now;
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<ReopenProposalForEditingResponseDto>.Success(
-            new ReopenProposalForEditingResponseDto
+        await _unitOfWork.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            if (_quotations is not null)
             {
-                ProposalId = proposalId,
-                ProjectId = proposal.ProjectId,
-                ProposalStatus = proposalEntity.Status,
-                ProjectStatus = project.Status,
-                UpdatedAt = now
-            },
-            "Proposal reopened for editing successfully.");
+                var cancelQuotationsResult = await _quotations.CancelActiveQuotationsForProposalReopenAsync(
+                    proposalId,
+                    cancellationToken);
+                if (cancelQuotationsResult.Status != 200)
+                {
+                    await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                    return MapProposalReopenQuotationCancellationFailure(cancelQuotationsResult);
+                }
+            }
+            else if (_customizationRequests is not null &&
+                     await _customizationRequests.HasQuotationForProposalAsync(proposalId, cancellationToken))
+            {
+                await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+                return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(Error.Conflict(
+                    ProposalReopenErrorCodes.ProposalHasQuotation,
+                    "Proposal with an existing quotation cannot be reopened for editing."));
+            }
+
+            var now = DateTime.UtcNow;
+            proposalEntity.Status = ProposalStatus.DRAFT;
+            proposalEntity.PublishedAt = null;
+            proposalEntity.UpdatedAt = now;
+
+            await _unitOfWork.SaveChangesAsync(cancellationToken);
+            await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+            return ServiceResult<ReopenProposalForEditingResponseDto>.Success(
+                new ReopenProposalForEditingResponseDto
+                {
+                    ProposalId = proposalId,
+                    ProjectId = proposal.ProjectId,
+                    ProposalStatus = proposalEntity.Status,
+                    ProjectStatus = project.Status,
+                    UpdatedAt = now
+                },
+                "Proposal reopened for editing successfully.");
+        }
+        catch
+        {
+            await _unitOfWork.RollbackTransactionAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    private static ServiceResult<ReopenProposalForEditingResponseDto> MapProposalReopenQuotationCancellationFailure(
+        ServiceResult cancelQuotationsResult)
+    {
+        var errorCode = cancelQuotationsResult.ErrorCode switch
+        {
+            QuotationErrorCodes.OrderAlreadyCreated => ProposalReopenErrorCodes.QuotationHasOrder,
+            QuotationErrorCodes.InvalidQuotationStatus => ProposalReopenErrorCodes.QuotationCannotBeCancelled,
+            _ => ProposalReopenErrorCodes.ProposalHasQuotation
+        };
+
+        return ServiceResult<ReopenProposalForEditingResponseDto>.Failure(
+            cancelQuotationsResult.Status switch
+            {
+                409 => Error.Conflict(errorCode, cancelQuotationsResult.Message ?? "Quotation could not be cancelled."),
+                _ => Error.BadRequest(errorCode, cancelQuotationsResult.Message ?? "Quotation could not be cancelled.")
+            });
     }
 
     public async Task<ServiceResult<UpdateProposalSceneResponseDto>> UpdateSceneAsync(
@@ -1893,6 +1944,7 @@ public sealed class ProposalService : IProposalService
         ProposalSceneContextReadModel scene,
         Dictionary<Guid, Infrastructure.ReadModels.Products.ProductVersionDetailReadModel> productVersions,
         IReadOnlyList<ProposalItem> existingItems,
+        IReadOnlySet<Guid> acceptedCustomizationProductVersionIds,
         DateTime now,
         CancellationToken cancellationToken)
     {
@@ -1924,7 +1976,12 @@ public sealed class ProposalService : IProposalService
                 updatedCount++;
             }
 
-            ApplyProposalItemSnapshot(proposalItem, productVersion, syncItem, now);
+            ApplyProposalItemSnapshot(
+                proposalItem,
+                productVersion,
+                syncItem,
+                acceptedCustomizationProductVersionIds,
+                now);
             syncedItems.Add(ToSyncedItemDto(proposalItem, productVersion, syncItem.FloorId));
         }
 
@@ -2000,6 +2057,7 @@ public sealed class ProposalService : IProposalService
         ProposalItem proposalItem,
         Infrastructure.ReadModels.Products.ProductVersionDetailReadModel productVersion,
         RoomPlannerSceneSyncItem syncItem,
+        IReadOnlySet<Guid> acceptedCustomizationProductVersionIds,
         DateTime now)
     {
         const int QuantityPerSceneObject = 1;
@@ -2016,8 +2074,10 @@ public sealed class ProposalService : IProposalService
         proposalItem.Quantity = QuantityPerSceneObject;
         proposalItem.UnitPriceSnapshot = unitPrice;
         proposalItem.TotalPriceSnapshot = unitPrice * QuantityPerSceneObject;
-        proposalItem.Note = null;
-        proposalItem.IsCustomized = !string.IsNullOrWhiteSpace(proposalItem.Note);
+        proposalItem.IsCustomized = ProposalItemCustomizationMarker.ResolveIsCustomized(
+            proposalItem,
+            productVersion.VersionType,
+            acceptedCustomizationProductVersionIds);
         proposalItem.UpdatedAt = now;
     }
 

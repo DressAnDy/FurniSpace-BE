@@ -13,6 +13,8 @@ using FurniSpace.Application.DTOs.RoomPlannerDocuments;
 using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.Projects;
+using FurniSpace.Application.Interfaces.Quotations;
+using FurniSpace.Application.DTOs.Quotations;
 using FurniSpace.Application.Services.Proposals;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Domain.Entities;
@@ -825,6 +827,42 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
+    public async Task SyncItemsFromSceneAsync_WithAcceptedCustomizationVersion_SetsIsCustomized()
+    {
+        var proposalId = Guid.NewGuid();
+        var sceneId = Guid.NewGuid();
+        var designerId = Guid.NewGuid();
+        var productVersionId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        var sceneContext = CreateSceneContext(proposalId, sceneId, context.ProjectId, designerId);
+        var repository = new FakeProposalRepository(context: context, sceneContext: sceneContext);
+        var roomPlannerScenes = new FakeRoomPlannerSceneRepository();
+        roomPlannerScenes.Scenes[sceneId] = CreateRoomPlannerScene(sceneContext, "chair-001", productVersionId);
+        var productVersions = new FakeProductVersionRepository();
+        productVersions.ProductVersions.Add(
+            CreateProductVersion(productVersionId, estimatedPrice: 2500000m, versionType: ProductVersionType.PROJECT_SPECIFIC));
+        var customizationRequests = new FakeCustomizationRequestRepository
+        {
+            AcceptedCustomizationProductVersionIds = new HashSet<Guid> { productVersionId }
+        };
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER"),
+            productVersions,
+            roomPlannerScenes: roomPlannerScenes,
+            customizationRequests: customizationRequests);
+
+        var result = await service.SyncItemsFromSceneAsync(
+            proposalId,
+            designerId,
+            CreateSyncRequest(sceneId));
+
+        Assert.Equal(200, result.Status);
+        Assert.Single(repository.Items);
+        Assert.True(repository.Items[0].IsCustomized);
+    }
+
+    [Fact]
     public async Task SyncItemsFromSceneAsync_WithExistingSceneObject_UpdatesProposalItem()
     {
         var proposalId = Guid.NewGuid();
@@ -1409,6 +1447,7 @@ public sealed class ProposalServiceTests
         Assert.Equal(7200000m, result.Data.SubtotalAmount);
         Assert.Equal("Increase quantity.", result.Data.CustomizationNote);
         AssertProposalItemArea(result.Data);
+        Assert.True(entity.IsCustomized);
         Assert.Equal(6, entity.Quantity);
         Assert.Equal(7200000m, entity.TotalPriceSnapshot);
         Assert.Equal(1, repository.SaveChangesCallCount);
@@ -2133,7 +2172,7 @@ public sealed class ProposalServiceTests
     }
 
     [Fact]
-    public async Task ReopenForEditingAsync_WithQuotation_ReturnsConflict()
+    public async Task ReopenForEditingAsync_WithQuotation_CancelsQuotationAndReopensToDraft()
     {
         var designerId = Guid.NewGuid();
         var proposalId = Guid.NewGuid();
@@ -2154,15 +2193,56 @@ public sealed class ProposalServiceTests
             ProposalName = "Published proposal",
             Status = ProposalStatus.PUBLISHED
         });
+        var quotationService = new FakeProposalReopenQuotationService();
         var service = CreateService(
             repository,
             new FakeProjectRepository("DESIGNER", project),
-            customizationRequests: new FakeCustomizationRequestRepository(hasQuotation: true));
+            quotations: quotationService);
+
+        var result = await service.ReopenForEditingAsync(proposalId, designerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProposalStatus.DRAFT, result.Data!.ProposalStatus);
+        Assert.Equal(proposalId, quotationService.LastCancelProposalId);
+    }
+
+    [Fact]
+    public async Task ReopenForEditingAsync_WhenQuotationCannotBeCancelled_ReturnsConflict()
+    {
+        var designerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        context.ProposalStatus = ProposalStatus.PUBLISHED;
+        var project = new Project
+        {
+            ProjectId = context.ProjectId,
+            CustomerId = context.CustomerId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.PROPOSAL_CONSULTING
+        };
+        var repository = new FakeProposalRepository(context: context);
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = proposalId,
+            ProjectId = context.ProjectId,
+            ProposalName = "Published proposal",
+            Status = ProposalStatus.PUBLISHED
+        });
+        var quotationService = new FakeProposalReopenQuotationService
+        {
+            CancelResult = ServiceResult.Failure(Error.Conflict(
+                QuotationErrorCodes.InvalidQuotationStatus,
+                "blocked"))
+        };
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER", project),
+            quotations: quotationService);
 
         var result = await service.ReopenForEditingAsync(proposalId, designerId);
 
         Assert.Equal(409, result.Status);
-        Assert.Equal(ProposalReopenErrorCodes.ProposalHasQuotation, result.ErrorCode);
+        Assert.Equal(ProposalReopenErrorCodes.QuotationCannotBeCancelled, result.ErrorCode);
     }
 
     [Fact]
@@ -2440,7 +2520,8 @@ public sealed class ProposalServiceTests
         ApplicationRoomPlannerSceneRepository? roomPlannerScenes = null,
         INotificationDispatcher? notifications = null,
         ICustomizationRequestRepository? customizationRequests = null,
-        IProjectPhaseDeadlineService? phaseDeadlines = null)
+        IProjectPhaseDeadlineService? phaseDeadlines = null,
+        IQuotationService? quotations = null)
     {
         return new ProposalService(
             proposals,
@@ -2451,6 +2532,7 @@ public sealed class ProposalServiceTests
                 roomPlannerScenes,
                 notifications,
                 customizationRequests: customizationRequests,
+                quotations: quotations,
                 phaseDeadlines: phaseDeadlines));
     }
 
@@ -2479,7 +2561,8 @@ public sealed class ProposalServiceTests
 
     private static ProductVersionDetailReadModel CreateProductVersion(
         Guid productVersionId,
-        decimal estimatedPrice = 1200000m)
+        decimal estimatedPrice = 1200000m,
+        ProductVersionType versionType = ProductVersionType.STANDARD)
     {
         return new ProductVersionDetailReadModel
         {
@@ -2487,7 +2570,7 @@ public sealed class ProposalServiceTests
             ProductId = Guid.NewGuid(),
             ProductName = "Cafe Chair",
             VersionName = "Brown Wood",
-            VersionType = ProductVersionType.STANDARD,
+            VersionType = versionType,
             EstimatedPrice = estimatedPrice,
             Status = ProductStatus.ACTIVE
         };
@@ -2794,6 +2877,9 @@ public sealed class ProposalServiceTests
         private readonly bool _hasPending;
         private readonly bool _hasQuotation;
 
+        public IReadOnlySet<Guid> AcceptedCustomizationProductVersionIds { get; init; } =
+            new HashSet<Guid>();
+
         public FakeCustomizationRequestRepository(bool hasPending = false, bool hasQuotation = false)
         {
             _hasPending = hasPending;
@@ -2833,6 +2919,11 @@ public sealed class ProposalServiceTests
             Guid projectId,
             Guid productionUserId,
             CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public Task<IReadOnlySet<Guid>> GetAcceptedCustomizationProductVersionIdsForProposalAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(AcceptedCustomizationProductVersionIds);
 
         public IQueryable<CustomizationRequest> Query() => Enumerable.Empty<CustomizationRequest>().AsQueryable();
         public Task<CustomizationRequest?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<CustomizationRequest?>(null);
@@ -3100,6 +3191,27 @@ public sealed class ProposalServiceTests
             }
 
             return Task.CompletedTask;
+        }
+
+        public Task<int> RestoreAutoRejectedProposalsAsync(
+            Guid projectId,
+            DateTime autoRejectedAt,
+            DateTime restoredAt,
+            CancellationToken cancellationToken = default)
+        {
+            var restored = 0;
+            foreach (var proposal in Proposals.Where(proposal =>
+                proposal.ProjectId == projectId &&
+                proposal.Status == ProposalStatus.REJECTED &&
+                proposal.RejectedAt == autoRejectedAt))
+            {
+                proposal.Status = ProposalStatus.PUBLISHED;
+                proposal.RejectedAt = null;
+                proposal.UpdatedAt = restoredAt;
+                restored++;
+            }
+
+            return Task.FromResult(restored);
         }
 
         public Task<bool> HasProposalWithActiveSceneAsync(
@@ -3411,6 +3523,113 @@ public sealed class ProposalServiceTests
         {
             return Task.FromResult<DateOnly?>(null);
         }
+    }
+
+    private sealed class FakeProposalReopenQuotationService : IQuotationService
+    {
+        public ServiceResult CancelResult { get; init; } = ServiceResult.Success();
+        public Guid? LastCancelProposalId { get; private set; }
+
+        public Task<ServiceResult> CancelActiveQuotationsForProposalReopenAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default)
+        {
+            LastCancelProposalId = proposalId;
+            return Task.FromResult(CancelResult);
+        }
+
+        public Task<ServiceResult<QuotationListResponseDto>> GetByProjectAsync(
+            Guid projectId,
+            Guid currentUserId,
+            QuotationQueryDto query,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> GetDetailAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> CreateDraftAsync(
+            Guid projectId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> CreateDraftFromProposalSelectionAsync(
+            Guid projectId,
+            Guid proposalId,
+            Guid triggeredByUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> AddDraftQuotationForSelectedProposalAsync(
+            Guid projectId,
+            Guid proposalId,
+            Guid triggeredByUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> UpdateAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            UpdateQuotationRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> UpdateItemFinancialsAsync(
+            Guid quotationId,
+            Guid quotationItemId,
+            Guid currentUserId,
+            UpdateQuotationItemFinancialsRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> BulkUpdateItemFinancialsAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            BulkUpdateQuotationItemFinancialsRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> SendAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> AcceptAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> RequestRevisionAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            RequestQuotationRevisionDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> ReviseAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> CancelAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
+
+        public Task<ServiceResult<QuotationDetailDto>> RejectAsync(
+            Guid quotationId,
+            Guid currentUserId,
+            RejectQuotationRequestDto request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotImplementedException();
     }
 
     private sealed record CapturedDispatch(

@@ -1,3 +1,4 @@
+using FurniSpace.Application.Common.Proposals;
 using FurniSpace.Domain.Entities;
 
 namespace FurniSpace.Application.Common.Quotations;
@@ -8,9 +9,20 @@ public static class QuotationCommercialLineAggregator
         Guid quotationId,
         IReadOnlyList<ProposalItem> proposalItems)
     {
+        return AggregateFromProposalItems(
+            quotationId,
+            proposalItems,
+            new HashSet<Guid>());
+    }
+
+    public static List<QuotationItem> AggregateFromProposalItems(
+        Guid quotationId,
+        IReadOnlyList<ProposalItem> proposalItems,
+        IReadOnlySet<Guid> acceptedCustomizationProductVersionIds)
+    {
         var now = DateTime.UtcNow;
         var sources = proposalItems
-            .Select(FromProposalItem)
+            .Select(item => FromProposalItem(item, acceptedCustomizationProductVersionIds))
             .ToList();
 
         return sources
@@ -23,7 +35,9 @@ public static class QuotationCommercialLineAggregator
             .ToList();
     }
 
-    private static ProposalCommercialLineSource FromProposalItem(ProposalItem item)
+    private static ProposalCommercialLineSource FromProposalItem(
+        ProposalItem item,
+        IReadOnlySet<Guid> acceptedCustomizationProductVersionIds)
     {
         var quantity = item.Quantity ?? 0;
         var unitPrice = RoundMoney(item.UnitPriceSnapshot ?? 0m);
@@ -33,7 +47,9 @@ public static class QuotationCommercialLineAggregator
             ? RoundMoney(grossAmount - linePreVatTotal)
             : 0m;
         var perUnitDiscount = ComputePerUnitDiscount(quantity, lineDiscountAmount);
-        var isCustomized = item.IsCustomized ?? false;
+        var isCustomized = ProposalItemCustomizationMarker.ResolveIsCustomizedForQuotation(
+            item,
+            acceptedCustomizationProductVersionIds);
         var customizationNote = isCustomized
             ? NormalizeCustomizationNote(item.Note)
             : string.Empty;

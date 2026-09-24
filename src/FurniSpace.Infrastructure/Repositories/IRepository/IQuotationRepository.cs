@@ -29,6 +29,10 @@ public interface IQuotationRepository : IGenericRepository<Quotation>
         Guid proposalId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<Quotation>> GetNonCancelledByProposalIdAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ProposalItem>> GetProposalItemsAsync(
         Guid proposalId,
         CancellationToken cancellationToken = default);

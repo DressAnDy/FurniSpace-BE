@@ -78,6 +78,10 @@ public interface IQuotationService
         Guid currentUserId,
         CancellationToken cancellationToken = default);
 
+    Task<ServiceResult> CancelActiveQuotationsForProposalReopenAsync(
+        Guid proposalId,
+        CancellationToken cancellationToken = default);
+
     Task<ServiceResult<QuotationDetailDto>> RejectAsync(
         Guid quotationId,
         Guid currentUserId,

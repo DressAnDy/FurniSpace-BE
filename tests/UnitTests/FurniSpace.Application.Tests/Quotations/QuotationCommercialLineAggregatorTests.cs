@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using FurniSpace.Application.Common.Quotations;
 using FurniSpace.Domain.Entities;
 using Xunit;
@@ -94,6 +95,23 @@ public sealed class QuotationCommercialLineAggregatorTests
             proposalItems);
 
         Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public void AggregateFromProposalItems_WhenAcceptedCustomizationVersionWithoutStoredFlag_MarksCustomized()
+    {
+        var acceptedVersionId = Guid.NewGuid();
+        var proposalItem = CreateProposalItem(quantity: 1, unitPrice: 100m, productVersionId: acceptedVersionId);
+        proposalItem.IsCustomized = false;
+        proposalItem.Note = null;
+
+        var result = QuotationCommercialLineAggregator.AggregateFromProposalItems(
+            Guid.NewGuid(),
+            [proposalItem],
+            new HashSet<Guid> { acceptedVersionId });
+
+        Assert.Single(result);
+        Assert.True(result[0].IsCustomized);
     }
 
     [Fact]

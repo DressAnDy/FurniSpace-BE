@@ -484,6 +484,11 @@ public sealed class QuotationsControllerTests
             return Task.FromResult(DetailResult);
         }
 
+        public Task<ServiceResult> CancelActiveQuotationsForProposalReopenAsync(
+            Guid proposalId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ServiceResult.Success());
+
         public Task<ServiceResult<QuotationDetailDto>> RejectAsync(
             Guid quotationId,
             Guid currentUserId,

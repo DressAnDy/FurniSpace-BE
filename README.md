@@ -146,17 +146,44 @@ Hệ thống cần được thiết kế theo cấu trúc module để dễ bả
 
 Ứng dụng cần hoạt động trên các trình duyệt web hiện đại và hỗ trợ giao diện responsive cho nhiều kích thước màn hình.
 
-## Module dự kiến
+## Các module phần mềm
 
-- **User & Role Management**: quản lý tài khoản, vai trò và phân quyền.
-- **Project Management**: quản lý dự án thiết kế của khách hàng.
-- **3D Design Module**: thiết kế và hình dung không gian cửa hàng bằng Babylon.js.
-- **Furniture Catalog Module**: quản lý danh mục sản phẩm nội thất.
-- **Customization Module**: quản lý yêu cầu tùy chỉnh kích thước, vật liệu và bố cục.
-- **Quotation & Order Module**: tạo báo giá, xác nhận đơn hàng và xử lý thanh toán.
-- **Production Module**: quản lý yêu cầu sản xuất và trạng thái sản xuất.
-- **Delivery Module**: quản lý kế hoạch và trạng thái giao hàng.
-- **Admin Dashboard**: giám sát dữ liệu hệ thống, người dùng, sản phẩm và giá cả.
+Repository này là **backend API** của FurniSpace (ASP.NET Core). Toàn bộ hệ thống trong gói nộp được cài bằng [.NET SDK 8](https://dotnet.microsoft.com/download/dotnet/8.0) và Docker, theo mục [Hướng dẫn cài đặt](#hướng-dẫn-cài-đặt).
+
+### Thành phần mã nguồn
+
+| Project | Vai trò |
+| --- | --- |
+| `FurniSpace.API` | HTTP API, JWT, Swagger, SignalR, middleware |
+| `FurniSpace.Application` | Use case, DTO, Mapster, điều phối auth và thanh toán |
+| `FurniSpace.Domain` | Entity, enum, quy tắc nghiệp vụ |
+| `FurniSpace.Infrastructure` | PostgreSQL, Redis, MongoDB, Firebase, Gmail, repository |
+| `FurniSpace.Shared` | Tiện ích dùng chung, gồm nạp file `.env` |
+
+Solution chạy ứng dụng: `FurniSpace.sln`. Khi khởi động, API tự migrate PostgreSQL và seed tài khoản demo (`StartupTasks:RunMigrations` và `StartupTasks:SeedDemoData`, mặc định bật).
+
+### Module nghiệp vụ đã triển khai
+
+| Module | Phạm vi |
+| --- | --- |
+| Identity và Auth | Đăng ký, OTP email, đăng nhập, refresh token, quên mật khẩu, đổi mật khẩu (`/auth`) |
+| Tài khoản và vai trò | Quản trị tài khoản, vai trò `ADMIN`, `SALES`, `DESIGNER`, `CUSTOMER`, `PRODUCTION` |
+| Danh mục nội thất | Business type, category, product, product version, layout asset, file preview |
+| Dự án | Vòng đời dự án, khu vực, đo đạc, file, lịch, hạn giai đoạn |
+| Room planner | Scene bố cục 3D, lưu trên MongoDB |
+| Đề xuất và báo giá | Proposal, quotation, chấp nhận báo giá |
+| Đơn hàng và giao hàng | Order, đặt cọc, giao theo đợt, sự cố sản phẩm khi giao |
+| Tùy chỉnh | Yêu cầu tùy chỉnh kích thước, vật liệu, bố cục |
+| Thanh toán | PayOS, SePay/VietQR, thanh toán theo dự án |
+| Sản xuất | Yêu cầu sản xuất, hạng mục, nhân sự, phiên bản tùy chỉnh |
+| Chat dự án | Hội thoại và tin nhắn, realtime qua SignalR |
+| Thông báo | Thông báo trong hệ thống và hub `/hubs/notifications` |
+| Tệp tin | Upload trực tiếp lên Firebase Storage |
+| Dashboard và quản trị | Hàng đợi Sales, Designer, Production; báo cáo; tài chính; showcase |
+
+Giao hàng không có role đăng nhập riêng. Nghiệp vụ giao nằm trong module đơn hàng và sản xuất.
+
+Chi tiết hợp đồng API: [docs/api-reference.md](docs/api-reference.md). Cấu trúc backend: [docs/backend-api-dev-guide.md](docs/backend-api-dev-guide.md).
 
 ## Sản phẩm dự kiến bàn giao
 
@@ -208,6 +235,231 @@ Hệ thống cần được thiết kế theo cấu trúc module để dễ bả
 - Triển khai ứng dụng web.
 - Chuẩn bị tài liệu hướng dẫn sử dụng.
 - Chuẩn bị tài liệu kỹ thuật và báo cáo đồ án.
+
+## Hướng dẫn cài đặt
+
+Phần mềm cần có trên máy:
+
+- .NET SDK 8
+- Docker Desktop (PostgreSQL 16, Redis 7, MongoDB 8 qua `docker-compose.yml`)
+
+### 1. Chuẩn bị cấu hình
+
+Tạo file `.env` ở thư mục gốc repository. File này bị gitignore. `EnvLoader` đọc nó khi chạy API (trừ môi trường `IntegrationTest`). Không commit secret.
+
+Mẫu cho máy local, chạy API bằng `dotnet run` và database trong Docker:
+
+```env
+ASPNETCORE_ENVIRONMENT=Development
+CORS_ALLOWED_ORIGINS=*
+
+DB_PASSWORD=furnispace_local_password
+POSTGRES_DB=furnispace_db
+POSTGRES_USER=furnispace
+POSTGRES_HOST_PORT=5433
+POSTGRES_CONTAINER_PORT=5432
+ConnectionStrings__DefaultConnection=Host=localhost;Port=5433;Database=furnispace_db;Username=furnispace;Password=${DB_PASSWORD}
+ConnectionStrings__MigrationConnection=Host=localhost;Port=5433;Database=furnispace_db;Username=furnispace;Password=${DB_PASSWORD}
+
+REDIS_PASSWORD=furnispace_redis_password
+REDIS_HOST_PORT=6379
+REDIS_CONTAINER_PORT=6379
+Redis__ConnectionString=localhost:6379,password=furnispace_redis_password
+DOCKER_REDIS_CONNECTION=redis:6379,password=furnispace_redis_password
+
+MONGODB_CONNECTION_STRING=mongodb://localhost:27018
+MONGODB_DATABASE_NAME=furnispace_room_planner
+MONGODB_ROOM_PLANNER_SCENES_COLLECTION=room_planner_scenes
+MONGODB_HOST_PORT=27018
+MONGODB_CONTAINER_PORT=27017
+DOCKER_MONGODB_CONNECTION_STRING=mongodb://mongodb:27017
+
+API_HOST_PORT=5001
+API_CONTAINER_PORT=8080
+
+JWT_SECRET=your_super_secret_jwt_key_that_is_at_least_32_characters_long
+JwtSettings__SecretKey=your_super_secret_jwt_key_that_is_at_least_32_characters_long
+JwtSettings__Issuer=FurniSpace
+JwtSettings__Audience=FurniSpace
+JwtSettings__AccessTokenExpirationMinutes=15
+JwtSettings__RefreshTokenExpirationDays=7
+
+GmailApi__ClientId=
+GmailApi__ClientSecret=
+GmailApi__RefreshToken=
+GmailApi__SenderEmail=
+GmailApi__SenderName=FurniSpace
+GmailApi__ResetPasswordUrl=http://localhost:5001/reset-password
+
+FIREBASE_STORAGE_BUCKET=
+FIREBASE_CREDENTIALS_PATH=
+
+PAYOS_ENABLED=false
+SEPAY_ENABLED=false
+```
+
+Khi chạy nguyên stack bằng Docker Compose, connection string phía API dùng hostname nội bộ (`postgres`, `redis`, `mongodb`). `docker-compose.yml` đã ghi đè `ConnectionStrings__DefaultConnection`, `ConnectionStrings__MigrationConnection`, `Redis__ConnectionString` và `MONGODB_*`.
+
+### 2. Chạy hệ thống
+
+Chỉ hạ tầng, API chạy trên máy:
+
+```powershell
+docker compose up -d postgres redis mongodb
+dotnet run --project src/FurniSpace.API/FurniSpace.API.csproj
+```
+
+Hoặc chạy cả API trong Docker:
+
+```powershell
+docker compose up --build
+```
+
+### 3. Kiểm tra
+
+- Swagger UI: `http://localhost:5001`
+- API local (`dotnet run`): cổng **5001** (`launchSettings.json`)
+- API trong Docker: cổng host `API_HOST_PORT` (mẫu trên là **5001**), cổng trong container **8080**
+- Đăng nhập demo: `POST /auth/login`
+
+```json
+{
+  "email": "admin@furnispace.local",
+  "password": "MAT_KHAU_SEED"
+}
+```
+
+Access token HS256, hết hạn sau 15 phút. Refresh token hết hạn sau 7 ngày. Token gửi bằng header `Authorization: Bearer` hoặc cookie HttpOnly `access_token`.
+
+## Thư viện, framework và công cụ bên thứ ba
+
+| Nhóm | Thành phần | Mục đích |
+| --- | --- | --- |
+| Nền tảng | .NET 8, ASP.NET Core | Web API |
+| Dữ liệu | Entity Framework Core 8, Npgsql, PostgreSQL 16 | Database chính |
+| Dữ liệu | MongoDB.Driver 2.28, MongoDB 8 | Scene room planner |
+| Cache / phiên | StackExchange.Redis 2.7, Redis 7 | Refresh token, OTP, blacklist JWT, cache |
+| Auth | JWT Bearer, System.IdentityModel.Tokens.Jwt 8 | Access token HS256 |
+| Auth | Microsoft.Extensions.Identity.Core 8 | Hash mật khẩu |
+| Ánh xạ | Mapster 7.4 | DTO |
+| API docs | Swashbuckle.AspNetCore 6.4 | Swagger |
+| Log | Serilog.AspNetCore 8, sink Console và File | Log |
+| Realtime | ASP.NET Core SignalR | Notification, chat, payment |
+| Thanh toán | payOS SDK 2.1 | Cổng PayOS |
+| Thanh toán | SePay, VietQR (`https://vietqr.app`) | Chuyển khoản và mã QR |
+| Email | Gmail API (`gmail.googleapis.com`, `oauth2.googleapis.com`) | OTP và đặt lại mật khẩu |
+| File | Google.Cloud.Storage.V1 4.13 | Firebase Storage |
+| Triển khai | Docker, Docker Compose | API và database |
+| CI | GitHub Actions | Build và test |
+| Kiểm thử | xUnit 2.5, Testcontainers.PostgreSql, Respawn, Microsoft.AspNetCore.Mvc.Testing, EF Core InMemory, Coverlet | Unit và integration test |
+
+## Cấu hình các thành phần bên trong
+
+Giá trị thật đặt trong `.env` hoặc biến môi trường. `appsettings.json` chỉ cấu hình log. Khóa lồng nhau dùng `__` (ví dụ `ConnectionStrings__DefaultConnection`).
+
+### Connection string
+
+| Thành phần | Khóa | Giá trị local mẫu |
+| --- | --- | --- |
+| PostgreSQL (đọc/ghi) | `ConnectionStrings__DefaultConnection` | `Host=localhost;Port=5433;Database=furnispace_db;Username=furnispace;Password=` rồi đến giá trị `DB_PASSWORD` |
+| PostgreSQL (migrate) | `ConnectionStrings__MigrationConnection` | Cùng chuỗi với kết nối mặc định |
+| Redis | `Redis__ConnectionString` hoặc `REDIS_CONNECTION` | `localhost:6379`. Nếu chuỗi chưa có `password=`, hệ thống nối thêm `REDIS_PASSWORD` |
+| MongoDB | `MONGODB_CONNECTION_STRING` | `mongodb://localhost:27018` |
+| MongoDB database | `MONGODB_DATABASE_NAME` | `furnispace_room_planner` |
+| Collection scene | `MONGODB_ROOM_PLANNER_SCENES_COLLECTION` | `room_planner_scenes` |
+
+Docker Compose đọc thêm `POSTGRES_DB`, `POSTGRES_USER`, `DB_PASSWORD`, `POSTGRES_HOST_PORT` (**5433**), `REDIS_HOST_PORT` (**6379**), `MONGODB_HOST_PORT` (**27018**).
+
+### API port
+
+| Cách chạy | Cổng |
+| --- | --- |
+| `dotnet run` | `http://localhost:5001` |
+| Docker, phía máy host | `API_HOST_PORT`, mẫu **5001** |
+| Docker, trong container | `API_CONTAINER_PORT` / `ASPNETCORE_URLS`, mẫu **8080** |
+
+### Token
+
+| Khóa | Ý nghĩa | Giá trị mẫu |
+| --- | --- | --- |
+| `JWT_SECRET` hoặc `JwtSettings__SecretKey` | Khóa ký JWT, tối thiểu 32 byte | Chuỗi bí mật dài ít nhất 32 ký tự |
+| `JwtSettings__Issuer` | Issuer | `FurniSpace` |
+| `JwtSettings__Audience` | Audience | `FurniSpace` |
+| `JwtSettings__AccessTokenExpirationMinutes` | Hạn access token | `15` |
+| `JwtSettings__RefreshTokenExpirationDays` | Hạn refresh token | `7` |
+
+Đăng nhập thành công trả access token và refresh token. Refresh token chỉ lưu dạng hash trên Redis.
+
+## Cấu hình dịch vụ bên thứ ba
+
+Để trống hoặc `Enabled=false` nếu chưa dùng. Đăng ký, OTP và quên mật khẩu cần Gmail. Upload file cần Firebase. Thanh toán online cần PayOS hoặc SePay.
+
+### Gmail API
+
+Scope dùng khi gửi mail: `https://www.googleapis.com/auth/gmail.send`.
+
+| Khóa | Ý nghĩa |
+| --- | --- |
+| `GmailApi__ClientId` | OAuth client id |
+| `GmailApi__ClientSecret` | OAuth client secret |
+| `GmailApi__RefreshToken` | Refresh token của hộp thư gửi |
+| `GmailApi__SenderEmail` | Địa chỉ gửi |
+| `GmailApi__SenderName` | Tên hiển thị, mặc định `FurniSpace` |
+| `GmailApi__ResetPasswordUrl` | Link đặt lại mật khẩu trên client |
+| `GmailApi__BaseUrl` | `https://gmail.googleapis.com/gmail/v1/` |
+| `GmailApi__TokenUrl` | `https://oauth2.googleapis.com/token` |
+
+### Firebase Storage
+
+| Khóa | Ý nghĩa |
+| --- | --- |
+| `FIREBASE_STORAGE_BUCKET` | Tên bucket |
+| `FIREBASE_CREDENTIALS_PATH` hoặc `GOOGLE_APPLICATION_CREDENTIALS` | Đường dẫn file JSON service account |
+
+Có thể cấp credential bằng các biến `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` thay cho file JSON. Không ghi private key vào README hoặc git.
+
+### PayOS
+
+SDK `payOS` 2.1. Endpoint mặc định: `https://api-merchant.payos.vn`. Webhook: controller PayOS trong module Payments.
+
+| Khóa | Ý nghĩa |
+| --- | --- |
+| `PAYOS_ENABLED` | `true` / `false` |
+| `PAYOS_CLIENT_ID` | Client id |
+| `PAYOS_API_KEY` | API key |
+| `PAYOS_CHECKSUM_KEY` | Checksum key |
+| `PAYOS_RETURN_URL` | URL sau khi thanh toán thành công |
+| `PAYOS_CANCEL_URL` | URL khi hủy |
+| `PAYOS_WEBHOOK_URL` | URL webhook |
+| `PAYOS_ENVIRONMENT` | `production` hoặc môi trường sandbox của PayOS |
+
+### SePay và VietQR
+
+| Khóa | Ý nghĩa |
+| --- | --- |
+| `SEPAY_ENABLED` | `true` / `false` |
+| `SEPAY_MERCHANT_ID` | Merchant id |
+| `SEPAY_SECRET_KEY` | Secret key |
+| `SEPAY_WEBHOOK_URL` | URL webhook |
+| `SEPAY_WEBHOOK_SECRET` | Secret xác thực webhook |
+| `SEPAY_BANK_CODE` | Mã ngân hàng |
+| `SEPAY_BANK_ACCOUNT_NO` | Số tài khoản nhận |
+| `SEPAY_BANK_ACCOUNT_NAME` | Tên chủ tài khoản |
+| `SEPAY_VIETQR_BASE_URL` | Mặc định `https://vietqr.app/img` |
+
+## Tài khoản demo
+
+`DataSeeder` tạo role và tài khoản khi `StartupTasks:SeedDemoData` bật (mặc định `true`). Đăng nhập bằng **email**. Cả năm tài khoản dùng chung một mật khẩu. Repo chỉ lưu hash ASP.NET Identity tại `SeedPasswordHash` trong `src/FurniSpace.Infrastructure/Data/DataSeeder.cs`, không lưu mật khẩu dạng chữ.
+
+| Role | Mô tả | Email (username) | Mật khẩu | Họ tên | Điện thoại | Trạng thái |
+| --- | --- | --- | --- | --- | --- | --- |
+| `ADMIN` | Quản trị hệ thống | `admin@furnispace.local` | Chung, xem hash seed | FurniSpace Admin | 0900000001 | `ACTIVE` |
+| `SALES` | Tư vấn bán hàng | `sales@furnispace.local` | Chung, xem hash seed | Sales Consultant | 0900000002 | `ACTIVE` |
+| `DESIGNER` | Nhà thiết kế | `designer@furnispace.local` | Chung, xem hash seed | Design Specialist | 0900000003 | `ACTIVE` |
+| `CUSTOMER` | Khách hàng | `customer@furnispace.local` | Chung, xem hash seed | Demo Customer | 0900000004 | `ACTIVE` |
+| `PRODUCTION` | Nhân sự sản xuất | `production@furnispace.local` | Chung, xem hash seed | Production Staff | 0900000005 | `ACTIVE` |
+
+Chính sách mật khẩu khi tạo hoặc đổi: 8–128 ký tự, có chữ hoa, chữ thường và chữ số.
 
 ## Build và test
 

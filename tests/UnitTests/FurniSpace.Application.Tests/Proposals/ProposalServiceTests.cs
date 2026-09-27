@@ -1839,9 +1839,11 @@ public sealed class ProposalServiceTests
         Assert.Equal(ProposalStatus.PUBLISHED, repository.Proposals[0].Status);
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Equal(NotificationType.ProposalPublished, dispatcher.LastType);
-        Assert.Contains(customerId, dispatcher.LastReceiverIds);
         Assert.Equal("PROPOSAL", dispatcher.LastReferenceType);
         Assert.Equal(proposalId, dispatcher.LastReferenceId);
+        Assert.Contains(customerId, dispatcher.LastReceiverIds);
+        Assert.Contains(designerId, dispatcher.LastReceiverIds);
+        Assert.Equal(detail.ProjectId, dispatcher.Dispatches[0].ProjectId);
     }
 
     [Fact]
@@ -2169,6 +2171,46 @@ public sealed class ProposalServiceTests
         Assert.Equal(ProjectStatus.PROPOSAL_CONSULTING, result.Data.ProjectStatus);
         Assert.Equal(ProposalStatus.DRAFT, repository.Proposals[0].Status);
         Assert.Null(repository.Proposals[0].PublishedAt);
+    }
+
+    [Fact]
+    public async Task ReopenForEditingAsync_DispatchesProposalReopenedForEditingNotification()
+    {
+        var designerId = Guid.NewGuid();
+        var proposalId = Guid.NewGuid();
+        var context = CreateProposalContext(proposalId, assignedDesignerId: designerId);
+        context.ProposalStatus = ProposalStatus.PUBLISHED;
+        var project = new Project
+        {
+            ProjectId = context.ProjectId,
+            CustomerId = context.CustomerId,
+            AssignedSalesId = context.AssignedSalesId,
+            ProjectName = "Cafe",
+            Status = ProjectStatus.PROPOSAL_CONSULTING
+        };
+        var repository = new FakeProposalRepository(context: context);
+        repository.Proposals.Add(new Proposal
+        {
+            ProposalId = proposalId,
+            ProjectId = context.ProjectId,
+            ProposalName = "Published proposal",
+            Status = ProposalStatus.PUBLISHED,
+            PublishedAt = DateTime.UtcNow.AddDays(-1)
+        });
+        var dispatcher = new FakeNotificationDispatcher();
+        var service = CreateService(
+            repository,
+            new FakeProjectRepository("DESIGNER", project),
+            notifications: dispatcher);
+
+        var result = await service.ReopenForEditingAsync(proposalId, designerId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(NotificationType.ProposalReopenedForEditing, dispatcher.LastType);
+        Assert.Contains(context.CustomerId, dispatcher.LastReceiverIds);
+        Assert.Contains(designerId, dispatcher.LastReceiverIds);
+        Assert.Equal("PROPOSAL", dispatcher.LastReferenceType);
+        Assert.Equal(proposalId, dispatcher.LastReferenceId);
     }
 
     [Fact]

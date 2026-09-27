@@ -358,7 +358,11 @@ public sealed class ProjectServiceTests
         Assert.Equal(projectId, dispatcher.LastProjectId);
         Assert.Equal("PROJECT", dispatcher.LastReferenceType);
         Assert.Equal(projectId, dispatcher.LastReferenceId);
-        Assert.Equal([designer.AccountId], dispatcher.LastReceiverIds);
+        Assert.Contains(designer.AccountId, dispatcher.LastReceiverIds);
+        Assert.Contains(project.CustomerId, dispatcher.LastReceiverIds);
+        Assert.Contains(salesId, dispatcher.LastReceiverIds);
+        Assert.Equal(designer.AccountId, dispatcher.LastMetadata!["designerId"]);
+        Assert.Equal(projectId, dispatcher.LastMetadata["projectId"]);
         Assert.NotNull(dispatcher.LastParameters);
         Assert.Equal("Moc Coffee Interior Setup", dispatcher.LastParameters["ProjectName"]);
         Assert.Equal(2, projectChats.UpsertCallCount);
@@ -1426,7 +1430,8 @@ public sealed class ProjectServiceTests
         Assert.Equal(1, repository.SaveChangesCallCount);
         Assert.Equal(1, dispatcher.DispatchCallCount);
         Assert.Equal(NotificationType.ProjectBasicInformationUpdated, dispatcher.LastType);
-        Assert.Equal([assignedSalesId], dispatcher.LastReceiverIds);
+        Assert.Contains(assignedSalesId, dispatcher.LastReceiverIds);
+        Assert.Equal(projectId, dispatcher.LastMetadata!["projectId"]);
         Assert.Equal(projectId, dispatcher.LastProjectId);
         Assert.Equal("PROJECT", dispatcher.LastReferenceType);
         Assert.Equal(projectId, dispatcher.LastReferenceId);
@@ -3668,6 +3673,7 @@ public sealed class ProjectServiceTests
         public Guid? LastProjectId { get; private set; }
         public string? LastReferenceType { get; private set; }
         public Guid? LastReferenceId { get; private set; }
+        public IReadOnlyDictionary<string, object?>? LastMetadata { get; private set; }
 
         public Task DispatchAsync(
             NotificationType type,
@@ -3683,6 +3689,7 @@ public sealed class ProjectServiceTests
             LastProjectId = request?.ProjectId;
             LastReferenceType = request?.ReferenceType;
             LastReferenceId = request?.ReferenceId;
+            LastMetadata = request?.Metadata;
             _onDispatch?.Invoke();
 
             if (_throwOnDispatch)

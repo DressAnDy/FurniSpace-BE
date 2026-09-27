@@ -6,9 +6,11 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.ProjectShowcases;
 using FurniSpace.Application.DTOs.ProjectReviews;
 using FurniSpace.Application.DTOs.ProjectShowcases;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.ProjectReviews;
 using FurniSpace.Application.Services.ProjectShowcases;
 using FurniSpace.Application.Tests.TestDoubles;
@@ -163,7 +165,30 @@ public sealed class ProjectShowcaseServiceTests
     {
         await using var context = CreateContext();
         var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
-        var service = CreateShowcaseService(context);
+        var dispatcher = new CapturingShowcaseNotificationDispatcher();
+        var service = CreateShowcaseService(context, notifications: dispatcher);
+        var showcase = await CreateReadyForPublishShowcaseAsync(context, service, project.ProjectId);
+
+        var result = await service.SubmitAsync(showcase.ProjectShowcaseId, SalesId);
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ProjectShowcaseStatus.PENDING_REVIEW, result.Data!.Status);
+        Assert.Equal(NotificationType.ProjectShowcaseSubmitted, dispatcher.LastType);
+        Assert.Contains(SalesId, dispatcher.LastReceivers);
+        Assert.Contains(AdminId, dispatcher.LastReceivers);
+        Assert.Equal("PROJECT_SHOWCASE", dispatcher.LastReferenceType);
+        Assert.Equal(showcase.ProjectShowcaseId, dispatcher.LastReferenceId);
+        Assert.Equal(project.ProjectId, dispatcher.LastMetadata!["projectId"]);
+        Assert.Equal(showcase.ProjectShowcaseId, dispatcher.LastMetadata["showcaseId"]);
+        Assert.Equal("PENDING_REVIEW", dispatcher.LastMetadata["status"]);
+    }
+
+    [Fact]
+    public async Task SubmitAsync_WhenNotificationDispatchFails_StillReturnsSuccess()
+    {
+        await using var context = CreateContext();
+        var project = await SeedProjectAsync(context, ProjectStatus.COMPLETED);
+        var service = CreateShowcaseService(context, notifications: new ThrowingShowcaseNotificationDispatcher());
         var showcase = await CreateReadyForPublishShowcaseAsync(context, service, project.ProjectId);
 
         var result = await service.SubmitAsync(showcase.ProjectShowcaseId, SalesId);
@@ -1131,7 +1156,8 @@ public sealed class ProjectShowcaseServiceTests
         AppDbContext context,
         IFileStorageService? storage = null,
         IUnitOfWork? unitOfWork = null,
-        FileUploadSettings? uploadSettings = null)
+        FileUploadSettings? uploadSettings = null,
+        INotificationDispatcher? notifications = null)
     {
         var uploadOptions = Options.Create(uploadSettings ?? new FileUploadSettings());
         var firebaseSettings = Options.Create(new FirebaseStorageSettings());
@@ -1141,7 +1167,8 @@ public sealed class ProjectShowcaseServiceTests
             resolvedStorage,
             DirectUploadTestDoubles.CreateCoordinator(resolvedStorage, resolvedFirebaseSettings),
             uploadOptions,
-            firebaseSettings);
+            firebaseSettings,
+            notifications);
 
         return new ProjectShowcaseService(
             new ProjectRepository(context),
@@ -1158,6 +1185,42 @@ public sealed class ProjectShowcaseServiceTests
             new ProjectReviewRepository(context),
             new ProjectRepository(context),
             new UnitOfWork(context));
+    }
+
+    private sealed class CapturingShowcaseNotificationDispatcher : INotificationDispatcher
+    {
+        public NotificationType? LastType { get; private set; }
+        public List<Guid> LastReceivers { get; } = [];
+        public string? LastReferenceType { get; private set; }
+        public Guid? LastReferenceId { get; private set; }
+        public IReadOnlyDictionary<string, object?>? LastMetadata { get; private set; }
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastType = type;
+            LastReceivers.Clear();
+            LastReceivers.AddRange(receiverIds);
+            LastReferenceType = request?.ReferenceType;
+            LastReferenceId = request?.ReferenceId;
+            LastMetadata = request?.Metadata;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingShowcaseNotificationDispatcher : INotificationDispatcher
+    {
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Dispatch failed.");
     }
 
     private static AppDbContext CreateContext()

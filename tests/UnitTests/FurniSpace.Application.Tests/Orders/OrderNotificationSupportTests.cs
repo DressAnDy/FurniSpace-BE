@@ -40,6 +40,54 @@ public sealed class OrderNotificationSupportTests
     }
 
     [Fact]
+    public async Task TryDispatchDeliveryCompletedAsync_NotifiesCustomerSalesAndExtraReceivers()
+    {
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var dispatcher = new CapturingDispatcher();
+        var order = CreateOrder(customerId, salesId);
+        var project = CreateProject(customerId, salesId);
+
+        await OrderNotificationSupport.TryDispatchDeliveryCompletedAsync(
+            dispatcher,
+            NullLogger.Instance,
+            order,
+            project,
+            deliveryId,
+            scheduleId,
+            [staffId]);
+
+        var dispatch = Assert.Single(dispatcher.Dispatches);
+        Assert.Equal(NotificationType.OrderDeliveryCompleted, dispatch.Type);
+        Assert.Contains(customerId, dispatch.Receivers);
+        Assert.Contains(salesId, dispatch.Receivers);
+        Assert.Contains(staffId, dispatch.Receivers);
+        Assert.Equal("ORDER", dispatch.ReferenceType);
+        Assert.Equal(order.OrderId, dispatch.ReferenceId);
+        Assert.Equal(project.ProjectId, dispatch.Metadata!["projectId"]);
+        Assert.Equal(deliveryId, dispatch.Metadata["deliveryId"]);
+        Assert.Equal(scheduleId, dispatch.Metadata["scheduleId"]);
+    }
+
+    [Fact]
+    public async Task TryDispatchDeliveryCompletedAsync_WhenDispatcherThrows_DoesNotThrow()
+    {
+        var exception = await Record.ExceptionAsync(() =>
+            OrderNotificationSupport.TryDispatchDeliveryCompletedAsync(
+                new ThrowingDispatcher(),
+                NullLogger.Instance,
+                CreateOrder(Guid.NewGuid(), Guid.NewGuid()),
+                CreateProject(Guid.NewGuid(), Guid.NewGuid()),
+                Guid.NewGuid(),
+                Guid.NewGuid()));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
     public async Task TryDispatchUpdatedAsync_WhenDispatcherMissing_DoesNotThrow()
     {
         var exception = await Record.ExceptionAsync(() =>

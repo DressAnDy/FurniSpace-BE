@@ -1617,6 +1617,7 @@ public sealed class OrderServiceTests
                 Quantity = 2
             }]);
         deliveries.GetDelivery(deliveryId)!.ProjectScheduleId = scheduleId;
+        var notifications = new CapturingNotificationDispatcher();
         var service = BuildService(new OrderServiceTestOptions
         {
             Role = "PRODUCTION",
@@ -1630,7 +1631,8 @@ public sealed class OrderServiceTests
             },
             OrderItems = [item],
             Deliveries = deliveries,
-            ScheduleEntity = scheduleEntity
+            ScheduleEntity = scheduleEntity,
+            Notifications = notifications
         });
 
         var result = await service.CompleteDeliveryBatchAsync(orderId, deliveryId, _productionId);
@@ -1640,6 +1642,9 @@ public sealed class OrderServiceTests
         Assert.Equal(OrderItemStatus.PARTIALLY_DELIVERED, item.Status);
         Assert.Equal(DeliveryStatus.COMPLETED, deliveries.GetDelivery(deliveryId)!.Status);
         Assert.Equal(ProjectScheduleStatus.COMPLETED, scheduleEntity.Status);
+        Assert.Contains(NotificationType.OrderUpdated, notifications.Types);
+        Assert.Contains(NotificationType.OrderDeliveryCompleted, notifications.Types);
+        Assert.Contains(NotificationType.ProjectScheduleCompleted, notifications.Types);
     }
 
     [Fact]
@@ -1804,6 +1809,8 @@ public sealed class OrderServiceTests
         Assert.Equal(OrderStatus.DELIVERING, order.Status);
         Assert.Equal(ProjectStatus.DELIVERING, project.Status);
         Assert.Equal(2, notifications.Types.Count);
+        Assert.Contains(NotificationType.OrderUpdated, notifications.Types);
+        Assert.Contains(NotificationType.ProjectStatusChanged, notifications.Types);
     }
 
     [Fact]
@@ -2813,16 +2820,27 @@ public sealed class OrderServiceTests
         {
             OrderId = orderId,
             ProjectId = _projectId,
+            CustomerId = _customerId,
+            SalesId = _salesId,
             Status = OrderStatus.DELIVERING
         };
+        var notifications = new CapturingNotificationDispatcher();
         var service = BuildService(new OrderServiceTestOptions
         {
             Role = "ADMIN",
             Order = order,
-            Project = new Project { ProjectId = _projectId, Status = ProjectStatus.DELIVERING },
+            Project = new Project
+            {
+                ProjectId = _projectId,
+                CustomerId = _customerId,
+                AssignedSalesId = _salesId,
+                ProjectName = "Delivery Project",
+                Status = ProjectStatus.DELIVERING
+            },
             OrderItems = [item],
             Deliveries = deliveries,
-            ScheduleEntity = scheduleEntity
+            ScheduleEntity = scheduleEntity,
+            Notifications = notifications
         });
 
         var result = await service.CompleteDeliveryBatchAsync(orderId, deliveryId, _adminId);
@@ -2833,6 +2851,10 @@ public sealed class OrderServiceTests
         Assert.Equal(OrderStatus.AWAITING_CUSTOMER_CONFIRMATION, order.Status);
         Assert.NotNull(item.DeliveredAt);
         Assert.Equal(_adminId, item.DeliveredBy);
+        Assert.Contains(NotificationType.OrderUpdated, notifications.Types);
+        Assert.Contains(NotificationType.OrderDeliveryCompleted, notifications.Types);
+        Assert.Contains(NotificationType.ProjectScheduleCompleted, notifications.Types);
+        Assert.Contains(_productionId, notifications.LastReceivers);
     }
 
     [Fact]

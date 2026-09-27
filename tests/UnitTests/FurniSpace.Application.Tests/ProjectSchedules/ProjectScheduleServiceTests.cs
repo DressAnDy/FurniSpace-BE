@@ -1505,21 +1505,28 @@ public sealed class ProjectScheduleServiceTests
     public async Task RequestChangeAsync_OwnerCustomer_MovesDeliveryScheduleToPendingConfirmation()
     {
         var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
         var schedule = CreateScheduleEntity(
             status: ProjectScheduleStatus.CONFIRMED,
             scheduleType: ProjectScheduleType.DELIVERY);
         schedule.CustomerNote = "Old note";
+        schedule.AssignedStaffId = staffId;
         var detail = CreateScheduleDetail(
             scheduleId: schedule.ScheduleId,
             customerId: customerId,
+            assignedSalesId: salesId,
+            assignedStaffId: staffId,
             status: ProjectScheduleStatus.CONFIRMED,
             scheduleType: ProjectScheduleType.DELIVERY);
         var scheduleRepo = new FakeProjectScheduleRepository(detail: detail, entityById: schedule);
+        var dispatcher = new FakeNotificationDispatcher();
         var service = BuildService(new()
         {
             Role = "CUSTOMER",
             ScheduleDetail = detail,
-            ScheduleRepo = scheduleRepo
+            ScheduleRepo = scheduleRepo,
+            Dispatcher = dispatcher
         });
 
         var result = await service.RequestChangeAsync(
@@ -1531,6 +1538,14 @@ public sealed class ProjectScheduleServiceTests
         Assert.Equal(ProjectScheduleStatus.PENDING_CONFIRMATION, schedule.Status);
         Assert.Equal("Please deliver after 15:00.", schedule.CustomerNote);
         Assert.Equal(schedule.CustomerNote, result.Data!.CustomerNote);
+        Assert.Equal(1, dispatcher.DispatchCallCount);
+        Assert.Equal(NotificationType.ProjectScheduleChangeRequested, dispatcher.LastType);
+        Assert.Equal("PROJECT_SCHEDULE", dispatcher.LastRequest!.ReferenceType);
+        Assert.Equal(schedule.ScheduleId, dispatcher.LastRequest.ReferenceId);
+        Assert.Contains(salesId, dispatcher.LastReceiverIds);
+        Assert.Contains(staffId, dispatcher.LastReceiverIds);
+        Assert.Equal(schedule.ScheduleId, dispatcher.LastRequest.Metadata!["scheduleId"]);
+        Assert.Equal("DELIVERY", dispatcher.LastRequest.Metadata["scheduleType"]);
     }
 
     [Fact]

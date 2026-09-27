@@ -130,6 +130,8 @@ internal static class PaymentNotificationSupport
     {
         return new Dictionary<string, object?>
         {
+            ["projectId"] = payment.ProjectId,
+            ["paymentId"] = payment.PaymentId,
             ["paymentType"] = payment.PaymentType?.ToString(),
             ["orderId"] = payment.OrderId,
             ["quotationId"] = payment.QuotationId

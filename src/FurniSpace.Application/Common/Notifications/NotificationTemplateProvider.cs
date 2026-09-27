@@ -42,8 +42,8 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime),
 
             NotificationType.ProjectDesignerAssigned => new NotificationTemplate(
-                "You have been assigned to a project",
-                "You have been assigned as Designer for project \"{ProjectName}\".",
+                "Designer assigned",
+                "A designer has been assigned to project \"{ProjectName}\".",
                 NotificationDeliveryLevel.InAppRealtime,
                 "project.designer.assigned"),
 
@@ -111,6 +111,24 @@ public static class NotificationTemplateProvider
                 NotificationDeliveryLevel.InAppRealtime,
                 "customization_request.designer_reviewed"),
 
+            NotificationType.CustomizationVersionSubmittedForReview => new NotificationTemplate(
+                "Customization version submitted for review",
+                "A customization version for \"{RequestTitle}\" on project \"{ProjectName}\" is ready for production review.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "customization.version.submitted_for_review"),
+
+            NotificationType.CustomizationVersionProductionReviewed => new NotificationTemplate(
+                "Customization version reviewed",
+                "Production reviewed a customization version for \"{RequestTitle}\" on project \"{ProjectName}\". Result: {FeasibilityStatus}.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "customization.version.production_reviewed"),
+
+            NotificationType.CustomizationVersionAccepted => new NotificationTemplate(
+                "Customization version accepted",
+                "Customer accepted a customization version for \"{RequestTitle}\" on project \"{ProjectName}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "customization.version.accepted"),
+
             NotificationType.ProjectFileUploaded => new NotificationTemplate(
                 "Project file uploaded",
                 "A new file has been uploaded to project \"{ProjectName}\".",
@@ -145,6 +163,12 @@ public static class NotificationTemplateProvider
                 "The {ScheduleType} schedule for project \"{ProjectName}\" has been cancelled.",
                 NotificationDeliveryLevel.InAppRealtime),
 
+            NotificationType.ProjectScheduleChangeRequested => new NotificationTemplate(
+                "Delivery schedule change requested",
+                "Customer requested a change for the {ScheduleType} schedule on project \"{ProjectName}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "project_schedule.change_requested"),
+
             NotificationType.ProjectChatMessageSent => new NotificationTemplate(
                 "New chat message",
                 "{SenderName} sent a new message in \"{ChatTitle}\".",
@@ -174,6 +198,12 @@ public static class NotificationTemplateProvider
                 "Order \"{OrderCode}\" has been completed.",
                 NotificationDeliveryLevel.InAppRealtime,
                 "order.completed"),
+
+            NotificationType.OrderDeliveryCompleted => new NotificationTemplate(
+                "Delivery batch completed",
+                "A delivery batch for order \"{OrderCode}\" has been completed.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "order.delivery.completed"),
 
             NotificationType.OrderItemDeliveryUpdated => new NotificationTemplate(
                 "Delivery quantity updated",
@@ -270,6 +300,36 @@ public static class NotificationTemplateProvider
                 "A product issue ({IssueType}) was reported for \"{ProductName}\" in order \"{OrderCode}\".",
                 NotificationDeliveryLevel.InAppRealtime,
                 "product_issue.reported"),
+
+            NotificationType.ProductIssueResolved => new NotificationTemplate(
+                "Product issue resolved",
+                "A product issue for \"{ProductName}\" in order \"{OrderCode}\" has been resolved.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "product_issue.resolved"),
+
+            NotificationType.MeasurementImageUploaded => new NotificationTemplate(
+                "Measurement image uploaded",
+                "A measurement image was uploaded for project \"{ProjectName}\".",
+                NotificationDeliveryLevel.RealtimeOnly,
+                "measurement_image.uploaded"),
+
+            NotificationType.ProjectShowcaseSubmitted => new NotificationTemplate(
+                "Showcase submitted for review",
+                "Showcase for project \"{ProjectName}\" was submitted for admin review.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "project_showcase.submitted"),
+
+            NotificationType.ProjectProposalReopened => new NotificationTemplate(
+                "Proposal consultation reopened",
+                "Proposal consultation was reopened for project \"{ProjectName}\".",
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.proposal.reopened"),
+
+            NotificationType.ProposalReopenedForEditing => new NotificationTemplate(
+                "Proposal reopened for editing",
+                "Proposal \"{ProposalName}\" was reopened for editing.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "proposal.reopened_for_editing"),
 
             _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown notification type.")
         };

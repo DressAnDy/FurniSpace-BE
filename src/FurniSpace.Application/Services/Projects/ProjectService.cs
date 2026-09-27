@@ -232,24 +232,47 @@ public sealed class ProjectService : IProjectService
         Project project,
         CancellationToken cancellationToken)
     {
-        if (_notifications is null || !project.AssignedSalesId.HasValue)
+        if (_notifications is null)
         {
             return;
         }
 
         try
         {
+            var receivers = new HashSet<Guid>();
+            if (project.AssignedSalesId.HasValue)
+            {
+                receivers.Add(project.AssignedSalesId.Value);
+            }
+
+            var adminIds = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+                [ApplicationRoles.Admin],
+                cancellationToken);
+            foreach (var adminId in adminIds)
+            {
+                receivers.Add(adminId);
+            }
+
+            if (receivers.Count == 0)
+            {
+                return;
+            }
+
             await _notifications.DispatchAsync(
                 NotificationType.ProjectBasicInformationUpdated,
                 new Dictionary<string, string>
                 {
                     [ProjectNameNotificationKey] = project.ProjectName
                 },
-                [project.AssignedSalesId.Value],
+                receivers,
                 new NotificationDispatchRequest(
                     project.ProjectId,
                     ProjectReferenceType,
-                    project.ProjectId),
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = project.ProjectId
+                    }),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -351,17 +374,36 @@ public sealed class ProjectService : IProjectService
 
         try
         {
+            var receivers = new HashSet<Guid> { designerId, project.CustomerId };
+            if (project.AssignedSalesId.HasValue)
+            {
+                receivers.Add(project.AssignedSalesId.Value);
+            }
+
+            var adminIds = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+                [ApplicationRoles.Admin],
+                cancellationToken);
+            foreach (var adminId in adminIds)
+            {
+                receivers.Add(adminId);
+            }
+
             await _notifications.DispatchAsync(
                 NotificationType.ProjectDesignerAssigned,
                 new Dictionary<string, string>
                 {
                     [ProjectNameNotificationKey] = project.ProjectName
                 },
-                [designerId],
+                receivers,
                 new NotificationDispatchRequest(
                     project.ProjectId,
                     ProjectReferenceType,
-                    project.ProjectId),
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = project.ProjectId,
+                        ["designerId"] = designerId
+                    }),
                 cancellationToken);
         }
         catch (Exception exception)
@@ -1224,6 +1266,11 @@ public sealed class ProjectService : IProjectService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
 
+            await DispatchProjectProposalReopenedNotificationAsync(
+                project,
+                selectedProposal.ProposalId,
+                cancellationToken);
+
             return ServiceResult<ReopenProposalResponseDto>.Success(
                 BuildReopenSuccessResponse(
                     project,
@@ -1238,6 +1285,51 @@ public sealed class ProjectService : IProjectService
         {
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
             throw;
+        }
+    }
+
+    private async Task DispatchProjectProposalReopenedNotificationAsync(
+        Project project,
+        Guid proposalId,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var receivers = GetProjectParticipantIds(project);
+            if (receivers.Count == 0)
+            {
+                return;
+            }
+
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectProposalReopened,
+                new Dictionary<string, string>
+                {
+                    [ProjectNameNotificationKey] = project.ProjectName
+                },
+                receivers,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    ProjectReferenceType,
+                    project.ProjectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = project.ProjectId,
+                        ["proposalId"] = proposalId
+                    }),
+                cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogWarning(
+                exception,
+                "Failed to dispatch project.proposal.reopened for project {ProjectId}",
+                project.ProjectId);
         }
     }
 

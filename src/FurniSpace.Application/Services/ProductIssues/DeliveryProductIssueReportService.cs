@@ -323,6 +323,22 @@ public sealed partial class DeliveryProductIssueReportService : IDeliveryProduct
         _issues.Update(issue);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        var order = await _orders.GetByIdAsync(issue.OrderId, cancellationToken);
+        var orderItem = await _orders.GetItemByIdAsync(issue.OrderItemId, cancellationToken);
+        if (order is not null && orderItem is not null)
+        {
+            await ProductIssueNotificationSupport.TryDispatchResolvedAsync(
+                _notifications,
+                _projects,
+                _productionRequests,
+                _logger,
+                issue,
+                project,
+                order,
+                orderItem,
+                cancellationToken);
+        }
+
         var detail = await _issues.GetDetailAsync(issueId, cancellationToken);
         return ServiceResult<ProductIssueReportDto>.Success(
             ToDto(detail!),

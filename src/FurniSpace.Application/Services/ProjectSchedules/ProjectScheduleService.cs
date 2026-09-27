@@ -596,6 +596,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             },
             cancellationToken);
 
+        await DispatchScheduleChangeRequestedAsync(schedule, detail, cancellationToken);
+
         return ServiceResult<ProjectScheduleChangeRequestDto>.Success(
             new ProjectScheduleChangeRequestDto
             {
@@ -604,6 +606,48 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                 CustomerNote = schedule.CustomerNote
             },
             "Project schedule change requested successfully.");
+    }
+
+    private async Task DispatchScheduleChangeRequestedAsync(
+        ProjectSchedule schedule,
+        ProjectScheduleDetailReadModel detail,
+        CancellationToken cancellationToken)
+    {
+        var receivers = new HashSet<Guid>();
+        if (detail.AssignedSalesId.HasValue)
+        {
+            receivers.Add(detail.AssignedSalesId.Value);
+        }
+
+        if (schedule.AssignedStaffId.HasValue)
+        {
+            receivers.Add(schedule.AssignedStaffId.Value);
+        }
+
+        var productionIds = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+            [ApplicationRoles.Production],
+            cancellationToken);
+        foreach (var id in productionIds)
+        {
+            receivers.Add(id);
+        }
+
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        var parameters = BuildNotificationParameters(schedule, detail.ProjectName);
+        await _dispatcher.DispatchAsync(
+            NotificationType.ProjectScheduleChangeRequested,
+            parameters,
+            receivers,
+            new NotificationDispatchRequest(
+                schedule.ProjectId,
+                ProjectScheduleReferenceType,
+                schedule.ScheduleId,
+                BuildScheduleNotificationMetadata(schedule)),
+            cancellationToken);
     }
 
     private async Task<bool> CanViewProjectSchedulesAsync(
@@ -1589,7 +1633,12 @@ public sealed class ProjectScheduleService : IProjectScheduleService
         ProjectScheduleDetailReadModel detail,
         CancellationToken cancellationToken)
     {
-        var receivers = BuildReceivers(detail.CustomerId, schedule.AssignedStaffId);
+        var receivers = new HashSet<Guid>(BuildReceivers(detail.CustomerId, schedule.AssignedStaffId));
+        if (detail.AssignedSalesId.HasValue)
+        {
+            receivers.Add(detail.AssignedSalesId.Value);
+        }
+
         var parameters = BuildNotificationParameters(schedule, detail.ProjectName);
 
         await _dispatcher.DispatchAsync(
@@ -1599,7 +1648,8 @@ public sealed class ProjectScheduleService : IProjectScheduleService
             new NotificationDispatchRequest(
                 schedule.ProjectId,
                 ProjectScheduleReferenceType,
-                schedule.ScheduleId),
+                schedule.ScheduleId,
+                BuildScheduleNotificationMetadata(schedule)),
             cancellationToken);
     }
 
@@ -1635,7 +1685,11 @@ public sealed class ProjectScheduleService : IProjectScheduleService
                     NotificationType.ProjectScheduleCompleted,
                     parameters,
                     receivers,
-                    new NotificationDispatchRequest(schedule.ProjectId),
+                    new NotificationDispatchRequest(
+                        schedule.ProjectId,
+                        ProjectScheduleReferenceType,
+                        schedule.ScheduleId,
+                        BuildScheduleNotificationMetadata(schedule)),
                     cancellationToken);
                 break;
             }

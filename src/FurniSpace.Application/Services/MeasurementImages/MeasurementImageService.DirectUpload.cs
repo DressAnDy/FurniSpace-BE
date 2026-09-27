@@ -262,6 +262,12 @@ public sealed partial class MeasurementImageService
         var completedAreaLink = fileLinks.FirstOrDefault(link =>
             string.Equals(link.ReferenceType, ProjectAreaReferenceType, StringComparison.OrdinalIgnoreCase));
 
+        await DispatchMeasurementImageUploadedAsync(
+            schedule,
+            storedFile.FileId,
+            completedAreaLink?.ReferenceId,
+            cancellationToken);
+
         return ServiceResult<MeasurementImageUploadResponseDto>.Success(
             BuildMeasurementUploadResponse(schedule, storedFile, scheduleFileLink, completedAreaLink),
             "Measurement image uploaded successfully.");

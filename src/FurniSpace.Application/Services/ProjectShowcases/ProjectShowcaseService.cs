@@ -2,11 +2,13 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Constants.Common;
 using FurniSpace.Application.Constants.ProjectShowcases;
 using FurniSpace.Application.DTOs.ProjectShowcases;
 using FurniSpace.Application.Common.ProjectShowcases;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Interfaces.ProjectShowcases;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -46,6 +48,7 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
     private readonly DirectFileUploadCoordinator _directUploadCoordinator;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
+    private readonly INotificationDispatcher? _notifications;
 
     public ProjectShowcaseService(
         IProjectRepository projects,
@@ -64,6 +67,7 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
         _directUploadCoordinator = dependencies.DirectUploadCoordinator;
         _uploadSettings = dependencies.UploadSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
+        _notifications = dependencies.Notifications;
     }
 
     public async Task<ServiceResult<ProjectShowcaseDto>> CreateAsync(
@@ -247,9 +251,67 @@ public sealed partial class ProjectShowcaseService : IProjectShowcaseService
         showcase.UpdatedAt = DateTime.UtcNow;
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
+        await DispatchShowcaseSubmittedNotificationAsync(showcase, project, cancellationToken);
+
         return ServiceResult<ProjectShowcaseDto>.Success(
             await BuildDtoAsync(showcase.ProjectShowcaseId, cancellationToken),
             SubmittedMessage);
+    }
+
+    private async Task DispatchShowcaseSubmittedNotificationAsync(
+        ProjectShowcase showcase,
+        Project project,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var receivers = new HashSet<Guid>();
+            var adminIds = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+                [ApplicationRoles.Admin],
+                cancellationToken);
+            foreach (var adminId in adminIds)
+            {
+                receivers.Add(adminId);
+            }
+
+            if (project.AssignedSalesId.HasValue)
+            {
+                receivers.Add(project.AssignedSalesId.Value);
+            }
+
+            if (receivers.Count == 0)
+            {
+                return;
+            }
+
+            await _notifications.DispatchAsync(
+                NotificationType.ProjectShowcaseSubmitted,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = project.ProjectName
+                },
+                receivers,
+                new NotificationDispatchRequest(
+                    project.ProjectId,
+                    "PROJECT_SHOWCASE",
+                    showcase.ProjectShowcaseId,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = project.ProjectId,
+                        ["showcaseId"] = showcase.ProjectShowcaseId,
+                        ["status"] = ProjectShowcaseStatus.PENDING_REVIEW.ToString()
+                    }),
+                cancellationToken);
+        }
+        catch
+        {
+            // Push failure must not roll back showcase submit.
+        }
     }
 
     public async Task<ServiceResult<ProjectShowcaseDto>> PublishAsync(

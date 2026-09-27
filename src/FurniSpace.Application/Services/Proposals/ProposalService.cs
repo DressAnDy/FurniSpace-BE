@@ -1257,6 +1257,8 @@ public sealed class ProposalService : IProposalService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
 
+            await DispatchProposalReopenedForEditingNotificationAsync(proposal, cancellationToken);
+
             return ServiceResult<ReopenProposalForEditingResponseDto>.Success(
                 new ReopenProposalForEditingResponseDto
                 {
@@ -1272,6 +1274,55 @@ public sealed class ProposalService : IProposalService
         {
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
             throw;
+        }
+    }
+
+    private async Task DispatchProposalReopenedForEditingNotificationAsync(
+        ProposalContextReadModel proposal,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var receivers = new HashSet<Guid> { proposal.CustomerId };
+            if (proposal.AssignedSalesId.HasValue)
+            {
+                receivers.Add(proposal.AssignedSalesId.Value);
+            }
+
+            if (proposal.AssignedDesignerId.HasValue)
+            {
+                receivers.Add(proposal.AssignedDesignerId.Value);
+            }
+
+            await _notifications.DispatchAsync(
+                NotificationType.ProposalReopenedForEditing,
+                new Dictionary<string, string>
+                {
+                    ["ProposalName"] = "Proposal"
+                },
+                receivers,
+                new NotificationDispatchRequest(
+                    proposal.ProjectId,
+                    "PROPOSAL",
+                    proposal.ProposalId,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = proposal.ProjectId,
+                        ["proposalId"] = proposal.ProposalId
+                    }),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(
+                ex,
+                "Failed to dispatch proposal.reopened_for_editing for proposal {ProposalId}",
+                proposal.ProposalId);
         }
     }
 
@@ -2392,7 +2443,7 @@ public sealed class ProposalService : IProposalService
             return;
         }
 
-        var receiverIds = GetAssignedStaffReceiverIds(proposal);
+        var receiverIds = new HashSet<Guid>(GetAssignedStaffReceiverIds(proposal)) { proposal.CustomerId };
         if (receiverIds.Count == 0)
         {
             return;
@@ -2410,7 +2461,12 @@ public sealed class ProposalService : IProposalService
                 new NotificationDispatchRequest(
                     proposal.ProjectId,
                     "PROPOSAL",
-                    proposal.ProposalId),
+                    proposal.ProposalId,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = proposal.ProjectId,
+                        ["proposalId"] = proposal.ProposalId
+                    }),
                 cancellationToken);
         }
         catch (Exception ex)
@@ -2433,17 +2489,28 @@ public sealed class ProposalService : IProposalService
 
         try
         {
+            var receivers = new HashSet<Guid> { proposal.CustomerId };
+            foreach (var staffId in GetAssignedStaffReceiverIds(proposal))
+            {
+                receivers.Add(staffId);
+            }
+
             await _notifications.DispatchAsync(
                 NotificationType.ProposalPublished,
                 new Dictionary<string, string>
                 {
                     ["ProposalName"] = proposal.ProposalName
                 },
-                [proposal.CustomerId],
+                receivers,
                 new NotificationDispatchRequest(
                     proposal.ProjectId,
                     "PROPOSAL",
-                    proposal.ProposalId),
+                    proposal.ProposalId,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = proposal.ProjectId,
+                        ["proposalId"] = proposal.ProposalId
+                    }),
                 cancellationToken);
         }
         catch (Exception ex)

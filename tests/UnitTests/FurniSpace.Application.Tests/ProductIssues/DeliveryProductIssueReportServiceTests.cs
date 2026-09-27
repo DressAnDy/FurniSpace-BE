@@ -7,11 +7,13 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.ProductIssues;
 using FurniSpace.Application.Common.Storage;
 using DirectFileUploadErrorCodes = FurniSpace.Application.Common.Storage.DirectFileUploadErrorCodes;
 using FurniSpace.Application.Tests.TestDoubles;
 using FurniSpace.Application.DTOs.ProductIssues;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.ProductIssues;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
@@ -37,6 +39,8 @@ public sealed class DeliveryProductIssueReportServiceTests
         var issues = new FakeProductIssueRepository();
         var files = new FakeProductIssueFileRepository();
         var storage = new FakeProductIssueStorageService();
+        var dispatcher = new CapturingProductIssueNotificationDispatcher();
+        var productionId = Guid.NewGuid();
         var service = CreateService(
             issues,
             files,
@@ -44,7 +48,13 @@ public sealed class DeliveryProductIssueReportServiceTests
             roleName: "CUSTOMER",
             project: CreateProject(ids),
             order: CreateOrder(ids),
-            orderItem: CreateOrderItem(ids, deliveredQuantity: 2));
+            orderItem: CreateOrderItem(ids, deliveredQuantity: 2),
+            notifications: dispatcher,
+            productionRequests: new FakeProductIssueProductionRequestRepository
+            {
+                OrderAssignees = [productionId]
+            },
+            adminIds: [ids.DesignerId]);
 
         var evidenceFileId = Guid.NewGuid();
         files.SeedDraftEvidence(evidenceFileId, ids.OrderId, ids.CustomerId);
@@ -71,6 +81,79 @@ public sealed class DeliveryProductIssueReportServiceTests
         Assert.Equal(FileType.PRODUCT_ISSUE_EVIDENCE, files.FileLinks[0].FileType);
         Assert.Equal("DELIVERY_PRODUCT_ISSUE_REPORT", files.FileLinks[0].ReferenceType);
         Assert.Equal(1, issues.SaveChangesCallCount);
+        Assert.Equal(NotificationType.ProductIssueReported, dispatcher.LastType);
+        Assert.Contains(ids.SalesId, dispatcher.LastReceivers);
+        Assert.Contains(ids.CustomerId, dispatcher.LastReceivers);
+        Assert.Contains(productionId, dispatcher.LastReceivers);
+        Assert.Contains(ids.DesignerId, dispatcher.LastReceivers);
+        Assert.Equal(ids.ProjectId, dispatcher.LastMetadata!["projectId"]);
+        Assert.Equal(ids.OrderId, dispatcher.LastMetadata["orderId"]);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_WithSalesRole_ResolvesAndNotifies()
+    {
+        var ids = CreateIds();
+        var issueId = Guid.NewGuid();
+        var issue = new DeliveryProductIssueReport
+        {
+            DeliveryProductIssueReportId = issueId,
+            ProjectId = ids.ProjectId,
+            OrderId = ids.OrderId,
+            OrderItemId = ids.OrderItemId,
+            IssueType = DeliveryProductIssueType.DAMAGED,
+            Description = "Damaged corner",
+            AffectedQuantity = 1,
+            ReportedBy = ids.CustomerId,
+            ReportedAt = DateTime.UtcNow,
+            Status = ReportResolutionStatus.OPEN,
+            CreatedAt = DateTime.UtcNow
+        };
+        var detail = new DeliveryProductIssueReportDetailReadModel
+        {
+            DeliveryProductIssueReportId = issueId,
+            ProjectId = ids.ProjectId,
+            ProjectName = "Issue Project",
+            OrderId = ids.OrderId,
+            OrderItemId = ids.OrderItemId,
+            ProductNameSnapshot = "Oak Chair",
+            IssueType = DeliveryProductIssueType.DAMAGED,
+            Description = "Damaged corner",
+            ReportedBy = ids.CustomerId,
+            ReporterName = "Customer User",
+            ReportedAt = DateTime.UtcNow,
+            CreatedAt = DateTime.UtcNow,
+            Status = ReportResolutionStatus.OPEN
+        };
+        var issues = new FakeProductIssueRepository
+        {
+            ExistingIssue = issue,
+            Detail = detail
+        };
+        var dispatcher = new CapturingProductIssueNotificationDispatcher();
+        var service = CreateService(
+            issues,
+            new FakeProductIssueFileRepository(),
+            new FakeProductIssueStorageService(),
+            roleName: "SALES",
+            project: CreateProject(ids),
+            order: CreateOrder(ids),
+            orderItem: CreateOrderItem(ids, deliveredQuantity: 2),
+            notifications: dispatcher);
+
+        var result = await service.ResolveAsync(
+            issueId,
+            ids.SalesId,
+            new ResolveProductIssueRequestDto { ResolutionNote = "Replaced item" });
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ReportResolutionStatus.RESOLVED, issue.Status);
+        Assert.Equal("Replaced item", issue.ResolutionNote);
+        Assert.NotNull(issue.ResolvedAt);
+        Assert.Equal(NotificationType.ProductIssueResolved, dispatcher.LastType);
+        Assert.Contains(ids.CustomerId, dispatcher.LastReceivers);
+        Assert.Contains(ids.SalesId, dispatcher.LastReceivers);
+        Assert.Equal(issueId, dispatcher.LastMetadata!["issueId"]);
     }
 
     [Fact]
@@ -406,7 +489,9 @@ public sealed class DeliveryProductIssueReportServiceTests
         DeliveryItem? deliveryItem = null,
         Delivery? delivery = null,
         IFileUploadValidator? fileUploadValidator = null,
-        FakeProductIssueProductionRequestRepository? productionRequests = null)
+        FakeProductIssueProductionRequestRepository? productionRequests = null,
+        INotificationDispatcher? notifications = null,
+        IReadOnlyList<Guid>? adminIds = null)
     {
         var firebaseSettings = new FirebaseStorageSettings
         {
@@ -431,11 +516,12 @@ public sealed class DeliveryProductIssueReportServiceTests
         return new DeliveryProductIssueReportService(
             issues,
             new FakeProductIssueOrderRepository(order, orderItem),
-            new FakeProductIssueProjectRepository(project, roleName),
+            new FakeProductIssueProjectRepository(project, roleName, adminIds),
             productionRequests ?? new FakeProductIssueProductionRequestRepository(),
             new FakeProductIssueDeliveryRepository(delivery, deliveryItem),
             files,
-            dependencies);
+            dependencies,
+            notifications);
     }
 
     private static CreateProductIssueRequestDto ValidCreateRequest(TestIds ids)
@@ -568,6 +654,7 @@ public sealed class DeliveryProductIssueReportServiceTests
     private sealed class FakeProductIssueRepository : IDeliveryProductIssueReportRepository
     {
         public List<DeliveryProductIssueReport> AddedIssues { get; } = [];
+        public DeliveryProductIssueReport? ExistingIssue { get; init; }
         public DeliveryProductIssueReportDetailReadModel? Detail { get; init; }
         public IReadOnlyList<DeliveryProductIssueReportListItemReadModel> ListItems { get; init; } = [];
         public int SaveChangesCallCount { get; set; }
@@ -594,7 +681,8 @@ public sealed class DeliveryProductIssueReportServiceTests
         }
 
         public IQueryable<DeliveryProductIssueReport> Query() => AddedIssues.AsQueryable();
-        public Task<DeliveryProductIssueReport?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<DeliveryProductIssueReport?>(null);
+        public Task<DeliveryProductIssueReport?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+            => Task.FromResult(ExistingIssue?.DeliveryProductIssueReportId == id ? ExistingIssue : null);
         public Task<IReadOnlyList<DeliveryProductIssueReport>> ListAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<DeliveryProductIssueReport>>(AddedIssues);
         public Task AddRangeAsync(IEnumerable<DeliveryProductIssueReport> entities, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public void Update(DeliveryProductIssueReport entity) { }
@@ -606,11 +694,16 @@ public sealed class DeliveryProductIssueReportServiceTests
     {
         private readonly Project? _project;
         private readonly string _roleName;
+        private readonly IReadOnlyList<Guid> _adminIds;
 
-        public FakeProductIssueProjectRepository(Project? project, string roleName)
+        public FakeProductIssueProjectRepository(
+            Project? project,
+            string roleName,
+            IReadOnlyList<Guid>? adminIds = null)
         {
             _project = project;
             _roleName = roleName;
+            _adminIds = adminIds ?? [];
         }
 
         public Task<Project?> GetByIdAsync(Guid projectId, CancellationToken cancellationToken = default)
@@ -620,7 +713,7 @@ public sealed class DeliveryProductIssueReportServiceTests
             => Task.FromResult<string?>(_roleName);
 
         public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
-        public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(IReadOnlyCollection<string> roleNames, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Guid>>([]);
+        public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(IReadOnlyCollection<string> roleNames, CancellationToken cancellationToken = default) => Task.FromResult(_adminIds);
         public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<ProjectDetailReadModel?> GetDetailAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectDetailReadModel?>(null);
         public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) => Task.FromResult<DesignerAccountReadModel?>(null);
@@ -698,12 +791,18 @@ public sealed class DeliveryProductIssueReportServiceTests
     private sealed class FakeProductIssueProductionRequestRepository : IProductionRequestRepository
     {
         public bool HasViewableAssignedRequest { get; init; }
+        public IReadOnlyList<Guid> OrderAssignees { get; init; } = [];
 
         public Task<bool> HasViewableAssignedRequestAsync(
             Guid projectId,
             Guid productionAccountId,
             CancellationToken cancellationToken = default)
             => Task.FromResult(HasViewableAssignedRequest);
+
+        public Task<IReadOnlyList<Guid>> GetDistinctAssignedProductionAccountIdsForOrderAsync(
+            Guid orderId,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(OrderAssignees);
 
         public Task<DateOnly?> GetMaxOperationalProductionDateAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<DateOnly?>(null);
         public Task<bool> ExistsForOrderAsync(Guid orderId, CancellationToken cancellationToken = default) => Task.FromResult(false);
@@ -727,6 +826,26 @@ public sealed class DeliveryProductIssueReportServiceTests
         public void Update(ProductionRequest entity) { }
         public void Remove(ProductionRequest entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(0);
+    }
+
+    private sealed class CapturingProductIssueNotificationDispatcher : INotificationDispatcher
+    {
+        public NotificationType? LastType { get; private set; }
+        public IReadOnlyList<Guid> LastReceivers { get; private set; } = [];
+        public IReadOnlyDictionary<string, object?>? LastMetadata { get; private set; }
+
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+        {
+            LastType = type;
+            LastReceivers = receiverIds.ToList();
+            LastMetadata = request?.Metadata;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeProductIssueFileRepository : IProjectFileRepository

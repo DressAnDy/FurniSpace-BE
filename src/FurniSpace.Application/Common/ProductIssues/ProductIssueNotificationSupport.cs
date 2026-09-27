@@ -21,6 +21,58 @@ internal static class ProductIssueNotificationSupport
         OrderItem orderItem,
         CancellationToken cancellationToken = default)
     {
+        await TryDispatchAsync(
+            notifications,
+            projects,
+            productionRequests,
+            logger,
+            NotificationType.ProductIssueReported,
+            issue,
+            project,
+            order,
+            orderItem,
+            includeCustomer: true,
+            cancellationToken);
+    }
+
+    internal static async Task TryDispatchResolvedAsync(
+        INotificationDispatcher? notifications,
+        IProjectRepository projects,
+        IProductionRequestRepository productionRequests,
+        ILogger? logger,
+        DeliveryProductIssueReport issue,
+        Project project,
+        Order order,
+        OrderItem orderItem,
+        CancellationToken cancellationToken = default)
+    {
+        await TryDispatchAsync(
+            notifications,
+            projects,
+            productionRequests,
+            logger,
+            NotificationType.ProductIssueResolved,
+            issue,
+            project,
+            order,
+            orderItem,
+            includeCustomer: true,
+            cancellationToken);
+    }
+
+    private static async Task TryDispatchAsync(
+        INotificationDispatcher? notifications,
+        IProjectRepository projects,
+        IProductionRequestRepository productionRequests,
+        ILogger? logger,
+        NotificationType type,
+        DeliveryProductIssueReport issue,
+        Project project,
+        Order order,
+        OrderItem orderItem,
+        bool includeCustomer,
+        CancellationToken cancellationToken)
+    {
         if (notifications is null)
         {
             return;
@@ -30,24 +82,34 @@ internal static class ProductIssueNotificationSupport
             .GetDistinctAssignedProductionAccountIdsForOrderAsync(order.OrderId, cancellationToken);
         var receivers = await OperationalExceptionNotificationRecipientSupport
             .BuildStaffRecipientsAsync(projects, project.AssignedSalesId, productionAccountIds, cancellationToken);
+
+        if (includeCustomer && project.CustomerId != Guid.Empty)
+        {
+            receivers.Add(project.CustomerId);
+        }
+
         if (receivers.Count == 0)
         {
             return;
         }
 
+        var productName = orderItem.ProductNameSnapshot
+            ?? orderItem.ProductVersionNameSnapshot
+            ?? "Product";
+
         var parameters = new Dictionary<string, string>
         {
             ["IssueType"] = issue.IssueType.ToString(),
-            ["ProductName"] = orderItem.ProductNameSnapshot
-                ?? orderItem.ProductVersionNameSnapshot
-                ?? "Product",
+            ["ProductName"] = productName,
             ["OrderCode"] = order.OrderCode
         };
 
         var metadata = new Dictionary<string, object?>
         {
-            ["deliveryProductIssueReportId"] = issue.DeliveryProductIssueReportId,
+            ["projectId"] = project.ProjectId,
             ["orderId"] = issue.OrderId,
+            ["issueId"] = issue.DeliveryProductIssueReportId,
+            ["deliveryProductIssueReportId"] = issue.DeliveryProductIssueReportId,
             ["orderItemId"] = issue.OrderItemId,
             ["issueType"] = issue.IssueType.ToString(),
             ["affectedQuantity"] = issue.AffectedQuantity
@@ -56,7 +118,7 @@ internal static class ProductIssueNotificationSupport
         try
         {
             await notifications.DispatchAsync(
-                NotificationType.ProductIssueReported,
+                type,
                 parameters,
                 receivers,
                 new NotificationDispatchRequest(
@@ -70,7 +132,8 @@ internal static class ProductIssueNotificationSupport
         {
             logger?.LogWarning(
                 exception,
-                "Failed to dispatch product issue notification for report {ReportId}",
+                "Failed to dispatch product issue notification {NotificationType} for report {ReportId}",
+                type,
                 issue.DeliveryProductIssueReportId);
         }
     }

@@ -1209,11 +1209,14 @@ public sealed class CustomizationRequestServiceTests
         var versionRepo = new FakeCustomizationRequestVersionRepository();
         versionRepo.StoreVersion(version, productVersion);
         var productVersions = new FakeProductVersionRepository([productVersion]);
+        var dispatcher = new FakeNotificationDispatcher();
+        var projects = new FakeProjectRepository(DesignerRole, roleAccountIds: [ids.ProductionId]);
         var service = CreateService(
             requestRepo,
             versionRepo,
             new FakeProposalRepository(),
-            new FakeProjectRepository(DesignerRole),
+            projects,
+            dispatcher,
             productVersions: productVersions);
 
         var result = await service.SubmitVersionForReviewAsync(
@@ -1225,6 +1228,10 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(CustomizationVersionStatus.REVIEWING, version.Status);
         Assert.Equal(CustomizationStatus.REVIEWING, entity.Status);
         Assert.NotNull(version.SubmittedForReviewAt);
+        Assert.Equal(NotificationType.CustomizationVersionSubmittedForReview, dispatcher.LastType);
+        Assert.Contains(ids.CustomerId, dispatcher.LastReceivers);
+        Assert.Contains(ids.DesignerId, dispatcher.LastReceivers);
+        Assert.Contains(ids.ProductionId, dispatcher.LastReceivers);
     }
 
     [Fact]
@@ -1267,6 +1274,7 @@ public sealed class CustomizationRequestServiceTests
         var versionRepo = new FakeCustomizationRequestVersionRepository();
         versionRepo.StoreVersion(version, productVersion);
         versionRepo.SetProductionDetail(version, entity, productVersion, ids);
+        var dispatcher = new FakeNotificationDispatcher();
         var service = CreateService(
             new FakeCustomizationRequestRepository
             {
@@ -1275,7 +1283,8 @@ public sealed class CustomizationRequestServiceTests
             },
             versionRepo,
             new FakeProposalRepository(),
-            new FakeProjectRepository(ProductionRole),
+            new FakeProjectRepository(ProductionRole, roleAccountIds: [ids.ProductionId]),
+            dispatcher,
             productVersions: new FakeProductVersionRepository([productVersion]));
 
         var result = await service.ReviewVersionAsync(
@@ -1288,6 +1297,10 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(CustomizationVersionStatus.REVIEWING, result.Data.Version.Status);
         Assert.Equal(ids.ProductionId, version.ProductionReviewedBy);
         Assert.True(version.MaterialAvailable);
+        Assert.Equal(NotificationType.CustomizationVersionProductionReviewed, dispatcher.LastType);
+        Assert.Contains(ids.CustomerId, dispatcher.LastReceivers);
+        Assert.Contains(ids.DesignerId, dispatcher.LastReceivers);
+        Assert.Contains(ids.ProductionId, dispatcher.LastReceivers);
     }
 
     [Fact]
@@ -1813,11 +1826,13 @@ public sealed class CustomizationRequestServiceTests
         };
         var versionRepo = new FakeCustomizationRequestVersionRepository();
         versionRepo.StoreVersion(version, acceptedProductVersion);
+        var dispatcher = new FakeNotificationDispatcher();
         var service = CreateService(
             requestRepo,
             versionRepo,
             new FakeProposalRepository(),
-            new FakeProjectRepository(CustomerRole),
+            new FakeProjectRepository(CustomerRole, roleAccountIds: [ids.ProductionId]),
+            dispatcher,
             productVersions: new FakeProductVersionRepository([sourceProductVersion, acceptedProductVersion]));
 
         var result = await service.AcceptVersionAsync(
@@ -1832,6 +1847,10 @@ public sealed class CustomizationRequestServiceTests
         Assert.Equal(CustomizationStatus.ACCEPTED, entity.Status);
         Assert.Equal(CustomizationVersionStatus.ACCEPTED, version.Status);
         Assert.Equal(version.CustomizationRequestVersionId, entity.AcceptedRequestVersionId);
+        Assert.Equal(NotificationType.CustomizationVersionAccepted, dispatcher.LastType);
+        Assert.Contains(ids.DesignerId, dispatcher.LastReceivers);
+        Assert.Contains(ids.SalesId, dispatcher.LastReceivers);
+        Assert.Contains(ids.ProductionId, dispatcher.LastReceivers);
     }
 
     [Fact]
@@ -3049,11 +3068,16 @@ public sealed class CustomizationRequestServiceTests
     {
         private readonly string? _role;
         private readonly Project? _project;
+        private readonly IReadOnlyList<Guid> _roleAccountIds;
 
-        public FakeProjectRepository(string? role, Project? project = null)
+        public FakeProjectRepository(
+            string? role,
+            Project? project = null,
+            IReadOnlyList<Guid>? roleAccountIds = null)
         {
             _role = role;
             _project = project;
+            _roleAccountIds = roleAccountIds ?? [];
         }
 
         public Task<string?> GetAccountRoleNameAsync(Guid accountId, CancellationToken cancellationToken = default)
@@ -3069,7 +3093,7 @@ public sealed class CustomizationRequestServiceTests
         public void Remove(Project entity) { }
         public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) => Task.FromResult(1);
         public Task<string?> GetAccountFullNameAsync(Guid accountId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
-        public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(IReadOnlyCollection<string> roleNames, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Guid>>([]);
+        public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(IReadOnlyCollection<string> roleNames, CancellationToken cancellationToken = default) => Task.FromResult(_roleAccountIds);
         public Task<int> CountSubmittedInYearAsync(int year, CancellationToken cancellationToken = default) => Task.FromResult(0);
         public Task<ProjectDetailReadModel?> GetDetailAsync(Guid projectId, CancellationToken cancellationToken = default) => Task.FromResult<ProjectDetailReadModel?>(null);
         public Task<DesignerAccountReadModel?> GetActiveDesignerAsync(Guid designerId, CancellationToken cancellationToken = default) => Task.FromResult<DesignerAccountReadModel?>(null);

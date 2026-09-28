@@ -60,6 +60,43 @@ internal static class OrderNotificationSupport
             cancellationToken);
     }
 
+    internal static Task TryDispatchDeliveryStartedAsync(
+        INotificationDispatcher? notifications,
+        ILogger? logger,
+        Order order,
+        Project project,
+        Guid deliveryId,
+        Guid? scheduleId,
+        IEnumerable<Guid>? extraReceiverIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        var receivers = new HashSet<Guid>(BuildCustomerAndSalesReceivers(order, project));
+        if (extraReceiverIds is not null)
+        {
+            foreach (var receiverId in extraReceiverIds.Where(id => id != Guid.Empty))
+            {
+                receivers.Add(receiverId);
+            }
+        }
+
+        var metadata = BuildOrderMetadata(order);
+        metadata["projectId"] = project.ProjectId;
+        metadata["deliveryId"] = deliveryId;
+        metadata["scheduleId"] = scheduleId;
+        metadata["deliveryStatus"] = DeliveryStatus.IN_PROGRESS.ToString();
+
+        return TryDispatchAsync(
+            notifications,
+            logger,
+            new OrderDispatchCall(
+                NotificationType.OrderDeliveryStarted,
+                order,
+                project,
+                [.. receivers],
+                metadata),
+            cancellationToken);
+    }
+
     internal static Task TryDispatchDeliveryCompletedAsync(
         INotificationDispatcher? notifications,
         ILogger? logger,

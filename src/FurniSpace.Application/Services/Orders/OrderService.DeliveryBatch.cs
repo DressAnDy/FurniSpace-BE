@@ -163,6 +163,22 @@ public sealed partial class OrderService
                 cancellationToken);
         }
 
+        var productionReceivers = new List<Guid> { currentUserId };
+        if (scheduleDetail?.AssignedStaffId is Guid assignedStaffId)
+        {
+            productionReceivers.Add(assignedStaffId);
+        }
+
+        await OrderNotificationSupport.TryDispatchDeliveryStartedAsync(
+            _notifications,
+            _logger,
+            order,
+            project,
+            deliveryId,
+            request.ProjectScheduleId,
+            productionReceivers,
+            cancellationToken);
+
         var detail = await _deliveries.GetDetailAsync(order.OrderId, deliveryId, cancellationToken);
         return ServiceResult<DeliveryDetailDto>.Created(
             detail!.Adapt<DeliveryDetailDto>(),

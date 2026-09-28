@@ -263,6 +263,33 @@ public sealed class NotificationDispatcherTests
     }
 
     [Fact]
+    public async Task DispatchAsync_WhenNoReceivers_DoesNotPersistOrPush()
+    {
+        var repository = new CapturingNotificationRepository();
+        var realtime = new CapturingRealtimeNotificationService();
+        var dispatcher = new NotificationDispatcher(
+            repository,
+            realtime,
+            NullLogger<NotificationDispatcher>.Instance,
+            TestUnitOfWork.Instance);
+
+        await dispatcher.DispatchAsync(
+            NotificationType.PaymentCreated,
+            new Dictionary<string, string>
+            {
+                ["PaymentCode"] = "PAY-001",
+                ["PaymentType"] = "DEPOSIT",
+                ["Amount"] = "1000000",
+                ["Currency"] = "VND"
+            },
+            [Guid.Empty],
+            new NotificationDispatchRequest(Guid.NewGuid(), "PAYMENT", Guid.NewGuid()));
+
+        Assert.Empty(repository.Added);
+        Assert.Empty(realtime.Sent);
+    }
+
+    [Fact]
     public async Task DispatchAsync_ProjectScheduleCreated_PersistsAndPushesWithMetadata()
     {
         var receiverId = Guid.NewGuid();

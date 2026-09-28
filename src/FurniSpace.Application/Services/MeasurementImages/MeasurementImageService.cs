@@ -1,11 +1,13 @@
 using FurniSpace.Application.Common;
 using FurniSpace.Application.Common.MeasurementImages;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Storage;
 using FurniSpace.Application.Constants.Common;
 using static FurniSpace.Application.Constants.MeasurementImages.MeasurementImageServiceConstants;
 using FurniSpace.Application.DTOs.MeasurementImages;
 using FurniSpace.Application.DTOs.ProjectFiles;
 using FurniSpace.Application.Interfaces.MeasurementImages;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.Common.Storage;
@@ -34,6 +36,7 @@ public sealed partial class MeasurementImageService : IMeasurementImageService
     private readonly DirectFileUploadCoordinator _directUploadCoordinator;
     private readonly FileUploadSettings _uploadSettings;
     private readonly FirebaseStorageSettings _firebaseSettings;
+    private readonly INotificationDispatcher? _notifications;
 
     public MeasurementImageService(
         IProjectScheduleRepository schedules,
@@ -46,6 +49,7 @@ public sealed partial class MeasurementImageService : IMeasurementImageService
         _directUploadCoordinator = dependencies.DirectUploadCoordinator;
         _uploadSettings = dependencies.UploadSettings;
         _firebaseSettings = dependencies.FirebaseSettings;
+        _notifications = dependencies.Notifications;
     }
 
     public async Task<ServiceResult<MeasurementImageGalleryResponseDto>> GetProjectMeasurementImagesAsync(
@@ -262,6 +266,16 @@ public sealed partial class MeasurementImageService : IMeasurementImageService
             },
             cancellationToken);
 
+        await DispatchMeasurementImageGalleryChangedAsync(
+            project.ProjectId,
+            "Project",
+            project.AssignedSalesId,
+            project.AssignedDesignerId,
+            scheduleId: null,
+            fileId,
+            projectAreaId,
+            cancellationToken);
+
         return ServiceResult<MeasurementImageAreaLinkResponseDto>.Created(
             new MeasurementImageAreaLinkResponseDto
             {
@@ -329,6 +343,16 @@ public sealed partial class MeasurementImageService : IMeasurementImageService
                 _files.RemoveFileLinks([areaLink]);
                 await _unitOfWork.SaveChangesAsync(ct);
             },
+            cancellationToken);
+
+        await DispatchMeasurementImageGalleryChangedAsync(
+            project.ProjectId,
+            "Project",
+            project.AssignedSalesId,
+            project.AssignedDesignerId,
+            scheduleId: null,
+            fileId,
+            projectAreaId,
             cancellationToken);
 
         return ServiceResult<MeasurementImageAreaLinkResponseDto>.Success(
@@ -553,6 +577,82 @@ public sealed partial class MeasurementImageService : IMeasurementImageService
     private static bool IsCustomer(string? roleName)
     {
         return string.Equals(roleName, ApplicationRoles.Customer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private Task DispatchMeasurementImageUploadedAsync(
+        ProjectScheduleDetailReadModel schedule,
+        Guid fileId,
+        Guid? projectAreaId,
+        CancellationToken cancellationToken)
+    {
+        return DispatchMeasurementImageGalleryChangedAsync(
+            schedule.ProjectId,
+            schedule.ProjectName,
+            schedule.AssignedSalesId,
+            schedule.AssignedDesignerId,
+            schedule.ScheduleId,
+            fileId,
+            projectAreaId,
+            cancellationToken);
+    }
+
+    private async Task DispatchMeasurementImageGalleryChangedAsync(
+        Guid projectId,
+        string projectName,
+        Guid? assignedSalesId,
+        Guid? assignedDesignerId,
+        Guid? scheduleId,
+        Guid fileId,
+        Guid? projectAreaId,
+        CancellationToken cancellationToken)
+    {
+        if (_notifications is null)
+        {
+            return;
+        }
+
+        var receivers = new HashSet<Guid>();
+        if (assignedSalesId.HasValue)
+        {
+            receivers.Add(assignedSalesId.Value);
+        }
+
+        if (assignedDesignerId.HasValue)
+        {
+            receivers.Add(assignedDesignerId.Value);
+        }
+
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _notifications.DispatchAsync(
+                NotificationType.MeasurementImageUploaded,
+                new Dictionary<string, string>
+                {
+                    ["ProjectName"] = projectName
+                },
+                receivers,
+                new NotificationDispatchRequest(
+                    projectId,
+                    "PROJECT_SCHEDULE",
+                    scheduleId ?? projectId,
+                    new Dictionary<string, object?>
+                    {
+                        ["projectId"] = projectId,
+                        ["scheduleId"] = scheduleId,
+                        ["projectAreaId"] = projectAreaId,
+                        ["fileId"] = fileId
+                    }),
+                cancellationToken);
+        }
+        catch
+        {
+            // Realtime-only push failure must not fail upload/link flows.
+        }
     }
 
     private static List<string> ValidatePagination(int page, int limit)

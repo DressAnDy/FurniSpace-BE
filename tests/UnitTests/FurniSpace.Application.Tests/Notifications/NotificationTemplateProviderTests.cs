@@ -55,7 +55,7 @@ public sealed class NotificationTemplateProviderTests
 
         Assert.Equal(NotificationDeliveryLevel.InAppRealtime, template.DeliveryLevel);
         Assert.Equal("project.designer.assigned", template.SignalREventName);
-        Assert.Equal("You have been assigned to a project", template.TitleTemplate);
+        Assert.Equal("Designer assigned", template.TitleTemplate);
     }
 
     [Fact]
@@ -246,7 +246,21 @@ public sealed class NotificationTemplateProviderTests
             [NotificationType.ProjectChatMessageSent] = "project_chat.message_sent",
             [NotificationType.ProductionDelayReported] = "production.delay.reported",
             [NotificationType.DeliveryDelayReported] = "delivery.delay.reported",
-            [NotificationType.ProductIssueReported] = "product_issue.reported"
+            [NotificationType.ProductIssueReported] = "product_issue.reported",
+            [NotificationType.ProductIssueResolved] = "product_issue.resolved",
+            [NotificationType.MeasurementImageUploaded] = "measurement_image.uploaded",
+            [NotificationType.CustomizationVersionSubmittedForReview] = "customization.version.submitted_for_review",
+            [NotificationType.CustomizationVersionProductionReviewed] = "customization.version.production_reviewed",
+            [NotificationType.CustomizationVersionAccepted] = "customization.version.accepted",
+            [NotificationType.ProjectScheduleChangeRequested] = "project_schedule.change_requested",
+            [NotificationType.ProjectShowcaseSubmitted] = "project_showcase.submitted",
+            [NotificationType.ProjectProposalReopened] = "project.proposal.reopened",
+            [NotificationType.ProposalReopenedForEditing] = "proposal.reopened_for_editing",
+            [NotificationType.OrderDeliveryCompleted] = "order.delivery.completed",
+            [NotificationType.OrderDeliveryStarted] = "order.delivery.started",
+            [NotificationType.ProjectRequestRejected] = "project.request.rejected",
+            [NotificationType.ProjectScheduleCancelled] = "project_schedule.cancelled",
+            [NotificationType.ProjectFileUploaded] = "project.file.uploaded"
         };
 
         foreach (var (type, expectedEvent) in catalog)

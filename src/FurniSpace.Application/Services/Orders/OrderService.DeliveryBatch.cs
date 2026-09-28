@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.Common.Orders;
 using FurniSpace.Application.Common.ProjectSchedules;
 using FurniSpace.Application.Common.Projects;
@@ -10,6 +11,7 @@ using FurniSpace.Domain.Entities;
 using FurniSpace.Domain.Enums;
 using FurniSpace.Infrastructure.ReadModels.ProjectSchedules;
 using Mapster;
+using Microsoft.Extensions.Logging;
 using System.Linq;
 
 namespace FurniSpace.Application.Services.Orders;
@@ -160,6 +162,22 @@ public sealed partial class OrderService
                 OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project),
                 cancellationToken);
         }
+
+        var productionReceivers = new List<Guid> { currentUserId };
+        if (scheduleDetail?.AssignedStaffId is Guid assignedStaffId)
+        {
+            productionReceivers.Add(assignedStaffId);
+        }
+
+        await OrderNotificationSupport.TryDispatchDeliveryStartedAsync(
+            _notifications,
+            _logger,
+            order,
+            project,
+            deliveryId,
+            request.ProjectScheduleId,
+            productionReceivers,
+            cancellationToken);
 
         var detail = await _deliveries.GetDetailAsync(order.OrderId, deliveryId, cancellationToken);
         return ServiceResult<DeliveryDetailDto>.Created(
@@ -326,6 +344,65 @@ public sealed partial class OrderService
             order,
             project,
             cancellationToken);
+
+        var deliveryReceivers = new List<Guid>();
+        if (schedule.AssignedStaffId.HasValue)
+        {
+            deliveryReceivers.Add(schedule.AssignedStaffId.Value);
+        }
+
+        await OrderNotificationSupport.TryDispatchDeliveryCompletedAsync(
+            _notifications,
+            _logger,
+            order,
+            project,
+            delivery.DeliveryId,
+            schedule.ScheduleId,
+            deliveryReceivers,
+            cancellationToken);
+
+        if (_notifications is not null)
+        {
+            try
+            {
+                var scheduleReceivers = new HashSet<Guid>(OrderNotificationSupport.BuildCustomerAndSalesReceivers(order, project));
+                if (schedule.AssignedStaffId.HasValue)
+                {
+                    scheduleReceivers.Add(schedule.AssignedStaffId.Value);
+                }
+
+                await _notifications.DispatchAsync(
+                    NotificationType.ProjectScheduleCompleted,
+                    new Dictionary<string, string>
+                    {
+                        ["ProjectName"] = project.ProjectName,
+                        ["ScheduleType"] = schedule.ScheduleType?.ToString() ?? string.Empty,
+                        ["ScheduledStart"] = schedule.ScheduledStart.ToString("O")
+                    },
+                    scheduleReceivers,
+                    new NotificationDispatchRequest(
+                        project.ProjectId,
+                        "PROJECT_SCHEDULE",
+                        schedule.ScheduleId,
+                        new Dictionary<string, object?>
+                        {
+                            ["projectId"] = project.ProjectId,
+                            ["orderId"] = order.OrderId,
+                            ["scheduleId"] = schedule.ScheduleId,
+                            ["deliveryId"] = delivery.DeliveryId,
+                            ["scheduleType"] = schedule.ScheduleType?.ToString(),
+                            ["status"] = schedule.Status?.ToString()
+                        }),
+                    cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                _logger?.LogWarning(
+                    exception,
+                    "Failed to dispatch project_schedule.completed after delivery {DeliveryId}",
+                    delivery.DeliveryId);
+            }
+        }
 
         return ServiceResult<DeliveryBatchCompletionDto>.Success(
             ToDeliveryBatchCompletionDto(delivery, updatedCount),

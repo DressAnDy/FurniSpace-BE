@@ -47,12 +47,112 @@ public sealed class ProductIssueNotificationSupportTests
         Assert.Contains(ids.SalesId, dispatch.Receivers);
         Assert.Contains(ids.ProductionId, dispatch.Receivers);
         Assert.Contains(ids.AdminId, dispatch.Receivers);
+        Assert.Contains(ids.CustomerId, dispatch.Receivers);
         Assert.Equal("DELIVERY_PRODUCT_ISSUE_REPORT", dispatch.ReferenceType);
         Assert.Equal(issue.DeliveryProductIssueReportId, dispatch.ReferenceId);
         Assert.Equal("product_issue.reported", dispatch.SignalREventName);
         Assert.Equal("Oak Chair", dispatch.Parameters["ProductName"]);
         Assert.Equal("ORD-001", dispatch.Parameters["OrderCode"]);
         Assert.Equal(2, dispatch.Metadata!["affectedQuantity"]);
+        Assert.Equal(ids.ProjectId, dispatch.Metadata["projectId"]);
+        Assert.Equal(ids.IssueId, dispatch.Metadata["issueId"]);
+    }
+
+    [Fact]
+    public async Task TryDispatchResolvedAsync_NotifiesStakeholdersIncludingCustomer()
+    {
+        var ids = CreateIds();
+        var dispatcher = new CapturingDispatcher();
+        var issue = CreateIssue(ids);
+        var project = CreateProject(ids);
+        var order = CreateOrder(ids);
+        var orderItem = CreateOrderItem(ids);
+        var productionRequests = new FakeProductionRepository
+        {
+            OrderAssignees = [ids.ProductionId]
+        };
+
+        await ProductIssueNotificationSupport.TryDispatchResolvedAsync(
+            dispatcher,
+            new FakeProjectRepository(ids),
+            productionRequests,
+            NullLogger.Instance,
+            issue,
+            project,
+            order,
+            orderItem);
+
+        var dispatch = Assert.Single(dispatcher.Dispatches);
+        Assert.Equal(NotificationType.ProductIssueResolved, dispatch.Type);
+        Assert.Equal("product_issue.resolved", dispatch.SignalREventName);
+        Assert.Contains(ids.CustomerId, dispatch.Receivers);
+        Assert.Contains(ids.SalesId, dispatch.Receivers);
+        Assert.Contains(ids.ProductionId, dispatch.Receivers);
+        Assert.Contains(ids.AdminId, dispatch.Receivers);
+        Assert.Equal(ids.ProjectId, dispatch.Metadata!["projectId"]);
+        Assert.Equal(ids.IssueId, dispatch.Metadata["issueId"]);
+        Assert.Equal(ids.OrderId, dispatch.Metadata["orderId"]);
+    }
+
+    [Fact]
+    public async Task TryDispatchResolvedAsync_WhenDispatcherThrows_DoesNotThrow()
+    {
+        var ids = CreateIds();
+
+        var exception = await Record.ExceptionAsync(() =>
+            ProductIssueNotificationSupport.TryDispatchResolvedAsync(
+                new ThrowingDispatcher(),
+                new FakeProjectRepository(ids),
+                new FakeProductionRepository { OrderAssignees = [ids.ProductionId] },
+                NullLogger.Instance,
+                CreateIssue(ids),
+                CreateProject(ids),
+                CreateOrder(ids),
+                CreateOrderItem(ids)));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task TryDispatchReportedAsync_WhenDispatcherThrows_DoesNotThrow()
+    {
+        var ids = CreateIds();
+
+        var exception = await Record.ExceptionAsync(() =>
+            ProductIssueNotificationSupport.TryDispatchReportedAsync(
+                new ThrowingDispatcher(),
+                new FakeProjectRepository(ids),
+                new FakeProductionRepository { OrderAssignees = [ids.ProductionId] },
+                NullLogger.Instance,
+                CreateIssue(ids),
+                CreateProject(ids),
+                CreateOrder(ids),
+                CreateOrderItem(ids)));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task TryDispatchReportedAsync_UsesProductVersionNameWhenSnapshotMissing()
+    {
+        var ids = CreateIds();
+        var dispatcher = new CapturingDispatcher();
+        var orderItem = CreateOrderItem(ids);
+        orderItem.ProductNameSnapshot = null;
+        orderItem.ProductVersionNameSnapshot = "Version Chair";
+
+        await ProductIssueNotificationSupport.TryDispatchReportedAsync(
+            dispatcher,
+            new FakeProjectRepository(ids),
+            new FakeProductionRepository { OrderAssignees = [ids.ProductionId] },
+            NullLogger.Instance,
+            CreateIssue(ids),
+            CreateProject(ids),
+            CreateOrder(ids),
+            orderItem);
+
+        var dispatch = Assert.Single(dispatcher.Dispatches);
+        Assert.Equal("Version Chair", dispatch.Parameters["ProductName"]);
     }
 
     [Fact]
@@ -74,6 +174,28 @@ public sealed class ProductIssueNotificationSupportTests
         Assert.Null(exception);
     }
 
+    [Fact]
+    public async Task TryDispatchReportedAsync_WhenNoReceivers_DoesNotDispatch()
+    {
+        var ids = CreateIds();
+        var dispatcher = new CapturingDispatcher();
+        var project = CreateProject(ids);
+        project.CustomerId = Guid.Empty;
+        project.AssignedSalesId = null;
+
+        await ProductIssueNotificationSupport.TryDispatchReportedAsync(
+            dispatcher,
+            new FakeProjectRepository(ids, adminIds: []),
+            new FakeProductionRepository(),
+            NullLogger.Instance,
+            CreateIssue(ids),
+            project,
+            CreateOrder(ids),
+            CreateOrderItem(ids));
+
+        Assert.Empty(dispatcher.Dispatches);
+    }
+
     private static TestIds CreateIds()
     {
         return new TestIds(
@@ -92,6 +214,7 @@ public sealed class ProductIssueNotificationSupportTests
         return new Project
         {
             ProjectId = ids.ProjectId,
+            CustomerId = ids.CustomerId,
             AssignedSalesId = ids.SalesId,
             ProjectName = "Issue Project"
         };
@@ -147,13 +270,18 @@ public sealed class ProductIssueNotificationSupportTests
     private sealed class FakeProjectRepository : IProjectRepository
     {
         private readonly TestIds _ids;
+        private readonly IReadOnlyList<Guid> _adminIds;
 
-        public FakeProjectRepository(TestIds ids) => _ids = ids;
+        public FakeProjectRepository(TestIds ids, IReadOnlyList<Guid>? adminIds = null)
+        {
+            _ids = ids;
+            _adminIds = adminIds ?? [_ids.AdminId];
+        }
 
         public Task<IReadOnlyList<Guid>> GetActiveAccountIdsByRoleNamesAsync(
             IReadOnlyCollection<string> roleNames,
             CancellationToken cancellationToken = default)
-            => Task.FromResult<IReadOnlyList<Guid>>([_ids.AdminId]);
+            => Task.FromResult(_adminIds);
 
         public Task<Project?> GetByIdAsync(Guid projectId, CancellationToken cancellationToken = default)
             => Task.FromResult<Project?>(null);
@@ -271,6 +399,19 @@ public sealed class ProductIssueNotificationSupportTests
                 NotificationTemplateProvider.Get(type).SignalREventName,
                 request?.Metadata));
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingDispatcher : INotificationDispatcher
+    {
+        public Task DispatchAsync(
+            NotificationType type,
+            IReadOnlyDictionary<string, string> parameters,
+            IEnumerable<Guid> receiverIds,
+            NotificationDispatchRequest? request = null,
+            CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("Dispatch failed.");
         }
     }
 

@@ -500,7 +500,7 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
         _customizationRequestVersions.Update(version);
         _customizationRequests.Update(entity);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
-        await DispatchVersionSubmittedNotificationAsync(entity, detail, cancellationToken);
+        await DispatchVersionSubmittedNotificationAsync(entity, detail, version, cancellationToken);
 
         var productVersion = await _productVersions.GetByIdAsync(version.ProductVersionId, cancellationToken);
         return ServiceResult<CustomizationRequestVersionDto>.Success(
@@ -707,6 +707,8 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             await _unitOfWork.RollbackTransactionAsync(cancellationToken);
             throw;
         }
+
+        await DispatchVersionAcceptedNotificationAsync(entity, detail, version, cancellationToken);
 
         return await ReloadUpdatedDetailAsync(
             customizationRequestId,
@@ -929,6 +931,11 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
                     CustomizationRequestErrorCodes.CustomizationVersionAlreadyReviewed,
                     "Customization version has already been reviewed."));
         }
+
+        await DispatchVersionProductionReviewedNotificationAsync(
+            existing,
+            feasibilityStatus,
+            cancellationToken);
 
         return await GetProductionVersionDetailAsync(customizationRequestVersionId, currentUserId, cancellationToken);
     }
@@ -1711,18 +1718,140 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
     private async Task DispatchVersionSubmittedNotificationAsync(
         CustomizationRequest request,
         CustomizationRequestReadModel context,
+        CustomizationRequestVersion version,
         CancellationToken cancellationToken)
     {
-        var receivers = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+        var receivers = new HashSet<Guid>();
+        var productionIds = await _projects.GetActiveAccountIdsByRoleNamesAsync(
             [ApplicationRoles.Production],
             cancellationToken);
+        foreach (var id in productionIds)
+        {
+            receivers.Add(id);
+        }
+
+        if (context.AssignedDesignerId.HasValue)
+        {
+            receivers.Add(context.AssignedDesignerId.Value);
+        }
+
+        if (context.CustomerId != Guid.Empty)
+        {
+            receivers.Add(context.CustomerId);
+        }
+
         if (receivers.Count == 0)
         {
             return;
         }
 
         await _dispatcher.DispatchAsync(
-            NotificationType.CustomizationDesignerReviewed,
+            NotificationType.CustomizationVersionSubmittedForReview,
+            new Dictionary<string, string>
+            {
+                ["RequestTitle"] = request.RequestTitle,
+                ["ProjectName"] = context.ProjectName
+            },
+            receivers,
+            new NotificationDispatchRequest(
+                context.ProjectId,
+                "CUSTOMIZATION_VERSION",
+                version.CustomizationRequestVersionId,
+                BuildCustomizationVersionMetadata(
+                    context.ProjectId,
+                    request.ProposalId,
+                    request.CustomizationRequestId,
+                    version.CustomizationRequestVersionId)),
+            cancellationToken);
+    }
+
+    private async Task DispatchVersionProductionReviewedNotificationAsync(
+        ProductionCustomizationVersionDetailReadModel existing,
+        ProductionFeasibilityStatus feasibilityStatus,
+        CancellationToken cancellationToken)
+    {
+        var request = existing.Request;
+        var version = existing.Version;
+        var receivers = new HashSet<Guid>();
+        if (request.AssignedDesignerId.HasValue)
+        {
+            receivers.Add(request.AssignedDesignerId.Value);
+        }
+
+        if (request.CustomerId != Guid.Empty)
+        {
+            receivers.Add(request.CustomerId);
+        }
+
+        var productionIds = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+            [ApplicationRoles.Production],
+            cancellationToken);
+        foreach (var id in productionIds)
+        {
+            receivers.Add(id);
+        }
+
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        var metadata = BuildCustomizationVersionMetadata(
+            request.ProjectId,
+            request.ProposalId,
+            request.CustomizationRequestId,
+            version.CustomizationRequestVersionId);
+        metadata["feasibilityStatus"] = feasibilityStatus.ToString();
+
+        await _dispatcher.DispatchAsync(
+            NotificationType.CustomizationVersionProductionReviewed,
+            new Dictionary<string, string>
+            {
+                ["RequestTitle"] = request.RequestTitle,
+                ["ProjectName"] = request.ProjectName,
+                ["FeasibilityStatus"] = feasibilityStatus.ToString()
+            },
+            receivers,
+            new NotificationDispatchRequest(
+                request.ProjectId,
+                "CUSTOMIZATION_VERSION",
+                version.CustomizationRequestVersionId,
+                metadata),
+            cancellationToken);
+    }
+
+    private async Task DispatchVersionAcceptedNotificationAsync(
+        CustomizationRequest request,
+        CustomizationRequestReadModel context,
+        CustomizationRequestVersion version,
+        CancellationToken cancellationToken)
+    {
+        var receivers = new HashSet<Guid>();
+        if (context.AssignedDesignerId.HasValue)
+        {
+            receivers.Add(context.AssignedDesignerId.Value);
+        }
+
+        if (context.AssignedSalesId.HasValue)
+        {
+            receivers.Add(context.AssignedSalesId.Value);
+        }
+
+        var productionIds = await _projects.GetActiveAccountIdsByRoleNamesAsync(
+            [ApplicationRoles.Production],
+            cancellationToken);
+        foreach (var id in productionIds)
+        {
+            receivers.Add(id);
+        }
+
+        if (receivers.Count == 0)
+        {
+            return;
+        }
+
+        await _dispatcher.DispatchAsync(
+            NotificationType.CustomizationVersionAccepted,
             new Dictionary<string, string>
             {
                 ["RequestTitle"] = request.RequestTitle,
@@ -1732,8 +1861,28 @@ public sealed class CustomizationRequestService : ICustomizationRequestService
             new NotificationDispatchRequest(
                 context.ProjectId,
                 CustomizationReferenceType,
-                request.CustomizationRequestId),
+                request.CustomizationRequestId,
+                BuildCustomizationVersionMetadata(
+                    context.ProjectId,
+                    request.ProposalId,
+                    request.CustomizationRequestId,
+                    version.CustomizationRequestVersionId)),
             cancellationToken);
+    }
+
+    private static Dictionary<string, object?> BuildCustomizationVersionMetadata(
+        Guid projectId,
+        Guid proposalId,
+        Guid customizationRequestId,
+        Guid customizationRequestVersionId)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["projectId"] = projectId,
+            ["proposalId"] = proposalId,
+            ["customizationRequestId"] = customizationRequestId,
+            ["customizationRequestVersionId"] = customizationRequestVersionId
+        };
     }
 
     private static bool CanDesignerMutateVersion(

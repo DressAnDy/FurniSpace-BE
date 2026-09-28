@@ -1,4 +1,5 @@
 using FurniSpace.Application.Common.Notifications;
+using FurniSpace.Application.Common.Realtime;
 using FurniSpace.Application.DTOs.Notifications;
 using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Domain.Entities;
@@ -46,6 +47,13 @@ public sealed class NotificationDispatcher : INotificationDispatcher
 
         if (receivers.Count == 0)
         {
+            _logger.LogWarning(
+                "NoReceivers eventName={EventName} notificationType={NotificationType} projectId={ProjectId} referenceType={ReferenceType} referenceId={ReferenceId}",
+                template.SignalREventName,
+                typeName,
+                request?.ProjectId,
+                request?.ReferenceType,
+                request?.ReferenceId);
             return;
         }
 
@@ -130,18 +138,7 @@ public sealed class NotificationDispatcher : INotificationDispatcher
                 notification.NotificationId,
                 envelope);
 
-            try
-            {
-                await _realtime.SendToUserAsync(receiverId, envelope.SignalREventName, payload, cancellationToken);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogWarning(
-                    exception,
-                    "Failed to push realtime event {EventName} to user {UserId}",
-                    envelope.SignalREventName,
-                    receiverId);
-            }
+            await PushToUserAsync(receiverId, envelope, payload, cancellationToken);
         }
     }
 
@@ -154,18 +151,40 @@ public sealed class NotificationDispatcher : INotificationDispatcher
 
         foreach (var receiverId in receivers)
         {
-            try
-            {
-                await _realtime.SendToUserAsync(receiverId, envelope.SignalREventName, payload, cancellationToken);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogWarning(
-                    exception,
-                    "Failed to push realtime-only event {EventName} to user {UserId}",
-                    envelope.SignalREventName,
-                    receiverId);
-            }
+            await PushToUserAsync(receiverId, envelope, payload, cancellationToken);
+        }
+    }
+
+    private async Task PushToUserAsync(
+        Guid receiverId,
+        DispatchEnvelope envelope,
+        RealtimeNotificationPayloadDto payload,
+        CancellationToken cancellationToken)
+    {
+        var group = RealtimeGroupNames.User(receiverId);
+        try
+        {
+            await _realtime.SendToUserAsync(receiverId, envelope.SignalREventName, payload, cancellationToken);
+            _logger.LogInformation(
+                "EmitSucceeded eventName={EventName} group={Group} notificationType={NotificationType} projectId={ProjectId} referenceType={ReferenceType} referenceId={ReferenceId}",
+                envelope.SignalREventName,
+                group,
+                envelope.TypeName,
+                envelope.ProjectId,
+                envelope.ReferenceType,
+                envelope.ReferenceId);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "EmitFailed eventName={EventName} group={Group} notificationType={NotificationType} projectId={ProjectId} referenceType={ReferenceType} referenceId={ReferenceId}",
+                envelope.SignalREventName,
+                group,
+                envelope.TypeName,
+                envelope.ProjectId,
+                envelope.ReferenceType,
+                envelope.ReferenceId);
         }
     }
 

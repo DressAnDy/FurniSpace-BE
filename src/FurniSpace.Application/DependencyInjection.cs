@@ -265,7 +265,8 @@ public static class DependencyInjection
                 sp.GetRequiredService<IFileStorageService>(),
                 sp.GetRequiredService<DirectFileUploadCoordinator>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>(),
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>()));
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>(),
+                sp.GetService<INotificationDispatcher>()));
         services.AddScoped<IMeasurementImageService, MeasurementImageService>();
         services.AddScoped<IProjectChatService, ProjectChatService>();
         services.AddScoped<IProjectChatMessageService, ProjectChatMessageService>();
@@ -317,7 +318,8 @@ public static class DependencyInjection
                 sp.GetRequiredService<IFileStorageService>(),
                 sp.GetRequiredService<DirectFileUploadCoordinator>(),
                 sp.GetRequiredService<IOptions<FileUploadSettings>>(),
-                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>()));
+                sp.GetRequiredService<IOptions<FirebaseStorageSettings>>(),
+                sp.GetService<INotificationDispatcher>()));
         services.AddScoped<IProjectReviewConsentService, ProjectReviewConsentService>();
         services.AddScoped<IProjectReviewService, ProjectReviewService>();
         services.AddScoped<IProjectScheduleService, ProjectScheduleService>();

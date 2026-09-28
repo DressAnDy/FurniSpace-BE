@@ -7,7 +7,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FurniSpace.Application.Common.MeasurementImages;
+using FurniSpace.Application.Common.Notifications;
 using FurniSpace.Application.DTOs.MeasurementImages;
+using FurniSpace.Application.Interfaces.Notifications;
 using FurniSpace.Application.Services.MeasurementImages;
 using FurniSpace.Application.Tests;
 using FurniSpace.Application.Tests.TestDoubles;
@@ -48,7 +50,8 @@ public sealed class MeasurementImageServiceTests
             ProjectAccess = CreateProjectAccess(projectId, assignedDesignerId: designerId)
         };
         var unitOfWork = new MeasurementUnitOfWorkFake();
-        var service = CreateService(scheduleRepo, fileRepo, unitOfWork, new MeasurementFileStorageFake());
+        var dispatcher = new CapturingMeasurementNotificationDispatcher();
+        var service = CreateService(scheduleRepo, fileRepo, unitOfWork, new MeasurementFileStorageFake(), dispatcher);
         var prepareRequest = CreatePrepareUploadRequest();
 
         var prepareResult = await service.PrepareMeasurementImageUploadAsync(scheduleId, designerId, prepareRequest);
@@ -69,6 +72,9 @@ public sealed class MeasurementImageServiceTests
         Assert.Equal(FileVisibility.STAFF_ONLY, fileRepo.FileLinks[0].Visibility);
         Assert.Equal(FileStatus.ACTIVE, fileRepo.StoredFiles[0].Status);
         Assert.Equal(2, unitOfWork.SaveChangesCallCount);
+        Assert.Equal(NotificationType.MeasurementImageUploaded, dispatcher.LastType);
+        Assert.Contains(designerId, dispatcher.LastReceivers);
+        Assert.Equal(scheduleId, dispatcher.LastMetadata!["scheduleId"]);
     }
 
     [Fact]
@@ -201,14 +207,21 @@ public sealed class MeasurementImageServiceTests
         var projectId = Guid.NewGuid();
         var projectAreaId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
         var fileRepo = new MeasurementProjectFileRepositoryFake
         {
             RoleName = "DESIGNER",
-            ProjectAccess = CreateProjectAccess(projectId, assignedDesignerId: designerId),
+            ProjectAccess = CreateProjectAccess(projectId, assignedSalesId: salesId, assignedDesignerId: designerId),
             HasMeasurementScheduleLink = true
         };
         var unitOfWork = new MeasurementUnitOfWorkFake();
-        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, unitOfWork, new MeasurementFileStorageFake());
+        var dispatcher = new CapturingMeasurementNotificationDispatcher();
+        var service = CreateService(
+            new MeasurementScheduleRepositoryFake(),
+            fileRepo,
+            unitOfWork,
+            new MeasurementFileStorageFake(),
+            dispatcher);
 
         var result = await service.LinkMeasurementImageToAreaAsync(projectAreaId, fileId, designerId);
 
@@ -219,6 +232,11 @@ public sealed class MeasurementImageServiceTests
         Assert.Single(fileRepo.FileLinks);
         Assert.Equal("PROJECT_AREA", fileRepo.FileLinks[0].ReferenceType);
         Assert.Equal(FileType.SPACE_IMAGE, fileRepo.FileLinks[0].FileType);
+        Assert.Equal(NotificationType.MeasurementImageUploaded, dispatcher.LastType);
+        Assert.Contains(designerId, dispatcher.LastReceivers);
+        Assert.Contains(salesId, dispatcher.LastReceivers);
+        Assert.Equal(fileId, dispatcher.LastMetadata!["fileId"]);
+        Assert.Equal(projectAreaId, dispatcher.LastMetadata["projectAreaId"]);
     }
 
     [Fact]
@@ -228,6 +246,7 @@ public sealed class MeasurementImageServiceTests
         var projectId = Guid.NewGuid();
         var projectAreaId = Guid.NewGuid();
         var fileId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
         var areaLink = new FileLink
         {
             FileLinkId = Guid.NewGuid(),
@@ -239,17 +258,25 @@ public sealed class MeasurementImageServiceTests
         var fileRepo = new MeasurementProjectFileRepositoryFake
         {
             RoleName = "DESIGNER",
-            ProjectAccess = CreateProjectAccess(projectId, assignedDesignerId: designerId),
+            ProjectAccess = CreateProjectAccess(projectId, assignedSalesId: salesId, assignedDesignerId: designerId),
             ExistingAreaLink = areaLink
         };
         var unitOfWork = new MeasurementUnitOfWorkFake();
-        var service = CreateService(new MeasurementScheduleRepositoryFake(), fileRepo, unitOfWork, new MeasurementFileStorageFake());
+        var dispatcher = new CapturingMeasurementNotificationDispatcher();
+        var service = CreateService(
+            new MeasurementScheduleRepositoryFake(),
+            fileRepo,
+            unitOfWork,
+            new MeasurementFileStorageFake(),
+            dispatcher);
 
         var result = await service.UnlinkMeasurementImageFromAreaAsync(projectAreaId, fileId, designerId);
 
         Assert.Equal(200, result.Status);
         Assert.Empty(fileRepo.FileLinks);
         Assert.Equal(1, unitOfWork.SaveChangesCallCount);
+        Assert.Equal(NotificationType.MeasurementImageUploaded, dispatcher.LastType);
+        Assert.Contains(designerId, dispatcher.LastReceivers);
     }
 
     [Fact]
@@ -366,7 +393,8 @@ public sealed class MeasurementImageServiceTests
         MeasurementScheduleRepositoryFake scheduleRepo,
         MeasurementProjectFileRepositoryFake fileRepo,
         MeasurementUnitOfWorkFake unitOfWork,
-        MeasurementFileStorageFake storage)
+        MeasurementFileStorageFake storage,
+        INotificationDispatcher? notifications = null)
     {
         var firebaseSettings = new FirebaseStorageSettings { ProjectFilesPrefix = "projects" };
         return new MeasurementImageService(
@@ -377,7 +405,8 @@ public sealed class MeasurementImageServiceTests
                 storage,
                 DirectUploadTestDoubles.CreateCoordinator(storage, firebaseSettings),
                 Options.Create(new FileUploadSettings()),
-                Options.Create(firebaseSettings)));
+                Options.Create(firebaseSettings),
+                notifications));
     }
 
     private static ProjectScheduleDetailReadModel CreateMeasurementSchedule(
@@ -390,9 +419,12 @@ public sealed class MeasurementImageServiceTests
         {
             ScheduleId = scheduleId,
             ProjectId = projectId,
+            ProjectName = "Measurement Project",
             ScheduleType = ProjectScheduleType.MEASUREMENT,
             Status = status,
             AssignedStaffId = assignedStaffId,
+            AssignedDesignerId = assignedStaffId,
+            AssignedSalesId = Guid.NewGuid(),
             ScheduledStart = DateTime.UtcNow.AddHours(-1)
         };
     }
@@ -715,4 +747,24 @@ internal sealed class MeasurementUnitOfWorkFake : IUnitOfWork
     public Task BeginTransactionAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task CommitTransactionAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     public Task RollbackTransactionAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+}
+
+internal sealed class CapturingMeasurementNotificationDispatcher : INotificationDispatcher
+{
+    public NotificationType? LastType { get; private set; }
+    public IReadOnlyList<Guid> LastReceivers { get; private set; } = [];
+    public IReadOnlyDictionary<string, object?>? LastMetadata { get; private set; }
+
+    public Task DispatchAsync(
+        NotificationType type,
+        IReadOnlyDictionary<string, string> parameters,
+        IEnumerable<Guid> receiverIds,
+        NotificationDispatchRequest? request = null,
+        CancellationToken cancellationToken = default)
+    {
+        LastType = type;
+        LastReceivers = receiverIds.ToList();
+        LastMetadata = request?.Metadata;
+        return Task.CompletedTask;
+    }
 }

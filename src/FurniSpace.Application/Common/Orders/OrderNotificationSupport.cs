@@ -60,6 +60,94 @@ internal static class OrderNotificationSupport
             cancellationToken);
     }
 
+    internal static Task TryDispatchDeliveryStartedAsync(
+        INotificationDispatcher? notifications,
+        ILogger? logger,
+        Order order,
+        Project project,
+        Guid deliveryId,
+        Guid? scheduleId,
+        IEnumerable<Guid>? extraReceiverIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        return TryDispatchDeliveryBatchAsync(
+            notifications,
+            logger,
+            NotificationType.OrderDeliveryStarted,
+            order,
+            project,
+            deliveryId,
+            scheduleId,
+            DeliveryStatus.IN_PROGRESS,
+            extraReceiverIds,
+            cancellationToken);
+    }
+
+    internal static Task TryDispatchDeliveryCompletedAsync(
+        INotificationDispatcher? notifications,
+        ILogger? logger,
+        Order order,
+        Project project,
+        Guid deliveryId,
+        Guid? scheduleId,
+        IEnumerable<Guid>? extraReceiverIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        return TryDispatchDeliveryBatchAsync(
+            notifications,
+            logger,
+            NotificationType.OrderDeliveryCompleted,
+            order,
+            project,
+            deliveryId,
+            scheduleId,
+            deliveryStatus: null,
+            extraReceiverIds,
+            cancellationToken);
+    }
+
+    private static Task TryDispatchDeliveryBatchAsync(
+        INotificationDispatcher? notifications,
+        ILogger? logger,
+        NotificationType type,
+        Order order,
+        Project project,
+        Guid deliveryId,
+        Guid? scheduleId,
+        DeliveryStatus? deliveryStatus,
+        IEnumerable<Guid>? extraReceiverIds,
+        CancellationToken cancellationToken)
+    {
+        var receivers = new HashSet<Guid>(BuildCustomerAndSalesReceivers(order, project));
+        if (extraReceiverIds is not null)
+        {
+            foreach (var receiverId in extraReceiverIds.Where(id => id != Guid.Empty))
+            {
+                receivers.Add(receiverId);
+            }
+        }
+
+        var metadata = BuildOrderMetadata(order);
+        metadata["projectId"] = project.ProjectId;
+        metadata["deliveryId"] = deliveryId;
+        metadata["scheduleId"] = scheduleId;
+        if (deliveryStatus.HasValue)
+        {
+            metadata["deliveryStatus"] = deliveryStatus.Value.ToString();
+        }
+
+        return TryDispatchAsync(
+            notifications,
+            logger,
+            new OrderDispatchCall(
+                type,
+                order,
+                project,
+                [.. receivers],
+                metadata),
+            cancellationToken);
+    }
+
     internal static Task TryDispatchItemDeliveryUpdatedAsync(
         INotificationDispatcher? notifications,
         ILogger? logger,
@@ -235,6 +323,7 @@ internal static class OrderNotificationSupport
     {
         return new Dictionary<string, object?>
         {
+            ["projectId"] = order.ProjectId,
             ["orderId"] = order.OrderId,
             ["orderStatus"] = order.Status?.ToString()
         };

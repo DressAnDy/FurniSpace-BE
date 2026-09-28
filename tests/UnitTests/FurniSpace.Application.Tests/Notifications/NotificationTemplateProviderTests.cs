@@ -256,7 +256,11 @@ public sealed class NotificationTemplateProviderTests
             [NotificationType.ProjectShowcaseSubmitted] = "project_showcase.submitted",
             [NotificationType.ProjectProposalReopened] = "project.proposal.reopened",
             [NotificationType.ProposalReopenedForEditing] = "proposal.reopened_for_editing",
-            [NotificationType.OrderDeliveryCompleted] = "order.delivery.completed"
+            [NotificationType.OrderDeliveryCompleted] = "order.delivery.completed",
+            [NotificationType.OrderDeliveryStarted] = "order.delivery.started",
+            [NotificationType.ProjectRequestRejected] = "project.request.rejected",
+            [NotificationType.ProjectScheduleCancelled] = "project_schedule.cancelled",
+            [NotificationType.ProjectFileUploaded] = "project.file.uploaded"
         };
 
         foreach (var (type, expectedEvent) in catalog)

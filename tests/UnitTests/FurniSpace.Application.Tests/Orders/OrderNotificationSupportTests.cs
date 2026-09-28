@@ -40,6 +40,40 @@ public sealed class OrderNotificationSupportTests
     }
 
     [Fact]
+    public async Task TryDispatchDeliveryStartedAsync_NotifiesCustomerSalesAndProduction()
+    {
+        var customerId = Guid.NewGuid();
+        var salesId = Guid.NewGuid();
+        var staffId = Guid.NewGuid();
+        var deliveryId = Guid.NewGuid();
+        var scheduleId = Guid.NewGuid();
+        var dispatcher = new CapturingDispatcher();
+        var order = CreateOrder(customerId, salesId);
+        var project = CreateProject(customerId, salesId);
+
+        await OrderNotificationSupport.TryDispatchDeliveryStartedAsync(
+            dispatcher,
+            NullLogger.Instance,
+            order,
+            project,
+            deliveryId,
+            scheduleId,
+            [staffId]);
+
+        var dispatch = Assert.Single(dispatcher.Dispatches);
+        Assert.Equal(NotificationType.OrderDeliveryStarted, dispatch.Type);
+        Assert.Contains(customerId, dispatch.Receivers);
+        Assert.Contains(salesId, dispatch.Receivers);
+        Assert.Contains(staffId, dispatch.Receivers);
+        Assert.Equal("ORDER", dispatch.ReferenceType);
+        Assert.Equal(order.OrderId, dispatch.ReferenceId);
+        Assert.Equal(project.ProjectId, dispatch.Metadata!["projectId"]);
+        Assert.Equal(deliveryId, dispatch.Metadata["deliveryId"]);
+        Assert.Equal(scheduleId, dispatch.Metadata["scheduleId"]);
+        Assert.Equal(DeliveryStatus.IN_PROGRESS.ToString(), dispatch.Metadata["deliveryStatus"]);
+    }
+
+    [Fact]
     public async Task TryDispatchDeliveryCompletedAsync_NotifiesCustomerSalesAndExtraReceivers()
     {
         var customerId = Guid.NewGuid();

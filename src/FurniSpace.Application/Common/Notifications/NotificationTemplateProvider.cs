@@ -39,7 +39,8 @@ public static class NotificationTemplateProvider
             NotificationType.ProjectRequestRejected => new NotificationTemplate(
                 "Project request rejected",
                 "Your project request \"{ProjectName}\" was rejected. Reason: {Reason}",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.request.rejected"),
 
             NotificationType.ProjectDesignerAssigned => new NotificationTemplate(
                 "Designer assigned",
@@ -132,7 +133,8 @@ public static class NotificationTemplateProvider
             NotificationType.ProjectFileUploaded => new NotificationTemplate(
                 "Project file uploaded",
                 "A new file has been uploaded to project \"{ProjectName}\".",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project.file.uploaded"),
 
             NotificationType.ProjectScheduleCreated => new NotificationTemplate(
                 "New project schedule created",
@@ -161,7 +163,8 @@ public static class NotificationTemplateProvider
             NotificationType.ProjectScheduleCancelled => new NotificationTemplate(
                 "Project schedule cancelled",
                 "The {ScheduleType} schedule for project \"{ProjectName}\" has been cancelled.",
-                NotificationDeliveryLevel.InAppRealtime),
+                NotificationDeliveryLevel.InAppRealtime,
+                "project_schedule.cancelled"),
 
             NotificationType.ProjectScheduleChangeRequested => new NotificationTemplate(
                 "Delivery schedule change requested",
@@ -204,6 +207,12 @@ public static class NotificationTemplateProvider
                 "A delivery batch for order \"{OrderCode}\" has been completed.",
                 NotificationDeliveryLevel.InAppRealtime,
                 "order.delivery.completed"),
+
+            NotificationType.OrderDeliveryStarted => new NotificationTemplate(
+                "Delivery batch started",
+                "A delivery batch for order \"{OrderCode}\" has started.",
+                NotificationDeliveryLevel.InAppRealtime,
+                "order.delivery.started"),
 
             NotificationType.OrderItemDeliveryUpdated => new NotificationTemplate(
                 "Delivery quantity updated",
